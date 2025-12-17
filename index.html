@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Douroub El Djazair - Système de Gestion de Flotte</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Styles pour la barre de recherche globale */
+    .global-search-container {
+      margin-left: auto;
+      background: #f0f2f5;
+      border: 1px solid #e1e4e8;
+      border-radius: 20px;
+      padding: 5px 15px;
+      display: flex;
+      align-items: center;
+      width: 220px;
+      transition: all 0.2s ease;
+      height: 35px;
+      box-sizing: border-box;
+    }
+    .global-search-container:focus-within {
+      background: #fff; border-color: var(--teal); width: 280px; box-shadow: 0 2px 8px rgba(0, 132, 167, 0.15);
+    }
+    .global-search-container input {
+      background: transparent; border: none; color: #333; width: 100%; outline: none; font-size: 13px; margin-left: 10px;
+    }
+    .global-search-container i { color: #666; font-size: 14px; }
+    .global-search-container:focus-within i { color: var(--teal); }
+    
+    .tabs { align-items: center; flex-wrap: wrap; }
+
+    /* Styles pour les filtres de rapport */
+    .report-filters {
+        display: flex; gap: 10px; flex-wrap: wrap; align-items: end; 
+        background: white; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-top: 10px;
+    }
+    .report-filters .form-group { margin-bottom: 0; min-width: 120px; }
+    .report-filters input, .report-filters select { padding: 8px; font-size: 13px; width: 100%; box-sizing: border-box; }
+
+    /* Modal Styles for Manual Maintenance Entry */
+    .modal {
+        display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%;
+        background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center;
+    }
+    .modal-content {
+        background-color: #fefefe; padding: 20px; border-radius: 8px; width: 100%; max-width: 500px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: slideDown 0.3s ease;
+    }
+
+    @media (max-width: 768px) {
+      .global-search-container { width: 100%; margin-left: 0; margin-top: 10px; order: 99; }
+      .header-content { flex-direction: row; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="main-header">
+      <div class="header-top-row">
+        <div class="developer-credit">Developed by Abderrahime Chikhaoui</div>
+      </div>
+      <div class="header-content">
+        <div class="logo-area">
+          <div class="logo-icon-box"><i class="fa-solid fa-truck-fast"></i></div>
+          <div>
+            <h1>SPA Douroub El Djazair</h1>
+            <p>Système de Suivi de Flotte & Maintenance</p>
+          </div>
+        </div>
+        <div class="clock-container">
+          <div class="clock-icon"><i class="fa-regular fa-clock"></i></div>
+          <span id="clockDisplay">--:--:--</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab-button active" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Tableau de bord</button>
+      <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')"><i class="fa-solid fa-map-location-dot"></i> Zones & Wilayas</button>
+      <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')"><i class="fa-solid fa-gas-pump"></i> Carburant</button>
+      <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')"><i class="fa-solid fa-wrench"></i> État Vidange</button>
+      <button class="tab-button" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')"><i class="fa-solid fa-clipboard-list"></i> Historique Maintenance</button>
+      <button class="tab-button" data-tab="routing" onclick="switchTab('routing')"><i class="fa-solid fa-route"></i> Planification</button>
+      <button class="tab-button" data-tab="settings" onclick="switchTab('settings')"><i class="fa-solid fa-gear"></i> Paramètres</button>
+      <button class="tab-button" data-tab="reports" onclick="switchTab('reports')"><i class="fa-solid fa-file-export"></i> Rapports</button>
+
+      <div class="global-search-container">
+        <i class="fa-solid fa-search"></i>
+        <input type="text" id="globalSearchInput" placeholder="Rechercher par tracteur..." autocomplete="off">
+      </div>
+    </div>
+
+    <div id="dashboard" class="tab-content active">
+      <div class="controls-section">
+        <div class="controls-grid" style="grid-template-columns: 1fr auto;">
+          <div class="form-group" style="max-width: 200px;">
+            <label for="pollInterval"><i class="fa-solid fa-stopwatch"></i> Intervalle (sec)</label>
+            <input type="number" id="pollInterval" value="60" min="5">
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: auto;">
+            <button class="btn-primary" id="startBtn"><i class="fa-solid fa-play"></i> Démarrer</button>
+            <button class="btn-secondary" id="stopBtn" disabled><i class="fa-solid fa-stop"></i> Arrêter</button>
+          </div>
+        </div>
+      </div>
+      <div id="alertsCardContainer"></div>
+      <div class="stats-grid" id="statsContainer"></div>
+      <div id="activeFilterDisplay" class="filter-banner" style="display: none;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div class="filter-icon-badge"><i class="fa-solid fa-filter"></i></div>
+          <span style="font-size: 16px;">Filtre actif: <strong id="filterName" style="color: #ffd700;">Aucun</strong></span>
+        </div>
+        <button onclick="ui.clearFilter()" class="btn-clear-filter"><i class="fa-solid fa-times"></i> Effacer</button>
+      </div>
+      <div id="errorContainer"></div>
+      <div id="loadingContainer"></div>
+      <div class="trucks-grid" id="trucksContainer"></div>
+    </div>
+
+    <div id="byWilaya" class="tab-content">
+      <div class="controls-section">
+        <h2><i class="fa-solid fa-map"></i> Répartition Géographique</h2>
+        <div class="sub-filters" style="margin-top: 15px;">
+            <button class="filter-pill" id="btnGroupWilaya" onclick="ui.setZoneGrouping('wilaya')"><i class="fa-solid fa-map"></i> Par Wilaya (Général)</button>
+            <button class="filter-pill active" id="btnGroupCity" onclick="ui.setZoneGrouping('city')"><i class="fa-solid fa-location-dot"></i> Par Zone/Ville (Précis)</button>
+        </div>
+      </div>
+      <div id="wilayaContainer"></div>
+    </div>
+
+    <div id="fuelSection" class="tab-content">
+      <div class="controls-section">
+        <h2 style="color: var(--teal);"><i class="fa-solid fa-gas-pump"></i> Gestion Carburant</h2>
+        <div id="fuelSectionContainer"></div>
+      </div>
+    </div>
+
+    <div id="vidangeSection" class="tab-content">
+      <div class="controls-section">
+        <h2 style="color: var(--orange);"><i class="fa-solid fa-oil-can"></i> État des Vidanges (Actuel)</h2>
+        <div id="vidangeSectionContainer"></div>
+      </div>
+    </div>
+
+    <div id="maintenanceHistory" class="tab-content">
+      <div class="controls-section">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+             <h2 style="color: var(--red); margin:0;"><i class="fa-solid fa-clipboard-list"></i> Historique Maintenance & Réparations</h2>
+             <button class="btn-primary" onclick="ui.openMaintenanceModal()"><i class="fa-solid fa-plus-circle"></i> Ajouter Manuellement</button>
+        </div>
+        
+        <div class="report-filters">
+              <div class="form-group">
+                  <label>Du:</label>
+                  <input type="date" id="maintDateStart">
+              </div>
+              <div class="form-group">
+                  <label>Au:</label>
+                  <input type="date" id="maintDateEnd">
+              </div>
+              <div class="form-group">
+                  <label>Type:</label>
+                  <select id="maintTypeFilter">
+                      <option value="all">Tout</option>
+                      <option value="Vidange">Vidange</option>
+                      <option value="Plaquettes">Plaquettes de Frein</option>
+                      <option value="Maintenance">Maintenance Générale</option>
+                  </select>
+              </div>
+              <div class="form-group">
+                  <label>Camion:</label>
+                  <input type="text" id="maintTruckSearch" placeholder="Rechercher nom...">
+              </div>
+              <div style="margin-left: auto; display:flex; gap:8px;">
+                  <button class="btn-secondary btn-xs" id="applyMaintFiltersBtn"><i class="fa-solid fa-filter"></i> Filtrer</button>
+                  <button class="btn-primary btn-xs" id="exportMaintBtn" style="background: #c62828;"><i class="fa-solid fa-file-excel"></i> Exporter</button>
+              </div>
+          </div>
+
+          <div id="maintenanceListContainer" style="margin-top: 20px;"></div>
+      </div>
+    </div>
+
+    <div id="routing" class="tab-content">
+      <div class="controls-section">
+        <h2><i class="fa-solid fa-calculator"></i> Planification & Coûts</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 150px; gap: 16px; margin-top: 16px;">
+          <div class="form-group"><label>Camion</label><select id="routeTruck"><option value="">-- Choisir --</option></select></div>
+          <div class="form-group"><label>Destination</label><input type="text" id="routeDestSearch" placeholder="Ville..."></div>
+          <div class="form-group" style="position: relative;"><label>&nbsp;</label><div id="routeAutocompleteDropdown" class="autocomplete-dropdown"></div></div>
+          <button class="btn-primary" id="calculateRouteBtn" style="margin-top: auto;"><i class="fa-solid fa-calculator"></i> Calculer</button>
+        </div>
+      </div>
+      <div id="routeResultsContainer"></div>
+    </div>
+
+    <div id="settings" class="tab-content">
+      <div class="controls-section">
+        <h2><i class="fa-solid fa-sliders"></i> Paramètres de Flotte</h2>
+        
+        <div class="settings-accordion-item">
+            <div class="settings-header">
+                <span><i class="fa-solid fa-database"></i> Sauvegarde & Restauration (Base de Données)</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content">
+                <p style="color:#666; font-size:13px;">Téléchargez une copie complète de vos données (Maintenance, Historique, Paramètres) ou restaurez une ancienne version.</p>
+                
+                <div style="display:flex; gap:20px; align-items:center; flex-wrap:wrap;">
+                    <div style="flex:1; min-width:250px; background:#f0fdf4; padding:15px; border:1px solid #bbf7d0; border-radius:8px;">
+                        <h4 style="margin-top:0; color:#166534;"><i class="fa-solid fa-download"></i> Créer une Sauvegarde</h4>
+                        <button class="btn-primary" onclick="ui.downloadServerBackup()" style="background:#166534; width:100%;">
+                            Télécharger JSON Complet
+                        </button>
+                    </div>
+
+                    <div style="flex:1; min-width:250px; background:#eff6ff; padding:15px; border:1px solid #bfdbfe; border-radius:8px;">
+                        <h4 style="margin-top:0; color:#1e40af;"><i class="fa-solid fa-upload"></i> Restaurer une Sauvegarde</h4>
+                        <div style="display:flex; gap:10px;">
+                            <input type="file" id="restoreFile" accept=".json" style="background:white;">
+                            <button class="btn-primary" id="btnRestore" onclick="ui.restoreBackup()" style="background:#1e40af;">
+                                Restaurer
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item">
+            <div class="settings-header">
+                <span><i class="fa-solid fa-map-location-dot"></i> Gestion des Lieux Personnalisés</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content">
+                <p style="font-size: 13px; color: #555; margin-top:0;">Définissez vos zones (usines, garages) pour l'automatisation.</p>
+                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1.5fr auto; gap: 10px; align-items: end; margin-bottom: 15px;">
+                    <div class="form-group"><label>Nom</label><input type="text" id="customLocName" placeholder="Ex: Garage Biskra"></div>
+                    <div class="form-group"><label>Wilaya</label><input type="text" id="customLocWilaya" placeholder="Ex: Biskra"></div>
+                    <div class="form-group"><label>Lat</label><input type="number" id="customLocLat" placeholder="36.xxx" step="0.000001"></div>
+                    <div class="form-group"><label>Lng</label><input type="number" id="customLocLng" placeholder="3.xxx" step="0.000001"></div>
+                    <div class="form-group"><label>Rayon (m)</label><input type="number" id="customLocRadius" value="500"></div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="customLocType">
+                            <option value="client">👤 Client</option>
+                            <option value="maintenance">🔧 Garage</option>
+                            <option value="douroub">🏢 Site Douroub</option>
+                            <option value="other">📍 Autre</option>
+                        </select>
+                    </div>
+                    <button class="btn-primary" id="addCustomLocBtn" style="background: #166534;"><i class="fa-solid fa-plus"></i></button>
+                </div>
+                <h4 style="font-size: 14px; margin-bottom: 10px;">Vos Lieux:</h4>
+                <div id="customLocationsList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;"></div>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item">
+            <div class="settings-header">
+                <span><i class="fa-solid fa-network-wired"></i> Connexion & API Keys</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="serverUrl">URL Serveur (API)</label>
+                    <input type="text" id="serverUrl" value="http://localhost:3000" style="width: 100%; max-width: 500px;">
+                </div>
+                <div class="form-group">
+                   <label style="color:var(--teal-dark); font-weight:bold;"><i class="fa-solid fa-key"></i> Geoapify API Keys (Rotation)</label>
+                   <div class="api-keys-box">
+                       <textarea id="geoapifyApiKeys" rows="4" placeholder="Collez vos clés API ici (une par ligne ou séparées par des virgules)"></textarea>
+                       <div style="font-size:11px; color:#666; margin-top:4px;">Utilisez plusieurs comptes pour éviter les limites. Le système changera automatiquement de clé.</div>
+                   </div>
+               </div>
+               <button class="btn-primary" id="saveConnectionBtn" style="margin-top: 15px;"><i class="fa-solid fa-save"></i> Enregistrer Paramètres de Connexion</button>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item">
+            <div class="settings-header">
+                <span><i class="fa-solid fa-globe"></i> Configuration Globale (Par Défaut)</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                    <div class="form-group"><label>Réservoir (L)</label><input type="number" id="defaultFuelCapacity" value="600"></div>
+                    <div class="form-group"><label>Conso (L/100km)</label><input type="number" id="defaultFuelConsumption" value="35"></div>
+                    <div class="form-group"><label>Prix Carburant (DA/L)</label><input type="number" id="defaultFuelPrice" value="29"></div>
+                    <div class="form-group"><label>Marge Sécurité (L)</label><input type="number" id="defaultSecurityMargin" value="100"></div>
+                    <div class="form-group"><label>Alerte Carburant (%)</label><input type="number" id="defaultFuelThreshold" value="30"></div>
+                    <div class="form-group"><label>Niveau Critique (%)</label><input type="number" id="defaultCriticalLevel" value="15"></div>
+                    <div class="form-group" style="grid-column: span 2;"><label>Liste Vidanges (km)</label><input type="text" id="defaultVidangeMilestones" value="30000, 60000, 90000, 120000"></div>
+                    <div class="form-group"><label>Alerte Avant (km)</label><input type="number" id="defaultVidangeAlert" value="1000"></div>
+                    <div class="calibration-box global">
+                      <label style="color: #005a7a; font-weight: bold;">🌍 Calibration Globale</label>
+                      <textarea id="defaultCalibration" rows="5" placeholder="25=255&#10;28=305..."></textarea>
+                    </div>
+                </div>
+                <button class="btn-primary" id="saveDefaultsBtn" style="margin-top: 16px;">💾 Enregistrer Configuration Globale</button>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item">
+            <div class="settings-header">
+                <span><i class="fa-solid fa-list-check"></i> Configuration Spécifique (Exceptions)</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content">
+                <p style="font-size: 13px; color: #666; margin-top:0;">Sélectionnez un camion pour lui appliquer des règles différentes (taille réservoir, calibration, vidange...).</p>
+                <select id="truckSelect" style="width: 100%; margin-bottom: 16px; padding: 10px; border: 2px solid var(--teal); background: #f0fdf4;"><option value="">-- Choisir un camion --</option></select>
+                
+                <div id="truckConfigForm" class="specific-config-form" style="display:none; border:none; padding:0; background:transparent;">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                      <div class="form-group" style="grid-column: 1 / -1;"><label>Nom (Alias)</label><input type="text" id="truckAlias"></div>
+                      <div class="form-group"><label>Réservoir (L)</label><input type="number" id="truckFuelCapacity"></div>
+                      <div class="form-group"><label>Consommation</label><input type="number" id="truckConsumption"></div>
+                      <div class="form-group"><label>Seuil Alerte (%)</label><input type="number" id="truckFuelThreshold"></div>
+                      <div class="form-group" style="grid-column: span 2;"><label>Liste Vidanges (km)</label><input type="text" id="truckVidangeMilestones"></div>
+                      <div class="calibration-box"><label>Calibration Spécifique</label><textarea id="truckCalibration" rows="5"></textarea></div>
+                  </div>
+                  <div style="display: flex; gap: 8px; margin-top: 16px;">
+                    <button class="btn-primary" id="saveTruckConfigBtn">💾 Sauvegarder Exception</button>
+                    <button class="btn-secondary" id="resetTruckConfigBtn">🔄 Effacer Exception</button>
+                  </div>
+                </div>
+            </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div id="reports" class="tab-content">
+      <div class="controls-section">
+        <h2><i class="fa-solid fa-file-csv"></i> Rapports et Exportation</h2>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-primary" id="exportCSVBtn"><i class="fa-solid fa-download"></i> Exporter Rapport Global CSV</button>
+          <button class="btn-primary" id="exportJSONBtn"><i class="fa-solid fa-code"></i> Sauvegarde JSON</button>
+          <button class="btn-secondary" id="clearHistoryBtn" style="background: #fee; color: #e63946; border-color: #e63946;"><i class="fa-solid fa-trash"></i> Effacer Historique Session</button>
+        </div>
+      </div>
+
+      <div class="controls-section" style="margin-top: 20px;">
+          <h2 style="color: #166534;"><i class="fa-solid fa-gas-pump"></i> Historique des Remplissages</h2>
+          <p>Le serveur enregistre les variations. <strong>Le calcul des litres se fait selon vos paramètres actuels.</strong></p>
+          
+          <div class="report-filters">
+              <div class="form-group">
+                  <label>Du:</label>
+                  <input type="date" id="refuelDateStart">
+              </div>
+              <div class="form-group">
+                  <label>Au:</label>
+                  <input type="date" id="refuelDateEnd">
+              </div>
+              <div class="form-group">
+                  <label>Camion:</label>
+                  <input type="text" id="refuelTruckSearch" placeholder="Rechercher nom...">
+              </div>
+              <div class="form-group">
+                  <label>Lieu:</label>
+                  <input type="text" id="refuelLocationSearch" placeholder="Rechercher lieu...">
+              </div>
+              <div class="form-group">
+                  <label>Trier par:</label>
+                  <select id="refuelSortSelect">
+                      <option value="date_desc">📅 Date (Récent)</option>
+                      <option value="date_asc">📅 Date (Ancien)</option>
+                      <option value="qty_desc">💧 Quantité (Grand)</option>
+                      <option value="qty_asc">💧 Quantité (Petit)</option>
+                  </select>
+              </div>
+              <div style="margin-left: auto; display:flex; gap:8px;">
+                  <button class="btn-secondary btn-xs" id="applyRefuelFiltersBtn"><i class="fa-solid fa-filter"></i> Filtrer</button>
+                  <button class="btn-primary btn-xs" id="exportRefuelsBtn" style="background: #166534;"><i class="fa-solid fa-file-excel"></i> Exporter</button>
+              </div>
+          </div>
+
+          <div id="refuelHistoryContainer"></div>
+          <div id="refuelPaginationContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="maintenanceModal" class="modal">
+      <div class="modal-content">
+          <h3 style="margin-top:0; color:var(--teal-dark);">Ajouter Maintenance Manuelle</h3>
+          <div style="display:grid; gap:15px;">
+              <div class="form-group">
+                  <label>Camion</label>
+                  <select id="modalMaintTruck"></select>
+              </div>
+              <div class="form-group">
+                  <label>Type d'intervention</label>
+                  <select id="modalMaintType">
+                      <option value="Vidange">Vidange (Huile + Filtres)</option>
+                      <option value="Plaquettes">Plaquettes de Frein</option>
+                      <option value="Maintenance">Autre Maintenance</option>
+                  </select>
+              </div>
+              <div class="form-group">
+                  <label>Date</label>
+                  <input type="datetime-local" id="modalMaintDate">
+              </div>
+              <div class="form-group">
+                  <label>Kilométrage (Compteur)</label>
+                  <input type="number" id="modalMaintOdo" placeholder="Ex: 30000">
+              </div>
+              <div class="form-group">
+                  <label>Note / Description</label>
+                  <textarea id="modalMaintNote" rows="3" placeholder="Détails (ex: Changement filtres, marque huile...)"></textarea>
+              </div>
+              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+                  <button class="btn-secondary" onclick="ui.closeMaintenanceModal()">Annuler</button>
+                  <button class="btn-primary" onclick="ui.saveManualMaintenance()">Enregistrer</button>
+              </div>
+          </div>
+      </div>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="geocode.js"></script>
+  <script src="app.js"></script>
+  <script src="ui.js"></script>
+
+  <script>
+    function switchTab(tab) { if(ui) ui.switchTab(tab); }
+    setInterval(() => {
+        const now = new Date();
+        const el = document.getElementById('clockDisplay');
+        if(el) el.innerText = now.toLocaleTimeString('fr-FR');
+    }, 1000);
+  </script>
+</body>
+</html>
