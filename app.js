@@ -4,6 +4,7 @@
  * - 2KM Movement Optimization (Strict)
  * - Automatic Maintenance Logic (Garages Only)
  * - Full Calibration Support
+ * - FIXED: Vidange Filters & Autonomy Calculation
  */
 
 class FleetTrackerApp {
@@ -46,12 +47,26 @@ class FleetTrackerApp {
         fuelLiters = Math.round((fuelPercentage / 100) * config.fuelTankCapacity);
       }
 
-      // --- VIDANGE CALCULATION ---
+      // --- AUTONOMY (RANGE) CALCULATION ---
+      let rangeKm = 0;
+      if (config.fuelConsumption > 0) {
+        rangeKm = Math.round((fuelLiters / config.fuelConsumption) * 100);
+      }
+
+      // --- VIDANGE CALCULATION (FIXED FOR FILTERS) ---
       const odometerMeters = parseInt(truck.params.io192) || 0;
       const odometerKm = Math.round(odometerMeters / 1000);
       
       // Use config helper
       const vidangeStatus = calculateVidangeStatus(odometerKm, config);
+      
+      // ⚠️ IMPORTANT FIX: Inject alertKm so UI filters can read it
+      vidangeStatus.alertKm = config.vidangeAlertKm || 5000;
+
+      // ⚠️ IMPORTANT FIX: Ensure numeric values for sorting
+      if (vidangeStatus.kmUntilNext === undefined) vidangeStatus.kmUntilNext = 999999; // Sort to bottom
+      if (vidangeStatus.nextKm === undefined) vidangeStatus.nextKm = 'N/A';
+      
       const nextVidangeKm = vidangeStatus.nextKm;
       const kmUntilVidange = vidangeStatus.kmUntilNext;
       const vidangeAlert = vidangeStatus.alert;
@@ -91,9 +106,8 @@ class FleetTrackerApp {
           if (lastGeocodedCoords) {
               const distMeters = geocodeService.getDistanceMeters(lat, lng, lastGeocodedCoords.lat, lastGeocodedCoords.lng);
               const distKm = distMeters / 1000;
-              const threshold = FLEET_CONFIG.UI.geocodeDistanceThresholdKm || 2; // Default 2km
+              const threshold = FLEET_CONFIG.UI.geocodeDistanceThresholdKm || 2; 
               
-              // If moved LESS than 2km (and address is valid), DO NOT GEOCODE
               if (distKm < threshold && location.city !== 'Chargement...') {
                   shouldGeocode = false;
               }
@@ -102,26 +116,22 @@ class FleetTrackerApp {
 
       // 3. EXECUTE GEOCODING (If needed)
       if (FLEET_CONFIG.UI.enableGeocoding && shouldGeocode) {
-          // A. Check Instant Cache First (0ms)
           const instantLoc = geocodeService.checkCacheInstant(lat, lng);
           if (instantLoc) {
               location = instantLoc;
               lastGeocodedCoords = { lat, lng };
           } else {
-              // B. Background Queue (Fire & Forget - Non-Blocking)
               geocodeService.reverseGeocode(lat, lng).then(newLoc => {
                   const liveTruck = this.trucks.get(deviceId);
                   if (liveTruck) {
                       liveTruck.location = newLoc;
                       liveTruck.lastGeocodedCoords = { lat, lng };
-                      // Trigger UI refresh if needed
                       if (window.ui && window.ui.updateDashboard) window.ui.updateDashboard();
                   }
               });
           }
       }
 
-      // Return Complete Object
       return {
         id: deviceId,
         name: displayName,
@@ -129,6 +139,7 @@ class FleetTrackerApp {
         fuelLiters,
         fuelTankCapacity: config.fuelTankCapacity,
         fuelConsumption: config.fuelConsumption,
+        rangeKm: rangeKm, // Added Range
         isCriticalFuel: fuelPercentage <= config.criticalFuelLevel,
         isLowFuel: fuelPercentage <= config.fuelAlertThreshold,
         hasCalibration,
@@ -152,15 +163,11 @@ class FleetTrackerApp {
 
   // --- HELPERS (Logic) ---
 
-  // Interpolation for accurate fuel reading
   calculateFuelFromSensor(sensorValue, calibrationTable) {
     if (!calibrationTable || calibrationTable.length < 2) return 0;
-    
-    // Bounds check
     if (sensorValue <= calibrationTable[0].x) return calibrationTable[0].y;
     if (sensorValue >= calibrationTable[calibrationTable.length - 1].x) return calibrationTable[calibrationTable.length - 1].y;
 
-    // Linear Interpolation
     for (let i = 0; i < calibrationTable.length - 1; i++) {
       const p1 = calibrationTable[i];
       const p2 = calibrationTable[i+1];
@@ -172,16 +179,13 @@ class FleetTrackerApp {
     return 0;
   }
 
-  // Automatic Maintenance Logic
   checkMaintenanceLogic(deviceId, truckName, lat, lng, currentOdo, nextVidangeKm, kmUntilVidange) {
     if (!FLEET_CONFIG.CUSTOM_LOCATIONS) return;
     let inMaintenanceZone = false;
     let zoneName = '';
 
     for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
-      // ✅ STRICT CHECK: Only 'maintenance' type triggers this.
       if (loc.type !== 'maintenance') continue; 
-      
       const dist = geocodeService.getDistanceMeters(lat, lng, loc.lat, loc.lng);
       if (dist <= (loc.radius || 500)) {
         inMaintenanceZone = true;
@@ -193,21 +197,16 @@ class FleetTrackerApp {
     if (inMaintenanceZone) {
       const now = Date.now();
       if (!this.maintenanceState.has(deviceId)) {
-        // Truck Entered Zone
         this.maintenanceState.set(deviceId, { entryTime: now, locationName: zoneName, hasTriggered: false });
       } else {
-        // Truck Staying in Zone
         const state = this.maintenanceState.get(deviceId);
         const durationMinutes = (now - state.entryTime) / 60000;
         
-        // Trigger if > 60 mins and not yet saved
         if (durationMinutes >= FLEET_CONFIG.MAINTENANCE_RULES.minDurationMinutes && !state.hasTriggered) {
-          
           let type = 'Plaquettes';
           let note = 'Détecté automatiquement (>60min)';
           const tolerance = FLEET_CONFIG.MAINTENANCE_RULES.vidangeKmTolerance || 3000;
           
-          // Smart Type Detection
           if (kmUntilVidange !== null && kmUntilVidange <= tolerance) { 
               type = 'Vidange'; 
               note = `Auto: Proche de ${nextVidangeKm}km`; 
@@ -224,7 +223,6 @@ class FleetTrackerApp {
         }
       }
     } else {
-      // Truck Left Zone
       if (this.maintenanceState.has(deviceId)) this.maintenanceState.delete(deviceId);
     }
   }
@@ -248,7 +246,6 @@ class FleetTrackerApp {
       };
   }
   
-  // Grouping Helpers
   getTrucksByWilaya() { 
       const g = {}; 
       this.getAllTrucks().forEach(t=>{ const w = t.location.wilaya || 'Inconnu'; if(!g[w]) g[w]=[]; g[w].push(t); });
