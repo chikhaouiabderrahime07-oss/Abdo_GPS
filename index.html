@@ -4,14 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Douroub El Djazair - Système de Gestion de Flotte</title>
-  
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  
-  <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
-  <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
-
   <link rel="stylesheet" href="styles.css">
-  
   <style>
     /* Styles pour la barre de recherche globale */
     .global-search-container {
@@ -56,89 +50,9 @@
         box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: slideDown 0.3s ease;
     }
 
-    /* --- NEW MAP STYLES (ADDED) --- */
-    #map-wrapper {
-        position: relative;
-        width: 100%;
-        height: 600px; /* Default height */
-        border-radius: 12px;
-        overflow: hidden;
-        margin-top: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        border: 1px solid #ddd;
-        display: none; /* Hidden by default */
-    }
-    
-    #map-container {
-        width: 100%;
-        height: 100%;
-    }
-
-    /* Floating Controls on Map */
-    .map-overlay-controls {
-        position: absolute;
-        top: 15px;
-        left: 15px;
-        z-index: 10;
-        background: rgba(255, 255, 255, 0.95);
-        padding: 10px;
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        backdrop-filter: blur(5px);
-        width: 250px;
-    }
-
-    .map-mode-switch {
-        display: flex;
-        background: #eee;
-        border-radius: 20px;
-        padding: 3px;
-        margin-bottom: 10px;
-        cursor: pointer;
-    }
-
-    .map-mode-btn {
-        flex: 1;
-        text-align: center;
-        padding: 5px;
-        font-size: 12px;
-        font-weight: bold;
-        border-radius: 16px;
-        transition: all 0.3s;
-        color: #666;
-    }
-
-    .map-mode-btn.active {
-        background: var(--teal, #0084a7);
-        color: white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-
-    /* Route Info Floating Panel */
-    #route-info-panel {
-        position: absolute;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: white;
-        padding: 10px 20px;
-        border-radius: 30px;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        display: none; /* Hidden by default */
-        align-items: center;
-        gap: 20px;
-        z-index: 10;
-        font-size: 14px;
-    }
-    
-    .route-stat { display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
-    .route-stat strong { font-size: 16px; color: var(--teal, #0084a7); }
-    .route-stat span { font-size: 10px; color: #888; text-transform: uppercase; }
-
     @media (max-width: 768px) {
       .global-search-container { width: 100%; margin-left: 0; margin-top: 10px; order: 99; }
       .header-content { flex-direction: row; }
-      #map-wrapper { height: 70vh; }
     }
   </style>
 </head>
@@ -210,83 +124,11 @@
       <div class="controls-section">
         <h2><i class="fa-solid fa-map"></i> Répartition Géographique</h2>
         <div class="sub-filters" style="margin-top: 15px;">
-            <button class="filter-pill" id="btnGroupWilaya" onclick="ui.setZoneGrouping('wilaya')"><i class="fa-solid fa-map"></i> Par Wilaya</button>
-            <button class="filter-pill active" id="btnGroupCity" onclick="ui.setZoneGrouping('city')"><i class="fa-solid fa-location-dot"></i> Par Zone/Ville</button>
-            <button class="filter-pill" id="btnGroupMap" onclick="ui.setZoneGrouping('map')" style="border: 2px solid var(--teal, #0084a7); color: var(--teal, #0084a7); font-weight: bold;">
-                <i class="fa-solid fa-globe-africa"></i> Carte Interactive 3D
-            </button>
+            <button class="filter-pill" id="btnGroupWilaya" onclick="ui.setZoneGrouping('wilaya')"><i class="fa-solid fa-map"></i> Par Wilaya (Général)</button>
+            <button class="filter-pill active" id="btnGroupCity" onclick="ui.setZoneGrouping('city')"><i class="fa-solid fa-location-dot"></i> Par Zone/Ville (Précis)</button>
         </div>
       </div>
-      
       <div id="wilayaContainer"></div>
-
-      <div id="map-wrapper">
-          <div id="map-container"></div>
-          
-        <div class="map-overlay-controls">
-            <div style="margin-bottom: 10px; display: flex; gap: 5px;">
-                <div class="map-mode-switch" style="flex: 1; margin: 0;">
-                    <div class="map-mode-btn active" onclick="window.AlgeriaMap.toggleMode('2d'); this.classList.add('active'); this.nextElementSibling.classList.remove('active');">2D</div>
-                    <div class="map-mode-btn" onclick="window.AlgeriaMap.toggleMode('3d'); this.classList.add('active'); this.previousElementSibling.classList.remove('active');">3D Relief</div>
-                </div>
-                <select class="map-layer-select" onchange="window.AlgeriaMap.setStyle(this.value)" style="flex: 1; margin: 0; width: auto;">
-                    <option value="streets-v12">Plan</option>
-                    <option value="satellite-streets-v12">Satellite</option>
-                    <option value="dark-v11">Mode Nuit</option>
-                    <option value="navigation-day-v1">Navigation (Trafic)</option>
-                </select>
-            </div>
-
-            <div class="map-tools-container">
-                <div class="tool-row">
-                    <i class="fa-solid fa-truck-front"></i>
-                    <select id="mapTruckSelect" onchange="window.AlgeriaMap.selectTruckById(this.value)">
-                        <option value="">-- Choisir un Camion --</option>
-                    </select>
-                    <button class="btn-cancel" onclick="window.AlgeriaMap.deselectTruck()" title="Annuler Selection"><i class="fa-solid fa-xmark"></i></button>
-                </div>
-                
-                <div class="tool-row" style="padding: 0; border: none; background: transparent;">
-                    <div class="search-wrapper">
-                        <div style="display: flex; align-items: center; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 6px 10px;">
-                            <i class="fa-solid fa-magnifying-glass-location" style="margin-right: 8px;"></i>
-                            <input type="text" id="mapDestSearch" placeholder="Chercher destination ou site..." autocomplete="off">
-                        </div>
-                        <div id="mapSearchResults" class="map-search-results"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="map-filters">
-                <div class="map-filter-btn active" data-filter="all" onclick="window.AlgeriaMap.filter('all')">Tous</div>
-                <div class="map-filter-btn" data-filter="moving" onclick="window.AlgeriaMap.filter('moving')" style="color: green;">En Route</div>
-                <div class="map-filter-btn" data-filter="stopped" onclick="window.AlgeriaMap.filter('stopped')" style="color: red;">À l'Arrêt</div>
-            </div>
-        </div>
-
-        <div class="map-extras-bar">
-            <button class="extra-btn" onclick="window.AlgeriaMap.toggleFullscreen()" data-tooltip="Plein Écran">
-                <i class="fa-solid fa-expand"></i>
-            </button>
-            <button class="extra-btn" onclick="window.AlgeriaMap.setStyle('navigation-day-v1')" id="btnTraffic" data-tooltip="Trafic Live">
-                <i class="fa-solid fa-traffic-light"></i>
-            </button>
-            <button class="extra-btn" onclick="window.AlgeriaMap.toggleFollowMode()" id="btnFollow" data-tooltip="Suivre Camion">
-                <i class="fa-solid fa-video"></i>
-            </button>
-            <button class="extra-btn" onclick="window.AlgeriaMap.toggleBuildings()" id="btnBuild" data-tooltip="Bâtiments 3D">
-                <i class="fa-solid fa-city"></i>
-            </button>
-        </div>
-
-          <div id="route-info-panel">
-              <div class="route-stat"><i class="fa-solid fa-route"></i><strong id="route-dist">0 km</strong><span>Distance</span></div>
-              <div style="width:1px; height:20px; background:#ddd;"></div>
-              <div class="route-stat"><i class="fa-solid fa-clock"></i><strong id="route-time">0h</strong><span>Temps</span></div>
-              <div style="width:1px; height:20px; background:#ddd;"></div>
-              <div class="route-stat"><i class="fa-solid fa-gas-pump"></i><strong id="route-fuel">0 L</strong><span>Carburant</span></div>
-          </div>
-      </div>
     </div>
 
     <div id="fuelSection" class="tab-content">
@@ -405,7 +247,7 @@
                         <label>Type</label>
                         <select id="customLocType">
                             <option value="client">👤 Client</option>
-                            <option value="maintenance">🔧 Site de Maintenance</option>
+                            <option value="maintenance">🔧 Garage</option>
                             <option value="douroub">🏢 Site Douroub</option>
                             <option value="other">📍 Autre</option>
                         </select>
@@ -464,17 +306,27 @@
 
         <div class="settings-accordion-item">
             <div class="settings-header">
-                <span><i class="fa-solid fa-layer-group"></i> Règles de Flotte (Groupes)</span>
+                <span><i class="fa-solid fa-list-check"></i> Configuration Spécifique (Exceptions)</span>
                 <i class="fa-solid fa-chevron-down settings-arrow"></i>
             </div>
             <div class="settings-content">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <p style="font-size: 13px; color: #666; margin: 0;">Créez des règles (ex: "Sahara", "Ville") et assignez-y des camions.</p>
-                    <button class="btn-primary" onclick="ui.openRuleEditor()"><i class="fa-solid fa-plus"></i> Nouvelle Règle</button>
-                </div>
+                <p style="font-size: 13px; color: #666; margin-top:0;">Sélectionnez un camion pour lui appliquer des règles différentes (taille réservoir, calibration, vidange...).</p>
+                <select id="truckSelect" style="width: 100%; margin-bottom: 16px; padding: 10px; border: 2px solid var(--teal); background: #f0fdf4;"><option value="">-- Choisir un camion --</option></select>
                 
-                <div id="rulesListContainer" class="rule-cards-container">
-                    </div>
+                <div id="truckConfigForm" class="specific-config-form" style="display:none; border:none; padding:0; background:transparent;">
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                      <div class="form-group" style="grid-column: 1 / -1;"><label>Nom (Alias)</label><input type="text" id="truckAlias"></div>
+                      <div class="form-group"><label>Réservoir (L)</label><input type="number" id="truckFuelCapacity"></div>
+                      <div class="form-group"><label>Consommation</label><input type="number" id="truckConsumption"></div>
+                      <div class="form-group"><label>Seuil Alerte (%)</label><input type="number" id="truckFuelThreshold"></div>
+                      <div class="form-group" style="grid-column: span 2;"><label>Liste Vidanges (km)</label><input type="text" id="truckVidangeMilestones"></div>
+                      <div class="calibration-box"><label>Calibration Spécifique</label><textarea id="truckCalibration" rows="5"></textarea></div>
+                  </div>
+                  <div style="display: flex; gap: 8px; margin-top: 16px;">
+                    <button class="btn-primary" id="saveTruckConfigBtn">💾 Sauvegarder Exception</button>
+                    <button class="btn-secondary" id="resetTruckConfigBtn">🔄 Effacer Exception</button>
+                  </div>
+                </div>
             </div>
         </div>
 
@@ -569,19 +421,8 @@
       </div>
   </div>
 
-  <div id="ruleEditorModal" class="modal-overlay">
-      <div class="modal-box">
-          <div class="modal-header">
-              <span class="modal-title">Éditeur de Règle</span>
-              <button class="btn-secondary btn-xs" onclick="ui.closeRuleEditor()"><i class="fa-solid fa-times"></i></button>
-          </div>
-          <div id="ruleEditorContent">
-              </div>
-      </div>
-  </div>
-
   <script src="config.js"></script>
-  <script src="algeria-map.js"></script> <script src="geocode.js"></script>
+  <script src="geocode.js"></script>
   <script src="app.js"></script>
   <script src="ui.js"></script>
 

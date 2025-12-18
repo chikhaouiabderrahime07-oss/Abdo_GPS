@@ -1,6 +1,6 @@
 /**
  * ALGERIA MAP MODULE - FINAL FIXED VERSION
- * Features: Accurate Fuel Calc, Search Fixes, Smart Routing
+ * Features: Accurate Fuel Calc, Search Fixes, Smart Routing, GPS Cut Indicators
  */
 
 const AlgeriaMap = {
@@ -213,18 +213,38 @@ const AlgeriaMap = {
 
             const isMoving = truck.speed > 0;
             const isSelected = this.selectedTruck && (this.selectedTruck.id === id);
+            
+            // Determine Marker Class
+            let markerClass = isMoving ? 'moving' : 'stopped';
+            if (truck.isGpsCut) markerClass = 'stopped'; // Grey for cut
 
             if (this.markers[id]) {
                 const m = this.markers[id];
                 m.setLngLat(coords);
                 m.getElement().style.display = 'block';
-                m.getElement().querySelector('.marker-icon').className = `marker-icon ${isMoving ? 'moving' : 'stopped'} ${isSelected ? 'selected' : ''}`;
+                // Apply GPS Cut visual if needed (using 'stopped' style which is grey, or could add specific 'gps-cut' class)
+                m.getElement().querySelector('.marker-icon').className = `marker-icon ${markerClass} ${isSelected ? 'selected' : ''}`;
+                
+                // If GPS Cut, maybe force opacity or border
+                if(truck.isGpsCut) {
+                    m.getElement().querySelector('.marker-icon').style.borderColor = '#333';
+                    m.getElement().querySelector('.marker-icon').style.backgroundColor = '#ddd';
+                } else {
+                    m.getElement().querySelector('.marker-icon').style.borderColor = ''; // Reset
+                    m.getElement().querySelector('.marker-icon').style.backgroundColor = ''; 
+                }
                 
                 if(m.getPopup().isOpen()) m.getPopup().setHTML(this.getPopupHTML(truck));
             } else {
                 const el = document.createElement('div');
                 el.className = 'truck-marker';
-                el.innerHTML = `<div class="marker-icon ${isMoving ? 'moving' : 'stopped'}"><i class="fas fa-truck"></i></div>`;
+                el.innerHTML = `<div class="marker-icon ${markerClass}"><i class="fas fa-truck"></i></div>`;
+                
+                if(truck.isGpsCut) {
+                    el.querySelector('.marker-icon').style.borderColor = '#333';
+                    el.querySelector('.marker-icon').style.backgroundColor = '#ddd';
+                }
+
                 el.addEventListener('click', (e) => { e.stopPropagation(); this.selectTruck(truck); });
                 
                 const popup = new mapboxgl.Popup({offset: 25, closeButton: false, className: 'hover-popup', maxWidth: '300px'})
@@ -239,8 +259,14 @@ const AlgeriaMap = {
     },
 
     getPopupHTML: function(truck) {
-        const statusColor = truck.speed > 0 ? '#2e7d32' : '#d32f2f';
-        const statusText = truck.speed > 0 ? 'En Route' : 'Arrêt';
+        let statusColor = truck.speed > 0 ? '#2e7d32' : '#d32f2f';
+        let statusText = truck.speed > 0 ? 'En Route' : 'Arrêt';
+        
+        if(truck.isGpsCut) {
+            statusColor = '#333';
+            statusText = '⚠️ COUPURE GPS';
+        }
+
         const fuelColor = truck.isCriticalFuel ? '#d32f2f' : (truck.isLowFuel ? '#f57c00' : '#2e7d32');
         
         return `
@@ -424,7 +450,17 @@ const AlgeriaMap = {
             const o = document.createElement('option'); o.value=t.id; o.innerText=`${t.name}`; sel.appendChild(o);
         });
     },
-    checkFilter: function(t) { if(this.currentFilter==='all')return true; if(this.currentFilter==='moving')return t.speed>0; if(this.currentFilter==='stopped')return t.speed===0; return true; },
+    
+    // UPDATED FILTER LOGIC FOR GPS CUT
+    checkFilter: function(t) { 
+        if(this.currentFilter==='all') return true; 
+        if(this.currentFilter==='moving') return t.speed>0; 
+        if(this.currentFilter==='stopped') return t.speed===0;
+        // Map doesn't typically filter by gps_cut via menu, but if needed:
+        if(this.currentFilter==='gps_cut') return t.isGpsCut;
+        return true; 
+    },
+    
     filter: function(t) { this.currentFilter=t; this.updateMarkers(this.truckDataCache); },
     addTerrainSource: function() { if(!this.map.getSource('mapbox-dem')) this.map.addSource('mapbox-dem', {'type':'raster-dem', 'url':'mapbox://mapbox.mapbox-terrain-dem-v1', 'tileSize':512, 'maxzoom':14}); this.map.setFog({}); },
     toggleMode: function(mode) { this.is3D=(mode==='3d'); this.map.flyTo({pitch:this.is3D?60:0, zoom:6}); if(this.is3D) this.map.setTerrain({'source':'mapbox-dem','exaggeration':1.5}); else this.map.setTerrain(null); },

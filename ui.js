@@ -1,13 +1,12 @@
 /**
  * Fleet Tracker UI Controller - Cloud/Firebase Edition
  * FEATURES: 
- * - Rule-Based Fleet Management (NEW)
  * - Full Maintenance History (Vidange/Plaquettes)
  * - Multi-API Key Management for Geoapify
  * - Cloud Settings Sync
  * - Custom Location Types
- * - WILAYA FILTER & SEARCH
- * - 3D INTERACTIVE MAP INTEGRATION
+ * - WILAYA FILTER & SEARCH (NEW)
+ * - OPTIMIZED RENDERING
  * - FULL BACKUP & RESTORE
  */
 
@@ -22,7 +21,7 @@ class UIController {
     this.zoneGroupingMode = 'city'; 
     this.searchQuery = '';
     
-    // WILAYA FILTER STATE
+    // WILAYA FILTER STATE (NEW)
     this.wilayaSearchQuery = '';
     
     // REFUEL HISTORY STATE
@@ -37,33 +36,32 @@ class UIController {
     this.maintCurrentPage = 1;
     this.maintItemsPerPage = 10;
 
-    // CUSTOM LOCATION & RULE EDIT STATE
+    // CUSTOM LOCATION EDIT STATE
     this.editingLocationIndex = null; 
-    this.editingRuleId = null;
 
     setTimeout(() => {
       this.initElements();
       this.injectCustomStyles(); 
       
       // ---------------------------------------------------------
-      // AUTO-DETECT LIVE SERVER (RENDER) vs LOCALHOST
+      // AUTO-DETECT LIVE SERVER (RENDER)
       // ---------------------------------------------------------
       if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-          // We are on a Live Server (Render, Vercel, etc.)
+          // We are on Render (or any live server)
           FLEET_CONFIG.API.baseUrl = window.location.origin;
           console.log(`🌍 Live Environment Detected. Switching API to: ${FLEET_CONFIG.API.baseUrl}`);
       } else {
-          // We are on Localhost -> USE LOCAL BACKEND
-          FLEET_CONFIG.API.baseUrl = 'http://localhost:3000'; 
-          console.log("💻 Localhost Detected. Switching API to: http://localhost:3000");
+          // We are on Localhost
+          console.log("💻 Localhost Detected. Using default API URL.");
       }
+      // ---------------------------------------------------------
       
       // Load Settings from Server (Firebase) on startup
       this.loadSettingsFromCloud();
       
       this.attachEventListeners();
       
-      // Initialize Settings Accordions
+      // NEW: Initialize Settings Accordions
       this.initSettingsAccordions();
       
       // Set Date Inputs to Today by default
@@ -73,7 +71,7 @@ class UIController {
       if(this.maintDateStart) this.maintDateStart.value = today;
       if(this.maintDateEnd) this.maintDateEnd.value = today;
       
-      console.log('✅ UI Controller Ready (Rule-Based System)');
+      console.log('✅ UI Controller Ready (Firebase Mode)');
       window.ui = this;
 
       if (FLEET_CONFIG.AUTO_START) {
@@ -102,6 +100,29 @@ class UIController {
       .pagination-info { font-size: 12px; color: #666; }
       .api-keys-box { background: #f4f6f8; border: 1px solid #c7d2dd; border-radius: 6px; padding: 10px; margin-top:10px; }
       .api-keys-box textarea { width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; }
+      
+      /* NEW SETTINGS ACCORDION STYLES */
+      .settings-accordion-item { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 10px; overflow: hidden; background: white; }
+      .settings-header { 
+          background: #f8f9fa; padding: 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: #333;
+          transition: background 0.2s;
+      }
+      .settings-header:hover { background: #eef2f6; }
+      .settings-header i { margin-right: 10px; color: var(--teal); }
+      .settings-content { display: none; padding: 20px; border-top: 1px solid #eee; background: #fff; animation: slideDown 0.3s ease; }
+      .settings-content.open { display: block; }
+      .settings-arrow { transition: transform 0.3s; }
+      .settings-header.active .settings-arrow { transform: rotate(180deg); }
+
+      /* NEW WILAYA FILTER STYLES */
+      .wilaya-search-box {
+          width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 8px;
+          font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      }
+      .wilaya-section-title {
+          font-size: 14px; font-weight: 700; color: #555; margin: 20px 0 10px 0; text-transform: uppercase; border-bottom: 2px solid #eee; padding-bottom: 5px;
+      }
+      .custom-zone-badge { background: #166534; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; margin-left: 8px; }
     `;
     document.head.appendChild(style);
   }
@@ -144,7 +165,8 @@ class UIController {
     this.modalMaintSubmitBtn = document.querySelector('#maintenanceModal .btn-primary'); 
     this.modalMaintTitle = document.querySelector('#maintenanceModal h3');
 
-    // GLOBAL Settings
+    // Settings
+    this.truckSelect = document.getElementById('truckSelect');
     this.defaultFuelCapacity = document.getElementById('defaultFuelCapacity');
     this.defaultFuelConsumption = document.getElementById('defaultFuelConsumption');
     this.defaultFuelPrice = document.getElementById('defaultFuelPrice');
@@ -155,10 +177,10 @@ class UIController {
     this.defaultVidangeAlert = document.getElementById('defaultVidangeAlert');
     this.defaultCalibration = document.getElementById('defaultCalibration');
     
+    // Explicitly grab the NEW button and keys input from HTML
     this.saveConnectionBtn = document.getElementById('saveConnectionBtn');
     this.geoapifyApiKeysInput = document.getElementById('geoapifyApiKeys');
 
-    // CUSTOM LOCATIONS
     this.customLocName = document.getElementById('customLocName');
     this.customLocWilaya = document.getElementById('customLocWilaya');
     this.customLocLat = document.getElementById('customLocLat');
@@ -168,11 +190,8 @@ class UIController {
     this.addCustomLocBtn = document.getElementById('addCustomLocBtn');
     this.customLocationsList = document.getElementById('customLocationsList');
 
-    // RULE SYSTEM (NEW)
-    this.rulesListContainer = document.getElementById('rulesListContainer');
-    this.ruleEditorModal = document.getElementById('ruleEditorModal');
-    this.ruleEditorContent = document.getElementById('ruleEditorContent');
-
+    this.truckConfigForm = document.getElementById('truckConfigForm');
+    this.truckCalibration = document.getElementById('truckCalibration');
     this.errorContainer = document.getElementById('errorContainer');
     this.loadingContainer = document.getElementById('loadingContainer');
     
@@ -185,6 +204,7 @@ class UIController {
     this.calculateRouteBtn = document.getElementById('calculateRouteBtn');
     this.routeResultsContainer = document.getElementById('routeResultsContainer');
     
+    // RESTORE INPUT
     this.restoreFileInput = document.getElementById('restoreFile');
   }
 
@@ -196,6 +216,7 @@ class UIController {
               const content = header.nextElementSibling;
               const isOpen = content.classList.contains('open');
               
+              // Close all others to keep it clean
               document.querySelectorAll('.settings-content').forEach(c => c.classList.remove('open'));
               document.querySelectorAll('.settings-header').forEach(h => h.classList.remove('active'));
 
@@ -205,32 +226,27 @@ class UIController {
               }
           });
       });
-      // Open Rules by default if available, else Custom Locations
-      if(headers[3]) headers[3].click(); 
-      else if(headers[0]) headers[0].click();
+      // Open the first one by default (Custom Locations)
+      if(headers[0]) headers[0].click();
   }
 
   // --- CLOUD SYNC FUNCTIONS ---
   async loadSettingsFromCloud() {
       try {
+          // Uses FLEET_CONFIG.API.baseUrl which is auto-detected in constructor
           const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/settings`);
           if (!res.ok) throw new Error('Failed to fetch settings');
           const data = await res.json();
           
           if (data.defaultConfig) FLEET_CONFIG.DEFAULT_TRUCK_CONFIG = data.defaultConfig;
-          
-          // MAP CLOUD RULES TO LOCAL CONFIG
-          if (data.fleetRules) FLEET_CONFIG.FLEET_RULES = data.fleetRules;
-          else FLEET_CONFIG.FLEET_RULES = []; // Init empty if new
-
+          if (data.truckOverrides) FLEET_CONFIG.TRUCK_OVERRIDES = data.truckOverrides;
           if (data.customLocations) FLEET_CONFIG.CUSTOM_LOCATIONS = data.customLocations;
           if (data.pollInterval) FLEET_CONFIG.UI.pollInterval = data.pollInterval;
-          if (data.apiKeys) FLEET_CONFIG.GEOAPIFY_API_KEYS = data.apiKeys;
+          if (data.apiKeys) FLEET_CONFIG.GEOAPIFY_API_KEYS = data.apiKeys; // LOAD KEYS
           
           console.log("☁️ Settings synced from Cloud");
           this.loadGlobalSettingsToUI();
           this.renderCustomLocationsList();
-          this.renderRulesList(); // RENDER RULES
           
           // Update Service with Loaded Keys
           if(geocodeService && FLEET_CONFIG.GEOAPIFY_API_KEYS) {
@@ -245,11 +261,11 @@ class UIController {
   async saveSettingsToCloud() {
       const payload = {
           defaultConfig: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG,
-          fleetRules: FLEET_CONFIG.FLEET_RULES, // SAVE RULES ARRAY
+          truckOverrides: FLEET_CONFIG.TRUCK_OVERRIDES,
           customLocations: FLEET_CONFIG.CUSTOM_LOCATIONS,
           pollInterval: FLEET_CONFIG.UI.pollInterval,
           maintenanceRules: FLEET_CONFIG.MAINTENANCE_RULES,
-          apiKeys: FLEET_CONFIG.GEOAPIFY_API_KEYS
+          apiKeys: FLEET_CONFIG.GEOAPIFY_API_KEYS // SAVE KEYS
       };
       
       try {
@@ -261,6 +277,7 @@ class UIController {
           console.log("☁️ Settings saved to Cloud");
       } catch (e) {
           console.error("Erreur de sauvegarde Cloud: " + e.message);
+          // Don't alert here to avoid spamming the user
       }
   }
 
@@ -279,6 +296,7 @@ class UIController {
       this.defaultCalibration.value = text;
     }
 
+    // Load API Keys into Textarea
     if(this.geoapifyApiKeysInput && FLEET_CONFIG.GEOAPIFY_API_KEYS) {
         this.geoapifyApiKeysInput.value = FLEET_CONFIG.GEOAPIFY_API_KEYS.join('\n');
     }
@@ -287,9 +305,14 @@ class UIController {
   attachEventListeners() {
     this.startBtn.addEventListener('click', () => this.startTracking());
     this.stopBtn.addEventListener('click', () => this.stopTracking());
+    this.truckSelect.addEventListener('change', (e) => this.onTruckSelect(e.target.value));
     
     if(document.getElementById('saveDefaultsBtn')) document.getElementById('saveDefaultsBtn').addEventListener('click', () => this.saveDefaultsAndRefresh());
+    if(document.getElementById('saveTruckConfigBtn')) document.getElementById('saveTruckConfigBtn').addEventListener('click', () => this.saveTruckConfig());
+    if(document.getElementById('resetTruckConfigBtn')) document.getElementById('resetTruckConfigBtn').addEventListener('click', () => this.resetTruckConfig());
     if(this.addCustomLocBtn) this.addCustomLocBtn.addEventListener('click', () => this.addCustomLocation());
+    
+    // NEW: LISTENER FOR CONNECTION SAVE
     if(this.saveConnectionBtn) this.saveConnectionBtn.addEventListener('click', () => this.saveConnectionSettings());
 
     this.routeDestSearch.addEventListener('input', (e) => this.handleRouteDestinationSearch(e.target.value));
@@ -336,1217 +359,7 @@ class UIController {
     }
   }
 
-  // =========================================================
-  // 🚀 NEW: RULE BASED SYSTEM LOGIC
-  // =========================================================
-
-  renderRulesList() {
-      this.rulesListContainer.innerHTML = '';
-      
-      if (!FLEET_CONFIG.FLEET_RULES || FLEET_CONFIG.FLEET_RULES.length === 0) {
-          this.rulesListContainer.innerHTML = '<div style="color:#666; font-style:italic; padding:20px;">Aucune règle définie. Tous les camions utilisent la configuration globale.</div>';
-          return;
-      }
-
-      FLEET_CONFIG.FLEET_RULES.forEach((rule, index) => {
-          const card = document.createElement('div');
-          card.className = 'rule-card';
-          
-          // Generate Truck Chips
-          let trucksHtml = '';
-          if (rule.truckIds && rule.truckIds.length > 0) {
-              trucksHtml = rule.truckIds.map(truckId => {
-                 // Try to find truck name
-                 const t = app.trucks.get(truckId.toString());
-                 const name = t ? t.name : `ID: ${truckId}`;
-                 return `<span class="truck-tag">${name} <span class="truck-tag-remove" onclick="ui.removeTruckFromRule(${index}, '${truckId}')">×</span></span>`;
-              }).join('');
-          } else {
-              trucksHtml = '<span style="font-size:11px; color:#999;">Aucun camion assigné</span>';
-          }
-
-          // Available Trucks for Dropdown (Filter out trucks already in THIS rule or ANY rule)
-          // Strategy: Show all trucks NOT in ANY rule
-          const allAssignedTruckIds = new Set();
-          FLEET_CONFIG.FLEET_RULES.forEach(r => {
-              if(r.truckIds) r.truckIds.forEach(id => allAssignedTruckIds.add(id.toString()));
-          });
-          
-          const availableTrucks = app.getAllTrucks().filter(t => !allAssignedTruckIds.has(t.id.toString()));
-          
-          let dropdownOptions = '<option value="">+ Ajouter Camion</option>';
-          availableTrucks.forEach(t => {
-              dropdownOptions += `<option value="${t.id}">${t.name}</option>`;
-          });
-
-          card.innerHTML = `
-              <div class="rule-header">
-                  <div class="rule-title">${rule.name}</div>
-                  <div class="rule-stats">${rule.truckIds ? rule.truckIds.length : 0} Camions</div>
-              </div>
-              
-              <div style="margin-bottom:10px; font-size:12px; color:#555; display:grid; grid-template-columns:1fr 1fr; gap:5px;">
-                  <div><i class="fa-solid fa-gas-pump"></i> ${rule.config.fuelTankCapacity}L</div>
-                  <div><i class="fa-solid fa-fire"></i> ${rule.config.fuelConsumption} L/100</div>
-                  <div><i class="fa-solid fa-bell"></i> Alerte ${rule.config.fuelAlertThreshold}%</div>
-                  <div>${rule.config.calibration && rule.config.calibration.length > 0 ? '<i class="fa-solid fa-check-circle" style="color:green"></i> Calibré' : '<span style="color:#999">Non Calibré</span>'}</div>
-              </div>
-
-              <div class="rule-trucks-list">
-                  ${trucksHtml}
-              </div>
-
-              <div class="rule-footer">
-                   <select onchange="ui.addTruckToRule(${index}, this.value)" style="border:1px solid #ddd; border-radius:4px; font-size:11px; width:120px;">
-                      ${dropdownOptions}
-                   </select>
-                   <button class="btn-secondary btn-xs" onclick="ui.openRuleEditor(${index})"><i class="fa-solid fa-pen"></i> Modifier</button>
-                   <button class="btn-secondary btn-xs" style="color:#d32f2f; border-color:#d32f2f; background:#fff5f5;" onclick="ui.deleteRule(${index})"><i class="fa-solid fa-trash"></i></button>
-              </div>
-          `;
-          this.rulesListContainer.appendChild(card);
-      });
-  }
-
-  openRuleEditor(index = null) {
-      this.editingRuleId = index; // Store index (or null for new)
-      this.ruleEditorModal.style.display = 'flex';
-      
-      let data = {
-          name: '',
-          config: { ...FLEET_CONFIG.DEFAULT_TRUCK_CONFIG }
-      };
-
-      if (index !== null && FLEET_CONFIG.FLEET_RULES[index]) {
-          data = FLEET_CONFIG.FLEET_RULES[index];
-          // Ensure config exists
-          if (!data.config) data.config = { ...FLEET_CONFIG.DEFAULT_TRUCK_CONFIG };
-      }
-
-      // Format Calibration for Textarea
-      let calibText = '';
-      if(data.config.calibration && Array.isArray(data.config.calibration)) {
-          calibText = data.config.calibration.map(c => `${c.x}=${c.y}`).join('\n');
-      }
-
-      // Generate Form HTML
-      this.ruleEditorContent.innerHTML = `
-          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-              <div class="form-group" style="grid-column: 1 / -1;">
-                  <label>Nom du Groupe / Règle</label>
-                  <input type="text" id="ruleName" value="${data.name}" placeholder="Ex: Camions du Sud">
-              </div>
-
-              <div class="form-group"><label>Capacité Réservoir (L)</label><input type="number" id="ruleTank" value="${data.config.fuelTankCapacity}"></div>
-              <div class="form-group"><label>Consommation (L/100)</label><input type="number" id="ruleConso" value="${data.config.fuelConsumption}"></div>
-              
-              <div class="form-group"><label>Seuil Alerte (%)</label><input type="number" id="ruleThreshold" value="${data.config.fuelAlertThreshold}"></div>
-              <div class="form-group"><label>Niveau Critique (%)</label><input type="number" id="ruleCritical" value="${data.config.criticalFuelLevel}"></div>
-
-              <div class="form-group" style="grid-column: 1 / -1;">
-                  <label>Jalons Vidange (km) - Séparés par virgule</label>
-                  <input type="text" id="ruleVidange" value="${data.config.vidangeMilestones || ''}">
-              </div>
-
-              <div class="calibration-box" style="grid-column: 1 / -1;">
-                  <label>Calibration Spécifique (X=Y)</label>
-                  <textarea id="ruleCalibration" rows="5" placeholder="0=0\n10=50...">${calibText}</textarea>
-              </div>
-          </div>
-          <div style="margin-top:20px; text-align:right;">
-              <button class="btn-primary" onclick="ui.saveRule()"><i class="fa-solid fa-save"></i> Enregistrer la Règle</button>
-          </div>
-      `;
-  }
-
-  closeRuleEditor() {
-      this.ruleEditorModal.style.display = 'none';
-      this.editingRuleId = null;
-  }
-
-  saveRule() {
-      const name = document.getElementById('ruleName').value.trim();
-      if (!name) { alert("Le nom de la règle est obligatoire."); return; }
-
-      // Parse Config
-      const config = {
-          fuelTankCapacity: parseInt(document.getElementById('ruleTank').value) || 600,
-          fuelConsumption: parseFloat(document.getElementById('ruleConso').value) || 35,
-          fuelAlertThreshold: parseInt(document.getElementById('ruleThreshold').value) || 30,
-          criticalFuelLevel: parseInt(document.getElementById('ruleCritical').value) || 15,
-          vidangeMilestones: document.getElementById('ruleVidange').value.trim(),
-          fuelPricePerLiter: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter, // Inherit Global Price
-          fuelSecurityMargin: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelSecurityMargin, // Inherit Global Margin
-          vidangeAlertKm: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm, // Inherit Global Alert
-          calibration: this.parseCalibrationText(document.getElementById('ruleCalibration').value)
-      };
-
-      if (this.editingRuleId !== null) {
-          // UPDATE EXISTING
-          FLEET_CONFIG.FLEET_RULES[this.editingRuleId].name = name;
-          FLEET_CONFIG.FLEET_RULES[this.editingRuleId].config = config;
-      } else {
-          // CREATE NEW
-          FLEET_CONFIG.FLEET_RULES.push({
-              id: 'rule_' + Date.now(),
-              name: name,
-              truckIds: [],
-              config: config
-          });
-      }
-
-      this.saveSettingsToCloud();
-      this.closeRuleEditor();
-      this.renderRulesList();
-      alert("✅ Règle enregistrée !");
-      this.updateDashboard(); // Refresh dash to apply new physics
-  }
-
-  deleteRule(index) {
-      if(!confirm("Supprimer cette règle ? Les camions retourneront aux paramètres par défaut.")) return;
-      FLEET_CONFIG.FLEET_RULES.splice(index, 1);
-      this.saveSettingsToCloud();
-      this.renderRulesList();
-      this.updateDashboard();
-  }
-
-  addTruckToRule(ruleIndex, truckId) {
-      if (!truckId) return;
-      
-      // Ensure truck is not in any other rule (Double check safety)
-      FLEET_CONFIG.FLEET_RULES.forEach(r => {
-          if (r.truckIds) {
-              r.truckIds = r.truckIds.filter(id => id.toString() !== truckId.toString());
-          }
-      });
-
-      // Add to target rule
-      if (!FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds) FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds = [];
-      FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds.push(truckId);
-
-      this.saveSettingsToCloud();
-      this.renderRulesList();
-      this.updateDashboard(); // Re-calc with new settings
-  }
-
-  removeTruckFromRule(ruleIndex, truckId) {
-      if(confirm("Retirer ce camion de la règle ? Il utilisera les paramètres globaux.")) {
-          FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds = FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds.filter(id => id.toString() !== truckId.toString());
-          this.saveSettingsToCloud();
-          this.renderRulesList();
-          this.updateDashboard();
-      }
-  }
-
-  // --- STANDARD HELPERS ---
-
-  parseCalibrationText(text) {
-    const trimmed = text.trim();
-    if (!trimmed) return [];
-    const lines = trimmed.split(/[\n,]/);
-    const calibrationData = lines.map(line => {
-       const parts = line.split(/[=:]/);
-       if(parts.length < 2) return null;
-       const x = parseFloat(parts[0].trim());
-       const y = parseFloat(parts[1].trim());
-       return (isNaN(x) || isNaN(y)) ? null : { x, y };
-    }).filter(item => item !== null);
-    
-    if (calibrationData.length > 0) {
-      calibrationData.sort((a, b) => a.x - b.x);
-      return calibrationData;
-    }
-    return [];
-  }
-
-  saveDefaultsAndRefresh() {
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelTankCapacity = parseInt(this.defaultFuelCapacity.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelConsumption = parseFloat(this.defaultFuelConsumption.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter = parseFloat(this.defaultFuelPrice.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelSecurityMargin = parseInt(this.defaultSecurityMargin.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelAlertThreshold = parseInt(this.defaultFuelThreshold.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.criticalFuelLevel = parseInt(this.defaultCriticalLevel.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeMilestones = this.defaultVidangeMilestones.value;
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm = parseInt(this.defaultVidangeAlert.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.calibration = this.parseCalibrationText(this.defaultCalibration.value);
-
-    // SAVE KEYS
-    if(this.geoapifyApiKeysInput) {
-        const raw = this.geoapifyApiKeysInput.value;
-        const keys = raw.split(/[\n,]+/).map(k => k.trim()).filter(k => k.length > 0);
-        FLEET_CONFIG.GEOAPIFY_API_KEYS = keys;
-        if(geocodeService) geocodeService.updateKeys(keys);
-    }
-
-    this.saveSettingsToCloud();
-    alert('✅ Configuration Globale sauvegardée !');
-    this.updateDashboard();
-  }
-
-  saveConnectionSettings() {
-    const newServerUrl = this.serverUrlInput.value.trim();
-    const rawKeys = this.geoapifyApiKeysInput ? this.geoapifyApiKeysInput.value : '';
-    const keysArray = rawKeys.split(/[\n,]+/).map(k => k.trim()).filter(k => k.length > 0);
-
-    FLEET_CONFIG.API.baseUrl = newServerUrl;
-    FLEET_CONFIG.GEOAPIFY_API_KEYS = keysArray;
-    
-    localStorage.setItem('fleetServerUrl', newServerUrl);
-
-    if(geocodeService) geocodeService.updateKeys(keysArray);
-
-    this.saveSettingsToCloud();
-    alert('✅ Paramètres de connexion enregistrés !');
-    if (app && app.isRunning) this.startTracking();
-  }
-
-  switchTab(tabName) {
-    document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
-    document.getElementById(tabName).classList.add('active');
-
-    if (tabName === 'byWilaya') {
-        if(this.zoneGroupingMode === 'map') {
-            if(window.AlgeriaMap && window.AlgeriaMap.map) {
-                window.AlgeriaMap.map.resize();
-                window.AlgeriaMap.updateMarkers(app.getAllTrucks());
-            }
-        } else {
-            this.renderWilayaView();
-        }
-    }
-    if (tabName === 'fuelSection') this.renderFuelSection();
-    if (tabName === 'vidangeSection') this.renderVidangeSection(); 
-    if (tabName === 'maintenanceHistory') this.fetchAndRenderMaintenance(); 
-    if (tabName === 'routing') this.populateRouteTruckList();
-    if (tabName === 'settings') { 
-        this.renderCustomLocationsList(); 
-        this.renderRulesList(); 
-    }
-    if (tabName === 'reports') { this.fetchAndRenderRefuels(); }
-  }
-
-  async autoStartTracking() {
-    if(this.serverUrlInput) this.serverUrlInput.value = FLEET_CONFIG.API.baseUrl;
-
-    let savedInterval = localStorage.getItem('fleetPollInterval');
-    let intervalMs = FLEET_CONFIG.DEFAULT_POLL_INTERVAL || 120000; 
-    
-    if (savedInterval) {
-        let val = parseInt(savedInterval);
-        if (val < 1000) intervalMs = val * 1000;
-        else intervalMs = val;
-    }
-    
-    this.pollIntervalInput.value = Math.floor(intervalMs / 1000);
-    FLEET_CONFIG.UI.pollInterval = intervalMs;
-
-    this.startBtn.disabled = true;
-    this.stopBtn.disabled = false;
-    
-    await this.fetchAndUpdateTrucks();
-    if (app.pollInterval) clearInterval(app.pollInterval);
-    app.pollInterval = setInterval(() => this.fetchAndUpdateTrucks(), FLEET_CONFIG.UI.pollInterval);
-  }
-
-  async startTracking() {
-    FLEET_CONFIG.API.baseUrl = this.serverUrlInput.value;
-    let inputSeconds = parseInt(this.pollIntervalInput.value);
-    
-    if (isNaN(inputSeconds) || inputSeconds < 5) inputSeconds = 5;
-
-    FLEET_CONFIG.UI.pollInterval = inputSeconds * 1000;
-    localStorage.setItem('fleetServerUrl', FLEET_CONFIG.API.baseUrl);
-    localStorage.setItem('fleetPollInterval', inputSeconds.toString());
-    
-    this.startBtn.disabled = true;
-    this.stopBtn.disabled = false;
-    
-    if (app.pollInterval) clearInterval(app.pollInterval);
-    await this.fetchAndUpdateTrucks();
-    app.pollInterval = setInterval(() => this.fetchAndUpdateTrucks(), FLEET_CONFIG.UI.pollInterval);
-  }
-
-  stopTracking() {
-    if (app && app.pollInterval) {
-      clearInterval(app.pollInterval);
-      app.pollInterval = null;
-    }
-    this.startBtn.disabled = false;
-    this.stopBtn.disabled = true;
-  }
-
-  async fetchAndUpdateTrucks() {
-    try {
-      if (this.loadingContainer.innerHTML !== '') {
-          this.loadingContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;"><i class="fa-solid fa-sync fa-spin"></i> Mise à jour...</div>';
-      }
-      this.errorContainer.innerHTML = '';
-      
-      const response = await fetch(`${FLEET_CONFIG.API.baseUrl}${FLEET_CONFIG.API.trucksEndpoint}`);
-      if (!response.ok) throw new Error(`Erreur: ${response.status}`);
-
-      const data = await response.json();
-      this.loadingContainer.innerHTML = '';
-      
-      await app.processTruckData(data);
-      app.recordHistory();
-      this.updateDashboard();
-    } catch (error) {
-      this.loadingContainer.innerHTML = '';
-      console.error(error);
-      this.showError(`❌ Erreur connexion: ${error.message}`);
-    }
-  }
-
-  updateDashboard() {
-    requestAnimationFrame(() => {
-        const activeTab = document.querySelector('.tab-content.active').id;
-        
-        if (activeTab === 'dashboard') { 
-            this.renderStats(); 
-            this.renderTrucks(); 
-        } 
-        else if (activeTab === 'byWilaya') { 
-            if (this.zoneGroupingMode === 'map') {
-                if (window.AlgeriaMap && app) {
-                    window.AlgeriaMap.updateMarkers(app.getAllTrucks());
-                }
-            } else {
-                this.renderWilayaView(); 
-            }
-        } 
-        else if (activeTab === 'fuelSection') { this.renderFuelSection(); } 
-        else if (activeTab === 'vidangeSection') { this.renderVidangeSection(); }
-    });
-  }
-
-  filterBySearch(trucks) {
-    if (!this.searchQuery) return trucks;
-    return trucks.filter(t => t.name.toLowerCase().includes(this.searchQuery));
-  }
-
-  renderStats() {
-    const stats = app.getFleetStats();
-    const allTrucks = app.getAllTrucks();
-    const movingCount = allTrucks.filter(t => t.speed >= 1).length;
-    const stoppedCount = allTrucks.filter(t => t.speed < 1).length;
-
-    const createCard = (label, value, color, filterType, icon) => {
-      const isActive = this.currentFilter === filterType;
-      const safeLabel = label.replace(/'/g, "\\'"); 
-      return `
-        <div class="stat-card ${isActive ? 'active-filter' : ''}" 
-             data-type="${filterType}"
-             onclick="ui.setFilter('${filterType}', '${safeLabel}')"
-             style="border-bottom: 3px solid ${color}">
-          <div class="stat-icon" style="color: ${color}">${icon}</div>
-          <div class="stat-value">${value}</div>
-          <div class="stat-label">${label}</div>
-        </div>
-      `;
-    };
-
-    this.statsContainer.innerHTML = `
-      ${createCard('Tous', stats.totalTrucks, 'var(--teal)', 'all', '<i class="fa-solid fa-list"></i>')}
-      ${createCard('En Route', movingCount, 'var(--green)', 'moving', '<i class="fa-solid fa-truck-fast"></i>')}
-      ${createCard('À l\'arrêt', stoppedCount, '#999', 'stopped', '<i class="fa-solid fa-ban"></i>')}
-      ${createCard('Critique', stats.criticalCount, 'var(--red)', 'critical', '<i class="fa-solid fa-exclamation-triangle"></i>')}
-      ${createCard('Vidange', stats.vidangeCount, 'var(--orange)', 'vidange', '<i class="fa-solid fa-wrench"></i>')}
-    `;
-  }
-
-  renderTrucks() {
-    this.trucksContainer.innerHTML = '';
-    let trucks = app.getAllTrucks();
-    trucks = this.filterBySearch(trucks);
-
-    if (this.currentFilter === 'critical') trucks = trucks.filter(t => t.isCriticalFuel);
-    else if (this.currentFilter === 'low_fuel') trucks = trucks.filter(t => t.isLowFuel);
-    else if (this.currentFilter === 'vidange') trucks = trucks.filter(t => t.vidange.alert);
-    else if (this.currentFilter === 'moving') trucks = trucks.filter(t => t.speed >= 1);
-    else if (this.currentFilter === 'stopped') trucks = trucks.filter(t => t.speed < 1);
-
-    if (trucks.length === 0) {
-      this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888; background: white; border-radius: 8px;">Aucun camion ne correspond aux critères.</div>';
-      return;
-    }
-
-    trucks.forEach(truck => {
-      const isMoving = truck.speed >= 1;
-      const statusHtml = isMoving 
-        ? `<span class="status-badge moving"><i class="fa-solid fa-bolt"></i> EN ROUTE (${truck.speed} km/h)</span>`
-        : `<span class="status-badge stopped"><i class="fa-solid fa-pause"></i> STOP</span>`;
-      
-      const headerClass = isMoving ? 'moving-bg' : 'stopped-bg';
-      let progressClass = 'good';
-      if (truck.isCriticalFuel) progressClass = 'critical';
-      else if (truck.isLowFuel) progressClass = 'warning';
-      
-      // Look up Rule Name for display
-      const config = getTruckConfig(truck.id);
-      const ruleLabel = config._ruleName ? `<div style="font-size:9px; background:var(--teal); color:white; padding:2px 4px; border-radius:2px; display:inline-block; margin-top:2px;">${config._ruleName}</div>` : '';
-
-      const card = document.createElement('div');
-      card.className = 'truck-card';
-      card.innerHTML = `
-        <div class="truck-header ${headerClass}">
-          <div>
-            <h4 style="margin: 0; color: #333;">${truck.name}</h4>
-            ${ruleLabel}
-            <div style="font-size: 11px; color: #888; margin-top: 2px;">
-              <i class="fa-regular fa-clock"></i> ${new Date(truck.timestamp).toLocaleTimeString()}
-            </div>
-          </div>
-          <div>${statusHtml}</div>
-        </div>
-
-        <div class="truck-body">
-          <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px;">
-            <span><i class="fa-solid fa-gas-pump"></i> Niveau</span>
-            <strong style="color: ${truck.isCriticalFuel ? 'var(--red)' : '#333'}">${truck.fuelLiters} L</strong>
-          </div>
-          
-          <div class="progress-bar">
-            <div class="progress-fill ${progressClass}" style="width: ${Math.min(truck.fuelPercentage, 100)}%;"></div>
-          </div>
-          <div style="display:flex; justify-content:space-between; font-size: 11px; margin-top: 4px; color: #666;">
-            <span>${truck.fuelPercentage}% plein</span>
-            ${truck.hasCalibration ? '<span style="color: var(--teal);"><i class="fa-solid fa-ruler-combined"></i> Calibré</span>' : ''}
-          </div>
-
-          <div class="info-grid">
-            <div class="info-item">
-              <div class="info-label">Odomètre</div>
-              <div class="info-value">${truck.odometer.toLocaleString()} <small>km</small></div>
-            </div>
-            <div class="info-item">
-              <div class="info-label">Autonomie Est.</div>
-              <div class="info-value">${truck.rangeKm} <small>km</small></div>
-            </div>
-          </div>
-
-          <div class="location-box">
-             <i class="fa-solid fa-map-marker-alt" style="${truck.location.isCustom ? 'color: #166534;' : ''}"></i>
-             <div>
-               <div style="font-weight: 600; color: ${truck.location.isCustom ? '#166534' : '#333'};">${truck.location.city}</div>
-               <div>${truck.location.wilaya}</div>
-             </div>
-          </div>
-
-          ${truck.vidange.alert ? `
-            <div style="margin-top: 12px; padding: 10px; background: #fff3e0; border-left: 3px solid var(--orange); border-radius: 4px; font-size: 12px;">
-              <strong style="color: var(--orange);"><i class="fa-solid fa-wrench"></i> VIDANGE REQUISE</strong>
-              <div style="margin-top: 2px;">Prévue à ${truck.vidange.nextKm}km (${truck.vidange.kmUntilNext} km restants)</div>
-            </div>
-          ` : ''}
-        </div>
-      `;
-      this.trucksContainer.appendChild(card);
-    });
-  }
-
-  setFilter(filterType, label) {
-    this.currentFilter = filterType;
-    this.activeFilterDisplay.style.display = 'flex';
-    this.filterName.textContent = label;
-    this.renderTrucks(); 
-    this.renderStats(); 
-  }
-
-  clearFilter() {
-    this.currentFilter = 'all';
-    this.activeFilterDisplay.style.display = 'none';
-    this.renderTrucks();
-    this.renderStats();
-  }
-  
-  // --- ZONES & MAP LOGIC ---
-  setZoneGrouping(mode) {
-    this.zoneGroupingMode = mode;
-    this.btnGroupWilaya.classList.remove('active');
-    this.btnGroupCity.classList.remove('active');
-    
-    const mapBtn = document.getElementById('btnGroupMap');
-    const mapWrapper = document.getElementById('map-wrapper');
-    const listContainer = document.getElementById('wilayaContainer');
-
-    // Reset styles
-    if(mapBtn) {
-        mapBtn.style.backgroundColor = '';
-        mapBtn.style.color = 'var(--teal)'; 
-    }
-
-    if (mode === 'map') {
-        if(mapBtn) {
-             mapBtn.style.backgroundColor = 'var(--teal)';
-             mapBtn.style.color = 'white';
-        }
-        if(mapWrapper) mapWrapper.style.display = 'block';
-        if(listContainer) listContainer.style.display = 'none';
-        
-        if (window.AlgeriaMap && !window.AlgeriaMap.map) window.AlgeriaMap.init();
-        if (window.AlgeriaMap && app) window.AlgeriaMap.updateMarkers(app.getAllTrucks());
-        
-    } else {
-        if(mapWrapper) mapWrapper.style.display = 'none';
-        if(listContainer) listContainer.style.display = 'block';
-
-        if (mode === 'wilaya') this.btnGroupWilaya.classList.add('active');
-        else this.btnGroupCity.classList.add('active');
-        
-        this.renderWilayaView();
-    }
-  }
-  
-  filterWilayaList() {
-      const searchBox = document.getElementById('wilayaSearchBox');
-      this.wilayaSearchQuery = searchBox ? searchBox.value.toLowerCase().trim() : '';
-      this.renderWilayaView();
-  }
-
-  setFuelFilter(state) {
-    this.fuelFilterState = state;
-    this.renderFuelSection();
-  }
-
-  setVidangeFilter(state) {
-    this.vidangeFilterState = state;
-    this.renderVidangeSection();
-  }
-
-  // --- RESTORED: FUEL & VIDANGE SECTION RENDERERS ---
-  
-  renderFuelSection() {
-    this.fuelSectionContainer.innerHTML = '';
-    let trucks = app.getAllTrucks().sort((a, b) => a.fuelPercentage - b.fuelPercentage);
-    trucks = this.filterBySearch(trucks);
-    
-    if (this.fuelFilterState === 'critical') trucks = trucks.filter(t => t.isCriticalFuel);
-    else if (this.fuelFilterState === 'warning') trucks = trucks.filter(t => t.isLowFuel && !t.isCriticalFuel);
-    else if (this.fuelFilterState === 'normal') trucks = trucks.filter(t => !t.isLowFuel && !t.isCriticalFuel);
-
-    const controls = document.createElement('div');
-    controls.className = 'sub-filters';
-    controls.innerHTML = `
-      <button class="filter-pill ${this.fuelFilterState === 'all' ? 'active' : ''}" onclick="ui.setFuelFilter('all')">Tout</button>
-      <button class="filter-pill critical ${this.fuelFilterState === 'critical' ? 'active' : ''}" onclick="ui.setFuelFilter('critical')">Critique</button>
-      <button class="filter-pill warning ${this.fuelFilterState === 'warning' ? 'active' : ''}" onclick="ui.setFuelFilter('warning')">Bas</button>
-      <button class="filter-pill normal ${this.fuelFilterState === 'normal' ? 'active' : ''}" onclick="ui.setFuelFilter('normal')">Normal</button>
-    `;
-    this.fuelSectionContainer.appendChild(controls);
-
-    const header = document.createElement('div');
-    header.className = 'accordion-header';
-    header.innerHTML = `
-      <div>
-        <h3 style="margin:0;"><i class="fa-solid fa-gas-pump"></i> État du Carburant</h3>
-        <span style="font-size: 12px; color: #666;">${trucks.length} Camions affichés</span>
-      </div>
-      <div style="font-size: 20px;">${this.fuelAccordionState ? '<i class="fa-solid fa-chevron-down"></i>' : '<i class="fa-solid fa-chevron-right"></i>'}</div>
-    `;
-    header.onclick = () => {
-      this.fuelAccordionState = !this.fuelAccordionState;
-      this.renderFuelSection(); 
-    };
-    this.fuelSectionContainer.appendChild(header);
-
-    const content = document.createElement('div');
-    content.className = `accordion-content ${this.fuelAccordionState ? 'show' : ''}`;
-    
-    if (trucks.length === 0) {
-      content.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Aucun camion dans cette catégorie.</div>';
-    } else {
-      content.innerHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-        ${trucks.map(t => {
-          const color = t.isCriticalFuel ? 'var(--red)' : t.isLowFuel ? 'var(--orange)' : 'var(--green)';
-          const locText = `${t.location.city}, ${t.location.wilaya}`;
-          
-          return `
-          <div class="fuel-card-container" style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1); position:relative;">
-            <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
-              <strong>${t.name}</strong>
-              <div style="text-align:right;">
-                <strong style="color:${color}; font-size: 1.2rem;">${t.fuelLiters} L</strong>
-                <div style="font-size: 11px; color: #888;">${t.fuelPercentage}%</div>
-              </div>
-            </div>
-            
-            <div style="background: #eee; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
-              <div style="background: ${color}; width: ${t.fuelPercentage}%; height: 100%;"></div>
-            </div>
-            
-            <div style="font-size: 12px; color: #666; display: flex; justify-content: space-between; margin-bottom: 5px;">
-              <span><i class="fa-solid fa-tank-water"></i> Cap: ${t.fuelTankCapacity}L</span>
-              <span><i class="fa-solid fa-road"></i> ~${t.rangeKm} km</span>
-            </div>
-
-            <div style="font-size: 11px; color: #555; border-top: 1px solid #eee; padding-top: 5px;">
-               <i class="fa-solid fa-location-dot" style="color:${color}"></i> ${locText}
-            </div>
-
-            <button class="fuel-card-overlay-btn" onclick="ui.goToPlanning('${t.id}')">
-                <i class="fa-solid fa-calculator"></i> Calculer Remplissage
-            </button>
-          </div>`;
-        }).join('')}
-      </div>`;
-    }
-    this.fuelSectionContainer.appendChild(content);
-  }
-
-  renderVidangeSection() {
-    this.vidangeSectionContainer.innerHTML = '';
-    let trucks = app.getAllTrucks().sort((a, b) => a.vidange.kmUntilNext - b.vidange.kmUntilNext);
-    trucks = this.filterBySearch(trucks);
-
-    if (this.vidangeFilterState === 'urgent') trucks = trucks.filter(t => t.vidange.alert);
-    else if (this.vidangeFilterState === 'warning') trucks = trucks.filter(t => !t.vidange.alert && t.vidange.kmUntilNext < (t.vidange.alertKm + 3000));
-    else if (this.vidangeFilterState === 'ok') trucks = trucks.filter(t => !t.vidange.alert && t.vidange.kmUntilNext >= (t.vidange.alertKm + 3000));
-
-    const controls = document.createElement('div');
-    controls.className = 'sub-filters';
-    controls.innerHTML = `
-      <button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button>
-      <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">Urgent</button>
-      <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">Bientôt</button>
-      <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">OK</button>
-    `;
-    this.vidangeSectionContainer.appendChild(controls);
-
-    const header = document.createElement('div');
-    header.className = 'accordion-header';
-    header.style.borderLeftColor = 'var(--orange)';
-    header.innerHTML = `
-      <div>
-        <h3 style="margin:0;"><i class="fa-solid fa-wrench"></i> État des Vidanges</h3>
-        <span style="font-size: 12px; color: #666;">${trucks.length} Camions affichés</span>
-      </div>
-      <div style="font-size: 20px;">${this.vidangeAccordionState ? '<i class="fa-solid fa-chevron-down"></i>' : '<i class="fa-solid fa-chevron-right"></i>'}</div>
-    `;
-    header.onclick = () => {
-      this.vidangeAccordionState = !this.vidangeAccordionState;
-      this.renderVidangeSection();
-    };
-    this.vidangeSectionContainer.appendChild(header);
-
-    const content = document.createElement('div');
-    content.className = `accordion-content ${this.vidangeAccordionState ? 'show' : ''}`;
-    
-    if (trucks.length === 0) {
-      content.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Aucun camion dans cette catégorie.</div>';
-    } else {
-      content.innerHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
-        ${trucks.map(t => {
-          const isAlert = t.vidange.alert;
-          const isWarning = !isAlert && t.vidange.kmUntilNext < (t.vidange.alertKm + 3000);
-          
-          let color = '#2a9d8f'; 
-          let statusText = 'OK';
-          
-          if (isAlert) { color = '#e63946'; statusText = 'URGENT'; }
-          else if (isWarning) { color = '#f4a261'; statusText = 'BIENTÔT'; }
-
-          const bg = isAlert ? '#fff5f5' : 'white';
-          
-          return `
-          <div style="background: ${bg}; padding: 15px; border-radius: 8px; border: 1px solid ${isAlert ? color : '#ddd'}; border-left: 4px solid ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <div style="display:flex; justify-content:space-between; margin-bottom: 8px;">
-              <strong>${t.name}</strong>
-              <span style="background:${color}; color:white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold;">${statusText}</span>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
-              <div>
-                <div style="color:#888;">Prochaine</div>
-                <strong style="color: ${color}; font-size: 14px;">${t.vidange.nextKm} km</strong>
-              </div>
-              <div>
-                <div style="color:#888;">Reste</div>
-                <strong style="color: #333; font-size: 14px;">${t.vidange.kmUntilNext} km</strong>
-              </div>
-            </div>
-            
-            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; font-size: 11px; color: #666;">
-               Actuel: ${t.odometer} km
-            </div>
-          </div>`;
-        }).join('')}
-      </div>`;
-    }
-    this.vidangeSectionContainer.appendChild(content);
-  }
-
-  // --- WILAYA VIEW ---
-  renderWilayaView() {
-    this.wilayaContainer.innerHTML = '';
-    const searchContainer = document.createElement('div');
-    searchContainer.innerHTML = `
-      <input type="text" id="wilayaSearchBox" class="wilaya-search-box" 
-             placeholder="🔍 Filtrer par nom de Wilaya ou Zone..." 
-             value="${this.wilayaSearchQuery || ''}"
-             onkeyup="ui.filterWilayaList()">
-    `;
-    this.wilayaContainer.appendChild(searchContainer);
-
-    let grouped;
-    if (this.zoneGroupingMode === 'city') grouped = app.getTrucksByCity(); 
-    else grouped = app.getTrucksByWilaya(); 
-    
-    const customZones = {};
-    const standardZones = {};
-
-    Object.keys(grouped).forEach(key => {
-        const trucks = grouped[key];
-        if(!trucks || trucks.length === 0) return;
-        const isCustomGroup = trucks.some(t => t.location && t.location.isCustom);
-        if(this.wilayaSearchQuery && !key.toLowerCase().includes(this.wilayaSearchQuery)) return;
-
-        if(isCustomGroup) customZones[key] = trucks;
-        else standardZones[key] = trucks;
-    });
-
-    const renderSection = (title, groups, isCustom) => {
-        if (Object.keys(groups).length === 0) return;
-        
-        const titleDiv = document.createElement('div');
-        titleDiv.className = 'wilaya-section-title';
-        titleDiv.innerHTML = title;
-        this.wilayaContainer.appendChild(titleDiv);
-
-        Object.keys(groups).sort().forEach(groupName => {
-            let trucks = groups[groupName];
-            trucks = this.filterBySearch(trucks);
-            if (trucks.length === 0) return; 
-
-            let displayLabel = groupName;
-            if (this.zoneGroupingMode === 'city' && trucks.length > 0) {
-                 const wilaya = trucks[0].location.wilaya || 'Algérie';
-                 if(wilaya !== 'Inconnu' && !displayLabel.includes(wilaya)) {
-                     displayLabel = `${groupName} <span style="font-weight:normal; font-size:0.9em; color:#666;">- ${wilaya}</span>`;
-                 }
-            }
-            if(isCustom) displayLabel += `<span class="custom-zone-badge">ZONE DÉFINIE</span>`;
-
-            const div = document.createElement('div');
-            div.className = 'accordion-header';
-            div.style.borderLeft = isCustom ? '4px solid #166534' : '4px solid #ddd';
-            div.innerHTML = `
-                  <div style="display:flex; align-items:center; gap: 10px;">
-                    <i class="${this.zoneGroupingMode === 'city' ? 'fa-solid fa-location-dot' : 'fa-solid fa-map-pin'}" style="color:${isCustom ? '#166534' : 'var(--teal)'};"></i>
-                    <strong>${displayLabel}</strong> 
-                  </div>
-                  <span style="background: #eee; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold;">${trucks.length}</span>
-            `;
-             
-            div.onclick = () => {
-                const grid = div.nextElementSibling;
-                const isHidden = grid.style.display === 'none';
-                grid.style.display = isHidden ? 'grid' : 'none';
-            };
-
-            const grid = document.createElement('div');
-            grid.className = 'trucks-grid';
-            grid.style.display = this.searchQuery ? 'grid' : 'none'; 
-            grid.style.marginTop = '10px';
-            grid.style.marginBottom = '20px';
-            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
-             
-            trucks.forEach(t => {
-                 const isMoving = t.speed >= 1;
-                 const card = document.createElement('div');
-                 card.className = 'truck-card';
-                 card.style.padding = '15px';
-                 const fuelColor = t.isCriticalFuel ? 'var(--red)' : t.isLowFuel ? 'var(--orange)' : 'var(--green)';
-
-                 card.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-                        <strong>${t.name}</strong>
-                        <span class="status-badge ${isMoving ? 'moving' : 'stopped'}" style="font-size: 9px;">
-                            ${isMoving ? 'EN ROUTE' : 'À L\'ARRÊT'}
-                        </span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-size: 13px;">
-                        <span style="color: #666;"><i class="fa-solid fa-gas-pump"></i> Carburant:</span>
-                        <strong style="color: ${fuelColor};">${t.fuelLiters} L</strong>
-                    </div>
-                    <div style="margin-top: 8px; font-size: 11px; color: #888; border-top: 1px solid #eee; padding-top: 5px;">
-                        ${t.location.city}
-                    </div>
-                 `;
-                 grid.appendChild(card);
-            });
-             
-            this.wilayaContainer.appendChild(div);
-            this.wilayaContainer.appendChild(grid);
-        });
-    };
-
-    renderSection("🏢 Zones Personnalisées & Sites", customZones, true);
-    renderSection("🇩🇿 Wilayas (Algérie)", standardZones, false);
-
-    if (this.wilayaContainer.children.length === 1) { 
-         const emptyMsg = document.createElement('div');
-         emptyMsg.style.cssText = "text-align:center; padding: 20px; color:#888;";
-         emptyMsg.innerHTML = "Aucune zone trouvée pour cette recherche.";
-         this.wilayaContainer.appendChild(emptyMsg);
-    }
-  }
-  
-  populateRouteTruckList() {
-    this.routeTruck.innerHTML = '<option value="">-- Choisir un camion --</option>';
-    app.getAllTrucks().forEach(t => {
-      this.routeTruck.innerHTML += `<option value="${t.id}">${t.name} (${t.fuelLiters} L)</option>`;
-    });
-  }
-  
-  populateTruckList() {
-    this.truckSelect.innerHTML = '<option value="">-- Choisir un camion --</option>';
-    app.getAllTrucks().forEach(t => {
-      this.truckSelect.innerHTML += `<option value="${t.id}">${t.name}</option>`;
-    });
-  }
-
-  // --- REFUEL LOGIC ---
-  async fetchAndRenderRefuels() {
-    if(!this.refuelHistoryContainer) return;
-    this.refuelHistoryContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Chargement...</div>';
-    
-    try {
-        const response = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/refuels`);
-        if (!response.ok) {
-            console.warn(`Refuels API returned ${response.status}. Displaying empty state.`);
-            this.refuelHistoryContainer.innerHTML = `<div style="color:#666; padding:20px; text-align:center;">Pas de données (Serveur en veille). Réessayez plus tard.</div>`;
-            return;
-        }
-        
-        this.allRefuelLogs = await response.json(); 
-        this.renderFilteredRefuels();
-    } catch (e) {
-        console.warn("Refuel fetch connection error:", e);
-        this.refuelHistoryContainer.innerHTML = `<div style="color:#888; text-align:center; padding:20px;">Connexion impossible pour l'instant.</div>`;
-    }
-  }
-
-  renderFilteredRefuels() {
-    if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) {
-        this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun remplissage détecté.</div>';
-        return;
-    }
-
-    const startDate = this.refuelDateStart.value ? new Date(this.refuelDateStart.value) : null;
-    const endDate = this.refuelDateEnd.value ? new Date(this.refuelDateEnd.value) : null;
-    if(endDate) endDate.setHours(23, 59, 59, 999);
-    
-    const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
-    const locationSearch = this.refuelLocationSearch ? this.refuelLocationSearch.value.toLowerCase().trim() : '';
-
-    let processedLogs = this.allRefuelLogs.map(log => {
-        const truckConfig = getTruckConfig(log.deviceId);
-        const capacity = truckConfig.fuelTankCapacity || 600; 
-        
-        let calculatedAdded = 0;
-        let calculatedTotal = 0;
-
-        if (log.diffPercent !== undefined && log.newPercent !== undefined) {
-             calculatedAdded = Math.round((log.diffPercent / 100) * capacity);
-             calculatedTotal = Math.round((log.newPercent / 100) * capacity);
-        } else {
-             calculatedAdded = log.addedLiters;
-             calculatedTotal = log.newLevel;
-        }
-
-        let locationName = "Inconnu";
-        let isInternal = false;
-        
-        if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
-            for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
-                const dist = geocodeService.getDistanceMeters(log.lat, log.lng, loc.lat, loc.lng);
-                const radius = loc.radius || 500;
-                if (dist <= radius) {
-                    isInternal = true;
-                    locationName = loc.name;
-                    break;
-                }
-            }
-        }
-        if (!isInternal) locationName = `Ext: ${log.lat.toFixed(3)}, ${log.lng.toFixed(3)}`;
-
-        return {
-            ...log,
-            realAdded: calculatedAdded,
-            realTotal: calculatedTotal,
-            truckCapacity: capacity, 
-            locationName: locationName,
-            isInternal: isInternal
-        };
-    });
-
-    processedLogs = processedLogs.filter(log => {
-        const logDate = new Date(log.timestamp);
-        if (startDate && logDate < startDate) return false;
-        if (endDate && logDate > endDate) return false;
-        if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
-        if (locationSearch && !log.locationName.toLowerCase().includes(locationSearch)) return false;
-        return true;
-    });
-
-    processedLogs.sort((a, b) => {
-        if (this.refuelSortOrder === 'date_asc') return new Date(a.timestamp) - new Date(b.timestamp);
-        if (this.refuelSortOrder === 'date_desc') return new Date(b.timestamp) - new Date(a.timestamp);
-        if (this.refuelSortOrder === 'qty_asc') return a.realAdded - b.realAdded;
-        if (this.refuelSortOrder === 'qty_desc') return b.realAdded - a.realAdded;
-        return 0;
-    });
-
-    const totalItems = processedLogs.length;
-    const totalPages = Math.ceil(totalItems / this.refuelItemsPerPage);
-    if (this.refuelCurrentPage > totalPages) this.refuelCurrentPage = totalPages || 1;
-    if (this.refuelCurrentPage < 1) this.refuelCurrentPage = 1;
-
-    const startIndex = (this.refuelCurrentPage - 1) * this.refuelItemsPerPage;
-    const paginatedLogs = processedLogs.slice(startIndex, startIndex + this.refuelItemsPerPage);
-
-    if (paginatedLogs.length === 0) {
-        this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun résultat pour ces filtres.</div>';
-        return;
-    }
-
-    let html = '<div style="display:grid; gap:10px;">';
-    for (const log of paginatedLogs) {
-        const date = new Date(log.timestamp).toLocaleString('fr-FR');
-        let locBadge = `<span style="background:#eee; color:#666; padding:2px 8px; border-radius:4px; font-size:11px;">EXTÉRIEUR</span>`;
-        if (log.isInternal) locBadge = `<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:bold;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`;
-
-        html += `
-        <div style="background:white; border-left: 4px solid ${log.isInternal ? '#22c55e' : '#64748b'}; padding:15px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center;">
-            <div>
-                <div style="font-weight:bold; font-size:15px; color:#333;">${log.truckName}</div>
-                <div style="font-size:12px; color:#888; margin-top:2px;">
-                    <i class="fa-regular fa-clock"></i> ${date}
-                </div>
-            </div>
-            <div style="text-align:center;">
-               <div style="font-size:12px; margin-bottom:4px;">${locBadge}</div>
-               <div style="font-size:11px; color:#555;">${log.locationName}</div>
-            </div>
-            <div style="text-align:right;">
-                <div style="font-size:18px; font-weight:800; color:${log.isInternal ? '#166534' : '#0f172a'};">+${log.realAdded} L</div>
-                <div style="font-size:11px; color:#666; background:#f0f0f0; padding:2px 6px; border-radius:4px; margin-top:2px;">Total: ${log.realTotal} / ${log.truckCapacity} L</div>
-            </div>
-        </div>`;
-    }
-    html += '</div>';
-    this.refuelHistoryContainer.innerHTML = html;
-  }
-
-  // --- PLANNING & ROUTING ---
-  handleRouteDestinationSearch(query) {
-    if (query.length < 2) { this.routeAutocompleteDropdown.style.display = 'none'; return; }
-    let apiKey = FLEET_CONFIG.GEOAPIFY_API_KEY;
-    if(FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0) apiKey = FLEET_CONFIG.GEOAPIFY_API_KEYS[0];
-
-    fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&apiKey=${apiKey}&limit=5&country=dz`)
-      .then(res => res.json())
-      .then(data => {
-        this.routeAutocompleteDropdown.innerHTML = '';
-        if (data.features) {
-          data.features.forEach(f => {
-            const div = document.createElement('div');
-            div.style.padding = '10px';
-            div.style.cursor = 'pointer';
-            div.style.borderBottom = '1px solid #eee';
-            div.innerHTML = `<i class="fa-solid fa-map-pin" style="color: var(--teal); margin-right: 5px;"></i> <strong>${f.properties.city || f.properties.name}</strong>, ${f.properties.state || 'Algérie'}`;
-            div.onclick = () => {
-              this.selectedRouteDestination = { 
-                city: f.properties.city || f.properties.name, 
-                lat: f.geometry.coordinates[1], 
-                lng: f.geometry.coordinates[0],
-                wilaya: f.properties.state 
-              };
-              this.routeDestSearch.value = `${this.selectedRouteDestination.city}, ${this.selectedRouteDestination.wilaya}`;
-              this.routeAutocompleteDropdown.style.display = 'none';
-            };
-            this.routeAutocompleteDropdown.appendChild(div);
-          });
-          this.routeAutocompleteDropdown.style.display = 'block';
-        }
-      })
-      .catch(e => console.log("Geo search failed", e));
-  }
-  
-  calculateRoute() {
-    const truckId = this.routeTruck.value;
-    const destination = this.selectedRouteDestination;
-
-    if (!truckId || !destination) {
-      alert('⚠️ Sélectionnez un camion et une destination.');
-      return;
-    }
-
-    const truck = app.trucks.get(truckId);
-    // Use TRUCK SPECIFIC CONFIG for calculation
-    const config = getTruckConfig(truckId);
-    
-    const pricePerLiter = config.fuelPricePerLiter || 29; 
-    const marginLiters = config.fuelSecurityMargin || 100; 
-    const consumption = config.fuelConsumption || 35;
-
-    const distance = calculateDistance(truck.coordinates.lat, truck.coordinates.lng, destination.lat, destination.lng);
-    const roadDistance = Math.round(distance * 1.25);
-    const fuelNeededForTrip = Math.round((roadDistance / 100) * consumption);
-    const remainingAfterTrip = truck.fuelLiters - fuelNeededForTrip;
-    const shortfall = marginLiters - remainingAfterTrip;
-    
-    let litersToBuy = 0;
-    let statusColor = 'green';
-    let statusText = '✅ SUFFISANT';
-    let cost = 0;
-
-    if (shortfall > 0) {
-      litersToBuy = shortfall;
-      statusColor = 'orange'; 
-      statusText = `⚠️ FAIRE L'APPOINT`;
-      if (remainingAfterTrip < 0) {
-        statusColor = 'red';
-        statusText = `❌ INSUFFISANT`;
-      }
-      cost = litersToBuy * pricePerLiter;
-    }
-
-    this.routeResultsContainer.innerHTML = `
-      <div class="route-result" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-top: 5px solid ${statusColor}; margin-top: 20px;">
-        <h3 style="margin: 0 0 15px 0; color: var(--teal-dark);">Trajet: ${truck.name} <i class="fa-solid fa-arrow-right"></i> ${destination.city}</h3>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-          <div><div style="font-size: 12px; color: #888;">DISTANCE (Est.)</div><div style="font-size: 18px; font-weight: bold;">${roadDistance} km</div></div>
-          <div><div style="font-size: 12px; color: #888;">CONSO (${consumption}L/100)</div><div style="font-size: 18px; font-weight: bold;">${fuelNeededForTrip} L</div></div>
-        </div>
-        <div style="background: #f4f6f9; padding: 15px; border-radius: 8px;">
-          <h4 style="margin: 0 0 10px 0; color: ${statusColor};">${statusText}</h4>
-          ${litersToBuy > 0 ? `
-            <p>Ajouter pour sécuriser le trajet (+marge ${marginLiters}L):</p>
-            <div style="font-size: 24px; font-weight: bold; color: ${statusColor};">${litersToBuy} Litres</div>
-            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
-              <div style="font-size: 12px; color: #666;">COÛT ESTIMÉ</div>
-              <div style="font-size: 28px; font-weight: 800; color: var(--teal-dark);">${cost.toLocaleString()} DA</div>
-            </div>
-          ` : `<p style="color: green;">Réserve à l'arrivée: ${remainingAfterTrip}L (Marge OK).</p>`}
-        </div>
-      </div>
-    `;
-  }
-  
-  goToPlanning(truckId) {
-      this.switchTab('routing');
-      this.routeTruck.value = truckId;
-      this.routeTruck.focus();
-      this.routeTruck.style.borderColor = 'var(--teal)';
-      setTimeout(() => { this.routeTruck.style.borderColor = '#ddd'; }, 1000);
-  }
-
-  // --- CUSTOM LOCATIONS CRUD ---
-  addCustomLocation() {
-    const name = this.customLocName.value.trim();
-    const wilaya = this.customLocWilaya.value.trim();
-    const lat = parseFloat(this.customLocLat.value);
-    const lng = parseFloat(this.customLocLng.value);
-    let radius = parseInt(this.customLocRadius.value);
-    const type = this.customLocType ? this.customLocType.value : 'other';
-
-    if (!name || !wilaya || isNaN(lat) || isNaN(lng)) {
-      alert('⚠️ Veuillez remplir tous les champs obligatoires.');
-      return;
-    }
-    if (isNaN(radius) || radius < 10) radius = 500;
-    
-    const newLoc = { name, wilaya, lat, lng, radius, type }; 
-    
-    if (!FLEET_CONFIG.CUSTOM_LOCATIONS) FLEET_CONFIG.CUSTOM_LOCATIONS = [];
-    
-    if (this.editingLocationIndex !== null) {
-        FLEET_CONFIG.CUSTOM_LOCATIONS[this.editingLocationIndex] = newLoc;
-        alert(`✅ Lieu "${name}" mis à jour !`);
-        this.editingLocationIndex = null;
-        this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-        this.addCustomLocBtn.style.background = '#166534';
-    } else {
-        FLEET_CONFIG.CUSTOM_LOCATIONS.push(newLoc);
-        alert(`✅ Lieu "${name}" ajouté !`);
-    }
-    
-    this.saveSettingsToCloud();
-    this.renderCustomLocationsList();
-    this.customLocName.value = '';
-    this.customLocLat.value = '';
-    this.customLocLng.value = '';
-  }
-
-  editCustomLocation(index) {
-      if (!FLEET_CONFIG.CUSTOM_LOCATIONS || !FLEET_CONFIG.CUSTOM_LOCATIONS[index]) return;
-      const loc = FLEET_CONFIG.CUSTOM_LOCATIONS[index];
-      
-      this.customLocName.value = loc.name;
-      this.customLocWilaya.value = loc.wilaya;
-      this.customLocLat.value = loc.lat;
-      this.customLocLng.value = loc.lng;
-      this.customLocRadius.value = loc.radius || 500;
-      if(this.customLocType) this.customLocType.value = loc.type || 'other';
-
-      this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-save"></i>';
-      this.addCustomLocBtn.style.background = '#e65100'; 
-      this.editingLocationIndex = index;
-      
-      const accordion = document.querySelector('.settings-header i.fa-map-location-dot');
-      if(accordion) {
-          const header = accordion.closest('.settings-header');
-          const content = header.nextElementSibling;
-          if(!content.classList.contains('open')) header.click();
-      }
-  }
-
-  deleteCustomLocation(index) {
-    if(confirm('Supprimer ce lieu ?')) {
-      FLEET_CONFIG.CUSTOM_LOCATIONS.splice(index, 1);
-      this.saveSettingsToCloud();
-      this.renderCustomLocationsList();
-      
-      if(this.editingLocationIndex === index) {
-         this.editingLocationIndex = null;
-         this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-         this.addCustomLocBtn.style.background = '#166534';
-      }
-    }
-  }
-
-  renderCustomLocationsList() {
-    this.customLocationsList.innerHTML = '';
-    if (!FLEET_CONFIG.CUSTOM_LOCATIONS || FLEET_CONFIG.CUSTOM_LOCATIONS.length === 0) {
-      this.customLocationsList.innerHTML = '<div style="color:#888; font-size:12px; grid-column:1/-1;">Aucun lieu personnalisé.</div>';
-      return;
-    }
-    FLEET_CONFIG.CUSTOM_LOCATIONS.forEach((loc, index) => {
-      const typeConfig = FLEET_CONFIG.LOCATION_TYPES[loc.type ? loc.type.toUpperCase() : 'OTHER'] || FLEET_CONFIG.LOCATION_TYPES.OTHER;
-      
-      const div = document.createElement('div');
-      div.style.cssText = `background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #ddd; border-left: 4px solid ${typeConfig.color || '#666'}; position: relative;`;
-      div.innerHTML = `
-        <div style="position:absolute; top:5px; right:5px; display:flex; gap:5px;">
-             <button onclick="ui.editCustomLocation(${index})" style="background:none; border:none; color: var(--teal); cursor:pointer;"><i class="fa-solid fa-pen"></i></button>
-             <button onclick="ui.deleteCustomLocation(${index})" style="background:none; border:none; color: #d32f2f; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
-        </div>
-        <div style="font-weight:bold; color: #333; margin-right:40px;">${loc.name}</div>
-        <div style="font-size:10px; color:${typeConfig.color || '#666'}; font-weight:bold; margin-bottom:4px;">
-           <i class="fa-solid ${typeConfig.icon || 'fa-map-pin'}"></i> ${typeConfig.label || 'Autre'}
-        </div>
-        <div style="font-size:11px; color:#555;">${loc.wilaya}</div>
-        <div style="font-size:10px; color:#888;">${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}</div>
-      `;
-      this.customLocationsList.appendChild(div);
-    });
-  }
-
-  // --- MAINTENANCE & EXPORTS ---
+  // --- MAINTENANCE HISTORY LOGIC ---
   async fetchAndRenderMaintenance() {
       if(!this.maintenanceListContainer) return;
       this.maintenanceListContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Chargement Maintenance...</div>';
@@ -1557,6 +370,7 @@ class UIController {
           this.allMaintenanceLogs = await response.json();
           this.renderMaintenanceList();
       } catch (e) {
+          // Robust error handling - don't show full crash, just message
           this.maintenanceListContainer.innerHTML = '<div style="color:#888; text-align:center; padding:10px;">Maintenance indisponible (Serveur en veille).</div>';
           console.error("Maintenance fetch failed:", e);
       }
@@ -1800,27 +614,142 @@ class UIController {
       a.click();
   }
 
-  exportCSV() {
-     const csv = app.exportCSV();
-     if(!csv) return;
-     const blob = new Blob([csv], { type: 'text/csv' });
-     const url = window.URL.createObjectURL(blob);
-     const a = document.createElement('a');
-     a.href = url;
-     a.download = `rapport_flotte_${new Date().toISOString().slice(0,10)}.csv`;
-     a.click();
+  // --- REFUEL LOGIC (FIXED) ---
+  async fetchAndRenderRefuels() {
+    if(!this.refuelHistoryContainer) return;
+    this.refuelHistoryContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Chargement...</div>';
+    
+    try {
+        const response = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/refuels`);
+        // FIXED: Handle 500 errors gently without throwing fatal exception
+        if (!response.ok) {
+            console.warn(`Refuels API returned ${response.status}. Displaying empty state.`);
+            this.refuelHistoryContainer.innerHTML = `<div style="color:#666; padding:20px; text-align:center;">Pas de données (Serveur en veille). Réessayez plus tard.</div>`;
+            return;
+        }
+        
+        this.allRefuelLogs = await response.json(); 
+        this.renderFilteredRefuels();
+    } catch (e) {
+        console.warn("Refuel fetch connection error:", e);
+        this.refuelHistoryContainer.innerHTML = `<div style="color:#888; text-align:center; padding:20px;">Connexion impossible pour l'instant.</div>`;
+    }
   }
-  
-  exportJSON() {
-     const json = app.exportJSON();
-     const blob = new Blob([json], { type: 'application/json' });
-     const url = window.URL.createObjectURL(blob);
-     const a = document.createElement('a');
-     a.href = url;
-     a.download = `backup_flotte_${new Date().toISOString().slice(0,10)}.json`;
-     a.click();
+
+  renderFilteredRefuels() {
+    if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) {
+        this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun remplissage détecté.</div>';
+        return;
+    }
+
+    const startDate = this.refuelDateStart.value ? new Date(this.refuelDateStart.value) : null;
+    const endDate = this.refuelDateEnd.value ? new Date(this.refuelDateEnd.value) : null;
+    if(endDate) endDate.setHours(23, 59, 59, 999);
+    
+    const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
+    const locationSearch = this.refuelLocationSearch ? this.refuelLocationSearch.value.toLowerCase().trim() : '';
+
+    let processedLogs = this.allRefuelLogs.map(log => {
+        // --- FIXED: GET PRECISE CAPACITY FROM CONFIG ---
+        const truckConfig = getTruckConfig(log.deviceId);
+        const capacity = truckConfig.fuelTankCapacity || 600; 
+        
+        let calculatedAdded = 0;
+        let calculatedTotal = 0;
+
+        if (log.diffPercent !== undefined && log.newPercent !== undefined) {
+             calculatedAdded = Math.round((log.diffPercent / 100) * capacity);
+             calculatedTotal = Math.round((log.newPercent / 100) * capacity);
+        } else {
+             calculatedAdded = log.addedLiters;
+             calculatedTotal = log.newLevel;
+        }
+
+        let locationName = "Inconnu";
+        let isInternal = false;
+        
+        if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
+            for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+                const dist = geocodeService.getDistanceMeters(log.lat, log.lng, loc.lat, loc.lng);
+                const radius = loc.radius || 500;
+                if (dist <= radius) {
+                    isInternal = true;
+                    locationName = loc.name;
+                    break;
+                }
+            }
+        }
+        if (!isInternal) locationName = `Ext: ${log.lat.toFixed(3)}, ${log.lng.toFixed(3)}`;
+
+        return {
+            ...log,
+            realAdded: calculatedAdded,
+            realTotal: calculatedTotal,
+            truckCapacity: capacity, 
+            locationName: locationName,
+            isInternal: isInternal
+        };
+    });
+
+    processedLogs = processedLogs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        if (startDate && logDate < startDate) return false;
+        if (endDate && logDate > endDate) return false;
+        if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
+        if (locationSearch && !log.locationName.toLowerCase().includes(locationSearch)) return false;
+        return true;
+    });
+
+    processedLogs.sort((a, b) => {
+        if (this.refuelSortOrder === 'date_asc') return new Date(a.timestamp) - new Date(b.timestamp);
+        if (this.refuelSortOrder === 'date_desc') return new Date(b.timestamp) - new Date(a.timestamp);
+        if (this.refuelSortOrder === 'qty_asc') return a.realAdded - b.realAdded;
+        if (this.refuelSortOrder === 'qty_desc') return b.realAdded - a.realAdded;
+        return 0;
+    });
+
+    const totalItems = processedLogs.length;
+    const totalPages = Math.ceil(totalItems / this.refuelItemsPerPage);
+    if (this.refuelCurrentPage > totalPages) this.refuelCurrentPage = totalPages || 1;
+    if (this.refuelCurrentPage < 1) this.refuelCurrentPage = 1;
+
+    const startIndex = (this.refuelCurrentPage - 1) * this.refuelItemsPerPage;
+    const paginatedLogs = processedLogs.slice(startIndex, startIndex + this.refuelItemsPerPage);
+
+    if (paginatedLogs.length === 0) {
+        this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun résultat pour ces filtres.</div>';
+        return;
+    }
+
+    let html = '<div style="display:grid; gap:10px;">';
+    for (const log of paginatedLogs) {
+        const date = new Date(log.timestamp).toLocaleString('fr-FR');
+        let locBadge = `<span style="background:#eee; color:#666; padding:2px 8px; border-radius:4px; font-size:11px;">EXTÉRIEUR</span>`;
+        if (log.isInternal) locBadge = `<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:bold;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`;
+
+        // FIXED DISPLAY: Shows Real Total / Capacity
+        html += `
+        <div style="background:white; border-left: 4px solid ${log.isInternal ? '#22c55e' : '#64748b'}; padding:15px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center;">
+            <div>
+                <div style="font-weight:bold; font-size:15px; color:#333;">${log.truckName}</div>
+                <div style="font-size:12px; color:#888; margin-top:2px;">
+                    <i class="fa-regular fa-clock"></i> ${date}
+                </div>
+            </div>
+            <div style="text-align:center;">
+               <div style="font-size:12px; margin-bottom:4px;">${locBadge}</div>
+               <div style="font-size:11px; color:#555;">${log.locationName}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-size:18px; font-weight:800; color:${log.isInternal ? '#166534' : '#0f172a'};">+${log.realAdded} L</div>
+                <div style="font-size:11px; color:#666; background:#f0f0f0; padding:2px 6px; border-radius:4px; margin-top:2px;">Total: ${log.realTotal} / ${log.truckCapacity} L</div>
+            </div>
+        </div>`;
+    }
+    html += '</div>';
+    this.refuelHistoryContainer.innerHTML = html;
   }
-  
+
   exportRefuelsCSV() {
     if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) { alert("Rien à exporter."); return; }
     let csv = "Date,Heure,Camion,Ajout (L),Total (L),Capacité (L),Lieu\n";
@@ -1857,6 +786,957 @@ class UIController {
     a.click();
   }
 
+  // --- CUSTOM LOCATIONS & EDITING ---
+  
+  editCustomLocation(index) {
+      if (!FLEET_CONFIG.CUSTOM_LOCATIONS || !FLEET_CONFIG.CUSTOM_LOCATIONS[index]) return;
+      const loc = FLEET_CONFIG.CUSTOM_LOCATIONS[index];
+      
+      this.customLocName.value = loc.name;
+      this.customLocWilaya.value = loc.wilaya;
+      this.customLocLat.value = loc.lat;
+      this.customLocLng.value = loc.lng;
+      this.customLocRadius.value = loc.radius || 500;
+      if(this.customLocType) this.customLocType.value = loc.type || 'other';
+
+      this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-save"></i>';
+      this.addCustomLocBtn.style.background = '#e65100'; 
+      this.editingLocationIndex = index;
+      
+      // Auto open Custom Location accordion if closed
+      const accordion = document.querySelector('.settings-header i.fa-map-location-dot');
+      if(accordion) {
+          const header = accordion.closest('.settings-header');
+          const content = header.nextElementSibling;
+          if(!content.classList.contains('open')) header.click();
+      }
+  }
+
+  addCustomLocation() {
+    const name = this.customLocName.value.trim();
+    const wilaya = this.customLocWilaya.value.trim();
+    const lat = parseFloat(this.customLocLat.value);
+    const lng = parseFloat(this.customLocLng.value);
+    let radius = parseInt(this.customLocRadius.value);
+    const type = this.customLocType ? this.customLocType.value : 'other';
+
+    if (!name || !wilaya || isNaN(lat) || isNaN(lng)) {
+      alert('⚠️ Veuillez remplir tous les champs obligatoires.');
+      return;
+    }
+    if (isNaN(radius) || radius < 10) radius = 500;
+    
+    const newLoc = { name, wilaya, lat, lng, radius, type }; 
+    
+    if (!FLEET_CONFIG.CUSTOM_LOCATIONS) FLEET_CONFIG.CUSTOM_LOCATIONS = [];
+    
+    if (this.editingLocationIndex !== null) {
+        FLEET_CONFIG.CUSTOM_LOCATIONS[this.editingLocationIndex] = newLoc;
+        alert(`✅ Lieu "${name}" mis à jour !`);
+        this.editingLocationIndex = null;
+        this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+        this.addCustomLocBtn.style.background = '#166534';
+    } else {
+        FLEET_CONFIG.CUSTOM_LOCATIONS.push(newLoc);
+        alert(`✅ Lieu "${name}" ajouté !`);
+    }
+    
+    this.saveSettingsToCloud();
+    
+    this.renderCustomLocationsList();
+    this.customLocName.value = '';
+    this.customLocLat.value = '';
+    this.customLocLng.value = '';
+  }
+
+  deleteCustomLocation(index) {
+    if(confirm('Supprimer ce lieu ?')) {
+      FLEET_CONFIG.CUSTOM_LOCATIONS.splice(index, 1);
+      this.saveSettingsToCloud();
+      this.renderCustomLocationsList();
+      
+      if(this.editingLocationIndex === index) {
+         this.editingLocationIndex = null;
+         this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
+         this.addCustomLocBtn.style.background = '#166534';
+      }
+    }
+  }
+
+  renderCustomLocationsList() {
+    this.customLocationsList.innerHTML = '';
+    if (!FLEET_CONFIG.CUSTOM_LOCATIONS || FLEET_CONFIG.CUSTOM_LOCATIONS.length === 0) {
+      this.customLocationsList.innerHTML = '<div style="color:#888; font-size:12px; grid-column:1/-1;">Aucun lieu personnalisé.</div>';
+      return;
+    }
+    FLEET_CONFIG.CUSTOM_LOCATIONS.forEach((loc, index) => {
+      const typeConfig = FLEET_CONFIG.LOCATION_TYPES[loc.type ? loc.type.toUpperCase() : 'OTHER'] || FLEET_CONFIG.LOCATION_TYPES.OTHER;
+      
+      const div = document.createElement('div');
+      div.style.cssText = `background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #ddd; border-left: 4px solid ${typeConfig.color || '#666'}; position: relative;`;
+      div.innerHTML = `
+        <div style="position:absolute; top:5px; right:5px; display:flex; gap:5px;">
+             <button onclick="ui.editCustomLocation(${index})" style="background:none; border:none; color: var(--teal); cursor:pointer;"><i class="fa-solid fa-pen"></i></button>
+             <button onclick="ui.deleteCustomLocation(${index})" style="background:none; border:none; color: #d32f2f; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
+        </div>
+        <div style="font-weight:bold; color: #333; margin-right:40px;">${loc.name}</div>
+        <div style="font-size:10px; color:${typeConfig.color || '#666'}; font-weight:bold; margin-bottom:4px;">
+           <i class="fa-solid ${typeConfig.icon || 'fa-map-pin'}"></i> ${typeConfig.label || 'Autre'}
+        </div>
+        <div style="font-size:11px; color:#555;">${loc.wilaya}</div>
+        <div style="font-size:10px; color:#888;">${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}</div>
+      `;
+      this.customLocationsList.appendChild(div);
+    });
+  }
+
+  // --- NEW: SAVE CONNECTION SETTINGS ---
+  saveConnectionSettings() {
+    // 1. Get Values
+    const newServerUrl = this.serverUrlInput.value.trim();
+    const rawKeys = this.geoapifyApiKeysInput ? this.geoapifyApiKeysInput.value : '';
+    
+    // 2. Process API Keys (Split by newline or comma)
+    const keysArray = rawKeys.split(/[\n,]+/).map(k => k.trim()).filter(k => k.length > 0);
+
+    // 3. Update Config Objects
+    FLEET_CONFIG.API.baseUrl = newServerUrl;
+    FLEET_CONFIG.GEOAPIFY_API_KEYS = keysArray;
+    
+    // 4. Save Server URL to Local Storage (Client preference)
+    localStorage.setItem('fleetServerUrl', newServerUrl);
+
+    // 5. Update Live Service
+    if(geocodeService) geocodeService.updateKeys(keysArray);
+
+    // 6. Save Keys to Cloud (Global Setting)
+    this.saveSettingsToCloud();
+    
+    alert('✅ Paramètres de connexion enregistrés !');
+    
+    // 7. Restart polling if running
+    if (app && app.isRunning) {
+        this.startTracking();
+    }
+  }
+
+  setFilter(filterType, label) {
+    this.currentFilter = filterType;
+    this.activeFilterDisplay.style.display = 'flex';
+    this.filterName.textContent = label;
+    this.renderTrucks(); 
+    this.renderStats(); 
+  }
+
+  clearFilter() {
+    this.currentFilter = 'all';
+    this.activeFilterDisplay.style.display = 'none';
+    this.renderTrucks();
+    this.renderStats();
+  }
+  
+  setZoneGrouping(mode) {
+    this.zoneGroupingMode = mode;
+    if(mode === 'wilaya') { this.btnGroupWilaya.classList.add('active'); this.btnGroupCity.classList.remove('active'); } 
+    else { this.btnGroupWilaya.classList.remove('active'); this.btnGroupCity.classList.add('active'); }
+    this.renderWilayaView();
+  }
+  
+  // NEW: Filter Wilaya List
+  filterWilayaList() {
+      const searchBox = document.getElementById('wilayaSearchBox');
+      this.wilayaSearchQuery = searchBox ? searchBox.value.toLowerCase().trim() : '';
+      this.renderWilayaView();
+  }
+
+  setFuelFilter(state) {
+    this.fuelFilterState = state;
+    this.renderFuelSection();
+  }
+
+  setVidangeFilter(state) {
+    this.vidangeFilterState = state;
+    this.renderVidangeSection();
+  }
+
+  switchTab(tabName) {
+    document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    document.getElementById(tabName).classList.add('active');
+
+    if (tabName === 'byWilaya') this.renderWilayaView();
+    if (tabName === 'fuelSection') this.renderFuelSection();
+    if (tabName === 'vidangeSection') this.renderVidangeSection(); 
+    if (tabName === 'maintenanceHistory') this.fetchAndRenderMaintenance(); 
+    if (tabName === 'routing') this.populateRouteTruckList();
+    if (tabName === 'settings') { this.populateTruckList(); this.renderCustomLocationsList(); }
+    if (tabName === 'reports') { this.fetchAndRenderRefuels(); }
+  }
+
+  async autoStartTracking() {
+    // If we are auto-starting, respect the detected URL (Render vs Localhost)
+    if(this.serverUrlInput) this.serverUrlInput.value = FLEET_CONFIG.API.baseUrl;
+
+    let savedInterval = localStorage.getItem('fleetPollInterval');
+    let intervalMs = 10000; 
+    if (savedInterval) {
+        let val = parseInt(savedInterval);
+        if (val < 1000) intervalMs = val * 1000;
+        else intervalMs = val;
+    }
+    
+    this.pollIntervalInput.value = Math.floor(intervalMs / 1000);
+    FLEET_CONFIG.UI.pollInterval = intervalMs;
+
+    this.startBtn.disabled = true;
+    this.stopBtn.disabled = false;
+    
+    await this.fetchAndUpdateTrucks();
+    if (app.pollInterval) clearInterval(app.pollInterval);
+    app.pollInterval = setInterval(() => this.fetchAndUpdateTrucks(), FLEET_CONFIG.UI.pollInterval);
+  }
+
+  async startTracking() {
+    FLEET_CONFIG.API.baseUrl = this.serverUrlInput.value;
+    let inputSeconds = parseInt(this.pollIntervalInput.value);
+    
+    if (isNaN(inputSeconds) || inputSeconds < 5) inputSeconds = 5;
+
+    FLEET_CONFIG.UI.pollInterval = inputSeconds * 1000;
+    localStorage.setItem('fleetServerUrl', FLEET_CONFIG.API.baseUrl);
+    localStorage.setItem('fleetPollInterval', inputSeconds.toString());
+    
+    this.startBtn.disabled = true;
+    this.stopBtn.disabled = false;
+    
+    if (app.pollInterval) clearInterval(app.pollInterval);
+    await this.fetchAndUpdateTrucks();
+    app.pollInterval = setInterval(() => this.fetchAndUpdateTrucks(), FLEET_CONFIG.UI.pollInterval);
+  }
+
+  stopTracking() {
+    if (app && app.pollInterval) {
+      clearInterval(app.pollInterval);
+      app.pollInterval = null;
+    }
+    this.startBtn.disabled = false;
+    this.stopBtn.disabled = true;
+  }
+
+  async fetchAndUpdateTrucks() {
+    try {
+      if (this.loadingContainer.innerHTML !== '') {
+          this.loadingContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;"><i class="fa-solid fa-sync fa-spin"></i> Mise à jour...</div>';
+      }
+      this.errorContainer.innerHTML = '';
+      
+      const response = await fetch(`${FLEET_CONFIG.API.baseUrl}${FLEET_CONFIG.API.trucksEndpoint}`);
+      if (!response.ok) throw new Error(`Erreur: ${response.status}`);
+
+      const data = await response.json();
+      this.loadingContainer.innerHTML = '';
+      
+      await app.processTruckData(data);
+      app.recordHistory();
+      this.updateDashboard();
+    } catch (error) {
+      this.loadingContainer.innerHTML = '';
+      console.error(error);
+      this.showError(`❌ Erreur connexion: ${error.message}`);
+    }
+  }
+
+  updateDashboard() {
+    // Optimized: Use requestAnimationFrame to prevent blocking UI
+    requestAnimationFrame(() => {
+        const activeTab = document.querySelector('.tab-content.active').id;
+        if (activeTab === 'dashboard') { this.renderStats(); this.renderTrucks(); } 
+        else if (activeTab === 'byWilaya') { this.renderWilayaView(); } 
+        else if (activeTab === 'fuelSection') { this.renderFuelSection(); } 
+        else if (activeTab === 'vidangeSection') { this.renderVidangeSection(); }
+    });
+  }
+
+  filterBySearch(trucks) {
+    if (!this.searchQuery) return trucks;
+    return trucks.filter(t => t.name.toLowerCase().includes(this.searchQuery));
+  }
+
+  renderStats() {
+    const stats = app.getFleetStats();
+    const allTrucks = app.getAllTrucks();
+    const movingCount = allTrucks.filter(t => t.speed >= 1).length;
+    const stoppedCount = allTrucks.filter(t => t.speed < 1).length;
+
+    const createCard = (label, value, color, filterType, icon) => {
+      const isActive = this.currentFilter === filterType;
+      const safeLabel = label.replace(/'/g, "\\'"); 
+      return `
+        <div class="stat-card ${isActive ? 'active-filter' : ''}" 
+             data-type="${filterType}"
+             onclick="ui.setFilter('${filterType}', '${safeLabel}')"
+             style="border-bottom: 3px solid ${color}">
+          <div class="stat-icon" style="color: ${color}">${icon}</div>
+          <div class="stat-value">${value}</div>
+          <div class="stat-label">${label}</div>
+        </div>
+      `;
+    };
+
+    this.statsContainer.innerHTML = `
+      ${createCard('Tous', stats.totalTrucks, 'var(--teal)', 'all', '<i class="fa-solid fa-list"></i>')}
+      ${createCard('En Route', movingCount, 'var(--green)', 'moving', '<i class="fa-solid fa-truck-fast"></i>')}
+      ${createCard('À l\'arrêt', stoppedCount, '#999', 'stopped', '<i class="fa-solid fa-ban"></i>')}
+      ${createCard('Critique', stats.criticalCount, 'var(--red)', 'critical', '<i class="fa-solid fa-exclamation-triangle"></i>')}
+      ${createCard('Vidange', stats.vidangeCount, 'var(--orange)', 'vidange', '<i class="fa-solid fa-wrench"></i>')}
+    `;
+  }
+
+  renderTrucks() {
+    this.trucksContainer.innerHTML = '';
+    let trucks = app.getAllTrucks();
+    trucks = this.filterBySearch(trucks);
+
+    if (this.currentFilter === 'critical') trucks = trucks.filter(t => t.isCriticalFuel);
+    else if (this.currentFilter === 'low_fuel') trucks = trucks.filter(t => t.isLowFuel);
+    else if (this.currentFilter === 'vidange') trucks = trucks.filter(t => t.vidange.alert);
+    else if (this.currentFilter === 'moving') trucks = trucks.filter(t => t.speed >= 1);
+    else if (this.currentFilter === 'stopped') trucks = trucks.filter(t => t.speed < 1);
+
+    if (trucks.length === 0) {
+      this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888; background: white; border-radius: 8px;">Aucun camion ne correspond aux critères.</div>';
+      return;
+    }
+
+    trucks.forEach(truck => {
+      const isMoving = truck.speed >= 1;
+      const statusHtml = isMoving 
+        ? `<span class="status-badge moving"><i class="fa-solid fa-bolt"></i> EN ROUTE (${truck.speed} km/h)</span>`
+        : `<span class="status-badge stopped"><i class="fa-solid fa-pause"></i> STOP</span>`;
+      
+      const headerClass = isMoving ? 'moving-bg' : 'stopped-bg';
+      let progressClass = 'good';
+      if (truck.isCriticalFuel) progressClass = 'critical';
+      else if (truck.isLowFuel) progressClass = 'warning';
+
+      const card = document.createElement('div');
+      card.className = 'truck-card';
+      card.innerHTML = `
+        <div class="truck-header ${headerClass}">
+          <div>
+            <h4 style="margin: 0; color: #333;">${truck.name}</h4>
+            <div style="font-size: 11px; color: #888; margin-top: 2px;">
+              <i class="fa-regular fa-clock"></i> ${new Date(truck.timestamp).toLocaleTimeString()}
+            </div>
+          </div>
+          <div>${statusHtml}</div>
+        </div>
+
+        <div class="truck-body">
+          <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px;">
+            <span><i class="fa-solid fa-gas-pump"></i> Niveau</span>
+            <strong style="color: ${truck.isCriticalFuel ? 'var(--red)' : '#333'}">${truck.fuelLiters} L</strong>
+          </div>
+          
+          <div class="progress-bar">
+            <div class="progress-fill ${progressClass}" style="width: ${Math.min(truck.fuelPercentage, 100)}%;"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size: 11px; margin-top: 4px; color: #666;">
+            <span>${truck.fuelPercentage}% plein</span>
+            ${truck.hasCalibration ? '<span style="color: var(--teal);"><i class="fa-solid fa-ruler-combined"></i> Calibré</span>' : ''}
+          </div>
+
+          <div class="info-grid">
+            <div class="info-item">
+              <div class="info-label">Odomètre</div>
+              <div class="info-value">${truck.odometer.toLocaleString()} <small>km</small></div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Autonomie Est.</div>
+              <div class="info-value">${truck.rangeKm} <small>km</small></div>
+            </div>
+          </div>
+
+          <div class="location-box">
+             <i class="fa-solid fa-map-marker-alt" style="${truck.location.isCustom ? 'color: #166534;' : ''}"></i>
+             <div>
+               <div style="font-weight: 600; color: ${truck.location.isCustom ? '#166534' : '#333'};">${truck.location.city}</div>
+               <div>${truck.location.wilaya}</div>
+             </div>
+          </div>
+
+          ${truck.vidange.alert ? `
+            <div style="margin-top: 12px; padding: 10px; background: #fff3e0; border-left: 3px solid var(--orange); border-radius: 4px; font-size: 12px;">
+              <strong style="color: var(--orange);"><i class="fa-solid fa-wrench"></i> VIDANGE REQUISE</strong>
+              <div style="margin-top: 2px;">Prévue à ${truck.vidange.nextKm}km (${truck.vidange.kmUntilNext} km restants)</div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+      this.trucksContainer.appendChild(card);
+    });
+  }
+
+  goToPlanning(truckId) {
+      this.switchTab('routing');
+      this.routeTruck.value = truckId;
+      this.routeTruck.focus();
+      this.routeTruck.style.borderColor = 'var(--teal)';
+      setTimeout(() => { this.routeTruck.style.borderColor = '#ddd'; }, 1000);
+  }
+
+  renderFuelSection() {
+    this.fuelSectionContainer.innerHTML = '';
+    let trucks = app.getAllTrucks().sort((a, b) => a.fuelPercentage - b.fuelPercentage);
+    trucks = this.filterBySearch(trucks);
+    
+    if (this.fuelFilterState === 'critical') trucks = trucks.filter(t => t.isCriticalFuel);
+    else if (this.fuelFilterState === 'warning') trucks = trucks.filter(t => t.isLowFuel && !t.isCriticalFuel);
+    else if (this.fuelFilterState === 'normal') trucks = trucks.filter(t => !t.isLowFuel && !t.isCriticalFuel);
+
+    const controls = document.createElement('div');
+    controls.className = 'sub-filters';
+    controls.innerHTML = `
+      <button class="filter-pill ${this.fuelFilterState === 'all' ? 'active' : ''}" onclick="ui.setFuelFilter('all')">Tout</button>
+      <button class="filter-pill critical ${this.fuelFilterState === 'critical' ? 'active' : ''}" onclick="ui.setFuelFilter('critical')">Critique</button>
+      <button class="filter-pill warning ${this.fuelFilterState === 'warning' ? 'active' : ''}" onclick="ui.setFuelFilter('warning')">Bas</button>
+      <button class="filter-pill normal ${this.fuelFilterState === 'normal' ? 'active' : ''}" onclick="ui.setFuelFilter('normal')">Normal</button>
+    `;
+    this.fuelSectionContainer.appendChild(controls);
+
+    const header = document.createElement('div');
+    header.className = 'accordion-header';
+    header.innerHTML = `
+      <div>
+        <h3 style="margin:0;"><i class="fa-solid fa-gas-pump"></i> État du Carburant</h3>
+        <span style="font-size: 12px; color: #666;">${trucks.length} Camions affichés</span>
+      </div>
+      <div style="font-size: 20px;">${this.fuelAccordionState ? '<i class="fa-solid fa-chevron-down"></i>' : '<i class="fa-solid fa-chevron-right"></i>'}</div>
+    `;
+    header.onclick = () => {
+      this.fuelAccordionState = !this.fuelAccordionState;
+      this.renderFuelSection(); 
+    };
+    this.fuelSectionContainer.appendChild(header);
+
+    const content = document.createElement('div');
+    content.className = `accordion-content ${this.fuelAccordionState ? 'show' : ''}`;
+    
+    if (trucks.length === 0) {
+      content.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Aucun camion dans cette catégorie.</div>';
+    } else {
+      content.innerHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+        ${trucks.map(t => {
+          const color = t.isCriticalFuel ? 'var(--red)' : t.isLowFuel ? 'var(--orange)' : 'var(--green)';
+          const locText = `${t.location.city}, ${t.location.wilaya}`;
+          
+          return `
+          <div class="fuel-card-container" style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1); position:relative;">
+            <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
+              <strong>${t.name}</strong>
+              <div style="text-align:right;">
+                <strong style="color:${color}; font-size: 1.2rem;">${t.fuelLiters} L</strong>
+                <div style="font-size: 11px; color: #888;">${t.fuelPercentage}%</div>
+              </div>
+            </div>
+            
+            <div style="background: #eee; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+              <div style="background: ${color}; width: ${t.fuelPercentage}%; height: 100%;"></div>
+            </div>
+            
+            <div style="font-size: 12px; color: #666; display: flex; justify-content: space-between; margin-bottom: 5px;">
+              <span><i class="fa-solid fa-tank-water"></i> Cap: ${t.fuelTankCapacity}L</span>
+              <span><i class="fa-solid fa-road"></i> ~${t.rangeKm} km</span>
+            </div>
+
+            <div style="font-size: 11px; color: #555; border-top: 1px solid #eee; padding-top: 5px;">
+               <i class="fa-solid fa-location-dot" style="color:${color}"></i> ${locText}
+            </div>
+
+            <button class="fuel-card-overlay-btn" onclick="ui.goToPlanning('${t.id}')">
+                <i class="fa-solid fa-calculator"></i> Calculer Remplissage
+            </button>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+    this.fuelSectionContainer.appendChild(content);
+  }
+
+  renderVidangeSection() {
+    this.vidangeSectionContainer.innerHTML = '';
+    let trucks = app.getAllTrucks().sort((a, b) => a.vidange.kmUntilNext - b.vidange.kmUntilNext);
+    trucks = this.filterBySearch(trucks);
+
+    if (this.vidangeFilterState === 'urgent') trucks = trucks.filter(t => t.vidange.alert);
+    else if (this.vidangeFilterState === 'warning') trucks = trucks.filter(t => !t.vidange.alert && t.vidange.kmUntilNext < (t.vidange.alertKm + 3000));
+    else if (this.vidangeFilterState === 'ok') trucks = trucks.filter(t => !t.vidange.alert && t.vidange.kmUntilNext >= (t.vidange.alertKm + 3000));
+
+    const controls = document.createElement('div');
+    controls.className = 'sub-filters';
+    controls.innerHTML = `
+      <button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button>
+      <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">Urgent</button>
+      <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">Bientôt</button>
+      <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">OK</button>
+    `;
+    this.vidangeSectionContainer.appendChild(controls);
+
+    const header = document.createElement('div');
+    header.className = 'accordion-header';
+    header.style.borderLeftColor = 'var(--orange)';
+    header.innerHTML = `
+      <div>
+        <h3 style="margin:0;"><i class="fa-solid fa-wrench"></i> État des Vidanges</h3>
+        <span style="font-size: 12px; color: #666;">${trucks.length} Camions affichés</span>
+      </div>
+      <div style="font-size: 20px;">${this.vidangeAccordionState ? '<i class="fa-solid fa-chevron-down"></i>' : '<i class="fa-solid fa-chevron-right"></i>'}</div>
+    `;
+    header.onclick = () => {
+      this.vidangeAccordionState = !this.vidangeAccordionState;
+      this.renderVidangeSection();
+    };
+    this.vidangeSectionContainer.appendChild(header);
+
+    const content = document.createElement('div');
+    content.className = `accordion-content ${this.vidangeAccordionState ? 'show' : ''}`;
+    
+    if (trucks.length === 0) {
+      content.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Aucun camion dans cette catégorie.</div>';
+    } else {
+      content.innerHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px;">
+        ${trucks.map(t => {
+          const isAlert = t.vidange.alert;
+          const isWarning = !isAlert && t.vidange.kmUntilNext < (t.vidange.alertKm + 3000);
+          
+          let color = '#2a9d8f'; 
+          let statusText = 'OK';
+          
+          if (isAlert) { color = '#e63946'; statusText = 'URGENT'; }
+          else if (isWarning) { color = '#f4a261'; statusText = 'BIENTÔT'; }
+
+          const bg = isAlert ? '#fff5f5' : 'white';
+          
+          return `
+          <div style="background: ${bg}; padding: 15px; border-radius: 8px; border: 1px solid ${isAlert ? color : '#ddd'}; border-left: 4px solid ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <div style="display:flex; justify-content:space-between; margin-bottom: 8px;">
+              <strong>${t.name}</strong>
+              <span style="background:${color}; color:white; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: bold;">${statusText}</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
+              <div>
+                <div style="color:#888;">Prochaine</div>
+                <strong style="color: ${color}; font-size: 14px;">${t.vidange.nextKm} km</strong>
+              </div>
+              <div>
+                <div style="color:#888;">Reste</div>
+                <strong style="color: #333; font-size: 14px;">${t.vidange.kmUntilNext} km</strong>
+              </div>
+            </div>
+            
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; font-size: 11px; color: #666;">
+               Actuel: ${t.odometer} km
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+    }
+    this.vidangeSectionContainer.appendChild(content);
+  }
+
+  // --- WILAYA VIEW (UPDATED) ---
+  renderWilayaView() {
+    this.wilayaContainer.innerHTML = '';
+    
+    // 1. ADD SEARCH BAR FOR WILAYAS
+    const searchContainer = document.createElement('div');
+    searchContainer.innerHTML = `
+      <input type="text" id="wilayaSearchBox" class="wilaya-search-box" 
+             placeholder="🔍 Filtrer par nom de Wilaya ou Zone..." 
+             value="${this.wilayaSearchQuery || ''}"
+             onkeyup="ui.filterWilayaList()">
+    `;
+    this.wilayaContainer.appendChild(searchContainer);
+
+    let grouped;
+    // We force city grouping for better precision if user selected it
+    if (this.zoneGroupingMode === 'city') {
+        grouped = app.getTrucksByCity(); 
+    } else {
+        grouped = app.getTrucksByWilaya(); 
+    }
+    
+    // Separate into Custom Locations (ZI) vs Standard Wilayas
+    const customZones = {};
+    const standardZones = {};
+
+    Object.keys(grouped).forEach(key => {
+        const trucks = grouped[key];
+        if(!trucks || trucks.length === 0) return;
+        
+        // Check if ANY truck in this group is in a custom location
+        const isCustomGroup = trucks.some(t => t.location && t.location.isCustom);
+        
+        // Filter by Search Query
+        if(this.wilayaSearchQuery) {
+            if(!key.toLowerCase().includes(this.wilayaSearchQuery)) return;
+        }
+
+        if(isCustomGroup) customZones[key] = trucks;
+        else standardZones[key] = trucks;
+    });
+
+    // Helper to render a section
+    const renderSection = (title, groups, isCustom) => {
+        if (Object.keys(groups).length === 0) return;
+        
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'wilaya-section-title';
+        titleDiv.innerHTML = title;
+        this.wilayaContainer.appendChild(titleDiv);
+
+        Object.keys(groups).sort().forEach(groupName => {
+            let trucks = groups[groupName];
+            trucks = this.filterBySearch(trucks);
+            if (trucks.length === 0) return; 
+
+            let displayLabel = groupName;
+            if (this.zoneGroupingMode === 'city' && trucks.length > 0) {
+                 const wilaya = trucks[0].location.wilaya || 'Algérie';
+                 if(wilaya !== 'Inconnu' && !displayLabel.includes(wilaya)) {
+                     displayLabel = `${groupName} <span style="font-weight:normal; font-size:0.9em; color:#666;">- ${wilaya}</span>`;
+                 }
+            }
+            
+            // Custom Badge
+            if(isCustom) {
+                displayLabel += `<span class="custom-zone-badge">ZONE DÉFINIE</span>`;
+            }
+
+            const div = document.createElement('div');
+            div.className = 'accordion-header';
+            div.style.borderLeft = isCustom ? '4px solid #166534' : '4px solid #ddd';
+            div.innerHTML = `
+                  <div style="display:flex; align-items:center; gap: 10px;">
+                    <i class="${this.zoneGroupingMode === 'city' ? 'fa-solid fa-location-dot' : 'fa-solid fa-map-pin'}" style="color:${isCustom ? '#166534' : 'var(--teal)'};"></i>
+                    <strong>${displayLabel}</strong> 
+                  </div>
+                  <span style="background: #eee; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold;">${trucks.length}</span>
+            `;
+              
+            div.onclick = () => {
+                const grid = div.nextElementSibling;
+                const isHidden = grid.style.display === 'none';
+                grid.style.display = isHidden ? 'grid' : 'none';
+            };
+
+            const grid = document.createElement('div');
+            grid.className = 'trucks-grid';
+            grid.style.display = this.searchQuery ? 'grid' : 'none'; 
+            grid.style.marginTop = '10px';
+            grid.style.marginBottom = '20px';
+            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
+              
+            trucks.forEach(t => {
+                 const isMoving = t.speed >= 1;
+                 const card = document.createElement('div');
+                 card.className = 'truck-card';
+                 card.style.padding = '15px';
+                 const fuelColor = t.isCriticalFuel ? 'var(--red)' : t.isLowFuel ? 'var(--orange)' : 'var(--green)';
+
+                 card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                        <strong>${t.name}</strong>
+                        <span class="status-badge ${isMoving ? 'moving' : 'stopped'}" style="font-size: 9px;">
+                            ${isMoving ? 'EN ROUTE' : 'À L\'ARRÊT'}
+                        </span>
+                    </div>
+                    
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size: 13px;">
+                        <span style="color: #666;"><i class="fa-solid fa-gas-pump"></i> Carburant:</span>
+                        <strong style="color: ${fuelColor};">${t.fuelLiters} L</strong>
+                    </div>
+
+                     <div style="display:flex; justify-content:space-between; align-items:center; font-size: 13px; margin-top: 4px;">
+                        <span style="color: #666;"><i class="fa-solid fa-tachometer-alt"></i> Vitesse:</span>
+                        <span>${t.speed} km/h</span>
+                    </div>
+
+                    <div style="margin-top: 8px; font-size: 11px; color: #888; border-top: 1px solid #eee; padding-top: 5px;">
+                        ${t.location.city}
+                    </div>
+                 `;
+                 grid.appendChild(card);
+            });
+              
+            this.wilayaContainer.appendChild(div);
+            this.wilayaContainer.appendChild(grid);
+        });
+    };
+
+    // RENDER ORDER: Custom ZI first, then standard
+    renderSection("🏢 Zones Personnalisées & Sites", customZones, true);
+    renderSection("🇩🇿 Wilayas (Algérie)", standardZones, false);
+
+    if (this.wilayaContainer.children.length === 1) { // Only search bar exists
+         const emptyMsg = document.createElement('div');
+         emptyMsg.style.cssText = "text-align:center; padding: 20px; color:#888;";
+         emptyMsg.innerHTML = "Aucune zone trouvée pour cette recherche.";
+         this.wilayaContainer.appendChild(emptyMsg);
+    }
+  }
+  
+  populateRouteTruckList() {
+    this.routeTruck.innerHTML = '<option value="">-- Choisir un camion --</option>';
+    app.getAllTrucks().forEach(t => {
+      this.routeTruck.innerHTML += `<option value="${t.id}">${t.name} (${t.fuelLiters} L)</option>`;
+    });
+  }
+
+  populateTruckList() {
+    this.truckSelect.innerHTML = '<option value="">-- Choisir un camion --</option>';
+    app.getAllTrucks().forEach(t => {
+      this.truckSelect.innerHTML += `<option value="${t.id}">${t.name}</option>`;
+    });
+  }
+
+  // --- FIXED SETTINGS SAVE (REMOVED API DEPENDENCY) ---
+  saveDefaultsAndRefresh() {
+    // Save locally
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelTankCapacity = parseInt(this.defaultFuelCapacity.value);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelConsumption = parseFloat(this.defaultFuelConsumption.value);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter = parseFloat(this.defaultFuelPrice.value);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelSecurityMargin = parseInt(this.defaultSecurityMargin.value);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelAlertThreshold = parseInt(this.defaultFuelThreshold.value);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.criticalFuelLevel = parseInt(this.defaultCriticalLevel.value);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeMilestones = this.defaultVidangeMilestones.value;
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm = parseInt(this.defaultVidangeAlert.value);
+    
+    const globalCalibData = this.parseCalibrationText(this.defaultCalibration.value);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.calibration = globalCalibData;
+
+    // SAVE KEYS FROM TEXTAREA
+    if(this.geoapifyApiKeysInput) {
+        const raw = this.geoapifyApiKeysInput.value;
+        const keys = raw.split(/[\n,]+/).map(k => k.trim()).filter(k => k.length > 0);
+        FLEET_CONFIG.GEOAPIFY_API_KEYS = keys;
+        
+        // Update live service immediately
+        if(geocodeService) geocodeService.updateKeys(keys);
+    }
+
+    // Save to cloud (Async, don't await)
+    this.saveSettingsToCloud();
+    
+    alert('✅ Paramètres sauvegardés ! Les données se mettront à jour en arrière-plan.');
+    
+    // Refresh UI state only
+    this.updateDashboard();
+  }
+
+  onTruckSelect(deviceId) {
+    if (!deviceId) { this.truckConfigForm.style.display = 'none'; return; }
+    
+    const override = FLEET_CONFIG.TRUCK_OVERRIDES[deviceId] || {};
+    const merged = getTruckConfig(deviceId);
+    
+    document.getElementById('truckAlias').value = override.alias || '';
+    document.getElementById('truckFuelCapacity').value = override.fuelTankCapacity || merged.fuelTankCapacity;
+    document.getElementById('truckConsumption').value = override.fuelConsumption || merged.fuelConsumption;
+    document.getElementById('truckFuelThreshold').value = override.fuelAlertThreshold || merged.fuelAlertThreshold;
+    document.getElementById('truckVidangeMilestones').value = override.vidangeMilestones || merged.vidangeMilestones;
+    
+    if (override.calibration && Array.isArray(override.calibration)) {
+      const text = override.calibration.map(item => `${item.x}=${item.y}`).join('\n');
+      this.truckCalibration.value = text;
+    } else {
+      this.truckCalibration.value = '';
+    }
+    
+    this.truckConfigForm.style.display = 'grid';
+  }
+
+  saveTruckConfig() {
+    const deviceId = this.truckSelect.value;
+    if(!deviceId) return;
+
+    const specificCalibData = this.parseCalibrationText(this.truckCalibration.value);
+
+    const config = {
+      alias: document.getElementById('truckAlias').value.trim(),
+      fuelTankCapacity: parseInt(document.getElementById('truckFuelCapacity').value),
+      fuelConsumption: parseFloat(document.getElementById('truckConsumption').value),
+      fuelAlertThreshold: parseInt(document.getElementById('truckFuelThreshold').value),
+      vidangeMilestones: document.getElementById('truckVidangeMilestones').value.trim(),
+      calibration: specificCalibData 
+    };
+
+    if (!FLEET_CONFIG.TRUCK_OVERRIDES[deviceId]) FLEET_CONFIG.TRUCK_OVERRIDES[deviceId] = {};
+    FLEET_CONFIG.TRUCK_OVERRIDES[deviceId] = {
+        ...FLEET_CONFIG.TRUCK_OVERRIDES[deviceId],
+        ...config
+    };
+
+    this.saveSettingsToCloud();
+    alert('✅ Exception sauvegardée !');
+    // Refresh locally instantly
+    this.updateDashboard();
+  }
+
+  resetTruckConfig() {
+    const deviceId = this.truckSelect.value;
+    if(!deviceId) return;
+    delete FLEET_CONFIG.TRUCK_OVERRIDES[deviceId];
+    
+    this.saveSettingsToCloud();
+    this.onTruckSelect(deviceId);
+    alert('🔄 Exception effacée.');
+    this.updateDashboard();
+  }
+  
+  parseCalibrationText(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return null;
+    const lines = trimmed.split(/[\n,]/);
+    const calibrationData = lines.map(line => {
+       const parts = line.split(/[=:]/);
+       if(parts.length < 2) return null;
+       const x = parseFloat(parts[0].trim());
+       const y = parseFloat(parts[1].trim());
+       return (isNaN(x) || isNaN(y)) ? null : { x, y };
+    }).filter(item => item !== null);
+    
+    if (calibrationData.length > 0) {
+      calibrationData.sort((a, b) => a.x - b.x);
+      return calibrationData;
+    }
+    return null;
+  }
+  
+  handleRouteDestinationSearch(query) {
+    if (query.length < 2) { this.routeAutocompleteDropdown.style.display = 'none'; return; }
+
+    let apiKey = FLEET_CONFIG.GEOAPIFY_API_KEY;
+    if(FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0) {
+        apiKey = FLEET_CONFIG.GEOAPIFY_API_KEYS[0];
+    }
+
+    fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&apiKey=${apiKey}&limit=5&country=dz`)
+      .then(res => res.json())
+      .then(data => {
+        this.routeAutocompleteDropdown.innerHTML = '';
+        if (data.features) {
+          data.features.forEach(f => {
+            const div = document.createElement('div');
+            div.style.padding = '10px';
+            div.style.cursor = 'pointer';
+            div.style.borderBottom = '1px solid #eee';
+            div.innerHTML = `<i class="fa-solid fa-map-pin" style="color: var(--teal); margin-right: 5px;"></i> <strong>${f.properties.city || f.properties.name}</strong>, ${f.properties.state || 'Algérie'}`;
+            div.onclick = () => {
+              this.selectedRouteDestination = { 
+                city: f.properties.city || f.properties.name, 
+                lat: f.geometry.coordinates[1], 
+                lng: f.geometry.coordinates[0],
+                wilaya: f.properties.state 
+              };
+              this.routeDestSearch.value = `${this.selectedRouteDestination.city}, ${this.selectedRouteDestination.wilaya}`;
+              this.routeAutocompleteDropdown.style.display = 'none';
+            };
+            this.routeAutocompleteDropdown.appendChild(div);
+          });
+          this.routeAutocompleteDropdown.style.display = 'block';
+        }
+      })
+      .catch(e => console.log("Geo search failed", e));
+  }
+  
+  calculateRoute() {
+    const truckId = this.routeTruck.value;
+    const destination = this.selectedRouteDestination;
+
+    if (!truckId || !destination) {
+      alert('⚠️ Sélectionnez un camion et une destination.');
+      return;
+    }
+
+    const truck = app.trucks.get(truckId);
+    const pricePerLiter = parseFloat(this.defaultFuelPrice.value) || 29; 
+    const marginLiters = parseInt(this.defaultSecurityMargin.value) || 100; 
+
+    const distance = calculateDistance(truck.coordinates.lat, truck.coordinates.lng, destination.lat, destination.lng);
+    const roadDistance = Math.round(distance * 1.25);
+    const fuelNeededForTrip = Math.round((roadDistance / 100) * truck.fuelConsumption);
+    const remainingAfterTrip = truck.fuelLiters - fuelNeededForTrip;
+    const shortfall = marginLiters - remainingAfterTrip;
+    
+    let litersToBuy = 0;
+    let statusColor = 'green';
+    let statusText = '✅ SUFFISANT';
+    let cost = 0;
+
+    if (shortfall > 0) {
+      litersToBuy = shortfall;
+      statusColor = 'orange'; 
+      statusText = `⚠️ FAIRE L'APPOINT`;
+      if (remainingAfterTrip < 0) {
+        statusColor = 'red';
+        statusText = `❌ INSUFFISANT`;
+      }
+      cost = litersToBuy * pricePerLiter;
+    }
+
+    this.routeResultsContainer.innerHTML = `
+      <div class="route-result" style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-top: 5px solid ${statusColor}; margin-top: 20px;">
+        <h3 style="margin: 0 0 15px 0; color: var(--teal-dark);">Trajet: ${truck.name} <i class="fa-solid fa-arrow-right"></i> ${destination.city}</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+          <div><div style="font-size: 12px; color: #888;">DISTANCE</div><div style="font-size: 18px; font-weight: bold;">${roadDistance} km</div></div>
+          <div><div style="font-size: 12px; color: #888;">CONSO</div><div style="font-size: 18px; font-weight: bold;">${fuelNeededForTrip} L</div></div>
+        </div>
+        <div style="background: #f4f6f9; padding: 15px; border-radius: 8px;">
+          <h4 style="margin: 0 0 10px 0; color: ${statusColor};">${statusText}</h4>
+          ${litersToBuy > 0 ? `
+            <p>Ajouter pour sécuriser le trajet (+marge):</p>
+            <div style="font-size: 24px; font-weight: bold; color: ${statusColor};">${litersToBuy} Litres</div>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+              <div style="font-size: 12px; color: #666;">COÛT ESTIMÉ</div>
+              <div style="font-size: 28px; font-weight: 800; color: var(--teal-dark);">${cost.toLocaleString()} DA</div>
+            </div>
+          ` : `<p style="color: green;">Réserve à l'arrivée: ${remainingAfterTrip}L (Marge OK).</p>`}
+        </div>
+      </div>
+    `;
+  }
+  
+  clearHistory() {
+     if(confirm("Effacer tout l'historique ?")) {
+         app.trackingHistory = [];
+         alert("Historique effacé.");
+     }
+  }
+  
+  exportCSV() {
+     const csv = app.exportCSV();
+     if(!csv) return;
+     const blob = new Blob([csv], { type: 'text/csv' });
+     const url = window.URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url;
+     a.download = `rapport_flotte_${new Date().toISOString().slice(0,10)}.csv`;
+     a.click();
+  }
+  
+  exportJSON() {
+     const json = app.exportJSON();
+     const blob = new Blob([json], { type: 'application/json' });
+     const url = window.URL.createObjectURL(blob);
+     const a = document.createElement('a');
+     a.href = url;
+     a.download = `backup_flotte_${new Date().toISOString().slice(0,10)}.json`;
+     a.click();
+  }
+  
   // NEW: Download FULL Backup from SERVER
   downloadServerBackup() {
       const backupUrl = `${FLEET_CONFIG.API.baseUrl}/api/backup/download`;
@@ -1913,13 +1793,6 @@ class UIController {
       reader.readAsText(file);
   }
   
-  clearHistory() {
-      if(confirm("Effacer tout l'historique ?")) {
-          app.trackingHistory = [];
-          alert("Historique effacé.");
-      }
-  }
-
   showError(msg) { 
       this.errorContainer.innerHTML = `<div style="background:#fee;color:var(--red);padding:10px;border-radius:4px;"><i class="fa-solid fa-circle-exclamation"></i> ${msg}</div>`; 
   }
@@ -1930,4 +1803,4 @@ setTimeout(() => {
   if (typeof app !== 'undefined') {
     ui = new UIController();
   }
-}, 100);
+}, 200);

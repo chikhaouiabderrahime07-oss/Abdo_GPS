@@ -10,42 +10,28 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
-// --- 1. CONNEXION FIREBASE (Variable d'abord, Fichier ensuite) ---
-let serviceAccount;
+// --- 1. CRITICAL: FIREBASE CONNECTION ---
+const KEY_FILE = './firebase-key.json';
 
-// Option A: Render (Variable)
-if (process.env.FIREBASE_CREDENTIALS) {
-    try {
-        console.log("☁️ Lecture de la clé depuis Render...");
-        serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
-    } catch (e) {
-        console.error("❌ Erreur lecture clé:", e.message);
+try {
+    if (!fs.existsSync(KEY_FILE)) {
+        throw new Error(`❌ FICHIER MANQUANT: ${KEY_FILE} est introuvable ! Placez-le dans le même dossier.`);
     }
-}
 
-// Option B: Local (Fichier)
-if (!serviceAccount && fs.existsSync('./firebase-key.json')) {
-    try {
-        console.log("💻 Lecture du fichier local...");
-        serviceAccount = require('./firebase-key.json');
-    } catch(e) {
-        console.error("❌ Erreur fichier:", e.message);
-    }
-}
+    console.log("📂 Chargement de la clé Firebase depuis le fichier...");
+    const serviceAccount = require(KEY_FILE);
 
-if (serviceAccount) {
-    try {
-        if (admin.apps.length === 0) {
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount)
-            });
-            console.log("✅ SUCCÈS: Base de Données Connectée !");
-        }
-    } catch(e) {
-        console.error("❌ Erreur connexion Firebase:", e.message);
-    }
-} else {
-    console.error("⚠️ ATTENTION: Aucune clé trouvée. L'API ne marchera pas.");
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+
+    console.log("✅ SUCCÈS: Firebase est connecté et prêt !");
+
+} catch (e) {
+    console.error("\n/!\\ ERREUR FATALE FIREBASE /!\\");
+    console.error(e.message);
+    console.error("Le serveur ne peut pas démarrer sans la clé valide.\n");
+    process.exit(1); // Stop the server if auth fails
 }
 
 const db = admin.firestore();
@@ -56,32 +42,38 @@ const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145
 
 // --- ROUTES ---
 
-// 0. SILENCE FAVICON ERROR
-app.get('/favicon.ico', (req, res) => res.status(204).end());
-
-// 1. TRUCKS
 app.get('/api/trucks', async (req, res) => {
     try {
         const response = await fetch(GPS_API_URL);
         const json = await response.json();
         res.json(json);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
-// 2. REFUELS
+// ROBUST Refuels Route
 app.get('/api/refuels', async (req, res) => {
     try {
         const snap = await db.collection('refuels').orderBy('timestamp', 'desc').limit(100).get();
-        res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json(data);
+    } catch (e) {
+        console.error("❌ Erreur API Refuels:", e.message);
+        res.status(500).json({ error: "Erreur Base de Données: " + e.message });
+    }
 });
 
-// 3. MAINTENANCE
+// ROBUST Maintenance Route
 app.get('/api/maintenance', async (req, res) => {
     try {
         const snap = await db.collection('maintenance').orderBy('date', 'desc').limit(100).get();
-        res.json(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (e) { res.status(500).json({ error: e.message }); }
+        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json(data);
+    } catch (e) {
+        console.error("❌ Erreur API Maintenance:", e.message);
+        res.status(500).json({ error: "Erreur Base de Données: " + e.message });
+    }
 });
 
 app.post('/api/maintenance/add', async (req, res) => {
@@ -107,7 +99,6 @@ app.post('/api/maintenance/delete', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 4. SETTINGS
 app.get('/api/settings', async (req, res) => {
     try {
         const doc = await db.collection('settings').doc('global').get();
@@ -122,7 +113,7 @@ app.post('/api/settings', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 5. BACKUP & RESTORE (The Missing Part)
+// BACKUP & RESTORE
 app.get('/api/backup/download', async (req, res) => {
     try {
         const collections = ['settings', 'refuels', 'maintenance', 'truck_states'];
@@ -138,6 +129,7 @@ app.get('/api/backup/download', async (req, res) => {
 app.post('/api/backup/restore', async (req, res) => {
     try {
         const batch = db.batch();
+        // Simplified restore logic for stability
         for (const [col, items] of Object.entries(req.body)) {
             if (!Array.isArray(items)) continue;
             items.forEach(item => {
@@ -151,6 +143,8 @@ app.post('/api/backup/restore', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// START SERVER
 app.listen(PORT, () => {
-    console.log(`✅ Serveur lancé sur http://localhost:${PORT}`);
+    console.log(`\n🚀 SERVEUR LANCÉ: http://localhost:${PORT}`);
+    console.log(`👉 Vérifiez que "✅ SUCCÈS" est affiché ci-dessus.\n`);
 });
