@@ -33,15 +33,16 @@ const db = admin.firestore();
 // --- 2. CONFIGURATION & STATE ---
 let SYSTEM_SETTINGS = {
     customLocations: [],
-    maintenanceRules: { minDurationMinutes: 60 }, // Default 60 mins
-    defaultConfig: {}
+    maintenanceRules: { minDurationMinutes: 60 },
+    defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35 }, // Default fallback
+    fleetRules: [] // Store specific truck rules here
 };
 
 const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
 
 // --- 3. HELPER FUNCTIONS ---
 function calculateDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371e3; // meters
+    const R = 6371e3; 
     const φ1 = lat1 * Math.PI/180;
     const φ2 = lat2 * Math.PI/180;
     const Δφ = (lat2-lat1) * Math.PI/180;
@@ -51,6 +52,22 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
+// Helper to get truck specific config (Capacity, etc.)
+function getTruckConfig(deviceId) {
+    const globalDefault = SYSTEM_SETTINGS.defaultConfig || {};
+    let specificConfig = {};
+
+    if (SYSTEM_SETTINGS.fleetRules && Array.isArray(SYSTEM_SETTINGS.fleetRules)) {
+        const matchedRule = SYSTEM_SETTINGS.fleetRules.find(rule => 
+            rule.truckIds && rule.truckIds.includes(deviceId.toString())
+        );
+        if (matchedRule && matchedRule.config) {
+            specificConfig = matchedRule.config;
+        }
+    }
+    return { ...globalDefault, ...specificConfig };
+}
+
 async function loadSettings() {
     try {
         const doc = await db.collection('settings').doc('global').get();
@@ -58,6 +75,8 @@ async function loadSettings() {
             const data = doc.data();
             if(data.customLocations) SYSTEM_SETTINGS.customLocations = data.customLocations;
             if(data.maintenanceRules) SYSTEM_SETTINGS.maintenanceRules = data.maintenanceRules;
+            if(data.defaultConfig) SYSTEM_SETTINGS.defaultConfig = data.defaultConfig;
+            if(data.fleetRules) SYSTEM_SETTINGS.fleetRules = data.fleetRules;
         }
     } catch (e) { console.error("Settings Load Error:", e); }
 }
@@ -66,7 +85,7 @@ async function loadSettings() {
 async function runFleetBot() {
     console.log("🤖 FleetBot: Checking status...");
     
-    // 1. Get Live Data (FROM REAL API)
+    // 1. Get Live Data
     let rawData = {};
     try {
         const response = await fetch(GPS_API_URL);
@@ -81,21 +100,69 @@ async function runFleetBot() {
     const now = Date.now();
     const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
 
-    // 2. Load Active States from DB (This makes it persist over restarts)
+    // 2. Load Active States (Fuel & Maintenance)
     const statesSnapshot = await db.collection('truck_states').get();
-    const activeStates = {}; // Map of deviceId -> stateData
+    const activeStates = {}; 
     statesSnapshot.forEach(doc => { activeStates[doc.id] = doc.data(); });
 
     // 3. Process Each Truck
     for (const [deviceId, truck] of Object.entries(rawData)) {
-        // Skip invalid GPS
         if (!truck.params || truck.loc_valid === '0') continue;
 
         const lat = parseFloat(truck.lat);
         const lng = parseFloat(truck.lng);
         const truckName = truck.name;
+
+        // --- A. GET CONFIG & CALCULATE FUEL ---
+        const config = getTruckConfig(deviceId);
+        // Simple calculation (assuming percentage is sent in io87)
+        // If you use calibration, we'd need that logic here, but for now linear is safer for the bot
+        const rawSensor = parseFloat(truck.params.io87) || 0; 
+        const capacity = config.fuelTankCapacity || 600;
         
-        // Check if inside ANY maintenance zone
+        // Calculate Liters based on percentage (io87 is usually %)
+        const currentLiters = Math.round((rawSensor / 100) * capacity);
+        
+        // --- B. REFUEL DETECTION LOGIC ---
+        const lastState = activeStates[deviceId];
+        
+        if (lastState && lastState.lastFuelLiters !== undefined) {
+            const diff = currentLiters - lastState.lastFuelLiters;
+            
+            // THRESHOLD: If fuel increased by > 20 Liters (adjust as needed)
+            if (diff >= 20) {
+                console.log(`⛽ REFUEL DETECTED: ${truckName} (+${diff}L)`);
+                
+                // Determine Location Name
+                let locName = `Position GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+                let isInternal = false;
+                
+                // Check if in known custom location
+                for (const loc of SYSTEM_SETTINGS.customLocations) {
+                    const dist = calculateDistance(lat, lng, loc.lat, loc.lng);
+                    if (dist <= (loc.radius || 500)) {
+                        locName = loc.name;
+                        isInternal = true;
+                        break;
+                    }
+                }
+
+                // Log to 'refuels' collection
+                await db.collection('refuels').add({
+                    deviceId,
+                    truckName,
+                    addedLiters: diff,
+                    oldLevel: lastState.lastFuelLiters,
+                    newLevel: currentLiters,
+                    timestamp: new Date().toISOString(),
+                    locationRaw: locName,
+                    isInternal: isInternal,
+                    lat, lng
+                });
+            }
+        }
+
+        // --- C. MAINTENANCE LOGIC (Existing) ---
         let inZone = false;
         let zoneName = '';
 
@@ -109,76 +176,50 @@ async function runFleetBot() {
             }
         }
 
-        // --- STATE MACHINE LOGIC ---
-        
+        let newState = {
+            truckName,
+            lastUpdate: now,
+            lastFuelLiters: currentLiters, // Save for next comparison
+            lastFuelPercent: rawSensor
+        };
+
+        // Persist Maintenance State
         if (inZone) {
-            // SCENARIO A: Truck IS in a garage
-            if (!activeStates[deviceId]) {
-                // New Entry!
-                console.log(`➡️ ${truckName} entered ${zoneName}`);
-                await db.collection('truck_states').doc(deviceId).set({
-                    truckName,
-                    zone: zoneName,
-                    entryTime: now,
-                    hasLogged: false,
-                    logId: null
-                });
+            if (!lastState || !lastState.zone) {
+                // New Entry
+                newState.zone = zoneName;
+                newState.entryTime = now;
+                newState.hasLogged = false;
+                newState.logId = null;
             } else {
-                // Already known to be there
-                const state = activeStates[deviceId];
-                
-                // If moved to a DIFFERENT garage instantly (rare but possible)
-                if (state.zone !== zoneName) {
-                    // Close old, start new
-                    await closeMaintenanceSession(state, now);
-                    await db.collection('truck_states').doc(deviceId).set({
-                        truckName, zone: zoneName, entryTime: now, hasLogged: false, logId: null
-                    });
-                    continue;
-                }
+                // Maintain existing state info
+                newState.zone = lastState.zone;
+                newState.entryTime = lastState.entryTime;
+                newState.hasLogged = lastState.hasLogged;
+                newState.logId = lastState.logId;
 
-                // Check Duration
-                const durationMins = (now - state.entryTime) / 60000;
-                
-                if (durationMins >= minDuration && !state.hasLogged) {
-                    console.log(`✅ Logging Maintenance for ${truckName} (> ${minDuration} mins)`);
-                    
-                    // Create the Permanent Log
-                    const logRef = await db.collection('maintenance').add({
-                        truckName, 
-                        deviceId, 
-                        type: 'Plaquettes', // Default type, can be edited
-                        location: zoneName, 
-                        odometer: parseInt(truck.params.io192 || 0) / 1000, 
-                        date: new Date(state.entryTime).toISOString(), // Use ENTRY time
-                        exitDate: null, // Open session
-                        note: 'Auto-detected (En cours...)', 
-                        isAuto: true 
+                // Duration Check
+                const durationMins = (now - newState.entryTime) / 60000;
+                if (durationMins >= minDuration && !newState.hasLogged) {
+                     const logRef = await db.collection('maintenance').add({
+                        truckName, deviceId, type: 'Plaquettes', 
+                        location: zoneName, odometer: parseInt(truck.params.io192 || 0) / 1000, 
+                        date: new Date(newState.entryTime).toISOString(), 
+                        exitDate: null, note: 'Auto-detected (En cours...)', isAuto: true 
                     });
-
-                    // Update State to say "Logged"
-                    await db.collection('truck_states').doc(deviceId).update({
-                        hasLogged: true,
-                        logId: logRef.id
-                    });
+                    newState.hasLogged = true;
+                    newState.logId = logRef.id;
                 }
             }
         } else {
-            // SCENARIO B: Truck is NOT in a garage
-            if (activeStates[deviceId]) {
-                // It WAS in a garage, now it left!
-                const state = activeStates[deviceId];
-                console.log(`⬅️ ${truckName} left ${state.zone}`);
-                
-                if (state.hasLogged && state.logId) {
-                    // Close the open log
-                    await closeMaintenanceSession(state, now);
-                }
-                
-                // Remove state
-                await db.collection('truck_states').doc(deviceId).delete();
+            // Left Zone
+            if (lastState && lastState.zone && lastState.logId) {
+                await closeMaintenanceSession(lastState, now);
             }
         }
+
+        // SAVE STATE (For next run)
+        await db.collection('truck_states').doc(deviceId).set(newState, { merge: true });
     }
 }
 
@@ -269,7 +310,7 @@ app.get('/api/refuels', async (req, res) => {
 
 app.get('/api/backup/download', async (req, res) => {
     try {
-        const collections = ['settings', 'refuels', 'maintenance', 'truck_states', 'tms_clients', 'tms_missions']; // ADDED TMS
+        const collections = ['settings', 'refuels', 'maintenance', 'truck_states', 'tms_clients', 'tms_missions']; 
         const dbData = {};
         for (const name of collections) {
             const snap = await db.collection(name).get();
@@ -295,26 +336,17 @@ app.post('/api/backup/restore', async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// --- 6. TMS DISPATCH ROUTES (NEW) ---
-
-// Get ALL TMS Data (Clients + Active Missions)
+// --- TMS DISPATCH ROUTES ---
 app.get('/api/tms/init', async (req, res) => {
     try {
-        // Clients
         const clientsSnap = await db.collection('tms_clients').get();
         const clients = clientsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        // Active Missions (Filter out archived)
         const missionsSnap = await db.collection('tms_missions').where('status', '!=', 'archived').get();
         const missions = missionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
         res.json({ clients, missions });
-    } catch(e) { 
-        res.status(500).json({ clients: [], missions: [], error: e.message });
-    }
+    } catch(e) { res.status(500).json({ clients: [], missions: [], error: e.message }); }
 });
 
-// Save/Update Client List
 app.post('/api/tms/clients/save', async (req, res) => {
     try {
         const client = req.body;
@@ -324,27 +356,22 @@ app.post('/api/tms/clients/save', async (req, res) => {
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Save/Update Single Mission
 app.post('/api/tms/missions/save', async (req, res) => {
     try {
         const mission = req.body;
-        // Generate ID based on truckId if not provided, or random
         const missionId = mission.truckId || `m_${Date.now()}`;
         await db.collection('tms_missions').doc(missionId).set(mission, { merge: true });
         res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
-// Archive Mission (Move to History)
 app.post('/api/tms/missions/archive', async (req, res) => {
     try {
         const { truckId, mission } = req.body;
-        // 1. Save to History Collection
         await db.collection('tms_history').add({
             ...mission,
             archivedAt: new Date().toISOString()
         });
-        // 2. Remove from Active
         await db.collection('tms_missions').doc(truckId).delete();
         res.json({ success: true });
     } catch(e) { res.status(500).json({ error: e.message }); }
