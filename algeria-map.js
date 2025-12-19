@@ -21,8 +21,17 @@ const AlgeriaMap = {
 
     // --- INITIALIZATION ---
     init: function() {
-        if (!mapboxgl.supported()) { console.error('WebGL missing'); return; }
+if (!mapboxgl.supported()) { console.error('WebGL missing'); return; }
         mapboxgl.accessToken = FLEET_CONFIG.MAPBOX_TOKEN;
+
+        // FIX FOR ARABIC TEXT (Right-to-Left support)
+        if (mapboxgl.getRTLTextPluginStatus() === 'unavailable') {
+            mapboxgl.setRTLTextPlugin(
+                'https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-rtl-text/v0.2.3/mapbox-gl-rtl-text.js',
+                null,
+                true // Lazy load the plugin
+            );
+        }
 
         this.map = new mapboxgl.Map({
             container: 'map-container',

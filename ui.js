@@ -10,6 +10,7 @@
  * - 3D INTERACTIVE MAP INTEGRATION
  * - FULL BACKUP & RESTORE
  * - SHOW ALL TRUCKS + GPS CUT INDICATOR
+ * - NEW: DÉCOUCHAGE REPORTING (Overnight Stay)
  */
 
 class UIController {
@@ -23,6 +24,9 @@ class UIController {
     this.zoneGroupingMode = 'city'; 
     this.searchQuery = '';
     
+    // REPORT STATES
+    this.currentReportView = 'fuel'; // 'fuel' or 'decouchage'
+    
     // WILAYA FILTER STATE
     this.wilayaSearchQuery = '';
     
@@ -32,6 +36,12 @@ class UIController {
     this.refuelItemsPerPage = 10;
     this.refuelSortOrder = 'date_desc';
 
+    // DECOUCHAGE HISTORY STATE
+    // DECOUCHAGE HISTORY STATE
+    this.allDecouchageLogs = [];
+    this.decouchageCurrentPage = 1;
+    this.decouchageItemsPerPage = 10;
+    
     // MAINTENANCE HISTORY STATE
     this.allMaintenanceLogs = [];
     this.editingMaintenanceId = null; 
@@ -80,13 +90,51 @@ class UIController {
       if (FLEET_CONFIG.AUTO_START) {
         this.autoStartTracking();
       }
-      
+      // NEW: Decouchage Defaults
+      if(this.decouchageDateStart) this.decouchageDateStart.value = today;
+      if(this.decouchageDateEnd) this.decouchageDateEnd.value = today;
       // Safe initial fetch
       this.fetchAndRenderRefuels();
       this.fetchAndRenderMaintenance(); 
     }, 100);
   }
-
+toggleDecouchageSubTab(view) {
+      // 1. Reset Buttons
+      this.btnSubDecouchageRecap.className = 'tab-button';
+      this.btnSubDecouchageRecap.style.background = '';
+      this.btnSubDecouchageRecap.style.color = '';
+      this.btnSubDecouchageRecap.style.border = '';
+      
+      this.btnSubDecouchageDetail.className = 'tab-button';
+      this.btnSubDecouchageDetail.style.background = '';
+      this.btnSubDecouchageDetail.style.color = '';
+      
+      // 2. Hide Views
+      this.decouchageRecapView.style.display = 'none';
+      this.decouchageDetailView.style.display = 'none';
+      
+      // 3. Activate Selected
+      if (view === 'recap') {
+          this.decouchageRecapView.style.display = 'block';
+          this.btnSubDecouchageRecap.classList.add('active');
+          this.btnSubDecouchageRecap.style.background = '#e0f2fe';
+          this.btnSubDecouchageRecap.style.color = '#0369a1';
+          this.btnSubDecouchageRecap.style.border = '1px solid #bae6fd';
+          
+          // Toggle Exports
+          if(this.btnExportRecap) this.btnExportRecap.style.display = 'inline-flex';
+          if(this.exportDecouchageBtn) this.exportDecouchageBtn.style.display = 'none';
+      } else {
+          this.decouchageDetailView.style.display = 'block';
+          this.btnSubDecouchageDetail.classList.add('active');
+          this.btnSubDecouchageDetail.style.background = '#e0f2fe'; // similar style
+          this.btnSubDecouchageDetail.style.color = '#0369a1';
+          
+          // Toggle Exports
+          if(this.btnExportRecap) this.btnExportRecap.style.display = 'none';
+          if(this.exportDecouchageBtn) this.exportDecouchageBtn.style.display = 'inline-flex';
+      }
+  }
   injectCustomStyles() {
     const style = document.createElement('style');
     style.innerHTML = `
@@ -103,11 +151,14 @@ class UIController {
       .pagination-info { font-size: 12px; color: #666; }
       .api-keys-box { background: #f4f6f8; border: 1px solid #c7d2dd; border-radius: 6px; padding: 10px; margin-top:10px; }
       .api-keys-box textarea { width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; }
+      /* Decouchage Badges */
+      .status-badge.confirme { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+      .status-badge.non-confirme { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
     `;
     document.head.appendChild(style);
   }
 
-  initElements() {
+initElements() {
     this.serverUrlInput = document.getElementById('serverUrl');
     this.pollIntervalInput = document.getElementById('pollInterval');
     this.globalSearchInput = document.getElementById('globalSearchInput'); 
@@ -132,6 +183,39 @@ class UIController {
     this.refuelSortSelect = document.getElementById('refuelSortSelect');
     this.applyRefuelFiltersBtn = document.getElementById('applyRefuelFiltersBtn');
     this.exportRefuelsBtn = document.getElementById('exportRefuelsBtn');
+    
+    // ---------------------------------------------------------
+    // DECOUCHAGE FILTERS INPUTS (MODIFIED)
+    // ---------------------------------------------------------
+    this.decouchageHistoryContainer = document.getElementById('decouchageHistoryContainer');
+    this.decouchageStatsGrid = document.getElementById('decouchageStatsGrid');
+    this.decouchageRecapContainer = document.getElementById('decouchageRecapContainer'); // New Recap Table Container
+
+    // NEW DATE RANGE INPUTS (Replaces Period Select)
+    this.decouchageDateStart = document.getElementById('decouchageDateStart');
+    this.decouchageDateEnd = document.getElementById('decouchageDateEnd');
+    
+    this.decouchageStatusSelect = document.getElementById('decouchageStatusSelect');
+    this.decouchageTruckSearch = document.getElementById('decouchageTruckSearch');
+    this.applyDecouchageFiltersBtn = document.getElementById('applyDecouchageFiltersBtn');
+    
+    // EXPORT BUTTONS
+    this.exportDecouchageBtn = document.getElementById('exportDecouchageBtn'); // Detailed Export
+    this.btnExportRecap = document.getElementById('btnExportRecap');           // Recap Export
+
+    // VIEW CONTAINERS & SUB-TABS (NEW)
+    this.decouchageRecapView = document.getElementById('decouchageRecapView');
+    this.decouchageDetailView = document.getElementById('decouchageDetailView');
+    this.btnSubDecouchageRecap = document.getElementById('btnSubDecouchageRecap');
+    this.btnSubDecouchageDetail = document.getElementById('btnSubDecouchageDetail');
+    
+    // ---------------------------------------------------------
+
+    // Report Toggle Buttons (Main Tabs)
+    this.btnReportFuel = document.getElementById('btnReportFuel');
+    this.btnReportDecouchage = document.getElementById('btnReportDecouchage');
+    this.reportFuelSection = document.getElementById('reportFuelSection');
+    this.reportDecouchageSection = document.getElementById('reportDecouchageSection');
 
     // MAINTENANCE ELEMENTS
     this.maintenanceListContainer = document.getElementById('maintenanceListContainer');
@@ -169,7 +253,7 @@ class UIController {
     this.addCustomLocBtn = document.getElementById('addCustomLocBtn');
     this.customLocationsList = document.getElementById('customLocationsList');
 
-    // RULE SYSTEM (NEW)
+    // RULE SYSTEM
     this.rulesListContainer = document.getElementById('rulesListContainer');
     this.ruleEditorModal = document.getElementById('ruleEditorModal');
     this.ruleEditorContent = document.getElementById('ruleEditorContent');
@@ -188,7 +272,6 @@ class UIController {
     
     this.restoreFileInput = document.getElementById('restoreFile');
   }
-
   // --- SETTINGS ACCORDION LOGIC ---
   initSettingsAccordions() {
       const headers = document.querySelectorAll('.settings-header');
@@ -305,11 +388,7 @@ class UIController {
         this.updateDashboard(); 
     });
     
-    const reportsTab = document.querySelector('[data-tab="reports"]');
-    if(reportsTab) {
-        reportsTab.addEventListener('click', () => this.fetchAndRenderRefuels());
-    }
-
+    // REFUEL EVENTS
     if (this.applyRefuelFiltersBtn) {
         this.applyRefuelFiltersBtn.addEventListener('click', () => {
             this.refuelCurrentPage = 1; 
@@ -326,6 +405,15 @@ class UIController {
         });
     }
 
+    // DECOUCHAGE EVENTS (NEW)
+    if (this.applyDecouchageFiltersBtn) {
+        this.applyDecouchageFiltersBtn.addEventListener('click', () => this.renderDecouchageList());
+    }
+    if (this.exportDecouchageBtn) {
+        this.exportDecouchageBtn.addEventListener('click', () => this.exportDecouchageCSV());
+    }
+
+    // MAINTENANCE EVENTS
     if (this.applyMaintFiltersBtn) {
         this.applyMaintFiltersBtn.addEventListener('click', () => {
             this.maintCurrentPage = 1;
@@ -338,7 +426,254 @@ class UIController {
   }
 
   // =========================================================
-  // 🚀 NEW: RULE BASED SYSTEM LOGIC
+  // 🚀 REPORT TOGGLE LOGIC
+  // =========================================================
+  toggleReportView(type) {
+      this.currentReportView = type;
+      if (type === 'fuel') {
+          this.btnReportFuel.classList.add('active');
+          this.btnReportDecouchage.classList.remove('active');
+          this.reportFuelSection.style.display = 'block';
+          this.reportDecouchageSection.style.display = 'none';
+          this.fetchAndRenderRefuels();
+      } else {
+          this.btnReportFuel.classList.remove('active');
+          this.btnReportDecouchage.classList.add('active');
+          this.reportFuelSection.style.display = 'none';
+          this.reportDecouchageSection.style.display = 'block';
+          this.fetchAndRenderDecouchages();
+      }
+  }
+
+  // =========================================================
+  // 🌙 DÉCOUCHAGE LOGIC (NEW)
+  // =========================================================
+  async fetchAndRenderDecouchages() {
+      if(!this.decouchageHistoryContainer) return;
+      this.decouchageHistoryContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Chargement des découchages...</div>';
+
+      try {
+          const response = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/decouchages`);
+          if (!response.ok) throw new Error("API Error");
+          
+          this.allDecouchageLogs = await response.json();
+          this.renderDecouchageList();
+      } catch (e) {
+          console.warn("Decouchage fetch error:", e);
+          this.decouchageHistoryContainer.innerHTML = `<div style="color:#888; text-align:center; padding:20px;">Connexion impossible.</div>`;
+      }
+  }
+
+renderDecouchageList() {
+      if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
+          if(this.decouchageHistoryContainer) this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun découchage enregistré.</div>';
+          if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = '';
+          if(this.decouchageStatsGrid) this.decouchageStatsGrid.innerHTML = '';
+          return;
+      }
+
+      // 1. Filter Logic (Using DATE RANGE now)
+      const startStr = this.decouchageDateStart.value;
+      const endStr = this.decouchageDateEnd.value;
+      
+      const statusFilter = this.decouchageStatusSelect.value;
+      const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
+      
+      let filtered = this.allDecouchageLogs.filter(log => {
+          if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
+          if (statusFilter !== 'all' && log.status !== statusFilter) return false;
+          
+          // DATE RANGE CHECK
+          if (startStr && log.date < startStr) return false;
+          if (endStr && log.date > endStr) return false;
+          
+          return true;
+      });
+
+      // 2. Sort (Recent First)
+      filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+      // =========================================================
+      // 🆕 RECAP AGGREGATION LOGIC (For Recap View)
+      // =========================================================
+      const summary = {};
+      filtered.forEach(log => {
+          const name = log.truckName;
+          if(!summary[name]) summary[name] = { name: name, total: 0, confirme: 0, nonConfirme: 0 };
+          
+          summary[name].total++;
+          if(log.status === 'Confirmé') summary[name].confirme++;
+          else summary[name].nonConfirme++;
+      });
+
+      const summaryArray = Object.values(summary).sort((a,b) => b.total - a.total);
+      
+      // Save for Export
+      this.currentDecouchageSummary = summaryArray;
+
+      // Generate Recap Table
+      let tableHtml = `
+        <table style="width:100%; border-collapse:collapse; font-size:13px; background:white; border:1px solid #ddd; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+            <thead>
+                <tr style="background:#f1f5f9; color:#475569; text-align:left;">
+                    <th style="padding:12px; border-bottom:2px solid #e2e8f0;">Camion</th>
+                    <th style="padding:12px; border-bottom:2px solid #e2e8f0; text-align:center;">Total</th>
+                    <th style="padding:12px; border-bottom:2px solid #b91c1c; color:#b91c1c; text-align:center;">Confirmés</th>
+                    <th style="padding:12px; border-bottom:2px solid #1e40af; color:#1e40af; text-align:center;">Non Confirmés</th>
+                </tr>
+            </thead>
+            <tbody>
+      `;
+
+      if(summaryArray.length === 0) {
+          tableHtml += '<tr><td colspan="4" style="padding:15px; text-align:center; color:#888;">Aucune donnée pour cette période.</td></tr>';
+      } else {
+          summaryArray.forEach((item, index) => {
+              const bg = index % 2 === 0 ? '#fff' : '#f8fafc';
+              tableHtml += `
+                <tr style="background:${bg}; border-bottom:1px solid #eee;">
+                    <td style="padding:10px 12px; font-weight:bold; color:#333;">${item.name}</td>
+                    <td style="padding:10px 12px; text-align:center; font-weight:bold;">${item.total}</td>
+                    <td style="padding:10px 12px; text-align:center; color:#b91c1c; font-weight:600;">${item.confirme}</td>
+                    <td style="padding:10px 12px; text-align:center; color:#1e40af;">${item.nonConfirme}</td>
+                </tr>
+              `;
+          });
+      }
+      tableHtml += '</tbody></table>';
+      
+      if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = tableHtml;
+
+      // =========================================================
+      // DETAILED LIST LOGIC (For Detail View)
+      // =========================================================
+
+      // Stats Update
+      const countTotal = filtered.length;
+      const countConfirme = filtered.filter(l => l.status === 'Confirmé').length;
+      const countNonConfirme = filtered.filter(l => l.status === 'Non Confirmé').length;
+      
+      if(this.decouchageStatsGrid) {
+          this.decouchageStatsGrid.innerHTML = `
+            <div class="stat-card" style="border-bottom: 3px solid #0369a1;">
+                <div class="stat-value" style="color:#0369a1">${countTotal}</div>
+                <div class="stat-label">Total Période</div>
+            </div>
+            <div class="stat-card" style="border-bottom: 3px solid #b91c1c;">
+                <div class="stat-value" style="color:#b91c1c">${countConfirme}</div>
+                <div class="stat-label">Confirmés</div>
+            </div>
+            <div class="stat-card" style="border-bottom: 3px solid #1e40af;">
+                <div class="stat-value" style="color:#1e40af">${countNonConfirme}</div>
+                <div class="stat-label">Non Confirmés</div>
+            </div>
+          `;
+      }
+
+      // Pagination
+      const totalPages = Math.ceil(filtered.length / this.decouchageItemsPerPage);
+      if (this.decouchageCurrentPage > totalPages) this.decouchageCurrentPage = totalPages || 1;
+      if (this.decouchageCurrentPage < 1) this.decouchageCurrentPage = 1;
+
+      const startIndex = (this.decouchageCurrentPage - 1) * this.decouchageItemsPerPage;
+      const paginatedItems = filtered.slice(startIndex, startIndex + this.decouchageItemsPerPage);
+
+      if (paginatedItems.length === 0) {
+          this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun résultat détaillé.</div>';
+          return;
+      }
+
+      let html = '<div style="display:grid; gap:10px;">';
+      paginatedItems.forEach(log => {
+          const badgeClass = log.status === 'Confirmé' ? 'confirme' : 'non-confirme';
+          const icon = log.status === 'Confirmé' ? 'fa-exclamation-circle' : 'fa-undo';
+          const distKm = (log.distanceFromSite / 1000).toFixed(1);
+          
+          const returnTimeDisplay = log.entryTime 
+              ? `<span style="font-weight:bold; color:#166534;"><i class="fa-solid fa-check"></i> Retour: ${new Date(log.entryTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>` 
+              : `<span style="color:#b91c1c; font-style:italic;">Pas encore rentré</span>`;
+
+          html += `
+          <div style="background:white; border:1px solid #e5e7eb; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+              <div style="flex:1;">
+                  <div style="font-weight:bold; color:#1f2937; font-size:15px;">${log.truckName}</div>
+                  <div style="font-size:12px; color:#6b7280; margin-top:2px;">
+                      <i class="fa-regular fa-calendar"></i> ${new Date(log.date).toLocaleDateString()}
+                  </div>
+              </div>
+              <div style="flex:1; text-align:center;">
+                  <span class="status-badge ${badgeClass}" style="padding:4px 10px; border-radius:20px; font-size:11px; font-weight:bold; display:inline-flex; align-items:center; gap:5px;">
+                      <i class="fa-solid ${icon}"></i> ${log.status}
+                  </span>
+                  <div style="font-size:12px; color:#444; margin-top:5px; font-weight:bold;">
+                    <i class="fa-solid fa-map-pin" style="color:#d32f2f;"></i> ${distKm} km <span style="font-weight:normal; color:#888;">(du site)</span>
+                  </div>
+              </div>
+              <div style="flex:1; text-align:right; font-size:13px;">
+                  ${returnTimeDisplay}
+              </div>
+          </div>
+          `;
+      });
+      html += '</div>';
+      
+      if (totalPages > 1) {
+          html += `
+          <div class="pagination-controls">
+              <button class="pagination-btn" onclick="ui.changeDecouchagePage(-1)" ${this.decouchageCurrentPage === 1 ? 'disabled' : ''}>&laquo; Préc.</button>
+              <span class="pagination-info">Page ${this.decouchageCurrentPage} / ${totalPages}</span>
+              <button class="pagination-btn" onclick="ui.changeDecouchagePage(1)" ${this.decouchageCurrentPage === totalPages ? 'disabled' : ''}>Suiv. &raquo;</button>
+          </div>`;
+      }
+      
+      this.decouchageHistoryContainer.innerHTML = html;
+  }
+  
+  
+  
+  
+  exportDecouchageRecapCSV() {
+      if(!this.currentDecouchageSummary || this.currentDecouchageSummary.length === 0) {
+          alert("Aucune donnée récapitulative à exporter."); 
+          return; 
+      }
+      
+      let csv = "Camion,Total Découchages,Confirmés,Non Confirmés\n";
+      this.currentDecouchageSummary.forEach(item => {
+          csv += `"${item.name}",${item.total},${item.confirme},${item.nonConfirme}\n`;
+      });
+      
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `recap_decouchage_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+  }
+  changeDecouchagePage(direction) {
+      this.decouchageCurrentPage += direction;
+      this.renderDecouchageList();
+  }
+  
+  exportDecouchageCSV() {
+      if(!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) { alert("Rien à exporter."); return; }
+      
+      let csv = "Date,Camion,Statut,Heure Retour,Distance Site (m)\n";
+      this.allDecouchageLogs.forEach(log => {
+          const returnTime = log.entryTime ? new Date(log.entryTime).toLocaleTimeString() : 'N/A';
+          csv += `"${log.date}","${log.truckName}","${log.status}","${returnTime}",${log.distanceFromSite}\n`;
+      });
+      
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rapport_decouchage_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+  }
+
+  // =========================================================
+  // 🚀 RULE BASED SYSTEM LOGIC
   // =========================================================
 
   renderRulesList() {
@@ -367,7 +702,6 @@ class UIController {
           }
 
           // Available Trucks for Dropdown (Filter out trucks already in THIS rule or ANY rule)
-          // Strategy: Show all trucks NOT in ANY rule
           const allAssignedTruckIds = new Set();
           FLEET_CONFIG.FLEET_RULES.forEach(r => {
               if(r.truckIds) r.truckIds.forEach(id => allAssignedTruckIds.add(id.toString()));
@@ -607,15 +941,19 @@ class UIController {
     document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
     document.getElementById(tabName).classList.add('active');
 
-    if (tabName === 'byWilaya') {
-        if(this.zoneGroupingMode === 'map') {
+if (tabName === 'byWilaya') {
+        // Force Map Mode by default when clicking this tab
+        if(this.zoneGroupingMode !== 'map') {
+            this.setZoneGrouping('map'); 
+        }
+        
+        // Refresh Map
+        setTimeout(() => {
             if(window.AlgeriaMap && window.AlgeriaMap.map) {
                 window.AlgeriaMap.map.resize();
                 window.AlgeriaMap.updateMarkers(app.getAllTrucks());
             }
-        } else {
-            this.renderWilayaView();
-        }
+        }, 100);
     }
     if (tabName === 'fuelSection') this.renderFuelSection();
     if (tabName === 'vidangeSection') this.renderVidangeSection(); 
@@ -625,7 +963,9 @@ class UIController {
         this.renderCustomLocationsList(); 
         this.renderRulesList(); 
     }
-    if (tabName === 'reports') { this.fetchAndRenderRefuels(); }
+    if (tabName === 'reports') { 
+        this.toggleReportView('fuel'); 
+    }
   }
 
   async autoStartTracking() {
@@ -1826,7 +2166,7 @@ class UIController {
           csv += `"${new Date(item.date).toLocaleString()}","${item.type}","${item.truckName}",${item.odometer},"${item.location}","${item.note || ''}","${item.isAuto ? 'Oui' : 'Non'}"\n`;
       });
       
-      const blob = new Blob([csv], { type: 'text/csv' });
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1837,7 +2177,7 @@ class UIController {
   exportCSV() {
      const csv = app.exportCSV();
      if(!csv) return;
-     const blob = new Blob([csv], { type: 'text/csv' });
+     const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
      const url = window.URL.createObjectURL(blob);
      const a = document.createElement('a');
      a.href = url;
@@ -1883,7 +2223,7 @@ class UIController {
         csv += `"${d.toLocaleDateString()}","${d.toLocaleTimeString()}","${log.truckName}",${log.realAdded},${log.realTotal},${log.capacity},"${log.locationRaw || 'Inconnu'}"\n`;
     });
 
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

@@ -35,7 +35,8 @@ let SYSTEM_SETTINGS = {
     customLocations: [],
     maintenanceRules: { minDurationMinutes: 60 },
     defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35 }, // Default fallback
-    fleetRules: [] // Store specific truck rules here
+    fleetRules: [], // Store specific truck rules here
+    lastDecouchageCheck: null // Stores date string YYYY-MM-DD of last check
 };
 
 const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
@@ -77,8 +78,15 @@ async function loadSettings() {
             if(data.maintenanceRules) SYSTEM_SETTINGS.maintenanceRules = data.maintenanceRules;
             if(data.defaultConfig) SYSTEM_SETTINGS.defaultConfig = data.defaultConfig;
             if(data.fleetRules) SYSTEM_SETTINGS.fleetRules = data.fleetRules;
+            if(data.lastDecouchageCheck) SYSTEM_SETTINGS.lastDecouchageCheck = data.lastDecouchageCheck;
         }
     } catch (e) { console.error("Settings Load Error:", e); }
+}
+
+async function saveSettings() {
+    try {
+        await db.collection('settings').doc('global').set(SYSTEM_SETTINGS, { merge: true });
+    } catch (e) { console.error("Settings Save Error:", e); }
 }
 
 // --- 4. THE 24/7 ROBOT (STATE AWARE) ---
@@ -105,6 +113,10 @@ async function runFleetBot() {
     const activeStates = {}; 
     statesSnapshot.forEach(doc => { activeStates[doc.id] = doc.data(); });
 
+    // --- DECOUCHAGE LOGIC START ---
+    await runDecouchageLogic(rawData);
+    // --- DECOUCHAGE LOGIC END ---
+
     // 3. Process Each Truck
     for (const [deviceId, truck] of Object.entries(rawData)) {
         if (!truck.params || truck.loc_valid === '0') continue;
@@ -115,12 +127,8 @@ async function runFleetBot() {
 
         // --- A. GET CONFIG & CALCULATE FUEL ---
         const config = getTruckConfig(deviceId);
-        // Simple calculation (assuming percentage is sent in io87)
-        // If you use calibration, we'd need that logic here, but for now linear is safer for the bot
         const rawSensor = parseFloat(truck.params.io87) || 0; 
         const capacity = config.fuelTankCapacity || 600;
-        
-        // Calculate Liters based on percentage (io87 is usually %)
         const currentLiters = Math.round((rawSensor / 100) * capacity);
         
         // --- B. REFUEL DETECTION LOGIC ---
@@ -129,15 +137,13 @@ async function runFleetBot() {
         if (lastState && lastState.lastFuelLiters !== undefined) {
             const diff = currentLiters - lastState.lastFuelLiters;
             
-            // THRESHOLD: If fuel increased by > 20 Liters (adjust as needed)
-            if (diff >= 20) {
+            // THRESHOLD: If fuel increased by > 55 Liters
+            if (diff >= 55) {
                 console.log(`⛽ REFUEL DETECTED: ${truckName} (+${diff}L)`);
                 
-                // Determine Location Name
                 let locName = `Position GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
                 let isInternal = false;
                 
-                // Check if in known custom location
                 for (const loc of SYSTEM_SETTINGS.customLocations) {
                     const dist = calculateDistance(lat, lng, loc.lat, loc.lng);
                     if (dist <= (loc.radius || 500)) {
@@ -147,7 +153,6 @@ async function runFleetBot() {
                     }
                 }
 
-                // Log to 'refuels' collection
                 await db.collection('refuels').add({
                     deviceId,
                     truckName,
@@ -162,7 +167,7 @@ async function runFleetBot() {
             }
         }
 
-        // --- C. MAINTENANCE LOGIC (Existing) ---
+        // --- C. MAINTENANCE LOGIC ---
         let inZone = false;
         let zoneName = '';
 
@@ -179,26 +184,22 @@ async function runFleetBot() {
         let newState = {
             truckName,
             lastUpdate: now,
-            lastFuelLiters: currentLiters, // Save for next comparison
+            lastFuelLiters: currentLiters, 
             lastFuelPercent: rawSensor
         };
 
-        // Persist Maintenance State
         if (inZone) {
             if (!lastState || !lastState.zone) {
-                // New Entry
                 newState.zone = zoneName;
                 newState.entryTime = now;
                 newState.hasLogged = false;
                 newState.logId = null;
             } else {
-                // Maintain existing state info
                 newState.zone = lastState.zone;
                 newState.entryTime = lastState.entryTime;
                 newState.hasLogged = lastState.hasLogged;
                 newState.logId = lastState.logId;
 
-                // Duration Check
                 const durationMins = (now - newState.entryTime) / 60000;
                 if (durationMins >= minDuration && !newState.hasLogged) {
                      const logRef = await db.collection('maintenance').add({
@@ -212,15 +213,113 @@ async function runFleetBot() {
                 }
             }
         } else {
-            // Left Zone
             if (lastState && lastState.zone && lastState.logId) {
                 await closeMaintenanceSession(lastState, now);
             }
         }
 
-        // SAVE STATE (For next run)
         await db.collection('truck_states').doc(deviceId).set(newState, { merge: true });
     }
+}
+
+// --- NEW FEATURE: DECOUCHAGE LOGIC ---
+async function runDecouchageLogic(rawData) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const douroubSite = SYSTEM_SETTINGS.customLocations.find(l => l.type === 'douroub' || l.name.toLowerCase().includes('douroub'));
+    
+    if (!douroubSite) {
+        console.log("⚠️ Découchage: 'Site Douroub' not defined in Custom Locations.");
+        return; 
+    }
+
+    // 1. MIDNIGHT SNAPSHOT (Run once per day)
+    if (SYSTEM_SETTINGS.lastDecouchageCheck !== todayStr) {
+        console.log(`🌙 Running Midnight Découchage Snapshot for ${todayStr}...`);
+        
+        const batch = db.batch();
+        let count = 0;
+
+        for (const [deviceId, truck] of Object.entries(rawData)) {
+            // Check if truck is live
+            if (!truck.params) continue; 
+            
+            const lat = parseFloat(truck.lat);
+            const lng = parseFloat(truck.lng);
+            const dist = calculateDistance(lat, lng, douroubSite.lat, douroubSite.lng);
+            const radius = douroubSite.radius || 500;
+
+            // If OUTSIDE site at snapshot time
+            if (dist > radius) {
+                const ref = db.collection('decouchages').doc();
+                batch.set(ref, {
+                    date: todayStr, // Index for the day
+                    deviceId: deviceId,
+                    truckName: truck.name,
+                    locationAtMidnight: { lat, lng },
+                    distanceFromSite: Math.round(dist),
+                    status: 'Confirmé', // Default to Confirmé, changes if they return early
+                    entryTime: null, // No return yet
+                    lastUpdate: new Date().toISOString(),
+                    isClosed: false
+                });
+                count++;
+            }
+        }
+        
+        if (count > 0) await batch.commit();
+        
+        // Update settings so we don't run again today
+        SYSTEM_SETTINGS.lastDecouchageCheck = todayStr;
+        await saveSettings();
+        console.log(`✅ Snapshot Done: ${count} trucks outside.`);
+    }
+
+    // 2. RETURN MONITOR (Check active decouchages)
+    // Find records where isClosed is false
+    const openSnaps = await db.collection('decouchages').where('isClosed', '==', false).get();
+    
+    if (openSnaps.empty) return;
+
+    const batchUpdate = db.batch();
+    let updatesCount = 0;
+
+    openSnaps.docs.forEach(doc => {
+        const data = doc.data();
+        const truck = rawData[data.deviceId];
+
+        if (truck && truck.params) {
+            const lat = parseFloat(truck.lat);
+            const lng = parseFloat(truck.lng);
+            const dist = calculateDistance(lat, lng, douroubSite.lat, douroubSite.lng);
+            const radius = douroubSite.radius || 500;
+
+            // IF TRUCK ENTERS SITE DOUROUB
+            if (dist <= radius) {
+                const now = new Date();
+                const currentHour = now.getHours(); // 0 to 23
+                
+                // Logic: 
+                // Before 05:00 (0, 1, 2, 3, 4) -> Non Confirmé
+                // 05:00 or later -> Confirmé (Remains Confirmed)
+                
+                let finalStatus = 'Confirmé';
+                if (currentHour < 5) {
+                    finalStatus = 'Non Confirmé';
+                }
+
+                batchUpdate.update(doc.ref, {
+                    status: finalStatus,
+                    entryTime: now.toISOString(),
+                    isClosed: true, // Mark as processed so we stop checking
+                    lastUpdate: now.toISOString()
+                });
+                updatesCount++;
+                console.log(`🚚 Truck ${data.truckName} returned. Status: ${finalStatus}`);
+            }
+        }
+    });
+
+    if (updatesCount > 0) await batchUpdate.commit();
 }
 
 async function closeMaintenanceSession(state, exitTimeMs) {
@@ -244,7 +343,6 @@ setInterval(runFleetBot, 120000);
 
 // --- 5. EXISTING API ROUTES ---
 
-// HEALTH CHECK for UptimeRobot
 app.get('/health', (req, res) => res.status(200).send('OK'));
 
 app.get('/api/trucks', async (req, res) => {
@@ -308,9 +406,20 @@ app.get('/api/refuels', async (req, res) => {
     } catch(e) { res.status(500).json([]); }
 });
 
+// --- NEW ENDPOINT: DECOUCHAGES ---
+app.get('/api/decouchages', async (req, res) => {
+    try {
+        // Simple fetch, filtering done on frontend to save read costs/complexity
+        // Limit to last 300 to keep it light
+        const snap = await db.collection('decouchages').orderBy('date', 'desc').limit(300).get();
+        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        res.json(data);
+    } catch(e) { res.status(500).json([]); }
+});
+
 app.get('/api/backup/download', async (req, res) => {
     try {
-        const collections = ['settings', 'refuels', 'maintenance', 'truck_states', 'tms_clients', 'tms_missions']; 
+        const collections = ['settings', 'refuels', 'maintenance', 'truck_states', 'decouchages']; 
         const dbData = {};
         for (const name of collections) {
             const snap = await db.collection(name).get();
@@ -334,47 +443,6 @@ app.post('/api/backup/restore', async (req, res) => {
         await batch.commit();
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-// --- TMS DISPATCH ROUTES ---
-app.get('/api/tms/init', async (req, res) => {
-    try {
-        const clientsSnap = await db.collection('tms_clients').get();
-        const clients = clientsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        const missionsSnap = await db.collection('tms_missions').where('status', '!=', 'archived').get();
-        const missions = missionsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        res.json({ clients, missions });
-    } catch(e) { res.status(500).json({ clients: [], missions: [], error: e.message }); }
-});
-
-app.post('/api/tms/clients/save', async (req, res) => {
-    try {
-        const client = req.body;
-        if (!client.id) throw new Error("Missing Client ID");
-        await db.collection('tms_clients').doc(client.id).set(client, { merge: true });
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/tms/missions/save', async (req, res) => {
-    try {
-        const mission = req.body;
-        const missionId = mission.truckId || `m_${Date.now()}`;
-        await db.collection('tms_missions').doc(missionId).set(mission, { merge: true });
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/api/tms/missions/archive', async (req, res) => {
-    try {
-        const { truckId, mission } = req.body;
-        await db.collection('tms_history').add({
-            ...mission,
-            archivedAt: new Date().toISOString()
-        });
-        await db.collection('tms_missions').doc(truckId).delete();
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 const PORT = process.env.PORT || 3000;
