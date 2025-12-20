@@ -10,27 +10,26 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
-// --- 1. MONGODB CONNECTION ---
+// --- 1. CONFIGURATION ---
 const MONGO_URI = process.env.MONGO_URI;
+const PORT = process.env.PORT || 3000;
+const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
 
-if (MONGO_URI) {
-    mongoose.connect(MONGO_URI)
-        .then(() => console.log("✅ MongoDB Connected! (Gatekeeper Active 🔒)"))
-        .catch(err => console.error("❌ Mongo Error:", err));
-} else {
-    console.error("❌ FATAL: Missing MONGO_URI");
+if (!MONGO_URI) {
+    console.error("❌ FATAL: Missing MONGO_URI in Environment Variables");
+    process.exit(1);
 }
 
 // --- 2. DATA MODELS & AUTO-DELETE RULES (TTL) ---
 
-// --- ACCESS CONTROL MODEL (THE KEY) ---
+// A. Access Control
 const AccessCodeSchema = new mongoose.Schema({
     code: { type: String, required: true, unique: true, index: true },
-    note: String // e.g. "My Phone Number"
+    note: String 
 });
 const AccessCode = mongoose.model('AccessCode', AccessCodeSchema);
 
-// A. Truck State (Persistent Latest Position - The Source of Truth)
+// B. Truck State 
 const TruckSchema = new mongoose.Schema({
     deviceId: { type: String, unique: true },
     truckName: String,
@@ -43,7 +42,7 @@ const TruckSchema = new mongoose.Schema({
     params: Object 
 }, { strict: false });
 
-// B. Events (These grow, so we Auto-Delete after 90 Days to keep DB lean)
+// C. Events (Auto-Delete after 90 Days)
 const expireRule = { expires: '90d' }; 
 
 const RefuelSchema = new mongoose.Schema({
@@ -51,8 +50,7 @@ const RefuelSchema = new mongoose.Schema({
     addedLiters: Number, oldLevel: Number, newLevel: Number,
     timestamp: { type: Date, required: true, index: expireRule }, 
     locationRaw: String, isInternal: Boolean,
-    lat: Number, 
-    lng: Number  
+    lat: Number, lng: Number  
 });
 
 const MaintenanceSchema = new mongoose.Schema({
@@ -66,16 +64,13 @@ const DecouchageSchema = new mongoose.Schema({
     date: String, 
     snapshotTime: { type: Date, required: true, index: expireRule },
     deviceId: String, truckName: String,
-    locationAtMidnight: {
-        lat: Number,
-        lng: Number
-    }, 
+    locationAtMidnight: { lat: Number, lng: Number }, 
     distanceFromSite: Number,
     status: String, entryTime: Date, lastUpdate: Date, isClosed: Boolean
 });
 
 const SettingsSchema = new mongoose.Schema({
-    id: { type: String, unique: true }, // 'global'
+    id: { type: String, unique: true }, 
     customLocations: Array,
     maintenanceRules: Object,
     defaultConfig: Object,
@@ -83,14 +78,13 @@ const SettingsSchema = new mongoose.Schema({
     lastDecouchageCheck: String
 }, { strict: false });
 
-// Compile Models
 const Truck = mongoose.model('Truck', TruckSchema);
 const Refuel = mongoose.model('Refuel', RefuelSchema);
 const Maintenance = mongoose.model('Maintenance', MaintenanceSchema);
 const Decouchage = mongoose.model('Decouchage', DecouchageSchema);
 const Settings = mongoose.model('Settings', SettingsSchema);
 
-// --- 3. SMART CACHE & CONFIG ---
+// --- 3. SMART CACHE ---
 let SYSTEM_SETTINGS = {
     customLocations: [],
     maintenanceRules: { minDurationMinutes: 60 },
@@ -98,8 +92,6 @@ let SYSTEM_SETTINGS = {
     fleetRules: [], 
     lastDecouchageCheck: null 
 };
-
-const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
 
 // --- 4. HELPERS ---
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -122,7 +114,6 @@ function getTruckConfig(deviceId) {
     return { ...globalDefault, ...specificConfig };
 }
 
-// Convert MongoDB _id to id and Force Coordinates to Number for the frontend geocoder
 const fmt = (list) => list.map(d => { 
     const o = d.toObject(); 
     o.id = o._id.toString(); 
@@ -152,7 +143,7 @@ async function saveSettings() {
 }
 
 async function runFleetBot() {
-    await loadSettings();
+    await loadSettings(); 
 
     let rawData = {};
     try {
@@ -166,10 +157,8 @@ async function runFleetBot() {
     
     const now = Date.now();
     const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
-
     const truckArray = Array.isArray(rawData) ? rawData : Object.entries(rawData).map(([id, val]) => ({ ...val, id }));
 
-    // Global Daily Logic
     await runDecouchageLogic(truckArray);
 
     for (const truck of truckArray) {
@@ -184,11 +173,9 @@ async function runFleetBot() {
         const capacity = config.fuelTankCapacity || 600;
         const currentLiters = Math.round((rawSensor / 100) * capacity);
         
-        // 🔎 SOURCE OF TRUTH: Fetch previous state from MongoDB (NOT local RAM)
         const lastState = await Truck.findOne({ deviceId });
         
         if (!lastState) {
-            // Register first time and skip logic
             await Truck.findOneAndUpdate({ deviceId }, { truckName, lastUpdate: now, lastFuelLiters: currentLiters, lat, lng, params: truck.params }, { upsert: true });
             continue;
         }
@@ -201,7 +188,7 @@ async function runFleetBot() {
             params: truck.params
         };
 
-        // --- A. REFUEL DETECTION (STRICT DB COMPARISON) ---
+        // REFUEL
         if (lastState.lastFuelLiters > 0) {
             const diff = currentLiters - lastState.lastFuelLiters;
             if (diff >= 50 && (parseInt(truck.speed) || 0) < 5) {
@@ -222,7 +209,7 @@ async function runFleetBot() {
             }
         }
 
-        // --- B. MAINTENANCE LOGIC (PERSISTENT SESSIONS) ---
+        // MAINTENANCE
         let inZone = false, zoneName = '';
         for (const loc of SYSTEM_SETTINGS.customLocations) {
             if (loc.type === 'maintenance' && calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
@@ -258,12 +245,13 @@ async function runFleetBot() {
             needsUpdate = true;
         }
 
-        // --- C. PERSISTENCE ---
         const distMoved = calculateDistance(lat, lng, lastState.lat, lastState.lng);
         if (needsUpdate || distMoved > 50 || Math.abs(currentLiters - lastState.lastFuelLiters) > 2 || (now - lastState.lastUpdate) > 600000) {
             await Truck.findOneAndUpdate({ deviceId }, updatePayload, { upsert: true });
         }
     }
+    
+    // Loop (2 mins)
     setTimeout(runFleetBot, 120000); 
 }
 
@@ -311,8 +299,6 @@ async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
     } catch(e) { console.error("Close Session Error:", e.message); }
 }
 
-runFleetBot();
-
 // --- MIDDLEWARE: THE GATEKEEPER ---
 async function checkAccess(req, res, next) {
     const userCode = req.headers['x-access-code'];
@@ -327,29 +313,24 @@ async function checkAccess(req, res, next) {
 
 // --- 6. API ROUTES ---
 
-// ✅ PUBLIC (Keeps Render Awake & Browser Happy)
+// ✅ PUBLIC
 app.get('/health', (req, res) => res.send('System Operational'));
 
 // 🔐 SECURE SETUP ROUTE
-// Usage: /api/admin/add-code/NEW_CODE?secret=YOUR_MASTER_PASSWORD
 app.get('/api/admin/add-code/:code', async (req, res) => {
-    const MASTER_SECRET = "Douroub_2025_Admin_Secure"; // <--- CHANGE THIS to something only you know!
-
-    // 1. Check if the URL contains the secret password
+    const MASTER_SECRET = "Douroub_2025_Admin_Secure"; 
     if (req.query.secret !== MASTER_SECRET) {
         return res.status(403).send("⛔ DÉGAGE ! Accès Interdit (Mauvais Secret).");
     }
-
-    // 2. If secret is correct, add the code
     try {
         await AccessCode.create({ code: req.params.code, note: "Admin" });
-        res.send(`✅ SUCCESS: Code ${req.params.code} added to Database!`);
+        res.send(`✅ SUCCESS: Code ${req.params.code} added!`);
     } catch(e) { 
-        res.send("❌ Error: Code already exists or DB error."); 
+        res.send("❌ Error: Duplicate or DB Error."); 
     }
 });
 
-// 🔒 LOCKED ROUTES (Requires Code)
+// 🔒 LOCKED ROUTES
 app.get('/api/trucks', checkAccess, async (req, res) => {
     try {
         const r = await fetch(GPS_API_URL);
@@ -460,5 +441,22 @@ app.get('/api/admin/flush-all-history', checkAccess, async (req, res) => {
     res.json({ success: true, message: "Burned migration data cleared." });
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Fleet Analytics Engine running on port ${PORT}`));
+// --- 8. INITIALIZATION (WAIT FOR DB!) ---
+if (MONGO_URI) {
+    mongoose.connect(MONGO_URI)
+        .then(() => {
+            console.log("✅ MongoDB Connected! Starting App...");
+            
+            // Start Express Server
+            app.listen(PORT, () => console.log(`🚀 Fleet Analytics Engine running on port ${PORT}`));
+            
+            // Start Fleet Bot (Only now!)
+            runFleetBot();
+        })
+        .catch(err => {
+            console.error("❌ Mongo Connection Failed:", err);
+            process.exit(1);
+        });
+} else {
+    console.error("❌ FATAL: Missing MONGO_URI in Environment Variables");
+}
