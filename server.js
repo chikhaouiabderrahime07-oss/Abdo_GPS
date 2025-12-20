@@ -11,14 +11,12 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
 // --- 1. CONFIGURATION ---
-const MONGO_URI = process.env.MONGO_URI;
+// --- 1. CONFIGURATION ---
 const PORT = process.env.PORT || 3000;
 const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
 
-if (!MONGO_URI) {
-    console.error("❌ FATAL: Missing MONGO_URI in Environment Variables");
-    process.exit(1);
-}
+// ⚠️ HARDCODED CREDENTIALS (SECURITY RISK: Do not share this file publicly)
+const MONGO_URI = "mongodb+srv://MrNoBoDy:123Chikh1994@cluster0.cljee0n.mongodb.net/fleet_db?retryWrites=true&w=majority&appName=Cluster0";
 
 // --- 2. DATA MODELS & AUTO-DELETE RULES (TTL) ---
 
