@@ -17,30 +17,42 @@
  * Automatically injects the Access Code into every API request.
  * Redirects to Lock Screen if the server rejects the code.
  */
+/**
+ * 🔒 GATEKEEPER INTERCEPTOR (Fixed for Mapbox)
+ * Automatically injects the Access Code into every API request.
+ * Handles both String URLs and Request Objects to prevent Mapbox crashes.
+ */
 const originalFetch = window.fetch;
 
 window.fetch = async function(url, options) {
-    // 1. Retrieve Code
+    // 1. Handle URL input (Mapbox sends Objects, not always strings)
+    let urlString = url;
+    if (typeof url !== 'string' && url.url) {
+        urlString = url.url;
+    }
+
+    // 2. Retrieve Code
     const code = localStorage.getItem('fleetAccessCode');
     
-    // 2. Inject Header
-    if (url.includes('/api/')) { // Only protect API calls
+    // 3. Inject Header ONLY for our API (Safe check)
+    if (urlString && typeof urlString === 'string' && urlString.includes('/api/')) {
         if (!options) options = {};
         if (!options.headers) options.headers = {};
         if (code) options.headers['x-access-code'] = code;
     }
 
-    // 3. Perform Request
+    // 4. Perform Request
     try {
         const response = await originalFetch(url, options);
 
-        // 4. CHECK FOR REJECTION (401/403)
-        if (response.status === 401 || response.status === 403) {
+        // 5. CHECK FOR REJECTION (401/403)
+        // Only react if the rejection comes from OUR server, not external APIs
+        if ((response.status === 401 || response.status === 403) && urlString && urlString.includes('/api/')) {
             console.warn("⛔ Access Revoked or Invalid Code");
             localStorage.removeItem('fleetAccessCode');
-            // If we are not already on the lock screen (check if overlay is visible)
+            // If we are not already on the lock screen
             if (document.getElementById('loginOverlay') && document.getElementById('loginOverlay').style.display === 'none') {
-                location.reload(); // Hard refresh to show lock screen
+                location.reload(); 
             }
         }
         return response;
@@ -48,6 +60,7 @@ window.fetch = async function(url, options) {
         throw e;
     }
 };
+
 class UIController {
   constructor() {
     this.wilayaExpandState = {};
