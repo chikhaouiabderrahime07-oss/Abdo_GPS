@@ -315,7 +315,73 @@
   </style>
 </head>
 <body>
+<div id="loginOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0f172a; z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;">
+    <div style="background: #1e293b; padding: 40px; border-radius: 16px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid #334155; width: 300px; animation: slideDown 0.5s ease;">
+        <div style="font-size: 50px; color: #38bdf8; margin-bottom: 20px;">
+            <i class="fa-solid fa-shield-halved"></i>
+        </div>
+        <h2 style="margin: 0 0 10px 0; font-family: 'Segoe UI', sans-serif;">Accès Restreint</h2>
+        <p style="color: #94a3b8; font-size: 13px; margin-bottom: 20px;">Système Sécurisé Douroub El Djazair</p>
+        
+        <input type="password" id="accessCodeInput" placeholder="Code d'accès..." 
+               style="padding: 12px; width: 100%; border-radius: 8px; border: 1px solid #475569; background: #0f172a; color: white; font-size: 18px; text-align: center; margin-bottom: 15px; box-sizing: border-box; outline: none;">
+        
+        <button onclick="attemptLogin()" id="btnLogin"
+                style="display: block; width: 100%; padding: 12px; background: #38bdf8; color: #0f172a; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; transition: all 0.2s;">
+            <i class="fa-solid fa-unlock"></i> Déverrouiller
+        </button>
+        <p id="loginError" style="color: #ef4444; margin-top: 15px; display: none; font-size: 13px; font-weight: bold;">⛔ Code Invalide</p>
+    </div>
+</div>
 
+<script>
+    // 1. CHECK LOCAL STORAGE ON LOAD
+    const storedCode = localStorage.getItem('fleetAccessCode');
+    
+    // 2. ATTEMPT LOGIN FUNCTION
+    function attemptLogin() {
+        const code = document.getElementById('accessCodeInput').value.trim();
+        const btn = document.getElementById('btnLogin');
+        const err = document.getElementById('loginError');
+        
+        if (!code) return;
+
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Vérification...';
+        btn.disabled = true;
+        err.style.display = 'none';
+
+        // Test the code against a lightweight endpoint
+        fetch('/api/settings', { headers: { 'x-access-code': code } })
+            .then(res => {
+                if (res.ok) {
+                    // SUCCESS: Save code & Unlock
+                    localStorage.setItem('fleetAccessCode', code);
+                    document.getElementById('loginOverlay').style.display = 'none';
+                    if (!storedCode) location.reload(); // Refresh to load data
+                } else {
+                    // FAIL
+                    err.style.display = 'block';
+                    btn.innerHTML = '<i class="fa-solid fa-unlock"></i> Déverrouiller';
+                    btn.disabled = false;
+                }
+            })
+            .catch(() => {
+                alert("Erreur de connexion serveur");
+                btn.innerHTML = '<i class="fa-solid fa-unlock"></i> Déverrouiller';
+                btn.disabled = false;
+            });
+    }
+
+    // 3. IF CODE EXISTS, HIDE OVERLAY TEMPORARILY (UI.js will verify it deeply)
+    if (storedCode) {
+        document.getElementById('loginOverlay').style.display = 'none';
+    }
+    
+    // Allow "Enter" key to submit
+    document.getElementById('accessCodeInput').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') attemptLogin();
+    });
+</script>
   <header class="main-header">
     <div class="brand-section">
       <div class="logo-box">

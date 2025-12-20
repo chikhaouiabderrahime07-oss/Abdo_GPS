@@ -15,13 +15,20 @@ const MONGO_URI = process.env.MONGO_URI;
 
 if (MONGO_URI) {
     mongoose.connect(MONGO_URI)
-        .then(() => console.log("✅ MongoDB Connected! (Refill Logic V7 & TTL Active 🧹)"))
+        .then(() => console.log("✅ MongoDB Connected! (Gatekeeper Active 🔒)"))
         .catch(err => console.error("❌ Mongo Error:", err));
 } else {
     console.error("❌ FATAL: Missing MONGO_URI");
 }
 
 // --- 2. DATA MODELS & AUTO-DELETE RULES (TTL) ---
+
+// --- ACCESS CONTROL MODEL (THE KEY) ---
+const AccessCodeSchema = new mongoose.Schema({
+    code: { type: String, required: true, unique: true, index: true },
+    note: String // e.g. "My Phone Number"
+});
+const AccessCode = mongoose.model('AccessCode', AccessCodeSchema);
 
 // A. Truck State (Persistent Latest Position - The Source of Truth)
 const TruckSchema = new mongoose.Schema({
@@ -154,7 +161,7 @@ async function runFleetBot() {
         rawData = json.data || json; 
     } catch (e) {
         console.log("Bot fetch error:", e.message);
-        setTimeout(runFleetBot, 60000); return; 
+        setTimeout(runFleetBot, 120000); return; 
     }
     
     const now = Date.now();
@@ -306,10 +313,44 @@ async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
 
 runFleetBot();
 
+// --- MIDDLEWARE: THE GATEKEEPER ---
+async function checkAccess(req, res, next) {
+    const userCode = req.headers['x-access-code'];
+    if (!userCode) return res.status(401).json({ error: "Access Denied: No Code" });
+
+    try {
+        const isValid = await AccessCode.findOne({ code: userCode });
+        if (isValid) next(); 
+        else return res.status(403).json({ error: "Access Denied: Invalid/Expired Code" });
+    } catch (e) { res.status(500).json({ error: "Auth Error" }); }
+}
+
 // --- 6. API ROUTES ---
+
+// ✅ PUBLIC (Keeps Render Awake & Browser Happy)
 app.get('/health', (req, res) => res.send('System Operational'));
 
-app.get('/api/trucks', async (req, res) => {
+// 🔐 SECURE SETUP ROUTE
+// Usage: /api/admin/add-code/NEW_CODE?secret=YOUR_MASTER_PASSWORD
+app.get('/api/admin/add-code/:code', async (req, res) => {
+    const MASTER_SECRET = "Douroub_2025_Admin_Secure"; // <--- CHANGE THIS to something only you know!
+
+    // 1. Check if the URL contains the secret password
+    if (req.query.secret !== MASTER_SECRET) {
+        return res.status(403).send("⛔ DÉGAGE ! Accès Interdit (Mauvais Secret).");
+    }
+
+    // 2. If secret is correct, add the code
+    try {
+        await AccessCode.create({ code: req.params.code, note: "Admin" });
+        res.send(`✅ SUCCESS: Code ${req.params.code} added to Database!`);
+    } catch(e) { 
+        res.send("❌ Error: Code already exists or DB error."); 
+    }
+});
+
+// 🔒 LOCKED ROUTES (Requires Code)
+app.get('/api/trucks', checkAccess, async (req, res) => {
     try {
         const r = await fetch(GPS_API_URL);
         const j = await r.json();
@@ -317,23 +358,22 @@ app.get('/api/trucks', async (req, res) => {
     } catch(e) { res.status(500).json({error:e.message}); }
 });
 
-app.get('/api/settings', (req, res) => res.json(SYSTEM_SETTINGS));
-app.post('/api/settings', async (req, res) => {
+app.get('/api/settings', checkAccess, (req, res) => res.json(SYSTEM_SETTINGS));
+app.post('/api/settings', checkAccess, async (req, res) => {
     SYSTEM_SETTINGS = { ...SYSTEM_SETTINGS, ...req.body };
     await saveSettings();
     res.json({success:true});
 });
 
-app.get('/api/maintenance', async (req, res) => {
+app.get('/api/maintenance', checkAccess, async (req, res) => {
     const data = await Maintenance.find().sort({date:-1}).limit(100);
     res.json(fmt(data));
 });
-app.post('/api/maintenance/add', async (req, res) => {
+app.post('/api/maintenance/add', checkAccess, async (req, res) => {
     await Maintenance.create(req.body); res.json({success:true});
 });
 
-// FIXED: Only updates text fields, preserves tracking flags for automatic sessions
-app.post('/api/maintenance/update', async (req, res) => {
+app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     try {
         const { id, type, note, odometer, isAuto } = req.body;
         const doc = await Maintenance.findById(id);
@@ -342,30 +382,29 @@ app.post('/api/maintenance/update', async (req, res) => {
         doc.type = type || doc.type;
         doc.note = note || doc.note;
         doc.odometer = odometer || doc.odometer;
-// Allow updating the Auto status if sent
-if (isAuto !== undefined) {
-    doc.isAuto = isAuto;
-}
+        if (isAuto !== undefined) {
+            doc.isAuto = isAuto;
+        }
         await doc.save();
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post('/api/maintenance/delete', async (req, res) => {
+app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
     await Maintenance.findByIdAndDelete(req.body.id); res.json({success:true});
 });
 
-app.get('/api/refuels', async (req, res) => {
+app.get('/api/refuels', checkAccess, async (req, res) => {
     const data = await Refuel.find().sort({timestamp:-1}).limit(100);
     res.json(fmt(data));
 });
 
-app.get('/api/decouchages', async (req, res) => {
+app.get('/api/decouchages', checkAccess, async (req, res) => {
     const data = await Decouchage.find().sort({date:-1}).limit(300);
     res.json(fmt(data));
 });
 
-app.get('/api/history', async (req, res) => {
+app.get('/api/history', checkAccess, async (req, res) => {
     const { imei, start, end } = req.query;
     const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${imei},${start},${end}`;
     try {
@@ -375,7 +414,7 @@ app.get('/api/history', async (req, res) => {
     } catch(e) { res.status(500).json({error:"Proxy Error"}); }
 });
 
-app.get('/api/backup/download', async (req, res) => {
+app.get('/api/backup/download', checkAccess, async (req, res) => {
     try {
         const dbData = {
             version: "2.1",
@@ -390,8 +429,8 @@ app.get('/api/backup/download', async (req, res) => {
     } catch (e) { res.status(500).send(e.message); }
 });
 
-// --- 7. ADMIN TOOLS ---
-app.get('/api/admin/repair', async (req, res) => {
+// --- 7. ADMIN TOOLS (Protected) ---
+app.get('/api/admin/repair', checkAccess, async (req, res) => {
     try {
         const refuels = await Refuel.find({ $or: [{ deviceId: "undefined" }, { lat: null }] });
         let count = 0;
@@ -414,7 +453,7 @@ app.get('/api/admin/repair', async (req, res) => {
     } catch (e) { res.status(500).send(e.message); }
 });
 
-app.get('/api/admin/flush-all-history', async (req, res) => {
+app.get('/api/admin/flush-all-history', checkAccess, async (req, res) => {
     await Refuel.deleteMany({});
     await Decouchage.deleteMany({});
     await Truck.updateMany({}, { $set: { lastFuelLiters: 0 } });

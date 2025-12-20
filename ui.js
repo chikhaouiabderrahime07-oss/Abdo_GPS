@@ -12,7 +12,42 @@
  * - SHOW ALL TRUCKS + GPS CUT INDICATOR
  * - NEW: DÉCOUCHAGE REPORTING (Overnight Stay)
  */
+/**
+ * 🔒 GATEKEEPER INTERCEPTOR
+ * Automatically injects the Access Code into every API request.
+ * Redirects to Lock Screen if the server rejects the code.
+ */
+const originalFetch = window.fetch;
 
+window.fetch = async function(url, options) {
+    // 1. Retrieve Code
+    const code = localStorage.getItem('fleetAccessCode');
+    
+    // 2. Inject Header
+    if (url.includes('/api/')) { // Only protect API calls
+        if (!options) options = {};
+        if (!options.headers) options.headers = {};
+        if (code) options.headers['x-access-code'] = code;
+    }
+
+    // 3. Perform Request
+    try {
+        const response = await originalFetch(url, options);
+
+        // 4. CHECK FOR REJECTION (401/403)
+        if (response.status === 401 || response.status === 403) {
+            console.warn("⛔ Access Revoked or Invalid Code");
+            localStorage.removeItem('fleetAccessCode');
+            // If we are not already on the lock screen (check if overlay is visible)
+            if (document.getElementById('loginOverlay') && document.getElementById('loginOverlay').style.display === 'none') {
+                location.reload(); // Hard refresh to show lock screen
+            }
+        }
+        return response;
+    } catch (e) {
+        throw e;
+    }
+};
 class UIController {
   constructor() {
     this.wilayaExpandState = {};
