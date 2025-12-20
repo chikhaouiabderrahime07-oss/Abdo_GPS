@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
-const admin = require('firebase-admin');
+const mongoose = require('mongoose');
 const fs = require('fs');
 require('dotenv').config();
 
@@ -10,440 +10,416 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
-// --- 1. FIREBASE CONNECTION ---
-let serviceAccount;
+// --- 1. MONGODB CONNECTION ---
+const MONGO_URI = process.env.MONGO_URI;
 
-if (process.env.FIREBASE_CREDENTIALS) {
-    try {
-        serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
-    } catch (e) { console.error("❌ Render Key Error:", e.message); }
-} else if (fs.existsSync('./firebase-key.json')) {
-    try {
-        serviceAccount = require('./firebase-key.json');
-    } catch(e) { console.error("❌ Local Key Error:", e.message); }
+if (MONGO_URI) {
+    mongoose.connect(MONGO_URI)
+        .then(() => console.log("✅ MongoDB Connected! (Refill Logic V7 & TTL Active 🧹)"))
+        .catch(err => console.error("❌ Mongo Error:", err));
+} else {
+    console.error("❌ FATAL: Missing MONGO_URI");
 }
 
-if (serviceAccount && admin.apps.length === 0) {
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-    console.log("✅ Database Connected!");
-}
+// --- 2. DATA MODELS & AUTO-DELETE RULES (TTL) ---
 
-const db = admin.firestore();
+// A. Truck State (Persistent Latest Position - The Source of Truth)
+const TruckSchema = new mongoose.Schema({
+    deviceId: { type: String, unique: true },
+    truckName: String,
+    lastUpdate: Number,
+    lastFuelLiters: Number,
+    lastFuelPercent: Number,
+    lat: Number, lng: Number, speed: Number,
+    zone: String, entryTime: Number,
+    hasLogged: Boolean, logId: String,
+    params: Object 
+}, { strict: false });
 
-// --- 2. CONFIGURATION & STATE ---
+// B. Events (These grow, so we Auto-Delete after 90 Days to keep DB lean)
+const expireRule = { expires: '90d' }; 
+
+const RefuelSchema = new mongoose.Schema({
+    deviceId: String, truckName: String,
+    addedLiters: Number, oldLevel: Number, newLevel: Number,
+    timestamp: { type: Date, required: true, index: expireRule }, 
+    locationRaw: String, isInternal: Boolean,
+    lat: Number, 
+    lng: Number  
+});
+
+const MaintenanceSchema = new mongoose.Schema({
+    truckName: String, deviceId: String, type: String,
+    location: String, odometer: Number,
+    date: { type: Date, required: true, index: expireRule },
+    exitDate: Date, note: String, isAuto: Boolean
+});
+
+const DecouchageSchema = new mongoose.Schema({
+    date: String, 
+    snapshotTime: { type: Date, required: true, index: expireRule },
+    deviceId: String, truckName: String,
+    locationAtMidnight: {
+        lat: Number,
+        lng: Number
+    }, 
+    distanceFromSite: Number,
+    status: String, entryTime: Date, lastUpdate: Date, isClosed: Boolean
+});
+
+const SettingsSchema = new mongoose.Schema({
+    id: { type: String, unique: true }, // 'global'
+    customLocations: Array,
+    maintenanceRules: Object,
+    defaultConfig: Object,
+    fleetRules: Array,
+    lastDecouchageCheck: String
+}, { strict: false });
+
+// Compile Models
+const Truck = mongoose.model('Truck', TruckSchema);
+const Refuel = mongoose.model('Refuel', RefuelSchema);
+const Maintenance = mongoose.model('Maintenance', MaintenanceSchema);
+const Decouchage = mongoose.model('Decouchage', DecouchageSchema);
+const Settings = mongoose.model('Settings', SettingsSchema);
+
+// --- 3. SMART CACHE & CONFIG ---
 let SYSTEM_SETTINGS = {
     customLocations: [],
     maintenanceRules: { minDurationMinutes: 60 },
-    defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35 }, // Default fallback
-    fleetRules: [], // Store specific truck rules here
-    lastDecouchageCheck: null // Stores date string YYYY-MM-DD of last check
+    defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35 }, 
+    fleetRules: [], 
+    lastDecouchageCheck: null 
 };
 
 const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
 
-// --- 3. HELPER FUNCTIONS ---
+// --- 4. HELPERS ---
 function calculateDistance(lat1, lon1, lat2, lon2) {
     const R = 6371e3; 
-    const φ1 = lat1 * Math.PI/180;
-    const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180;
-    const Δλ = (lon2-lon1) * Math.PI/180;
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
+    const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180, Δλ = (lon2-lon1) * Math.PI/180;
+    const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// Helper to get truck specific config (Capacity, etc.)
 function getTruckConfig(deviceId) {
     const globalDefault = SYSTEM_SETTINGS.defaultConfig || {};
     let specificConfig = {};
-
     if (SYSTEM_SETTINGS.fleetRules && Array.isArray(SYSTEM_SETTINGS.fleetRules)) {
         const matchedRule = SYSTEM_SETTINGS.fleetRules.find(rule => 
             rule.truckIds && rule.truckIds.includes(deviceId.toString())
         );
-        if (matchedRule && matchedRule.config) {
-            specificConfig = matchedRule.config;
-        }
+        if (matchedRule && matchedRule.config) specificConfig = matchedRule.config;
     }
     return { ...globalDefault, ...specificConfig };
 }
 
+// Convert MongoDB _id to id and Force Coordinates to Number for the frontend geocoder
+const fmt = (list) => list.map(d => { 
+    const o = d.toObject(); 
+    o.id = o._id.toString(); 
+    if(o.lat) o.lat = parseFloat(o.lat);
+    if(o.lng) o.lng = parseFloat(o.lng);
+    if(o.locationAtMidnight) {
+        o.locationAtMidnight.lat = parseFloat(o.locationAtMidnight.lat);
+        o.locationAtMidnight.lng = parseFloat(o.locationAtMidnight.lng);
+    }
+    delete o._id; return o; 
+});
+
+// --- 5. LOGIC ENGINE ---
+
 async function loadSettings() {
     try {
-        const doc = await db.collection('settings').doc('global').get();
-        if (doc.exists) {
-            const data = doc.data();
-            if(data.customLocations) SYSTEM_SETTINGS.customLocations = data.customLocations;
-            if(data.maintenanceRules) SYSTEM_SETTINGS.maintenanceRules = data.maintenanceRules;
-            if(data.defaultConfig) SYSTEM_SETTINGS.defaultConfig = data.defaultConfig;
-            if(data.fleetRules) SYSTEM_SETTINGS.fleetRules = data.fleetRules;
-            if(data.lastDecouchageCheck) SYSTEM_SETTINGS.lastDecouchageCheck = data.lastDecouchageCheck;
-        }
-    } catch (e) { console.error("Settings Load Error:", e); }
+        let doc = await Settings.findOne({ id: 'global' });
+        if (!doc) doc = await Settings.create({ id: 'global', ...SYSTEM_SETTINGS });
+        SYSTEM_SETTINGS = { ...SYSTEM_SETTINGS, ...doc.toObject() };
+    } catch (e) { console.error("Settings Load Error:", e.message); }
 }
 
 async function saveSettings() {
     try {
-        await db.collection('settings').doc('global').set(SYSTEM_SETTINGS, { merge: true });
-    } catch (e) { console.error("Settings Save Error:", e); }
+        await Settings.findOneAndUpdate({ id: 'global' }, SYSTEM_SETTINGS, { upsert: true });
+    } catch (e) { console.error("Settings Save Error:", e.message); }
 }
 
-// --- 4. THE 24/7 ROBOT (STATE AWARE) ---
 async function runFleetBot() {
-    console.log("🤖 FleetBot: Checking status...");
-    
-    // 1. Get Live Data
+    await loadSettings();
+
     let rawData = {};
     try {
         const response = await fetch(GPS_API_URL);
-        rawData = await response.json();
+        const json = await response.json();
+        rawData = json.data || json; 
     } catch (e) {
         console.log("Bot fetch error:", e.message);
-        return;
+        setTimeout(runFleetBot, 60000); return; 
     }
-    
-    await loadSettings(); 
     
     const now = Date.now();
     const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
 
-    // 2. Load Active States (Fuel & Maintenance)
-    const statesSnapshot = await db.collection('truck_states').get();
-    const activeStates = {}; 
-    statesSnapshot.forEach(doc => { activeStates[doc.id] = doc.data(); });
+    const truckArray = Array.isArray(rawData) ? rawData : Object.entries(rawData).map(([id, val]) => ({ ...val, id }));
 
-    // --- DECOUCHAGE LOGIC START ---
-    await runDecouchageLogic(rawData);
-    // --- DECOUCHAGE LOGIC END ---
+    // Global Daily Logic
+    await runDecouchageLogic(truckArray);
 
-    // 3. Process Each Truck
-    for (const [deviceId, truck] of Object.entries(rawData)) {
-        if (!truck.params || truck.loc_valid === '0') continue;
+    for (const truck of truckArray) {
+        const deviceId = String(truck.id || truck.imei);
+        if (!truck.params || truck.loc_valid === '0' || deviceId === "undefined") continue;
 
         const lat = parseFloat(truck.lat);
         const lng = parseFloat(truck.lng);
         const truckName = truck.name;
-
-        // --- A. GET CONFIG & CALCULATE FUEL ---
         const config = getTruckConfig(deviceId);
         const rawSensor = parseFloat(truck.params.io87) || 0; 
         const capacity = config.fuelTankCapacity || 600;
         const currentLiters = Math.round((rawSensor / 100) * capacity);
         
-        // --- B. REFUEL DETECTION LOGIC ---
-        const lastState = activeStates[deviceId];
+        // 🔎 SOURCE OF TRUTH: Fetch previous state from MongoDB (NOT local RAM)
+        const lastState = await Truck.findOne({ deviceId });
         
-        if (lastState && lastState.lastFuelLiters !== undefined) {
-            const diff = currentLiters - lastState.lastFuelLiters;
-            
-            // THRESHOLD: If fuel increased by > 55 Liters
-            if (diff >= 55) {
-                console.log(`⛽ REFUEL DETECTED: ${truckName} (+${diff}L)`);
-                
-                let locName = `Position GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
-                let isInternal = false;
-                
-                for (const loc of SYSTEM_SETTINGS.customLocations) {
-                    const dist = calculateDistance(lat, lng, loc.lat, loc.lng);
-                    if (dist <= (loc.radius || 500)) {
-                        locName = loc.name;
-                        isInternal = true;
-                        break;
-                    }
-                }
-
-                await db.collection('refuels').add({
-                    deviceId,
-                    truckName,
-                    addedLiters: diff,
-                    oldLevel: lastState.lastFuelLiters,
-                    newLevel: currentLiters,
-                    timestamp: new Date().toISOString(),
-                    locationRaw: locName,
-                    isInternal: isInternal,
-                    lat, lng
-                });
-            }
+        if (!lastState) {
+            // Register first time and skip logic
+            await Truck.findOneAndUpdate({ deviceId }, { truckName, lastUpdate: now, lastFuelLiters: currentLiters, lat, lng, params: truck.params }, { upsert: true });
+            continue;
         }
 
-        // --- C. MAINTENANCE LOGIC ---
-        let inZone = false;
-        let zoneName = '';
-
-        for (const loc of SYSTEM_SETTINGS.customLocations) {
-            if (loc.type !== 'maintenance') continue; 
-            const dist = calculateDistance(lat, lng, loc.lat, loc.lng);
-            if (dist <= (loc.radius || 500)) {
-                inZone = true;
-                zoneName = loc.name;
-                break;
-            }
-        }
-
-        let newState = {
-            truckName,
-            lastUpdate: now,
-            lastFuelLiters: currentLiters, 
-            lastFuelPercent: rawSensor
+        let needsUpdate = false;
+        let updatePayload = {
+            truckName, lastUpdate: now,
+            lastFuelLiters: currentLiters, lastFuelPercent: rawSensor,
+            lat, lng, speed: parseInt(truck.speed) || 0,
+            params: truck.params
         };
 
+        // --- A. REFUEL DETECTION (STRICT DB COMPARISON) ---
+        if (lastState.lastFuelLiters > 0) {
+            const diff = currentLiters - lastState.lastFuelLiters;
+            if (diff >= 50 && (parseInt(truck.speed) || 0) < 5) {
+                console.log(`⛽ REAL REFUEL DETECTED: ${truckName} (+${diff}L)`);
+                let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+                let isInternal = false;
+                for (const loc of SYSTEM_SETTINGS.customLocations) {
+                    if (calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
+                        locName = loc.name; isInternal = true; break;
+                    }
+                }
+                await Refuel.create({
+                    deviceId, truckName, addedLiters: diff,
+                    oldLevel: lastState.lastFuelLiters, newLevel: currentLiters,
+                    timestamp: new Date(), locationRaw: locName, isInternal, lat, lng
+                });
+                needsUpdate = true;
+            }
+        }
+
+        // --- B. MAINTENANCE LOGIC (PERSISTENT SESSIONS) ---
+        let inZone = false, zoneName = '';
+        for (const loc of SYSTEM_SETTINGS.customLocations) {
+            if (loc.type === 'maintenance' && calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
+                inZone = true; zoneName = loc.name; break;
+            }
+        }
+
         if (inZone) {
-            if (!lastState || !lastState.zone) {
-                newState.zone = zoneName;
-                newState.entryTime = now;
-                newState.hasLogged = false;
-                newState.logId = null;
+            if (!lastState.zone) {
+                updatePayload.zone = zoneName; updatePayload.entryTime = now; 
+                updatePayload.hasLogged = false; updatePayload.logId = null;
+                needsUpdate = true;
             } else {
-                newState.zone = lastState.zone;
-                newState.entryTime = lastState.entryTime;
-                newState.hasLogged = lastState.hasLogged;
-                newState.logId = lastState.logId;
-
-                const durationMins = (now - newState.entryTime) / 60000;
-                if (durationMins >= minDuration && !newState.hasLogged) {
-                     const logRef = await db.collection('maintenance').add({
-                        truckName, deviceId, type: 'Plaquettes', 
-                        location: zoneName, odometer: parseInt(truck.params.io192 || 0) / 1000, 
-                        date: new Date(newState.entryTime).toISOString(), 
-                        exitDate: null, note: 'Auto-detected (En cours...)', isAuto: true 
-                    });
-                    newState.hasLogged = true;
-                    newState.logId = logRef.id;
+                const duration = (now - (lastState.entryTime || now)) / 60000;
+                if (duration >= minDuration && !lastState.hasLogged) {
+                    const dup = await Maintenance.findOne({ deviceId, exitDate: null });
+                    if(!dup) {
+                        const log = await Maintenance.create({
+                            truckName, deviceId, type: 'Plaquettes', location: zoneName,
+                            odometer: parseInt(truck.params.io192||0)/1000,
+                            date: new Date(lastState.entryTime || now), exitDate: null, 
+                            note: 'Session Automatique', isAuto: true
+                        });
+                        updatePayload.hasLogged = true; updatePayload.logId = log._id.toString();
+                    }
+                    needsUpdate = true;
                 }
             }
-        } else {
-            if (lastState && lastState.zone && lastState.logId) {
-                await closeMaintenanceSession(lastState, now);
-            }
+        } else if (lastState.zone) {
+            if (lastState.logId) await closeMaintenanceSession(lastState.logId, truckName, now);
+            updatePayload.zone = null; updatePayload.entryTime = null;
+            updatePayload.hasLogged = false; updatePayload.logId = null;
+            needsUpdate = true;
         }
 
-        await db.collection('truck_states').doc(deviceId).set(newState, { merge: true });
+        // --- C. PERSISTENCE ---
+        const distMoved = calculateDistance(lat, lng, lastState.lat, lastState.lng);
+        if (needsUpdate || distMoved > 50 || Math.abs(currentLiters - lastState.lastFuelLiters) > 2 || (now - lastState.lastUpdate) > 600000) {
+            await Truck.findOneAndUpdate({ deviceId }, updatePayload, { upsert: true });
+        }
+    }
+    setTimeout(runFleetBot, 120000); 
+}
+
+async function runDecouchageLogic(trucks) {
+    const today = new Date().toISOString().split('T')[0];
+    const site = SYSTEM_SETTINGS.customLocations.find(l => l.name.toLowerCase().includes('douroub'));
+    if (!site) return;
+
+    if (SYSTEM_SETTINGS.lastDecouchageCheck !== today) {
+        console.log("🌙 Performing Midnight Découchage Scan...");
+        for (const t of trucks) {
+            if (!t.params) continue;
+            const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), site.lat, site.lng);
+            if (dist > (site.radius || 500)) {
+                await Decouchage.create({
+                    date: today, snapshotTime: new Date(), deviceId: String(t.id||t.imei),
+                    truckName: t.name, locationAtMidnight: { lat: parseFloat(t.lat), lng: parseFloat(t.lng) },
+                    distanceFromSite: Math.round(dist), status: 'Confirmé',
+                    isClosed: false, lastUpdate: new Date()
+                });
+            }
+        }
+        SYSTEM_SETTINGS.lastDecouchageCheck = today;
+        await Settings.findOneAndUpdate({ id: 'global' }, { lastDecouchageCheck: today });
+    }
+
+    const open = await Decouchage.find({ isClosed: false });
+    for (const doc of open) {
+        const t = trucks.find(tr => String(tr.id||tr.imei) === doc.deviceId);
+        if (t && calculateDistance(parseFloat(t.lat), parseFloat(t.lng), site.lat, site.lng) <= (site.radius || 500)) {
+            const hour = new Date().getHours();
+            await Decouchage.findByIdAndUpdate(doc._id, { status: hour < 5 ? 'Non Confirmé' : 'Confirmé', entryTime: new Date(), isClosed: true });
+        }
     }
 }
 
-// --- NEW FEATURE: DECOUCHAGE LOGIC ---
-async function runDecouchageLogic(rawData) {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const douroubSite = SYSTEM_SETTINGS.customLocations.find(l => l.type === 'douroub' || l.name.toLowerCase().includes('douroub'));
-    
-    if (!douroubSite) {
-        console.log("⚠️ Découchage: 'Site Douroub' not defined in Custom Locations.");
-        return; 
-    }
-
-    // 1. MIDNIGHT SNAPSHOT (Run once per day)
-    if (SYSTEM_SETTINGS.lastDecouchageCheck !== todayStr) {
-        console.log(`🌙 Running Midnight Découchage Snapshot for ${todayStr}...`);
-        
-        const batch = db.batch();
-        let count = 0;
-
-        for (const [deviceId, truck] of Object.entries(rawData)) {
-            // Check if truck is live
-            if (!truck.params) continue; 
-            
-            const lat = parseFloat(truck.lat);
-            const lng = parseFloat(truck.lng);
-            const dist = calculateDistance(lat, lng, douroubSite.lat, douroubSite.lng);
-            const radius = douroubSite.radius || 500;
-
-            // If OUTSIDE site at snapshot time
-            if (dist > radius) {
-                const ref = db.collection('decouchages').doc();
-                batch.set(ref, {
-                    date: todayStr, // Index for the day
-                    deviceId: deviceId,
-                    truckName: truck.name,
-                    locationAtMidnight: { lat, lng },
-                    distanceFromSite: Math.round(dist),
-                    status: 'Confirmé', // Default to Confirmé, changes if they return early
-                    entryTime: null, // No return yet
-                    lastUpdate: new Date().toISOString(),
-                    isClosed: false
-                });
-                count++;
-            }
-        }
-        
-        if (count > 0) await batch.commit();
-        
-        // Update settings so we don't run again today
-        SYSTEM_SETTINGS.lastDecouchageCheck = todayStr;
-        await saveSettings();
-        console.log(`✅ Snapshot Done: ${count} trucks outside.`);
-    }
-
-    // 2. RETURN MONITOR (Check active decouchages)
-    // Find records where isClosed is false
-    const openSnaps = await db.collection('decouchages').where('isClosed', '==', false).get();
-    
-    if (openSnaps.empty) return;
-
-    const batchUpdate = db.batch();
-    let updatesCount = 0;
-
-    openSnaps.docs.forEach(doc => {
-        const data = doc.data();
-        const truck = rawData[data.deviceId];
-
-        if (truck && truck.params) {
-            const lat = parseFloat(truck.lat);
-            const lng = parseFloat(truck.lng);
-            const dist = calculateDistance(lat, lng, douroubSite.lat, douroubSite.lng);
-            const radius = douroubSite.radius || 500;
-
-            // IF TRUCK ENTERS SITE DOUROUB
-            if (dist <= radius) {
-                const now = new Date();
-                const currentHour = now.getHours(); // 0 to 23
-                
-                // Logic: 
-                // Before 05:00 (0, 1, 2, 3, 4) -> Non Confirmé
-                // 05:00 or later -> Confirmé (Remains Confirmed)
-                
-                let finalStatus = 'Confirmé';
-                if (currentHour < 5) {
-                    finalStatus = 'Non Confirmé';
-                }
-
-                batchUpdate.update(doc.ref, {
-                    status: finalStatus,
-                    entryTime: now.toISOString(),
-                    isClosed: true, // Mark as processed so we stop checking
-                    lastUpdate: now.toISOString()
-                });
-                updatesCount++;
-                console.log(`🚚 Truck ${data.truckName} returned. Status: ${finalStatus}`);
-            }
-        }
-    });
-
-    if (updatesCount > 0) await batchUpdate.commit();
-}
-
-async function closeMaintenanceSession(state, exitTimeMs) {
-    if (!state.logId) return;
+async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
     try {
-        const exitDate = new Date(exitTimeMs).toISOString();
-        const durationHours = ((exitTimeMs - state.entryTime) / (1000 * 60 * 60)).toFixed(1);
-        
-        await db.collection('maintenance').doc(state.logId).update({
-            exitDate: exitDate,
-            note: `Terminé (Durée: ${durationHours}h)`
-        });
-        console.log(`🏁 Closed session for ${state.truckName}`);
-    } catch(e) {
-        console.error("Error closing session:", e);
-    }
+        const doc = await Maintenance.findById(logId);
+        if(doc && !doc.exitDate) {
+            const dur = ((exitTimeMs - new Date(doc.date).getTime()) / 3600000).toFixed(1);
+            await Maintenance.findByIdAndUpdate(logId, { exitDate: new Date(exitTimeMs), note: `Terminé (Durée: ${dur}h)` });
+            console.log(`🏁 Closed Maintenance session for ${truckName}`);
+        }
+    } catch(e) { console.error("Close Session Error:", e.message); }
 }
 
-// Run every 2 minutes
-setInterval(runFleetBot, 120000); 
+runFleetBot();
 
-// --- 5. EXISTING API ROUTES ---
-
-app.get('/health', (req, res) => res.status(200).send('OK'));
+// --- 6. API ROUTES ---
+app.get('/health', (req, res) => res.send('System Operational'));
 
 app.get('/api/trucks', async (req, res) => {
     try {
-        const response = await fetch(GPS_API_URL);
-        const json = await response.json();
-        res.json(json);
-    } catch (e) { res.status(500).json({ error: e.message }); }
+        const r = await fetch(GPS_API_URL);
+        const j = await r.json();
+        res.json(j);
+    } catch(e) { res.status(500).json({error:e.message}); }
 });
 
-app.get('/api/settings', async (req, res) => {
-    try {
-        const doc = await db.collection('settings').doc('global').get();
-        res.json(doc.exists ? doc.data() : {});
-    } catch(e) { res.status(500).json({}); }
-});
-
+app.get('/api/settings', (req, res) => res.json(SYSTEM_SETTINGS));
 app.post('/api/settings', async (req, res) => {
-    try {
-        await db.collection('settings').doc('global').set(req.body, { merge: true });
-        await loadSettings();
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({}); }
+    SYSTEM_SETTINGS = { ...SYSTEM_SETTINGS, ...req.body };
+    await saveSettings();
+    res.json({success:true});
 });
 
 app.get('/api/maintenance', async (req, res) => {
-    try {
-        const snap = await db.collection('maintenance').orderBy('date', 'desc').limit(100).get();
-        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        res.json(data);
-    } catch(e) { res.status(500).json([]); }
+    const data = await Maintenance.find().sort({date:-1}).limit(100);
+    res.json(fmt(data));
 });
-
 app.post('/api/maintenance/add', async (req, res) => {
-    try {
-        await db.collection('maintenance').add(req.body);
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({}); }
+    await Maintenance.create(req.body); res.json({success:true});
 });
 
+// FIXED: Only updates text fields, preserves tracking flags for automatic sessions
 app.post('/api/maintenance/update', async (req, res) => {
     try {
-        const { id, ...data } = req.body;
-        await db.collection('maintenance').doc(id).update(data);
+        const { id, type, note, odometer, isAuto } = req.body;
+        const doc = await Maintenance.findById(id);
+        if (!doc) return res.status(404).json({ error: "Introuvable" });
+
+        doc.type = type || doc.type;
+        doc.note = note || doc.note;
+        doc.odometer = odometer || doc.odometer;
+// Allow updating the Auto status if sent
+if (isAuto !== undefined) {
+    doc.isAuto = isAuto;
+}
+        await doc.save();
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/maintenance/delete', async (req, res) => {
-    try {
-        await db.collection('maintenance').doc(req.body.id).delete();
-        res.json({ success: true });
-    } catch(e) { res.status(500).json({}); }
+    await Maintenance.findByIdAndDelete(req.body.id); res.json({success:true});
 });
 
 app.get('/api/refuels', async (req, res) => {
-    try {
-        const snap = await db.collection('refuels').orderBy('timestamp', 'desc').limit(100).get();
-        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        res.json(data);
-    } catch(e) { res.status(500).json([]); }
+    const data = await Refuel.find().sort({timestamp:-1}).limit(100);
+    res.json(fmt(data));
 });
 
-// --- NEW ENDPOINT: DECOUCHAGES ---
 app.get('/api/decouchages', async (req, res) => {
+    const data = await Decouchage.find().sort({date:-1}).limit(300);
+    res.json(fmt(data));
+});
+
+app.get('/api/history', async (req, res) => {
+    const { imei, start, end } = req.query;
+    const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${imei},${start},${end}`;
     try {
-        // Simple fetch, filtering done on frontend to save read costs/complexity
-        // Limit to last 300 to keep it light
-        const snap = await db.collection('decouchages').orderBy('date', 'desc').limit(300).get();
-        const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        res.json(data);
-    } catch(e) { res.status(500).json([]); }
+        const r = await fetch(url);
+        const t = await r.text();
+        res.json(JSON.parse(t));
+    } catch(e) { res.status(500).json({error:"Proxy Error"}); }
 });
 
 app.get('/api/backup/download', async (req, res) => {
     try {
-        const collections = ['settings', 'refuels', 'maintenance', 'truck_states', 'decouchages']; 
-        const dbData = {};
-        for (const name of collections) {
-            const snap = await db.collection(name).get();
-            dbData[name] = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
-        }
+        const dbData = {
+            version: "2.1",
+            date: new Date(),
+            truck_states: await Truck.find(), 
+            settings: await Settings.find(),
+            refuels: await Refuel.find(),
+            maintenance: await Maintenance.find(),
+            decouchages: await Decouchage.find()
+        };
         res.json(dbData);
     } catch (e) { res.status(500).send(e.message); }
 });
 
-app.post('/api/backup/restore', async (req, res) => {
+// --- 7. ADMIN TOOLS ---
+app.get('/api/admin/repair', async (req, res) => {
     try {
-        const batch = db.batch();
-        for (const [col, items] of Object.entries(req.body)) {
-            if (!Array.isArray(items)) continue;
-            items.forEach(item => {
-                const { _id, ...data } = item;
-                const ref = _id ? db.collection(col).doc(_id) : db.collection(col).doc();
-                batch.set(ref, data, { merge: true });
-            });
+        const refuels = await Refuel.find({ $or: [{ deviceId: "undefined" }, { lat: null }] });
+        let count = 0;
+        for (const log of refuels) {
+            const truck = await Truck.findOne({ truckName: log.truckName });
+            if (truck) {
+                log.deviceId = truck.deviceId;
+                if (!log.lat && log.locationRaw && log.locationRaw.includes("GPS:")) {
+                    const coords = log.locationRaw.match(/-?\d+\.\d+/g);
+                    if (coords && coords.length >= 2) {
+                        log.lat = parseFloat(coords[0]);
+                        log.lng = parseFloat(coords[1]);
+                    }
+                }
+                await log.save();
+                count++;
+            }
         }
-        await batch.commit();
-        res.json({ success: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+        res.json({ success: true, message: `Repaired ${count} refuel records.` });
+    } catch (e) { res.status(500).send(e.message); }
+});
+
+app.get('/api/admin/flush-all-history', async (req, res) => {
+    await Refuel.deleteMany({});
+    await Decouchage.deleteMany({});
+    await Truck.updateMany({}, { $set: { lastFuelLiters: 0 } });
+    res.json({ success: true, message: "Burned migration data cleared." });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Fleet Analytics Engine running on port ${PORT}`));

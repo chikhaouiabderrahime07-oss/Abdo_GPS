@@ -99,7 +99,7 @@ class UIController {
     }, 100);
   }
 toggleDecouchageSubTab(view) {
-      // 1. Reset Buttons
+      // 1. Reset Buttons (Remove old styles)
       this.btnSubDecouchageRecap.className = 'tab-button';
       this.btnSubDecouchageRecap.style.background = '';
       this.btnSubDecouchageRecap.style.color = '';
@@ -108,18 +108,21 @@ toggleDecouchageSubTab(view) {
       this.btnSubDecouchageDetail.className = 'tab-button';
       this.btnSubDecouchageDetail.style.background = '';
       this.btnSubDecouchageDetail.style.color = '';
+      this.btnSubDecouchageDetail.style.border = '';
       
       // 2. Hide Views
       this.decouchageRecapView.style.display = 'none';
       this.decouchageDetailView.style.display = 'none';
       
-      // 3. Activate Selected
+      // 3. Activate Selected (APPLY STRONG GREEN STYLES)
       if (view === 'recap') {
           this.decouchageRecapView.style.display = 'block';
           this.btnSubDecouchageRecap.classList.add('active');
-          this.btnSubDecouchageRecap.style.background = '#e0f2fe';
-          this.btnSubDecouchageRecap.style.color = '#0369a1';
-          this.btnSubDecouchageRecap.style.border = '1px solid #bae6fd';
+          
+          // --- FORCE GREEN HERE ---
+          this.btnSubDecouchageRecap.style.background = '#166534'; // Strong Green
+          this.btnSubDecouchageRecap.style.color = '#ffffff';      // White Text
+          this.btnSubDecouchageRecap.style.border = '1px solid #14532d';
           
           // Toggle Exports
           if(this.btnExportRecap) this.btnExportRecap.style.display = 'inline-flex';
@@ -127,14 +130,18 @@ toggleDecouchageSubTab(view) {
       } else {
           this.decouchageDetailView.style.display = 'block';
           this.btnSubDecouchageDetail.classList.add('active');
-          this.btnSubDecouchageDetail.style.background = '#e0f2fe'; // similar style
-          this.btnSubDecouchageDetail.style.color = '#0369a1';
+          
+          // --- FORCE GREEN HERE ---
+          this.btnSubDecouchageDetail.style.background = '#166534'; // Strong Green
+          this.btnSubDecouchageDetail.style.color = '#ffffff';      // White Text
+          this.btnSubDecouchageDetail.style.border = '1px solid #14532d';
           
           // Toggle Exports
           if(this.btnExportRecap) this.btnExportRecap.style.display = 'none';
           if(this.exportDecouchageBtn) this.exportDecouchageBtn.style.display = 'inline-flex';
       }
   }
+
   injectCustomStyles() {
     const style = document.createElement('style');
     style.innerHTML = `
@@ -464,7 +471,82 @@ initElements() {
       }
   }
 
+// Helper to resolve location name (Custom > Cache > Fetch)
+  resolveDecouchageLocation(lat, lng, elementId = null) {
+      if (!lat || !lng) return "Position Inconnue";
+
+      // 1. Check Custom Locations (Instant)
+      if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
+          for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+              // Simple distance check (approx)
+              const R = 6371e3;
+              const φ1 = lat * Math.PI/180, φ2 = loc.lat * Math.PI/180;
+              const Δφ = (loc.lat-lat) * Math.PI/180, Δλ = (loc.lng-lng) * Math.PI/180;
+              const a = Math.sin(Δφ/2)*Math.sin(Δφ/2) + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)*Math.sin(Δλ/2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+              const dist = R * c;
+              
+              if (dist <= (loc.radius || 500)) return loc.name; // Found Custom Site
+          }
+      }
+
+      // 2. Check Cache (Instant)
+      if (typeof geocodeService !== 'undefined') {
+          const cached = geocodeService.checkCacheInstant(lat, lng);
+          if (cached) return cached.formatted || `${cached.city}, ${cached.wilaya}`;
+          
+          // 3. Not found? Trigger fetch if we have an element to update
+          if (elementId) {
+              geocodeService.reverseGeocode(lat, lng).then(data => {
+                  const el = document.getElementById(elementId);
+                  if (el) el.innerHTML = `<strong><i class="fa-solid fa-map-pin"></i> ${data.formatted || data.city}</strong>`;
+              });
+              return "Recherche..."; 
+          }
+      }
+
+      return `${lat.toFixed(4)}, ${lng.toFixed(4)}`; // Fallback for CSV if waiting
+  }
+  
+// Helper: Finds the best name for a location (Custom Site > Geoapify City > GPS)
+  resolveDecouchageLocation(lat, lng, elementId = null) {
+      if (!lat || !lng) return "Position Inconnue";
+
+      // 1. CHECK CUSTOM LOCATIONS (Priority)
+      if (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.CUSTOM_LOCATIONS) {
+          for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+              // Simple distance calc (Haversine approximation)
+              const R = 6371e3; // Earth radius in meters
+              const φ1 = lat * Math.PI/180, φ2 = loc.lat * Math.PI/180;
+              const Δφ = (loc.lat-lat) * Math.PI/180, Δλ = (loc.lng-lng) * Math.PI/180;
+              const a = Math.sin(Δφ/2)*Math.sin(Δφ/2) + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)*Math.sin(Δλ/2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+              const dist = R * c;
+              
+              if (dist <= (loc.radius || 500)) return loc.name; // Found Custom Site (e.g. "Sgem Guedila")
+          }
+      }
+
+      // 2. CHECK GEOCODE CACHE (Instant)
+      if (typeof geocodeService !== 'undefined') {
+          const cached = geocodeService.checkCacheInstant(lat, lng);
+          if (cached) return cached.formatted || `${cached.city}, ${cached.wilaya}`;
+          
+          // 3. FETCH FROM API (If elementId is provided for UI update)
+          if (elementId) {
+              geocodeService.reverseGeocode(lat, lng).then(data => {
+                  const el = document.getElementById(elementId);
+                  if (el) el.innerHTML = `<strong><i class="fa-solid fa-location-dot"></i> ${data.formatted || data.city || 'Lieu Inconnu'}</strong>`;
+              });
+              return "Recherche..."; 
+          }
+      }
+
+      return null; // Return null so we know to fallback or wait
+  }
+  
 renderDecouchageList() {
+      // 1. Check if data exists
       if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
           if(this.decouchageHistoryContainer) this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun découchage enregistré.</div>';
           if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = '';
@@ -472,30 +554,26 @@ renderDecouchageList() {
           return;
       }
 
-      // 1. Filter Logic (Using DATE RANGE now)
+      // 2. Filter Logic (Date Range, Status, Truck Name)
       const startStr = this.decouchageDateStart.value;
       const endStr = this.decouchageDateEnd.value;
-      
       const statusFilter = this.decouchageStatusSelect.value;
       const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
       
       let filtered = this.allDecouchageLogs.filter(log => {
           if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
           if (statusFilter !== 'all' && log.status !== statusFilter) return false;
-          
-          // DATE RANGE CHECK
+          // Date Range Check
           if (startStr && log.date < startStr) return false;
           if (endStr && log.date > endStr) return false;
           
           return true;
       });
 
-      // 2. Sort (Recent First)
+      // 3. Sort (Recent First)
       filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-      // =========================================================
-      // 🆕 RECAP AGGREGATION LOGIC (For Recap View)
-      // =========================================================
+      // 4. Recap / Summary Calculation
       const summary = {};
       filtered.forEach(log => {
           const name = log.truckName;
@@ -506,36 +584,34 @@ renderDecouchageList() {
           else summary[name].nonConfirme++;
       });
 
-      const summaryArray = Object.values(summary).sort((a,b) => b.total - a.total);
+      // Convert to Array & Sort by Total
+      this.currentDecouchageSummary = Object.values(summary).sort((a,b) => b.total - a.total);
       
-      // Save for Export
-      this.currentDecouchageSummary = summaryArray;
-
-      // Generate Recap Table
+      // 5. Render Recap Table
       let tableHtml = `
-        <table style="width:100%; border-collapse:collapse; font-size:13px; background:white; border:1px solid #ddd; margin-bottom:10px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+        <table style="width:100%; border-collapse:collapse; font-size:13px; background:white; border:1px solid #e2e8f0; margin-bottom:15px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
             <thead>
-                <tr style="background:#f1f5f9; color:#475569; text-align:left;">
-                    <th style="padding:12px; border-bottom:2px solid #e2e8f0;">Camion</th>
-                    <th style="padding:12px; border-bottom:2px solid #e2e8f0; text-align:center;">Total</th>
-                    <th style="padding:12px; border-bottom:2px solid #b91c1c; color:#b91c1c; text-align:center;">Confirmés</th>
-                    <th style="padding:12px; border-bottom:2px solid #1e40af; color:#1e40af; text-align:center;">Non Confirmés</th>
+                <tr style="background:#f8fafc; color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;">
+                    <th style="padding:10px 15px;">Camion</th>
+                    <th style="padding:10px; text-align:center;">Total</th>
+                    <th style="padding:10px; text-align:center; color:#b91c1c;">Confirmés</th>
+                    <th style="padding:10px; text-align:center; color:#1e40af;">Non Confirmés</th>
                 </tr>
             </thead>
             <tbody>
       `;
 
-      if(summaryArray.length === 0) {
+      if(this.currentDecouchageSummary.length === 0) {
           tableHtml += '<tr><td colspan="4" style="padding:15px; text-align:center; color:#888;">Aucune donnée pour cette période.</td></tr>';
       } else {
-          summaryArray.forEach((item, index) => {
-              const bg = index % 2 === 0 ? '#fff' : '#f8fafc';
+          this.currentDecouchageSummary.forEach((item, index) => {
+              const bg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
               tableHtml += `
-                <tr style="background:${bg}; border-bottom:1px solid #eee;">
-                    <td style="padding:10px 12px; font-weight:bold; color:#333;">${item.name}</td>
-                    <td style="padding:10px 12px; text-align:center; font-weight:bold;">${item.total}</td>
-                    <td style="padding:10px 12px; text-align:center; color:#b91c1c; font-weight:600;">${item.confirme}</td>
-                    <td style="padding:10px 12px; text-align:center; color:#1e40af;">${item.nonConfirme}</td>
+                <tr style="background:${bg}; border-bottom:1px solid #f1f5f9;">
+                    <td style="padding:8px 15px; font-weight:bold; color:#334155;">${item.name}</td>
+                    <td style="padding:8px; text-align:center; font-weight:bold;">${item.total}</td>
+                    <td style="padding:8px; text-align:center; color:#b91c1c; font-weight:600;">${item.confirme}</td>
+                    <td style="padding:8px; text-align:center; color:#1e40af;">${item.nonConfirme}</td>
                 </tr>
               `;
           });
@@ -544,33 +620,29 @@ renderDecouchageList() {
       
       if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = tableHtml;
 
-      // =========================================================
-      // DETAILED LIST LOGIC (For Detail View)
-      // =========================================================
-
-      // Stats Update
+      // 6. Stats Cards Update
       const countTotal = filtered.length;
       const countConfirme = filtered.filter(l => l.status === 'Confirmé').length;
       const countNonConfirme = filtered.filter(l => l.status === 'Non Confirmé').length;
       
       if(this.decouchageStatsGrid) {
           this.decouchageStatsGrid.innerHTML = `
-            <div class="stat-card" style="border-bottom: 3px solid #0369a1;">
-                <div class="stat-value" style="color:#0369a1">${countTotal}</div>
+            <div class="stat-card" style="border-bottom: 3px solid #6366f1;">
+                <div class="stat-value" style="color:#6366f1">${countTotal}</div>
                 <div class="stat-label">Total Période</div>
             </div>
-            <div class="stat-card" style="border-bottom: 3px solid #b91c1c;">
-                <div class="stat-value" style="color:#b91c1c">${countConfirme}</div>
-                <div class="stat-label">Confirmés</div>
+            <div class="stat-card" style="border-bottom: 3px solid #ef4444;">
+                <div class="stat-value" style="color:#ef4444">${countConfirme}</div>
+                <div class="stat-label">Confirmés (>05h)</div>
             </div>
-            <div class="stat-card" style="border-bottom: 3px solid #1e40af;">
-                <div class="stat-value" style="color:#1e40af">${countNonConfirme}</div>
+            <div class="stat-card" style="border-bottom: 3px solid #3b82f6;">
+                <div class="stat-value" style="color:#3b82f6">${countNonConfirme}</div>
                 <div class="stat-label">Non Confirmés</div>
             </div>
           `;
       }
 
-      // Pagination
+      // 7. Pagination Logic
       const totalPages = Math.ceil(filtered.length / this.decouchageItemsPerPage);
       if (this.decouchageCurrentPage > totalPages) this.decouchageCurrentPage = totalPages || 1;
       if (this.decouchageCurrentPage < 1) this.decouchageCurrentPage = 1;
@@ -583,32 +655,83 @@ renderDecouchageList() {
           return;
       }
 
-      let html = '<div style="display:grid; gap:10px;">';
+      // 8. Render Detailed Cards
+      let html = '<div style="display:grid; gap:12px;">';
+      
       paginatedItems.forEach(log => {
-          const badgeClass = log.status === 'Confirmé' ? 'confirme' : 'non-confirme';
-          const icon = log.status === 'Confirmé' ? 'fa-exclamation-circle' : 'fa-undo';
+          // Status Badges
+          const isConfirmed = log.status === 'Confirmé';
+          const icon = isConfirmed ? 'fa-exclamation-circle' : 'fa-undo';
+          const statusColor = isConfirmed ? '#b91c1c' : '#1e40af';
+          const statusBg = isConfirmed ? '#fef2f2' : '#eff6ff';
+          
           const distKm = (log.distanceFromSite / 1000).toFixed(1);
           
           const returnTimeDisplay = log.entryTime 
               ? `<span style="font-weight:bold; color:#166534;"><i class="fa-solid fa-check"></i> Retour: ${new Date(log.entryTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>` 
               : `<span style="color:#b91c1c; font-style:italic;">Pas encore rentré</span>`;
 
+          // --- LOCATION & TIME LOGIC ---
+          const locId = `decouchage-loc-${log.id || Math.random().toString(36).substr(2,9)}`;
+          let locationDisplay = "Position Inconnue";
+          let mapLink = "#";
+          
+          // Get Exact Time (from server snapshot) or default to 00:00
+          let timeStr = "00:00";
+          if (log.snapshotTime) {
+              const d = new Date(log.snapshotTime);
+              timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          }
+          const timeSuffix = ` <span style="color:#d97706; font-weight:bold; font-size:11px;">(${timeStr})</span>`;
+
+          // Location Resolver
+          if (log.locationAtMidnight) {
+              const lat = log.locationAtMidnight.lat;
+              const lng = log.locationAtMidnight.lng;
+              mapLink = `https://www.google.com/maps?q=${lat},${lng}`;
+              
+              // Use Helper
+              const resolvedName = this.resolveDecouchageLocation(lat, lng, locId);
+              
+              if (resolvedName === "Recherche...") {
+                  locationDisplay = `<span style="color:#64748b; font-style:italic;"><i class="fa-solid fa-circle-notch fa-spin"></i> Recherche...</span>`;
+              } else if (resolvedName) {
+                  locationDisplay = `<strong><i class="fa-solid fa-map-pin"></i> ${resolvedName}</strong>${timeSuffix}`;
+              } else {
+                  locationDisplay = `<span>${lat.toFixed(4)}, ${lng.toFixed(4)}</span>${timeSuffix}`;
+              }
+          }
+
           html += `
-          <div style="background:white; border:1px solid #e5e7eb; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+          <div style="background:white; border:1px solid #e2e8f0; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+              
               <div style="flex:1;">
-                  <div style="font-weight:bold; color:#1f2937; font-size:15px;">${log.truckName}</div>
-                  <div style="font-size:12px; color:#6b7280; margin-top:2px;">
+                  <div style="font-weight:bold; color:#1e293b; font-size:15px;">${log.truckName}</div>
+                  <div style="font-size:12px; color:#64748b; margin-top:2px;">
                       <i class="fa-regular fa-calendar"></i> ${new Date(log.date).toLocaleDateString()}
                   </div>
               </div>
-              <div style="flex:1; text-align:center;">
-                  <span class="status-badge ${badgeClass}" style="padding:4px 10px; border-radius:20px; font-size:11px; font-weight:bold; display:inline-flex; align-items:center; gap:5px;">
+
+              <div style="flex:1.8; text-align:center; display:flex; flex-direction:column; align-items:center; gap:5px;">
+                  
+                  <span style="background:${statusBg}; color:${statusColor}; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:bold; border:1px solid ${statusColor}20;">
                       <i class="fa-solid ${icon}"></i> ${log.status}
                   </span>
-                  <div style="font-size:12px; color:#444; margin-top:5px; font-weight:bold;">
-                    <i class="fa-solid fa-map-pin" style="color:#d32f2f;"></i> ${distKm} km <span style="font-weight:normal; color:#888;">(du site)</span>
+                  
+                  <div style="font-size:12px; color:#475569; font-weight:600;">
+                    <i class="fa-solid fa-ruler-horizontal" style="color:#94a3b8;"></i> ${distKm} km <span style="font-weight:normal; color:#94a3b8;">(du site)</span>
                   </div>
+
+                  <div id="${locId}" style="font-size:12px; color:#1e3a8a; background:#eff6ff; padding:4px 10px; border-radius:4px; border:1px solid #dbeafe; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                      ${locationDisplay}
+                  </div>
+                  
+                  <a href="${mapLink}" target="_blank" style="color:#059669; text-decoration:none; font-size:11px; font-weight:600; display:flex; align-items:center; gap:4px;">
+                      <i class="fa-solid fa-up-right-from-square"></i> Voir Carte
+                  </a>
+
               </div>
+
               <div style="flex:1; text-align:right; font-size:13px;">
                   ${returnTimeDisplay}
               </div>
@@ -617,6 +740,7 @@ renderDecouchageList() {
       });
       html += '</div>';
       
+      // 9. Pagination Controls
       if (totalPages > 1) {
           html += `
           <div class="pagination-controls">
@@ -627,51 +751,99 @@ renderDecouchageList() {
       }
       
       this.decouchageHistoryContainer.innerHTML = html;
+  }  
+  // 1. FIXED REFUEL EXPORT
+  exportRefuelsCSV() {
+    if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) { alert("Rien à exporter."); return; }
+    let csv = "Date,Heure,Camion,Ajout (L),Total (L),Capacité (L),Lieu,Wilaya\n";
+    
+    const startDate = this.refuelDateStart.value ? new Date(this.refuelDateStart.value) : null;
+    const endDate = this.refuelDateEnd.value ? new Date(this.refuelDateEnd.value) : null;
+    if(endDate) endDate.setHours(23, 59, 59, 999);
+    const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
+
+    const processedLogs = this.allRefuelLogs.map(log => {
+        const truckConfig = getTruckConfig(log.deviceId);
+        const capacity = truckConfig.fuelTankCapacity || 600;
+        let realAdded = (log.diffPercent !== undefined && log.newPercent !== undefined) ? Math.round((log.diffPercent / 100) * capacity) : (log.addedLiters || 0);
+        let realTotal = (log.newPercent !== undefined) ? Math.round((log.newPercent / 100) * capacity) : (log.newLevel || 0);
+        return { ...log, realAdded, realTotal, capacity };
+    }).filter(log => {
+        const d = new Date(log.timestamp);
+        if (startDate && d < startDate) return false;
+        if (endDate && d > endDate) return false;
+        if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
+        return true;
+    });
+
+    processedLogs.forEach(log => {
+        const d = new Date(log.timestamp);
+        // Robust Location Resolve
+        let exportLoc = log.locationName || "Inconnu";
+        let wilaya = "Inconnue";
+        
+        const cached = geocodeService.checkCacheInstant(log.lat, log.lng);
+        if (cached) {
+            exportLoc = (cached.formatted || cached.city || "Lieu").replace(/,/g, " ");
+            wilaya = (cached.wilaya || "Inconnue").replace(/,/g, " ");
+        } else if (log.lat && log.lng) {
+            exportLoc = `${parseFloat(log.lat).toFixed(4)} ${parseFloat(log.lng).toFixed(4)}`;
+        }
+        
+        csv += `"${d.toLocaleDateString()}","${d.toLocaleTimeString()}","${log.truckName}",${log.realAdded},${log.realTotal},${log.capacity},"${exportLoc}","${wilaya}"\n`;
+    });
+
+    this._downloadCSV(csv, `rapport_remplissage_${new Date().toISOString().slice(0,10)}.csv`);
   }
-  
-  
-  
-  
-  exportDecouchageRecapCSV() {
-      if(!this.currentDecouchageSummary || this.currentDecouchageSummary.length === 0) {
-          alert("Aucune donnée récapitulative à exporter."); 
-          return; 
-      }
+
+  // 2. FIXED DECOUCHAGE EXPORT (Detail)
+  exportDecouchageCSV() {
+      if(!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) { alert("Aucune donnée."); return; }
+      let csv = "Date,Camion,Statut,Heure Retour,Distance Site (m),Lieu (Snapshot)\n";
       
-      let csv = "Camion,Total Découchages,Confirmés,Non Confirmés\n";
+      this.allDecouchageLogs.forEach(log => {
+          const returnTime = log.entryTime ? new Date(log.entryTime).toLocaleTimeString() : 'N/A';
+          let locName = "Non disponible";
+          
+          if (log.locationAtMidnight && log.locationAtMidnight.lat) {
+              const resolved = this.resolveDecouchageLocation(log.locationAtMidnight.lat, log.locationAtMidnight.lng);
+              if (resolved && resolved !== "Recherche...") {
+                  locName = resolved.replace(/,/g, " "); 
+              } else {
+                  locName = `${parseFloat(log.locationAtMidnight.lat).toFixed(5)} ${parseFloat(log.locationAtMidnight.lng).toFixed(5)}`;
+              }
+          }
+          csv += `"${log.date}","${log.truckName}","${log.status}","${returnTime}",${log.distanceFromSite || 0},"${locName}"\n`;
+      });
+      this._downloadCSV(csv, `decouchage_detail_${new Date().toISOString().slice(0,10)}.csv`);
+  }
+
+  // 3. NEW: DECOUCHAGE RECAP EXPORT (The missing function)
+  exportDecouchageRecapCSV() {
+      if(!this.currentDecouchageSummary || this.currentDecouchageSummary.length === 0) { alert("Pas de résumé disponible."); return; }
+      let csv = "Camion,Total Nuits,Confirmés,Non Confirmés\n";
       this.currentDecouchageSummary.forEach(item => {
           csv += `"${item.name}",${item.total},${item.confirme},${item.nonConfirme}\n`;
       });
-      
+      this._downloadCSV(csv, `decouchage_recap_${new Date().toISOString().slice(0,10)}.csv`);
+  }
+
+  // 4. HELPER FOR DOWNLOADS
+  _downloadCSV(csv, filename) {
       const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `recap_decouchage_${new Date().toISOString().slice(0,10)}.csv`;
+      a.download = filename;
       a.click();
+      window.URL.revokeObjectURL(url);
   }
+  
   changeDecouchagePage(direction) {
       this.decouchageCurrentPage += direction;
       this.renderDecouchageList();
   }
   
-  exportDecouchageCSV() {
-      if(!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) { alert("Rien à exporter."); return; }
-      
-      let csv = "Date,Camion,Statut,Heure Retour,Distance Site (m)\n";
-      this.allDecouchageLogs.forEach(log => {
-          const returnTime = log.entryTime ? new Date(log.entryTime).toLocaleTimeString() : 'N/A';
-          csv += `"${log.date}","${log.truckName}","${log.status}","${returnTime}",${log.distanceFromSite}\n`;
-      });
-      
-      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `rapport_decouchage_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
-  }
-
   // =========================================================
   // 🚀 RULE BASED SYSTEM LOGIC
   // =========================================================
@@ -1589,12 +1761,13 @@ if (tabName === 'byWilaya') {
     }
   }
 
-  renderFilteredRefuels() {
+renderFilteredRefuels() {
     if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) {
         this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun remplissage détecté.</div>';
         return;
     }
 
+    // 1. Get Filter Values
     const startDate = this.refuelDateStart.value ? new Date(this.refuelDateStart.value) : null;
     const endDate = this.refuelDateEnd.value ? new Date(this.refuelDateEnd.value) : null;
     if(endDate) endDate.setHours(23, 59, 59, 999);
@@ -1602,104 +1775,136 @@ if (tabName === 'byWilaya') {
     const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
     const locationSearch = this.refuelLocationSearch ? this.refuelLocationSearch.value.toLowerCase().trim() : '';
 
+    // 2. Process and Normalize Data
     let processedLogs = this.allRefuelLogs.map(log => {
         const truckConfig = getTruckConfig(log.deviceId);
         const capacity = truckConfig.fuelTankCapacity || 600; 
         
-        let calculatedAdded = 0;
-        let calculatedTotal = 0;
+        // --- COORDINATE FIX (MONGODB COMPATIBILITY) ---
+        const rawLat = log.lat || (log.params && log.params.lat);
+        const rawLng = log.lng || (log.params && log.params.lng);
+        const safeLat = rawLat ? parseFloat(rawLat) : 0;
+        const safeLng = rawLng ? parseFloat(rawLng) : 0;
 
-        if (log.diffPercent !== undefined && log.newPercent !== undefined) {
-             calculatedAdded = Math.round((log.diffPercent / 100) * capacity);
-             calculatedTotal = Math.round((log.newPercent / 100) * capacity);
-        } else {
-             calculatedAdded = log.addedLiters;
-             calculatedTotal = log.newLevel;
-        }
-
-        let locationName = "Inconnu";
+        const logId = `refuel-loc-${log._id || Math.random().toString(36).substr(2, 9)}`;
+        let locationName = "Recherche...";
         let isInternal = false;
         
-        if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
+        // STEP A: Check Custom Locations (Instant)
+        if (safeLat !== 0 && safeLng !== 0 && FLEET_CONFIG.CUSTOM_LOCATIONS) {
             for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
-                const dist = geocodeService.getDistanceMeters(log.lat, log.lng, loc.lat, loc.lng);
-                const radius = loc.radius || 500;
-                if (dist <= radius) {
+                const dist = geocodeService.getDistanceMeters(safeLat, safeLng, loc.lat, loc.lng);
+                if (dist <= (loc.radius || 500)) {
                     isInternal = true;
                     locationName = loc.name;
                     break;
                 }
             }
         }
-        if (!isInternal) locationName = `Ext: ${log.lat.toFixed(3)}, ${log.lng.toFixed(3)}`;
+
+        // STEP B: Check Geocode Cache or Fetch (Lazy Loading)
+        if (!isInternal && safeLat !== 0) {
+            const cached = geocodeService.checkCacheInstant(safeLat, safeLng);
+            if (cached) {
+                locationName = `${cached.city}, ${cached.wilaya}`;
+            } else {
+                // Not in cache? Start background fetching
+                locationName = `<span id="${logId}-text">${safeLat.toFixed(3)}, ${safeLng.toFixed(3)}</span>`;
+                geocodeService.reverseGeocode(safeLat, safeLng).then(res => {
+                    const el = document.getElementById(`${logId}-text`);
+                    if (el) el.innerText = `${res.city}, ${res.wilaya}`;
+                });
+            }
+        } else if (safeLat === 0) {
+            locationName = "Position Inconnue";
+        }
 
         return {
             ...log,
-            realAdded: calculatedAdded,
-            realTotal: calculatedTotal,
+            lat: safeLat,
+            lng: safeLng,
+            domId: logId,
+            realAdded: (log.diffPercent !== undefined) ? Math.round((log.diffPercent / 100) * capacity) : (log.addedLiters || 0),
+            realTotal: (log.newPercent !== undefined) ? Math.round((log.newPercent / 100) * capacity) : (log.newLevel || 0),
             truckCapacity: capacity, 
-            locationName: locationName,
+            locationDisplay: locationName,
             isInternal: isInternal
         };
     });
 
+    // 3. Apply Filters
     processedLogs = processedLogs.filter(log => {
         const logDate = new Date(log.timestamp);
         if (startDate && logDate < startDate) return false;
         if (endDate && logDate > endDate) return false;
         if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
-        if (locationSearch && !log.locationName.toLowerCase().includes(locationSearch)) return false;
+        // Search inside location name even if it's currently "Recherche..."
+        if (locationSearch && !log.locationDisplay.toLowerCase().includes(locationSearch)) return false;
         return true;
     });
 
-    processedLogs.sort((a, b) => {
-        if (this.refuelSortOrder === 'date_asc') return new Date(a.timestamp) - new Date(b.timestamp);
-        if (this.refuelSortOrder === 'date_desc') return new Date(b.timestamp) - new Date(a.timestamp);
-        if (this.refuelSortOrder === 'qty_asc') return a.realAdded - b.realAdded;
-        if (this.refuelSortOrder === 'qty_desc') return b.realAdded - a.realAdded;
-        return 0;
-    });
+    // 4. Sort (Newest First)
+    processedLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
+    // 5. Pagination
     const totalItems = processedLogs.length;
     const totalPages = Math.ceil(totalItems / this.refuelItemsPerPage);
-    if (this.refuelCurrentPage > totalPages) this.refuelCurrentPage = totalPages || 1;
-    if (this.refuelCurrentPage < 1) this.refuelCurrentPage = 1;
-
     const startIndex = (this.refuelCurrentPage - 1) * this.refuelItemsPerPage;
     const paginatedLogs = processedLogs.slice(startIndex, startIndex + this.refuelItemsPerPage);
 
-    if (paginatedLogs.length === 0) {
-        this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun résultat pour ces filtres.</div>';
-        return;
-    }
-
-    let html = '<div style="display:grid; gap:10px;">';
+    // 6. Generate HTML
+    let html = '<div style="display:grid; gap:12px;">';
     for (const log of paginatedLogs) {
-        const date = new Date(log.timestamp).toLocaleString('fr-FR');
-        let locBadge = `<span style="background:#eee; color:#666; padding:2px 8px; border-radius:4px; font-size:11px;">EXTÉRIEUR</span>`;
-        if (log.isInternal) locBadge = `<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:bold;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`;
+        const dateDisplay = new Date(log.timestamp).toLocaleString('fr-FR');
+        const locBadge = log.isInternal 
+            ? `<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:bold;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`
+            : `<span style="background:#f1f5f9; color:#64748b; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:bold;">EXTÉRIEUR</span>`;
 
         html += `
-        <div style="background:white; border-left: 4px solid ${log.isInternal ? '#22c55e' : '#64748b'}; padding:15px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center;">
-            <div>
-                <div style="font-weight:bold; font-size:15px; color:#333;">${log.truckName}</div>
-                <div style="font-size:12px; color:#888; margin-top:2px;">
-                    <i class="fa-regular fa-clock"></i> ${date}
+        <div style="background:white; border-left: 5px solid ${log.isInternal ? '#22c55e' : '#cbd5e1'}; padding:16px; border-radius:10px; box-shadow:0 1px 3px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center;">
+            <div style="flex: 1;">
+                <div style="font-weight:800; font-size:16px; color:#1e293b;">${log.truckName}</div>
+                <div style="font-size:12px; color:#94a3b8; margin-top:3px;">
+                    <i class="fa-regular fa-clock"></i> ${dateDisplay}
                 </div>
             </div>
-            <div style="text-align:center;">
-               <div style="font-size:12px; margin-bottom:4px;">${locBadge}</div>
-               <div style="font-size:11px; color:#555;">${log.locationName}</div>
+            
+            <div style="flex: 1.5; text-align:center;">
+               <div style="margin-bottom:6px;">${locBadge}</div>
+               <div style="font-size:13px; color:#334155; font-weight:700;">${log.locationDisplay}</div>
+               <a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="font-size:11px; color:#2563eb; text-decoration:none; display:inline-block; margin-top:4px; font-weight:600;">
+                   <i class="fa-solid fa-map-location-dot"></i> Voir sur Carte
+               </a>
             </div>
-            <div style="text-align:right;">
-                <div style="font-size:18px; font-weight:800; color:${log.isInternal ? '#166534' : '#0f172a'};">+${log.realAdded} L</div>
-                <div style="font-size:11px; color:#666; background:#f0f0f0; padding:2px 6px; border-radius:4px; margin-top:2px;">Total: ${log.realTotal} / ${log.truckCapacity} L</div>
+
+            <div style="flex: 1; text-align:right;">
+                <div style="font-size:20px; font-weight:900; color:${log.isInternal ? '#15803d' : '#0f172a'};">+${log.realAdded} L</div>
+                <div style="font-size:11px; font-weight:bold; color:#64748b; background:#f8fafc; border:1px solid #e2e8f0; padding:3px 8px; border-radius:6px; display:inline-block; margin-top:4px;">
+                   Total: ${log.realTotal} / ${log.truckCapacity} L
+                </div>
             </div>
         </div>`;
     }
     html += '</div>';
+
+    // 7. Render Pagination Controls
+    if (totalPages > 1) {
+        html += `
+        <div class="pagination-controls">
+            <button class="pagination-btn" onclick="ui.changeRefuelPage(-1)" ${this.refuelCurrentPage === 1 ? 'disabled' : ''}>«</button>
+            <span class="pagination-info">Page ${this.refuelCurrentPage} / ${totalPages}</span>
+            <button class="pagination-btn" onclick="ui.changeRefuelPage(1)" ${this.refuelCurrentPage === totalPages ? 'disabled' : ''}>»</button>
+        </div>`;
+    }
+    
     this.refuelHistoryContainer.innerHTML = html;
-  }
+}
+
+// Ensure you have this helper function in your UIController class too
+changeRefuelPage(dir) {
+    this.refuelCurrentPage += dir;
+    this.renderFilteredRefuels();
+}
 
   // --- PLANNING & ROUTING ---
   handleRouteDestinationSearch(query) {
@@ -1935,10 +2140,17 @@ if (tabName === 'byWilaya') {
       const typeFilter = this.maintTypeFilter.value;
       const truckFilter = this.maintTruckSearch.value.toLowerCase().trim();
 
-      const filtered = this.allMaintenanceLogs.filter(item => {
+const filtered = this.allMaintenanceLogs.filter(item => {
           const d = new Date(item.date);
-          if(start && d < start) return false;
-          if(end && d > end) return false;
+          
+          // FIX: Always show Active (En cours) items, regardless of date filter
+          const isActive = !item.exitDate;
+          
+          if (!isActive) {
+              if(start && d < start) return false;
+              if(end && d > end) return false;
+          }
+
           if(typeFilter !== 'all' && item.type !== typeFilter) return false;
           if(truckFilter && !item.truckName.toLowerCase().includes(truckFilter)) return false;
           return true;
@@ -1949,7 +2161,14 @@ if (tabName === 'byWilaya') {
           return;
       }
 
-      filtered.sort((a,b) => new Date(b.date) - new Date(a.date));
+      // Sort: Active First, then Newest
+      filtered.sort((a,b) => {
+          const aActive = !a.exitDate;
+          const bActive = !b.exitDate;
+          if(aActive && !bActive) return -1; // Active comes first
+          if(!aActive && bActive) return 1;  // Inactive goes down
+          return new Date(b.date) - new Date(a.date);
+      });
 
       const totalItems = filtered.length;
       const totalPages = Math.ceil(totalItems / this.maintItemsPerPage);
@@ -1974,11 +2193,27 @@ if (tabName === 'byWilaya') {
           // Determine status text (Active or Done)
           let statusHtml = '';
           if(item.isAuto) {
-              if (item.exitDate) {
+if (item.exitDate) {
                   const exitTime = new Date(item.exitDate).toLocaleString('fr-FR');
-                  statusHtml = `<div style="font-size:11px; color:#2e7d32; margin-top:3px;"><i class="fa-solid fa-check-circle"></i> Sortie: ${exitTime}</div>`;
+                  // Calculate Duration for closed logs
+                  const diffMs = new Date(item.exitDate) - new Date(item.date);
+                  const durationHrs = (diffMs / (1000 * 60 * 60)).toFixed(1);
+                  statusHtml = `<div style="font-size:11px; color:#2e7d32; margin-top:3px;"><i class="fa-solid fa-check-circle"></i> Sortie: ${exitTime} (Durée: ${durationHrs}h)</div>`;
               } else {
-                  statusHtml = `<div style="font-size:11px; color:#e65100; margin-top:3px; font-weight:bold; animation: pulse-gray 2s infinite;"><i class="fa-solid fa-spinner fa-spin"></i> Toujours sur site (En cours...)</div>`;
+                  // Calculate Live Duration for open logs
+                  const now = new Date();
+                  const start = new Date(item.date);
+                  const diffMs = now - start;
+                  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                  
+                  let durationText = "";
+                  if (days > 0) durationText = `${days}j ${hours}h`;
+                  else durationText = `${hours}h`;
+
+                  statusHtml = `<div style="font-size:11px; color:#e65100; margin-top:3px; font-weight:bold; animation: pulse-gray 2s infinite;">
+                      <i class="fa-solid fa-spinner fa-spin"></i> En cours (Depuis: ${durationText})
+                  </div>`;
               }
           }
 
@@ -2070,6 +2305,7 @@ if (tabName === 'byWilaya') {
 
       if (editData) {
         this.editingMaintenanceId = editData.id;
+this.editingIsAuto = editData.isAuto; // <--- Capture Auto Status
         this.modalMaintTitle.innerText = 'Modifier Maintenance';
         this.modalMaintSubmitBtn.innerHTML = '<i class="fa-solid fa-save"></i> Mettre à jour';
         
@@ -2123,16 +2359,23 @@ if (tabName === 'byWilaya') {
           return;
       }
 
-      const eventData = {
-          truckName,
-          deviceId,
-          type: type,
-          location: this.editingMaintenanceId ? 'Modifié Manuellement' : 'Entrée Manuelle',
-          odometer: odo,
-          date: new Date(dateVal).toISOString(),
-          note: note,
-          isAuto: false
-      };
+// NEW LOGIC: Keep "Auto" status if we are editing an existing auto-entry
+let isAutoState = false;
+if (this.editingMaintenanceId) {
+    isAutoState = this.editingIsAuto; 
+}
+
+const eventData = {
+    truckName,
+    deviceId,
+    type: type,
+    // If it was auto, keep the original location name (don't rename to 'Manual')
+    location: (isAutoState && this.editingOriginalLocation) ? this.editingOriginalLocation : 'Entrée Manuelle',
+    odometer: odo,
+    date: new Date(dateVal).toISOString(),
+    note: note,
+    isAuto: isAutoState // <--- Uses the captured status
+};
 
       let url = '/api/maintenance/add';
       if (this.editingMaintenanceId) {
@@ -2194,42 +2437,572 @@ if (tabName === 'byWilaya') {
      a.download = `backup_flotte_${new Date().toISOString().slice(0,10)}.json`;
      a.click();
   }
-  
-  exportRefuelsCSV() {
-    if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) { alert("Rien à exporter."); return; }
-    let csv = "Date,Heure,Camion,Ajout (L),Total (L),Capacité (L),Lieu\n";
-    
-    const startDate = this.refuelDateStart.value ? new Date(this.refuelDateStart.value) : null;
-    const endDate = this.refuelDateEnd.value ? new Date(this.refuelDateEnd.value) : null;
-    if(endDate) endDate.setHours(23, 59, 59, 999);
-    const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
+// =========================================================
+  // 📊 RAPPORT MENSUEL SÉLECTIF (THE MISSING PIECE)
+  // =========================================================
 
-    const processedLogs = this.allRefuelLogs.map(log => {
-        const truckConfig = getTruckConfig(log.deviceId);
-        const capacity = truckConfig.fuelTankCapacity || 600;
-        let realAdded = (log.diffPercent !== undefined && log.newPercent !== undefined) ? Math.round((log.diffPercent / 100) * capacity) : log.addedLiters;
-        let realTotal = (log.newPercent !== undefined) ? Math.round((log.newPercent / 100) * capacity) : log.newLevel;
-        return { ...log, realAdded, realTotal, capacity };
-    }).filter(log => {
-        const d = new Date(log.timestamp);
-        if (startDate && d < startDate) return false;
-        if (endDate && d > endDate) return false;
-        if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
-        return true;
-    });
+// =========================================================
+  // 📊 RAPPORT: BIG WINDOW & EXACT TIME
+  // =========================================================
 
-    processedLogs.forEach(log => {
-        const d = new Date(log.timestamp);
-        csv += `"${d.toLocaleDateString()}","${d.toLocaleTimeString()}","${log.truckName}",${log.realAdded},${log.realTotal},${log.capacity},"${log.locationRaw || 'Inconnu'}"\n`;
-    });
+openReportModal() {
+      if (document.getElementById('reportModal')) document.getElementById('reportModal').remove();
 
-    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `rapport_remplissage.csv`;
-    a.click();
+      const div = document.createElement('div');
+      div.id = 'reportModal';
+      div.className = 'modal-overlay';
+      div.style.display = 'flex';
+      
+      const now = new Date();
+      const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+      const toInput = (d) => d.toISOString().slice(0,16);
+
+      div.innerHTML = `
+          <div class="modal-box" style="width: 700px; max-width:95vw; background:white; padding:20px; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.3);">
+              <h2 style="margin-top:0; color:var(--teal);"><i class="fa-solid fa-chart-pie"></i> Rapport Opérationnel</h2>
+              
+              <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin:15px 0;">
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                      <div><label>Début</label><input type="datetime-local" id="reportStart" style="width:100%; padding:8px;" value="${toInput(yest)}"></div>
+                      <div><label>Fin</label><input type="datetime-local" id="reportEnd" style="width:100%; padding:8px;" value="${toInput(now)}"></div>
+                  </div>
+              </div>
+
+              <div style="height:300px; overflow-y:auto; border:1px solid #eee; padding:10px; margin-bottom:15px;">
+                  <div id="reportTruckList"></div>
+              </div>
+
+              <div style="text-align:right; gap:10px; display:flex; justify-content:flex-end;">
+                  <button class="btn-secondary" onclick="document.getElementById('reportModal').remove()">Annuler</button>
+                  <button class="btn-primary" onclick="ui.startBulkReport()">Générer Rapport</button>
+              </div>
+          </div>
+      `;
+      document.body.appendChild(div);
+
+      const list = document.getElementById('reportTruckList');
+      app.getAllTrucks().sort((a,b)=>a.name.localeCompare(b.name)).forEach(t => {
+          const d = document.createElement('div');
+          d.innerHTML = `<label style="display:block; padding:5px; cursor:pointer;"><input type="checkbox" class="report-check" value="${t.id}"> ${t.name}</label>`;
+          list.appendChild(d);
+      });
   }
+  
+  toggleSelectReport(state) {
+      document.querySelectorAll('.report-check').forEach(c => c.checked = state);
+  }
+
+async startBulkReport() {
+      // 1. Get DateTime Inputs
+      const startInput = document.getElementById('reportStart').value;
+      const endInput = document.getElementById('reportEnd').value;
+      
+      if (!startInput || !endInput) { alert("Dates invalides."); return; }
+      
+      const startDate = startInput.replace('T', ' ') + ':00';
+      const endDate = endInput.replace('T', ' ') + ':59';
+
+      const selectedIds = Array.from(document.querySelectorAll('.report-check:checked')).map(c => c.value);
+      if (selectedIds.length === 0) { alert("Sélectionnez au moins un camion."); return; }
+
+      document.getElementById('reportModal').style.display = 'none';
+
+      // 2. Prepare CSV Header (ADDED: Découchages column)
+      const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
+      const originalText = btn ? btn.innerHTML : 'Rapport';
+      if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Traitement...`;
+
+let csv = "Camion,Début,Fin,Distance (km),Conso (L),Conso/100,Remplissages,Ajouté (L),Temps Conduite,Conduite Nuit (00h-05h),Arrêts,Vitesse Max,Découchages (Nuits Dehors)\n";
+      
+      let count = 0;
+
+      // 3. Process Loop
+      for (const id of selectedIds) {
+          const truck = app.trucks.get(id);
+          if(!truck) continue;
+
+          count++;
+          if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Analyse ${count}/${selectedIds.length}: ${truck.name}`;
+          
+          try {
+              const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              const points = json.messages || json;
+
+              // CALL THE V6 ANALYZER
+              const stats = this.analyzeTruckPrecise(points, truck);
+              
+              // ADD DATA ROW (Including stats.decouchageCount)
+csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.consumption},${stats.avgConso},${stats.refillCount},${stats.refillVolume},"${stats.drivingDuration}","${stats.nightDuration}","${stats.stopDuration}","${stats.maxSpeed}",${stats.decouchageCount}\n`;
+              
+          } catch (e) {
+              console.error(e);
+              csv += `"${truck.name}","${startDate}","${endDate}",0,0,0,0,0,"Erreur Données"\n`;
+          }
+      }
+
+      // 4. Download
+      if(btn) btn.innerHTML = originalText;
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `RAPPORT_PRECIS_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      alert("✅ Rapport Terminé !");
+  }
+  
+  
+  
+// 🧮 ANALYZER V6: STRICT NIGHT (00-05h) + CUTOFF DÉCOUCHAGE
+// 🧮 ANALYZER V7: TIMEZONE FIX + CUTOFF LOGIC
+  analyzeTruckPrecise(rawPoints, truck) {
+      // 1. Safety Check
+      if (!rawPoints || !Array.isArray(rawPoints) || rawPoints.length < 5) {
+          return { distance: 0, consumption: 0, avgConso: 0, refillCount: 0, refillVolume: 0, stopDuration: "0h", drivingDuration: "0h", nightDuration: "0h", maxSpeed: 0, decouchageCount: 0 };
+      }
+
+      // 2. CLEAN & SORT
+      let points = rawPoints.map(p => {
+          if (Array.isArray(p)) {
+              return {
+                  time: new Date(p[0]).getTime(),
+                  // 🚨 FIX: Use raw string split for Date to avoid Timezone shifting
+                  // "2025-12-01 00:30" -> "2025-12-01" (Stays on same day)
+                  dateStr: p[0].split(' ')[0], 
+                  lat: parseFloat(p[1]),
+                  lng: parseFloat(p[2]),
+                  speed: parseInt(p[5]),
+                  params: p[6] || {}
+              };
+          }
+          return p; 
+      }).filter(p => p.params && p.params.io192 && parseInt(p.params.io192) > 1000);
+
+      points.sort((a, b) => a.time - b.time);
+      if (points.length < 2) return { distance: 0, consumption: 0, avgConso: 0, refillCount: 0, refillVolume: 0, stopDuration: "0h", drivingDuration: "0h", nightDuration: "0h", maxSpeed: 0, decouchageCount: 0 };
+
+      // 3. SETUP VARIABLES
+      const startOdo = parseInt(points[0].params.io192);
+      const endOdo = parseInt(points[points.length - 1].params.io192);
+      const totalDist = (endOdo > startOdo) ? (endOdo - startOdo) / 1000 : 0;
+
+      const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
+      let refillCount = 0, refillVolume = 0, consumedLiters = 0;
+      let lastLiters = (parseFloat(points[0].params.io87) / 100) * tankCap;
+      let movingMs = 0, nightMs = 0, stopMs = 0, maxSpeed = 0;
+
+      // 4. DÉCOUCHAGE SETUP (Site Douroub)
+      const SITE_LAT = 34.8331;
+      const SITE_LNG = 5.6996;
+      const SITE_RADIUS_KM = 0.5; // 500m
+      const nightDecisions = {}; 
+
+      // Distance Helper
+      const getDistKm = (lat1, lon1, lat2, lon2) => {
+          const R = 6371; 
+          const dLat = (lat2-lat1) * Math.PI/180;
+          const dLon = (lon2-lon1) * Math.PI/180;
+          const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)*Math.sin(dLon/2);
+          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      };
+
+      for (let i = 1; i < points.length; i++) {
+          const p = points[i];
+          const prev = points[i-1];
+          const timeDiff = p.time - prev.time;
+          const hour = new Date(p.time).getHours();
+
+          // A. FUEL
+          if (p.params.io87 && parseInt(p.params.io87) > 0) {
+              const currentLiters = (parseFloat(p.params.io87) / 100) * tankCap;
+              const diff = currentLiters - lastLiters;
+              if (diff > 50 && p.speed < 5) { refillCount++; refillVolume += diff; lastLiters = currentLiters; } 
+              else if (diff < 0 && Math.abs(diff) < 80) { consumedLiters += Math.abs(diff); lastLiters = currentLiters; }
+          }
+
+          // B. OPS
+          if (p.speed > maxSpeed) maxSpeed = p.speed;
+          if (p.speed > 5) { 
+              movingMs += timeDiff; 
+              if (hour >= 0 && hour < 5) nightMs += timeDiff; 
+          } else {
+              stopMs += timeDiff;
+          }
+
+          // C. DÉCOUCHAGE (Strict 00:00 - 05:00 Check)
+          if (hour >= 0 && hour < 5) {
+              // Only check ONCE per night (The first point we see)
+              if (nightDecisions[p.dateStr] === undefined) {
+                  const dist = getDistKm(p.lat, p.lng, SITE_LAT, SITE_LNG);
+                  if (dist <= SITE_RADIUS_KM) {
+                      nightDecisions[p.dateStr] = 'SAFE'; // Inside at start -> Sleeping Home
+                  } else {
+                      nightDecisions[p.dateStr] = 'DECOUCHAGE'; // Outside at start -> Decouchage
+                  }
+              }
+          }
+      }
+
+      let decouchageCount = 0;
+      Object.values(nightDecisions).forEach(status => {
+          if (status === 'DECOUCHAGE') decouchageCount++;
+      });
+
+      const toHours = (ms) => (ms / (1000 * 60 * 60)).toFixed(1) + "h";
+
+      return {
+          distance: totalDist.toFixed(1),
+          consumption: consumedLiters.toFixed(1),
+          avgConso: totalDist > 5 ? ((consumedLiters / totalDist) * 100).toFixed(1) : 0,
+          refillCount: refillCount,
+          refillVolume: refillVolume.toFixed(1),
+          stopDuration: toHours(stopMs),
+          drivingDuration: toHours(movingMs),
+          nightDuration: toHours(nightMs),
+          maxSpeed: maxSpeed + " km/h",
+          decouchageCount: decouchageCount 
+      };
+  }
+  
+  // 🧮 SMART ANALYZER (Handles your API's Array Format ["time", "lat", "lng"...])
+  analyzeTruckMonth(rawPoints, truck) {
+      if (!rawPoints || !Array.isArray(rawPoints) || rawPoints.length < 5) {
+          return { distance: 0, consumption: 0, refillCount: 0, refillVolume: 0, stopCount: 0, note: "Pas assez de données" };
+      }
+
+      // --- 1. NORMALIZE DATA (The Fix for "Empty" Reports) ---
+      // Converts ["2025...", "36.1", "5.2"...] to { lat:36.1, lng:5.2 }
+      const points = rawPoints.map(p => {
+          if (Array.isArray(p)) {
+              return {
+                  time: p[0],
+                  lat: parseFloat(p[1]),
+                  lng: parseFloat(p[2]),
+                  speed: parseInt(p[5]),
+                  params: p[6] // The sensors are here
+              };
+          }
+          return p; // Already an object? Keep it.
+      });
+
+      // --- 2. SENSOR CONFIG ---
+      const FUEL_KEY = 'io87'; // Fuel Level
+      
+      let totalDist = 0;
+      let refillCount = 0;
+      let refillVolume = 0;
+      let stopCount = 0;
+      let lastLat = null, lastLng = null, lastFuel = null;
+      
+      const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
+
+      points.forEach(p => {
+          // A. Distance
+          if (p.lat && p.lng && p.lat !== 0) {
+              if (lastLat) {
+                  const R = 6371; 
+                  const dLat = (p.lat - lastLat) * Math.PI / 180;
+                  const dLng = (p.lng - lastLng) * Math.PI / 180;
+                  const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lastLat*Math.PI/180)*Math.cos(p.lat*Math.PI/180) * Math.sin(dLng/2)*Math.sin(dLng/2);
+                  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                  totalDist += R * c;
+              }
+              lastLat = p.lat;
+              lastLng = p.lng;
+          }
+
+          // B. Refills
+          let currentFuel = 0;
+          if (p.params) {
+              let rawVal = 0;
+              // Handle params if it's nested or flat
+              const params = p.params; 
+              if (params[FUEL_KEY]) rawVal = parseFloat(params[FUEL_KEY]);
+              
+              // Calculate Liters
+              currentFuel = Math.round((rawVal / 100) * tankCap);
+          }
+
+          // Detect Refill > 20L
+          if (lastFuel !== null && currentFuel > (lastFuel + 20)) {
+              refillCount++;
+              refillVolume += (currentFuel - lastFuel);
+          }
+          if (currentFuel > 0) lastFuel = currentFuel;
+
+          // C. Stops
+          if (p.speed === 0) stopCount++;
+      });
+
+      return {
+          distance: totalDist.toFixed(1),
+          consumption: (totalDist * (getTruckConfig(truck.id).fuelConsumption || 35) / 100).toFixed(1),
+          refillCount: refillCount,
+          refillVolume: refillVolume.toFixed(1),
+          stopCount: (stopCount / 60).toFixed(1) + "h", 
+          note: "OK"
+      };
+  }
+
+// --- UPDATED HISTORY MODAL (DATE + TIME) ---
+  openHistoryModal(imei, name) {
+      if (document.getElementById('historyModal')) document.getElementById('historyModal').remove();
+
+      // Defaults: Today 00:00 to Today 23:59
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
+      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59);
+      
+      // Helper to format for input type="datetime-local" (YYYY-MM-DDTHH:MM)
+      const toInput = (d) => {
+          const pad = (n) => n.toString().padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      };
+
+      const div = document.createElement('div');
+      div.id = 'historyModal';
+      div.className = 'modal-overlay';
+      div.style.display = 'flex';
+      
+      div.innerHTML = `
+          <div class="modal-box" style="width: 400px; max-width:90vw; background:white; padding:20px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.4);">
+              <h3 style="margin-top:0; color:var(--teal); text-align:center;">
+                  <i class="fa-solid fa-clock-rotate-left"></i> Machine à Remonter le Temps
+              </h3>
+              <p style="text-align:center; color:#666; font-size:14px; margin-bottom:20px;">
+                  Camion: <strong>${name}</strong>
+              </p>
+              
+              <div style="background:#f8f9fa; padding:15px; border-radius:8px; border:1px solid #eee;">
+                  <div style="margin-bottom:15px;">
+                      <label style="font-size:12px; font-weight:bold; color:#555;">Début (Date & Heure)</label>
+                      <input type="datetime-local" id="histStart" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; margin-top:5px;" value="${toInput(todayStart)}">
+                  </div>
+                  <div>
+                      <label style="font-size:12px; font-weight:bold; color:#555;">Fin (Date & Heure)</label>
+                      <input type="datetime-local" id="histEnd" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; margin-top:5px;" value="${toInput(todayEnd)}">
+                  </div>
+              </div>
+
+              <div style="text-align:center; margin-top:20px; display:flex; gap:10px; justify-content:center;">
+                  <button class="btn-secondary" onclick="document.getElementById('historyModal').remove()">Annuler</button>
+                  <button class="btn-primary" onclick="ui.submitHistory('${imei}')" style="background:var(--teal); border:none; padding:10px 20px;">
+                      <i class="fa-solid fa-play"></i> Lancer Lecture
+                  </button>
+              </div>
+          </div>
+      `;
+      document.body.appendChild(div);
+  }
+
+  // --- SUBMIT ACTION ---
+  submitHistory(imei) {
+      const start = document.getElementById('histStart').value;
+      const end = document.getElementById('histEnd').value;
+      
+      if(!start || !end) { alert("Veuillez remplir les dates."); return; }
+      
+      // Convert to API format (YYYY-MM-DD HH:mm:ss)
+      const fmt = (iso) => iso.replace('T', ' ') + ':00';
+      
+      this.loadVisualHistory(imei, fmt(start), fmt(end));
+      document.getElementById('historyModal').remove();
+  }
+
+  // --- UPDATED LOADING LOGIC (Smart Stops & Filters) ---
+  async loadVisualHistory(imei, start, end) {
+      // 1. Force Switch to Map
+      if(this.zoneGroupingMode !== 'map') {
+          this.setZoneGrouping('map');
+          const mapTabBtn = document.querySelector('[data-tab="byWilaya"]');
+          if(mapTabBtn) mapTabBtn.click();
+      }
+      
+      const btn = document.getElementById('btnGroupMap');
+      const originalText = btn ? btn.innerHTML : 'Carte';
+      if(btn) btn.innerHTML = '<i class="fa-solid fa-satellite-dish fa-spin"></i> Chargement...';
+
+      try {
+          // 2. Fetch Data
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${imei}&start=${start}&end=${end}`);
+          const json = await res.json();
+          let rawPoints = json.messages || json;
+
+          if(!rawPoints || !Array.isArray(rawPoints) || rawPoints.length < 5) {
+              alert("⚠️ Aucun historique trouvé pour cette période.");
+              if(btn) btn.innerHTML = originalText;
+              return;
+          }
+
+          // 3. Normalize & Sort
+          const points = rawPoints.map(p => {
+              if (Array.isArray(p)) {
+                  return { 
+                      time: new Date(p[0]).getTime(), // Use timestamp number for math
+                      lat: parseFloat(p[1]), 
+                      lng: parseFloat(p[2]), 
+                      speed: parseInt(p[5]), 
+                      params: p[6] || {} 
+                  };
+              }
+              return p;
+          }).sort((a,b) => a.time - b.time);
+
+          const coords = [];
+          const refills = [];
+          const stops = [];
+          
+          let lastFuel = null;
+          const tankCap = getTruckConfig(imei).fuelTankCapacity || 600;
+
+          // --- SMART STOP LOGIC VARIABLES ---
+          let isStopped = false;
+          let stopStartTime = 0;
+          let stopStartCoord = null;
+
+          points.forEach((p, index) => {
+              // A. Build Route Line
+              if (p.lat && p.lng && p.lat !== 0) {
+                  coords.push([p.lng, p.lat]);
+              }
+
+              // B. Refills (> 50L Strict Filter)
+              let currentFuel = 0;
+              if (p.params && p.params.io87) {
+                  currentFuel = Math.round((parseFloat(p.params.io87) / 100) * tankCap);
+              }
+
+              if (lastFuel !== null && currentFuel > (lastFuel + 50)) { // Req #3: Strict 50L
+                  refills.push({ 
+                      lat: p.lat, 
+                      lng: p.lng, 
+                      volume: (currentFuel - lastFuel).toFixed(0), 
+                      time: p.time 
+                  });
+              }
+              if (currentFuel > 0) lastFuel = currentFuel;
+
+              // C. Smart Stop Detection (Req #4)
+              if (p.speed < 1) {
+                  if (!isStopped) {
+                      isStopped = true;
+                      stopStartTime = p.time;
+                      stopStartCoord = { lat: p.lat, lng: p.lng };
+                  }
+              } else {
+                  if (isStopped) {
+                      // Truck started moving. Close the stop.
+                      const durationMs = p.time - stopStartTime;
+                      // Only record stops longer than 5 minutes (300000ms) to avoid traffic lights
+                      if (durationMs > 300000) {
+                          const hours = Math.floor(durationMs / 3600000);
+                          const minutes = Math.floor((durationMs % 3600000) / 60000);
+                          const durationStr = (hours > 0 ? `${hours}h ` : '') + `${minutes}min`;
+                          
+                          stops.push({
+                              lat: stopStartCoord.lat,
+                              lng: stopStartCoord.lng,
+                              startTime: stopStartTime,
+                              durationStr: durationStr
+                          });
+                      }
+                      isStopped = false;
+                  }
+              }
+          });
+
+          // 4. Send to Map Engine
+          if(window.AlgeriaMap && window.AlgeriaMap.drawRoute) {
+              window.AlgeriaMap.drawRoute(points, coords); // Pass full points for animation
+              window.AlgeriaMap.addRefillMarkers(refills);
+              window.AlgeriaMap.addStopMarkers(stops);
+              
+              const toast = document.createElement('div');
+              toast.className = 'map-toast-msg';
+              toast.innerHTML = `✅ Chargé: ${points.length} points | ${stops.length} arrêts`;
+              document.getElementById('map-wrapper').appendChild(toast);
+              setTimeout(()=>toast.remove(), 3000);
+          }
+
+      } catch (e) {
+          console.error("History Error:", e);
+          alert("Erreur lors de l'analyse visuelle.");
+      } finally {
+          if(btn) btn.innerHTML = originalText;
+      }
+  }
+
+  // --- SUPER EXPORT FUNCTION ---
+// --- SUPER EXPORT FUNCTION ---
+  async generateSuperReportCSV() {
+      if(!app || !app.trucks) return;
+
+      // ⚠️ AUTO-FETCH: Download Decouchage data if it's not loaded yet
+      if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
+          try {
+              // Update button text to show activity
+              const btn = document.querySelector('button[onclick="ui.generateSuperReportCSV()"]');
+              const originalText = btn ? btn.innerHTML : '';
+              if(btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Chargement Données...';
+              
+              const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/decouchages`);
+              if (res.ok) this.allDecouchageLogs = await res.json();
+              
+              // Restore button
+              if(btn) btn.innerHTML = originalText;
+          } catch(e) { console.warn("Report Fetch Error", e); }
+      }
+      
+      const trucks = app.getAllTrucks();
+      const now = new Date().toLocaleString();
+      
+let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
+      
+      // SECTION 1: FLOTTE ACTUELLE
+      csv += "ETAT ACTUEL DES CAMIONS\n";      csv += "Camion,Statut,Carburant (L),Carburant (%),Capacité,Vidange Dans (km),Odomètre,Lieu Actuel,GPS Status\n";
+      
+      trucks.forEach(t => {
+          const status = t.isGpsCut ? "COUPURE GPS" : (t.speed > 0 ? "En Route" : "À l'arrêt");
+          const vidangeRestant = t.vidange ? t.vidange.kmUntilNext : 'N/A';
+          const gpsQuality = t.isGpsCut ? "OFFLINE" : "ONLINE";
+          const loc = t.location ? (t.location.formatted || `${t.location.city}, ${t.location.wilaya}`) : "Inconnu";
+          
+          csv += `"${t.name}","${status}",${t.fuelLiters},${t.fuelPercentage}%,${t.fuelTankCapacity},${vidangeRestant},${t.odometer},"${loc}","${gpsQuality}"\n`;
+      });
+
+      // SECTION 2: RÉCAPITULATIF REMPLISSAGES (Using loaded logs)
+      if(this.allRefuelLogs && this.allRefuelLogs.length > 0) {
+          csv += "\n\nHISTORIQUE REMPLISSAGES (CHARGÉS)\n";
+          csv += "Date,Camion,Ajouté (L),Nouveau Niveau,Lieu\n";
+          this.allRefuelLogs.slice(0, 100).forEach(log => {
+             // Re-resolve location name logic briefly for CSV
+             let locName = log.locationRaw || `${log.lat},${log.lng}`;
+             const cached = geocodeService.checkCacheInstant(log.lat, log.lng);
+             if(cached) locName = `${cached.city}, ${cached.wilaya}`;
+             
+             csv += `"${new Date(log.timestamp).toLocaleString()}","${log.truckName}",${log.addedLiters},${log.newLevel},"${locName}"\n`;
+          });
+      }
+
+      // SECTION 3: MAINTENANCE ACTIVE
+      if(this.allMaintenanceLogs) {
+          csv += "\n\nMAINTENANCE EN COURS\n";
+          csv += "Camion,Type,Date Entrée,Lieu\n";
+          this.allMaintenanceLogs.filter(m => !m.exitDate).forEach(m => {
+              csv += `"${m.truckName}","${m.type}","${new Date(m.date).toLocaleString()}","${m.location}"\n`;
+          });
+      }
+
+      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `SUPER_RAPPORT_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+  }
+
 
   // NEW: Download FULL Backup from SERVER
   downloadServerBackup() {

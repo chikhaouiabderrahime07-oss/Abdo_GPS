@@ -30,10 +30,34 @@ class FleetTrackerApp {
       const config = getTruckConfig(deviceId);
       const displayName = config.alias ? config.alias : truck.name;
 
-      // DETECT GPS CUT / INVALID DATA
+// DETECT GPS CUT / INVALID DATA
       // If loc_valid is 0 OR params are missing, we consider it a GPS Cut
       const isGpsCut = (truck.loc_valid === '0' || !truck.params);
 
+      // 🇩🇿 ALGERIA TIMEZONE PATCH (GMT+1)
+      // We take the GPS timestamp, convert to MS, and add 1 Hour (3,600,000 ms)
+// 🇩🇿 ALGERIA TIMEZONE PATCH (GMT+1) - CRASH PROOF VERSION
+// 🇩🇿 TIMEZONE FIX: STANDARD (Browser handles +1)
+      let rawTime = parseInt(truck.last_gps || truck.timestamp);
+      
+      // 🛡️ SAFETY 1: Crash Prevention (If GPS sends junk, use Now)
+      if (!rawTime || isNaN(rawTime)) {
+          rawTime = Date.now(); 
+      }
+
+      // 🛡️ SAFETY 2: Convert Seconds to Milliseconds
+      if (rawTime < 10000000000) rawTime *= 1000;
+      
+      // 🟢 REMOVED THE MANUAL +1 HOUR (Browser will do it)
+      const algeriaTimeMs = rawTime; 
+      
+      let algeriaDateISO;
+      try {
+          algeriaDateISO = new Date(algeriaTimeMs).toISOString();
+      } catch (e) {
+          algeriaDateISO = new Date().toISOString();
+      }
+	  
       // --- FUEL CALCULATION (With Calibration) ---
       // Safety check: truck.params might be null
       const sensorValue = truck.params ? (parseFloat(truck.params.io87) || 0) : 0;
@@ -163,9 +187,9 @@ class FleetTrackerApp {
         lastGeocodedCoords,
         speed: parseInt(truck.speed) || 0,
         angle: parseInt(truck.angle) || 0,
-        odometer: odometerKm,
+odometer: odometerKm,
         vidange: vidangeStatus,
-        timestamp: truck.dt_server,
+        timestamp: algeriaDateISO, // 🇩🇿 Uses the corrected Algeria Time
         alertLevel,
         isGpsCut: isGpsCut, // EXPORT FLAG TO UI
         route: { canReach: true }
@@ -195,54 +219,11 @@ class FleetTrackerApp {
     return 0;
   }
 
-  checkMaintenanceLogic(deviceId, truckName, lat, lng, currentOdo, nextVidangeKm, kmUntilVidange) {
-    if (!FLEET_CONFIG.CUSTOM_LOCATIONS) return;
-    let inMaintenanceZone = false;
-    let zoneName = '';
-
-    for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
-      if (loc.type !== 'maintenance') continue; 
-      const dist = geocodeService.getDistanceMeters(lat, lng, loc.lat, loc.lng);
-      if (dist <= (loc.radius || 500)) {
-        inMaintenanceZone = true;
-        zoneName = loc.name;
-        break;
-      }
-    }
-
-    if (inMaintenanceZone) {
-      const now = Date.now();
-      if (!this.maintenanceState.has(deviceId)) {
-        this.maintenanceState.set(deviceId, { entryTime: now, locationName: zoneName, hasTriggered: false });
-      } else {
-        const state = this.maintenanceState.get(deviceId);
-        const durationMinutes = (now - state.entryTime) / 60000;
-        
-        if (durationMinutes >= FLEET_CONFIG.MAINTENANCE_RULES.minDurationMinutes && !state.hasTriggered) {
-          let type = 'Plaquettes';
-          let note = 'Détecté automatiquement (>60min)';
-          const tolerance = FLEET_CONFIG.MAINTENANCE_RULES.vidangeKmTolerance || 3000;
-          
-          if (kmUntilVidange !== null && kmUntilVidange <= tolerance) { 
-              type = 'Vidange'; 
-              note = `Auto: Proche de ${nextVidangeKm}km`; 
-          }
-          
-          this.triggerMaintenanceEvent({ 
-              truckName, deviceId, type, location: zoneName, 
-              odometer: currentOdo, date: new Date().toISOString(), 
-              note, isAuto: true 
-          });
-          
-          state.hasTriggered = true;
-          this.maintenanceState.set(deviceId, state);
-        }
-      }
-    } else {
-      if (this.maintenanceState.has(deviceId)) this.maintenanceState.delete(deviceId);
-    }
+checkMaintenanceLogic(deviceId, truckName, lat, lng, currentOdo, nextVidangeKm, kmUntilVidange) {
+    // ⚠️ DISABLED: Logic moved to server.js (FleetBot) to prevent date resets on page refresh.
+    // This function is intentionally empty to stop the browser from creating logs.
+    return;
   }
-
   async triggerMaintenanceEvent(data) {
      try {
         const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/add`, {

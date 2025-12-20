@@ -79,15 +79,26 @@ class GeocodeService {
     return R * c;
   }
 
-  // --- NEW: SYNCHRONOUS INSTANT CHECK ---
+  // --- NEW: SYNCHRONOUS INSTANT CHECK (CRASH PROOF VERSION) ---
   // Returns data immediately if found, or null if API needed
   checkCacheInstant(lat, lng) {
+    // 🛡️ SAFETY 1: Stop immediately if coordinates are missing/invalid
+    if (lat === undefined || lat === null || lng === undefined || lng === null) {
+        return null; 
+    }
+
+    // 🛡️ SAFETY 2: Ensure they are numbers
+    const nLat = parseFloat(lat);
+    const nLng = parseFloat(lng);
+    if (isNaN(nLat) || isNaN(nLng)) return null;
+
     // 1. Custom Locations (Fastest)
-    const custom = this.checkCustomLocations(lat, lng);
+    const custom = this.checkCustomLocations(nLat, nLng);
     if (custom) return custom;
 
     // 2. Exact Cache Match
-    const exactKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    // Now safe because we know nLat/nLng are valid numbers
+    const exactKey = `${nLat.toFixed(4)},${nLng.toFixed(4)}`;
     if (this.cache.has(exactKey)) return this.cache.get(exactKey);
 
     // 3. Proximity Check (Sync Loop)
@@ -98,7 +109,7 @@ class GeocodeService {
             const parts = key.split(',');
             const cLat = parseFloat(parts[0]);
             const cLng = parseFloat(parts[1]);
-            const dist = this.getDistanceMeters(lat, lng, cLat, cLng);
+            const dist = this.getDistanceMeters(nLat, nLng, cLat, cLng);
             if (dist < 100) return val; // Found nearby!
         }
     }
@@ -110,6 +121,9 @@ class GeocodeService {
     // We double check cache here just in case, but usually called after checkCacheInstant fails
     const instant = this.checkCacheInstant(lat, lng);
     if (instant) return instant;
+
+    // 🛡️ Extra Safety for the Async call too
+    if (!lat || !lng) return { city: 'Unknown', wilaya: 'Error', formatted: 'Invalid Coords' };
 
     return this.enqueueRequest(lat, lng, `${lat.toFixed(4)},${lng.toFixed(4)}`);
   }

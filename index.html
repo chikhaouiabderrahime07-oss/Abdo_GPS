@@ -1,209 +1,415 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Douroub El Djazair - Système de Gestion de Flotte</title>
+  <title>Douroub El Djazair - Enterprise Fleet Manager</title>
   
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  
   <script src='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js'></script>
   <link href='https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css' rel='stylesheet' />
-
+  
   <link rel="stylesheet" href="styles.css">
   
   <style>
-    /* Styles pour la barre de recherche globale */
-    .global-search-container {
-      margin-left: auto;
-      background: #f0f2f5;
-      border: 1px solid #e1e4e8;
-      border-radius: 20px;
-      padding: 5px 15px;
-      display: flex;
-      align-items: center;
-      width: 220px;
-      transition: all 0.2s ease;
-      height: 35px;
-      box-sizing: border-box;
-    }
-    .global-search-container:focus-within {
-      background: #fff; border-color: var(--teal); width: 280px; box-shadow: 0 2px 8px rgba(0, 132, 167, 0.15);
-    }
-    .global-search-container input {
-      background: transparent; border: none; color: #333; width: 100%; outline: none; font-size: 13px; margin-left: 10px;
-    }
-    .global-search-container i { color: #666; font-size: 14px; }
-    .global-search-container:focus-within i { color: var(--teal); }
-    
-    .tabs { align-items: center; flex-wrap: wrap; }
-
-    /* Styles pour les filtres de rapport */
-    .report-filters {
-        display: flex; gap: 10px; flex-wrap: wrap; align-items: end; 
-        background: white; padding: 15px; border-radius: 8px; border: 1px solid #ddd; margin-top: 10px;
-    }
-    .report-filters .form-group { margin-bottom: 0; min-width: 120px; }
-    .report-filters input, .report-filters select { padding: 8px; font-size: 13px; width: 100%; box-sizing: border-box; }
-
-    /* Modal Styles for Manual Maintenance Entry */
-    .modal {
-        display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%;
-        background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center;
-    }
-    .modal-content {
-        background-color: #fefefe; padding: 20px; border-radius: 8px; width: 100%; max-width: 500px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1); animation: slideDown 0.3s ease;
+    /* =========================================
+       GLOBAL & RESET
+       ========================================= */
+    :root {
+        --primary-dark: #0f172a;  /* Deep Navy */
+        --primary-light: #1e293b; /* Lighter Navy */
+        --accent-blue: #38bdf8;   /* Cyan/Blue */
+        --accent-teal: #0084a7;   /* Teal */
+        --accent-red: #dc2626;    /* Red for History/Maintenance */
+        --text-white: #f8fafc;
+        --text-gray: #94a3b8;
     }
 
-    /* --- NEW MAP STYLES (ADDED) --- */
-    #map-wrapper {
-        position: relative;
-        width: 100%;
-        height: 600px; /* Default height */
-        border-radius: 12px;
-        overflow: hidden;
-        margin-top: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        border: 1px solid #ddd;
-        display: none; /* Hidden by default */
-    }
-    
-    #map-container {
-        width: 100%;
-        height: 100%;
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: #f1f5f9;
+        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     }
 
-    /* Floating Controls on Map */
-    .map-overlay-controls {
-        position: absolute;
-        top: 15px;
-        left: 15px;
-        z-index: 10;
-        background: rgba(255, 255, 255, 0.95);
-        padding: 10px;
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        backdrop-filter: blur(5px);
-        width: 250px;
-    }
-
-    .map-mode-switch {
+    /* =========================================
+       1. AMAZING TOP BANNER
+       ========================================= */
+    .main-header {
+        background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%);
+        padding: 0 40px; 
+        height: 100px;   
         display: flex;
-        background: #eee;
-        border-radius: 20px;
-        padding: 3px;
-        margin-bottom: 10px;
-        cursor: pointer;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        position: relative;
+        z-index: 200;
     }
 
-    .map-mode-btn {
-        flex: 1;
-        text-align: center;
-        padding: 5px;
-        font-size: 12px;
-        font-weight: bold;
-        border-radius: 16px;
-        transition: all 0.3s;
-        color: #666;
-    }
-
-    .map-mode-btn.active {
-        background: var(--teal, #0084a7);
-        color: white;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-
-    /* Route Info Floating Panel */
-    #route-info-panel {
-        position: absolute;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: white;
-        padding: 10px 20px;
-        border-radius: 30px;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        display: none; /* Hidden by default */
+    .brand-section {
+        display: flex;
         align-items: center;
         gap: 20px;
-        z-index: 10;
-        font-size: 14px;
+    }
+
+    .logo-box {
+        width: 65px;
+        height: 65px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 20px rgba(56, 189, 248, 0.15);
+        backdrop-filter: blur(5px);
+    }
+
+    .logo-box i {
+        font-size: 32px;
+        color: var(--accent-blue);
+        filter: drop-shadow(0 0 5px var(--accent-blue));
+    }
+
+    .brand-text h1 {
+        margin: 0;
+        font-size: 26px;
+        color: white;
+        font-weight: 800;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        line-height: 1.1;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .brand-text p {
+        margin: 5px 0 0 0;
+        font-size: 13px;
+        color: var(--accent-blue);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        font-weight: 600;
+        opacity: 0.9;
+    }
+
+    .system-info {
+        display: flex;
+        align-items: center;
+        gap: 25px;
+    }
+
+    .developer-tag {
+        font-size: 12px;
+        color: var(--text-gray);
+        background: rgba(0,0,0,0.3);
+        padding: 8px 14px;
+        border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.05);
+        font-weight: 500;
+    }
+
+    .digital-clock {
+        background: rgba(15, 23, 42, 0.8);
+        color: var(--text-white);
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-family: 'Courier New', Courier, monospace;
+        font-weight: bold;
+        font-size: 16px;
+        border: 1px solid #334155;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.5);
     }
     
-    .route-stat { display: flex; flex-direction: column; align-items: center; line-height: 1.2; }
-    .route-stat strong { font-size: 16px; color: var(--teal, #0084a7); }
-    .route-stat span { font-size: 10px; color: #888; text-transform: uppercase; }
+    .digital-clock i { color: var(--accent-blue); animation: pulse 2s infinite; }
 
-    @media (max-width: 768px) {
-      .global-search-container { width: 100%; margin-left: 0; margin-top: 10px; order: 99; }
-      .header-content { flex-direction: row; }
-      #map-wrapper { height: 70vh; }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+    /* =========================================
+       2. NAVIGATION BAR
+       ========================================= */
+    .tabs {
+        background: #ffffff;
+        padding: 0 30px;
+        height: 75px; 
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        gap: 10px; 
+        position: relative;
+        z-index: 100;
+        overflow-x: auto;
     }
+
+    .nav-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        position: relative;
+        height: 100%;
+        padding-right: 20px; 
+    }
+
+    .nav-group:not(:last-child)::after {
+        content: '';
+        display: block;
+        position: absolute;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 2px;          
+        height: 35px;        
+        background: #cbd5e1; 
+        opacity: 1;          
+        border-radius: 2px;
+    }
+
+    .tab-button {
+        background: transparent;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 13px;
+        font-weight: 600;
+        color: #64748b;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+        margin-top: 5px; 
+    }
+
+    .tab-button:hover { background: #f1f5f9; color: #334155; }
+    .tab-button.active { background: #e0f2fe; color: #0284c7; }
+    
+    .btn-dashboard {
+        background: #1e293b !important;
+        color: #fff !important;
+        box-shadow: 0 4px 12px rgba(30, 41, 59, 0.25);
+        margin-right: 15px; 
+    }
+    .btn-dashboard i { color: #38bdf8 !important; }
+    .btn-dashboard.active { border: 1px solid #38bdf8; }
+
+    .btn-calc.active { background: #fff7ed; color: #ea580c; }
+    .btn-admin.active { background: #f5f3ff; color: #7c3aed; }
+    
+    .btn-history.active { 
+        background: #fef2f2 !important; 
+        color: #dc2626 !important; 
+        border: 1px solid #fecaca;
+    }
+    .btn-history.active i { color: #dc2626; }
+
+    .group-label {
+        position: absolute;
+        top: 8px;
+        left: 0;
+        font-size: 9px;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: #94a3b8;
+        letter-spacing: 0.5px;
+        pointer-events: none;
+        width: 100%;
+    }
+
+    .global-search-container {
+        margin-left: auto;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 8px 12px;
+        display: flex;
+        align-items: center;
+        width: 220px;
+        transition: all 0.2s;
+    }
+    .global-search-container:focus-within { border-color: var(--accent-teal); background: #fff; }
+    .global-search-container input { border: none; background: transparent; outline: none; width: 100%; font-size: 13px; margin-left: 8px; }
+
+    /* =========================================
+       3. CONTENT & UTILITIES
+       ========================================= */
+    .container { width: 100%; }
+    .tab-content { display: none; padding: 20px; animation: fadeIn 0.3s ease; }
+    .tab-content.active { display: block; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+    .controls-section { background: #fff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 20px; }
+    .btn-primary { background: var(--accent-teal); color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+    .btn-secondary { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+    .form-group label { font-size: 12px; font-weight: 600; color: #64748b; }
+    .form-group input, .form-group select, .form-group textarea { padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+    
+    #map-wrapper { position: relative; width: 100%; height: 600px; border-radius: 12px; overflow: hidden; margin-top: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; display: none; }
+    #map-container { width: 100%; height: 100%; }
+    .map-overlay-controls { position: absolute; top: 15px; left: 15px; z-index: 10; background: rgba(255, 255, 255, 0.95); padding: 12px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); width: 260px; backdrop-filter: blur(8px); }
+    
+    .map-mode-btn {
+        flex: 1;
+        padding: 6px;
+        text-align: center;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 13px;
+        color: #334155;
+        background: #f1f5f9;
+        transition: all 0.2s;
+    }
+    .map-mode-btn.active {
+        background: #0f172a;
+        color: #ffffff;
+    }
+    
+    /* === IMPROVED COMPACT MAP FILTERS (PILLS) === */
+    .map-filters {
+        display: flex;
+        gap: 6px; /* Tighter gap */
+        justify-content: center;
+        margin-top: 10px;
+        background: #f1f5f9;
+        padding: 4px;
+        border-radius: 20px;
+        border: 1px solid #e2e8f0;
+    }
+    
+    .map-filter-btn {
+        flex: 1;
+        text-align: center;
+        padding: 5px 8px;
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 15px;
+        cursor: pointer;
+        color: #64748b;
+        transition: all 0.2s;
+        text-decoration: none !important; /* Remove underline */
+    }
+
+    .map-filter-btn:hover { background: #e2e8f0; }
+
+    .map-filter-btn.active {
+        background: white;
+        color: #0f172a;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* Specific colors when active */
+    .map-filter-btn[data-filter="moving"].active { color: #16a34a; } /* Green */
+    .map-filter-btn[data-filter="stopped"].active { color: #dc2626; } /* Red */
+    /* ================================================= */
+
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+    .modal-content { background-color: #fff; padding: 25px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+
   </style>
 </head>
 <body>
-  <div class="container">
-    <header class="main-header">
-      <div class="header-top-row">
-        <div class="developer-credit">Developed by Abderrahime Chikhaoui</div>
-      </div>
-      <div class="header-content">
-        <div class="logo-area">
-          <div class="logo-icon-box"><i class="fa-solid fa-truck-fast"></i></div>
-          <div>
-            <h1>SPA Douroub El Djazair</h1>
-            <p>Système de Suivi de Flotte & Maintenance</p>
-          </div>
-        </div>
-        <div class="clock-container">
-          <div class="clock-icon"><i class="fa-regular fa-clock"></i></div>
-          <span id="clockDisplay">--:--:--</span>
-        </div>
-      </div>
-    </header>
 
-    <div class="tabs">
-      <button class="tab-button active" data-tab="dashboard" onclick="switchTab('dashboard')"><i class="fa-solid fa-chart-line"></i> Tableau de bord</button>
-      <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')" 
-              style="border-color: #6366f1; color: #4338ca; background: #eef2ff; font-weight:800;">
-          <i class="fa-solid fa-map"></i> Carte Interactive
-      </button>
-      <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')"><i class="fa-solid fa-gas-pump"></i> Carburant</button>
-      <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')"><i class="fa-solid fa-wrench"></i> État Vidange</button>
-      <button class="tab-button" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')"><i class="fa-solid fa-clipboard-list"></i> Historique Maintenance</button>
-      <button class="tab-button" data-tab="routing" onclick="switchTab('routing')"><i class="fa-solid fa-route"></i> Planification</button>
-      <button class="tab-button" data-tab="settings" onclick="switchTab('settings')"><i class="fa-solid fa-gear"></i> Paramètres</button>
-      <button class="tab-button" data-tab="reports" onclick="switchTab('reports')"><i class="fa-solid fa-file-export"></i> Rapports</button>
-
-      <div class="global-search-container">
-        <i class="fa-solid fa-search"></i>
-        <input type="text" id="globalSearchInput" placeholder="Rechercher par tracteur..." autocomplete="off">
+  <header class="main-header">
+    <div class="brand-section">
+      <div class="logo-box">
+        <i class="fa-solid fa-truck-fast"></i>
+      </div>
+      <div class="brand-text">
+        <h1>SPA Douroub El Djazair</h1>
+        <p>Système de Supervision de Flotte</p>
       </div>
     </div>
 
+    <div class="system-info">
+      <div class="developer-credit">
+         <span class="developer-tag"><i class="fa-solid fa-code"></i> Dev: Abderrahime Chikhaoui</span>
+         <span class="developer-tag" style="margin-left:5px; background: rgba(56, 189, 248, 0.1); color: var(--accent-blue); border-color: var(--accent-blue);">V2.0 PRO</span>
+      </div>
+      <div class="digital-clock">
+        <i class="fa-regular fa-clock"></i>
+        <span id="clockDisplay">--:--:--</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="tabs">
+      <button class="tab-button btn-dashboard active" data-tab="dashboard" onclick="switchTab('dashboard')">
+          <i class="fa-solid fa-chart-pie"></i> DASHBOARD
+      </button>
+
+      <div class="nav-group">
+          <span class="group-label">Supervision</span>
+          <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')">
+              <i class="fa-solid fa-map"></i> Mapping & Zones
+          </button>
+      </div>
+
+      <div class="nav-group">
+          <span class="group-label">Espace Carburant</span>
+          <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')">
+              <i class="fa-solid fa-gas-pump"></i> Carburant
+          </button>
+          <button class="tab-button btn-calc" data-tab="routing" onclick="switchTab('routing')">
+              <i class="fa-solid fa-calculator"></i> Calc. Trajet
+          </button>
+      </div>
+
+      <div class="nav-group">
+          <span class="group-label">Vidange & Maintenance</span>
+          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')">
+              <i class="fa-solid fa-wrench"></i> Vidanges
+          </button>
+          <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')">
+              <i class="fa-solid fa-clipboard-check"></i> Historique
+          </button>
+      </div>
+
+      <div class="nav-group">
+          <span class="group-label">Admin</span>
+          <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')">
+              <i class="fa-solid fa-file-contract"></i> Rapports
+          </button>
+          <button class="tab-button btn-admin" data-tab="settings" onclick="switchTab('settings')">
+              <i class="fa-solid fa-sliders"></i> Config
+          </button>
+      </div>
+
+      <div class="global-search-container">
+          <i class="fa-solid fa-magnifying-glass" style="color:#94a3b8;"></i>
+          <input type="text" id="globalSearchInput" placeholder="Chercher un camion..." autocomplete="off">
+      </div>
+  </div>
+
+  <div class="container">
+  
     <div id="dashboard" class="tab-content active">
       <div class="controls-section">
-        <div class="controls-grid" style="grid-template-columns: 1fr auto;">
+        <div class="controls-grid" style="display:grid; grid-template-columns: 1fr auto; gap:20px;">
           <div class="form-group" style="max-width: 200px;">
-            <label for="pollInterval"><i class="fa-solid fa-stopwatch"></i> Intervalle (sec)</label>
-            <input type="number" id="pollInterval" value="60" min="5">
+            <label for="pollInterval"><i class="fa-solid fa-stopwatch"></i> Rafraîchissement (sec)</label>
+            <input type="number" id="pollInterval" value="120" min="5">
           </div>
           <div style="display: flex; gap: 8px; margin-top: auto;">
-            <button class="btn-primary" id="startBtn"><i class="fa-solid fa-play"></i> Démarrer</button>
-            <button class="btn-secondary" id="stopBtn" disabled><i class="fa-solid fa-stop"></i> Arrêter</button>
+            <button class="btn-primary" id="startBtn"><i class="fa-solid fa-play"></i> LIVE ON</button>
+            <button class="btn-secondary" id="stopBtn" disabled><i class="fa-solid fa-stop"></i> PAUSE</button>
           </div>
         </div>
       </div>
       <div id="alertsCardContainer"></div>
       <div class="stats-grid" id="statsContainer"></div>
-      <div id="activeFilterDisplay" class="filter-banner" style="display: none;">
+      <div id="activeFilterDisplay" class="filter-banner" style="display: none; background:#1e293b; color:white; padding:10px; border-radius:6px; margin-bottom:15px; align-items:center; justify-content:space-between;">
         <div style="display: flex; align-items: center; gap: 10px;">
           <div class="filter-icon-badge"><i class="fa-solid fa-filter"></i></div>
-          <span style="font-size: 16px;">Filtre actif: <strong id="filterName" style="color: #ffd700;">Aucun</strong></span>
+          <span style="font-size: 14px;">Filtre actif: <strong id="filterName" style="color: #ffd700;">Aucun</strong></span>
         </div>
-        <button onclick="ui.clearFilter()" class="btn-clear-filter"><i class="fa-solid fa-times"></i> Effacer</button>
+        <button onclick="ui.clearFilter()" class="btn-clear-filter" style="background:transparent; border:1px solid #fff; color:#fff; cursor:pointer; border-radius:4px; padding:2px 8px;"><i class="fa-solid fa-times"></i> Effacer</button>
       </div>
       <div id="errorContainer"></div>
       <div id="loadingContainer"></div>
@@ -212,13 +418,30 @@
 
     <div id="byWilaya" class="tab-content">
       <div class="controls-section">
-        <h2><i class="fa-solid fa-map"></i> Répartition Géographique</h2>
-<div class="sub-filters" style="margin-top: 15px;">
-            <button class="filter-pill active" id="btnGroupMap" onclick="ui.setZoneGrouping('map')" style="border: 2px solid #6366f1; color: #6366f1; background:#eef2ff; font-weight: bold;">
-                <i class="fa-solid fa-earth-africa"></i> Carte Live 3D
+        <h2><i class="fa-solid fa-map-location-dot"></i> Supervision Géographique</h2>
+        
+        <div style="background: #e0f2fe; border-left: 4px solid #0284c7; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; display:flex; align-items:center; gap:10px;">
+            <i class="fa-solid fa-circle-info" style="color: #0284c7; font-size: 18px;"></i>
+            <p style="margin: 0; font-size: 13px; color: #0c4a6e;">
+                <strong>Astuce:</strong> Vous pouvez vérifier l'historique de n'importe quel camion sur la carte. 
+                Sélectionnez simplement le camion, puis choisissez la période pour visualiser le trajet complet.
+            </p>
+        </div>
+
+        <div class="sub-filters" style="margin-top: 15px; display:flex; gap: 10px; align-items: center;">
+            <button class="tab-button flashing-btn" style="background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; font-weight: bold;" onclick="resetMapContext()">
+                <i class="fa-solid fa-earth-africa"></i> Ouvrir Carte 3D
             </button>
-            <button class="filter-pill" id="btnGroupWilaya" onclick="ui.setZoneGrouping('wilaya')"><i class="fa-solid fa-layer-group"></i> Liste Wilayas</button>
-            <button class="filter-pill" id="btnGroupCity" onclick="ui.setZoneGrouping('city')"><i class="fa-solid fa-city"></i> Liste Villes</button>
+            
+            <div style="width:1px; background:#cbd5e1; height:25px; margin:0 5px;"></div>
+
+            <button class="btn-secondary" id="btnGroupWilaya" onclick="ui.setZoneGrouping('wilaya')">
+                <i class="fa-solid fa-layer-group"></i> Par Wilaya
+            </button>
+            
+            <button class="btn-secondary" id="btnGroupCity" onclick="ui.setZoneGrouping('city')">
+                <i class="fa-solid fa-city"></i> Par Ville / Zone
+            </button>
         </div>
       </div>
       
@@ -229,32 +452,32 @@
           
         <div class="map-overlay-controls">
             <div style="margin-bottom: 10px; display: flex; gap: 5px;">
-                <div class="map-mode-switch" style="flex: 1; margin: 0;">
-                    <div class="map-mode-btn active" onclick="window.AlgeriaMap.toggleMode('2d'); this.classList.add('active'); this.nextElementSibling.classList.remove('active');">2D</div>
-                    <div class="map-mode-btn" onclick="window.AlgeriaMap.toggleMode('3d'); this.classList.add('active'); this.previousElementSibling.classList.remove('active');">3D Relief</div>
+                <div class="map-mode-switch" style="flex: 1; margin: 0; display:flex; border:1px solid #ddd; border-radius:4px; overflow:hidden;">
+                    <div class="map-mode-btn active" onclick="window.AlgeriaMap.toggleMode('2d'); document.querySelectorAll('.map-mode-btn').forEach(b => b.classList.remove('active')); this.classList.add('active');">2D</div>
+                    <div class="map-mode-btn" onclick="window.AlgeriaMap.toggleMode('3d'); document.querySelectorAll('.map-mode-btn').forEach(b => b.classList.remove('active')); this.classList.add('active');">3D Relief</div>
                 </div>
-                <select class="map-layer-select" onchange="window.AlgeriaMap.setStyle(this.value)" style="flex: 1; margin: 0; width: auto;">
+
+                <select class="map-layer-select" onchange="window.AlgeriaMap.setStyle(this.value)" style="flex: 1; margin: 0; width: auto; border:1px solid #ddd; border-radius:4px;">
                     <option value="streets-v12">Plan</option>
                     <option value="satellite-streets-v12">Satellite</option>
-                    <option value="dark-v11">Mode Nuit</option>
-                    <option value="navigation-day-v1">Navigation (Trafic)</option>
+                    <option value="navigation-day-v1">Trafic</option>
                 </select>
             </div>
 
             <div class="map-tools-container">
-                <div class="tool-row">
+                <div class="tool-row" style="margin-bottom:10px;">
                     <i class="fa-solid fa-truck-front"></i>
-                    <select id="mapTruckSelect" onchange="window.AlgeriaMap.selectTruckById(this.value)">
+                    <select id="mapTruckSelect" onchange="window.AlgeriaMap.selectTruckById(this.value)" style="width:70%;">
                         <option value="">-- Choisir un Camion --</option>
                     </select>
-                    <button class="btn-cancel" onclick="window.AlgeriaMap.deselectTruck()" title="Annuler Selection"><i class="fa-solid fa-xmark"></i></button>
+                    <button class="btn-cancel" onclick="window.AlgeriaMap.deselectTruck()" style="border:none; background:transparent;"><i class="fa-solid fa-xmark"></i></button>
                 </div>
                 
                 <div class="tool-row" style="padding: 0; border: none; background: transparent;">
                     <div class="search-wrapper">
                         <div style="display: flex; align-items: center; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 6px 10px;">
                             <i class="fa-solid fa-magnifying-glass-location" style="margin-right: 8px;"></i>
-                            <input type="text" id="mapDestSearch" placeholder="Chercher destination ou site..." autocomplete="off">
+                            <input type="text" id="mapDestSearch" placeholder="Destination..." autocomplete="off" style="border:none; outline:none; width:100%;">
                         </div>
                         <div id="mapSearchResults" class="map-search-results"></div>
                     </div>
@@ -262,47 +485,53 @@
             </div>
 
             <div class="map-filters">
-                <div class="map-filter-btn active" data-filter="all" onclick="window.AlgeriaMap.filter('all')">Tous</div>
-                <div class="map-filter-btn" data-filter="moving" onclick="window.AlgeriaMap.filter('moving')" style="color: green;">En Route</div>
-                <div class="map-filter-btn" data-filter="stopped" onclick="window.AlgeriaMap.filter('stopped')" style="color: red;">À l'Arrêt</div>
+                <div class="map-filter-btn active" data-filter="all" onclick="window.AlgeriaMap.filter('all'); setActiveFilter(this)">Tous</div>
+                <div class="map-filter-btn" data-filter="moving" onclick="window.AlgeriaMap.filter('moving'); setActiveFilter(this)">En Route</div>
+                <div class="map-filter-btn" data-filter="stopped" onclick="window.AlgeriaMap.filter('stopped'); setActiveFilter(this)">À l'Arrêt</div>
             </div>
         </div>
 
-        <div class="map-extras-bar">
-            <button class="extra-btn" onclick="window.AlgeriaMap.toggleFullscreen()" data-tooltip="Plein Écran">
-                <i class="fa-solid fa-expand"></i>
-            </button>
-            <button class="extra-btn" onclick="window.AlgeriaMap.setStyle('navigation-day-v1')" id="btnTraffic" data-tooltip="Trafic Live">
-                <i class="fa-solid fa-traffic-light"></i>
-            </button>
-            <button class="extra-btn" onclick="window.AlgeriaMap.toggleFollowMode()" id="btnFollow" data-tooltip="Suivre Camion">
-                <i class="fa-solid fa-video"></i>
-            </button>
-            <button class="extra-btn" onclick="window.AlgeriaMap.toggleBuildings()" id="btnBuild" data-tooltip="Bâtiments 3D">
-                <i class="fa-solid fa-city"></i>
-            </button>
+        <div class="map-extras-bar" style="position:absolute; right:15px; bottom:30px; display:flex; flex-direction:column; gap:5px;">
+            <button onclick="window.AlgeriaMap.toggleFullscreen()" style="padding:8px; background:white; border:1px solid #ccc; border-radius:4px; cursor:pointer;"><i class="fa-solid fa-expand"></i></button>
+            <button id="btnTraffic" onclick="window.AlgeriaMap.setStyle('navigation-day-v1')" style="padding:8px; background:white; border:1px solid #ccc; border-radius:4px; cursor:pointer;"><i class="fa-solid fa-traffic-light"></i></button>
+            <button id="btnFollow" onclick="window.AlgeriaMap.toggleFollowMode()" style="padding:8px; background:white; border:1px solid #ccc; border-radius:4px; cursor:pointer;"><i class="fa-solid fa-video"></i></button>
+            <button id="btnBuild" onclick="window.AlgeriaMap.toggleBuildings()" style="padding:8px; background:white; border:1px solid #ccc; border-radius:4px; cursor:pointer;"><i class="fa-solid fa-city"></i></button>
         </div>
 
-          <div id="route-info-panel">
-              <div class="route-stat"><i class="fa-solid fa-route"></i><strong id="route-dist">0 km</strong><span>Distance</span></div>
-              <div style="width:1px; height:20px; background:#ddd;"></div>
-              <div class="route-stat"><i class="fa-solid fa-clock"></i><strong id="route-time">0h</strong><span>Temps</span></div>
-              <div style="width:1px; height:20px; background:#ddd;"></div>
-              <div class="route-stat"><i class="fa-solid fa-gas-pump"></i><strong id="route-fuel">0 L</strong><span>Carburant</span></div>
+          <div id="route-info-panel" style="position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); background: white; padding: 12px 25px; border-radius: 40px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); display: none; align-items: center; gap: 25px; z-index: 10; font-size: 14px; border: 1px solid #e2e8f0;">
+              <div class="route-stat" style="display: flex; flex-direction: column; align-items: center; line-height: 1.2;"><i class="fa-solid fa-route"></i><strong id="route-dist">-- km</strong><span style="font-size: 10px; color: #64748b; text-transform: uppercase;">Distance</span></div>
+              <div style="width:1px; height:30px; background:#e2e8f0;"></div>
+              <div class="route-stat" style="display: flex; flex-direction: column; align-items: center; line-height: 1.2;"><i class="fa-solid fa-clock"></i><strong id="route-time">-- h</strong><span style="font-size: 10px; color: #64748b; text-transform: uppercase;">Temps</span></div>
+              <div style="width:1px; height:30px; background:#e2e8f0;"></div>
+              <div class="route-stat" style="display: flex; flex-direction: column; align-items: center; line-height: 1.2;"><i class="fa-solid fa-gas-pump"></i><strong id="route-fuel">-- L</strong><span style="font-size: 10px; color: #64748b; text-transform: uppercase;">Estim. Carbu</span></div>
           </div>
       </div>
     </div>
 
     <div id="fuelSection" class="tab-content">
       <div class="controls-section">
-        <h2 style="color: var(--teal);"><i class="fa-solid fa-gas-pump"></i> Gestion Carburant</h2>
+        <h2 style="color: var(--accent-teal);"><i class="fa-solid fa-gas-pump"></i> Espace Carburants</h2>
         <div id="fuelSectionContainer"></div>
       </div>
     </div>
 
+    <div id="routing" class="tab-content">
+      <div class="controls-section" style="border: 1px dashed #f97316; background: #fffaf0;">
+        <h2 style="color: #c2410c;"><i class="fa-solid fa-calculator"></i> Calculateur & Estimation de Consommation</h2>
+        <p style="font-size:13px; color:#666; margin-bottom:15px;">Sélectionnez un camion pour utiliser son profil de consommation réel.</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 150px; gap: 16px;">
+          <div class="form-group"><label>Camion (Profil)</label><select id="routeTruck"><option value="">-- Choisir --</option></select></div>
+          <div class="form-group"><label>Destination (Ville/Zone)</label><input type="text" id="routeDestSearch" placeholder="Ex: Oran..."></div>
+          <div class="form-group" style="position: relative;"><label>&nbsp;</label><div id="routeAutocompleteDropdown" class="autocomplete-dropdown"></div></div>
+          <button class="btn-primary" id="calculateRouteBtn" style="margin-top: auto; background: #ea580c; border:none; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);"><i class="fa-solid fa-calculator"></i> Calculer</button>
+        </div>
+      </div>
+      <div id="routeResultsContainer"></div>
+    </div>
+
     <div id="vidangeSection" class="tab-content">
       <div class="controls-section">
-        <h2 style="color: var(--orange);"><i class="fa-solid fa-oil-can"></i> État des Vidanges (Actuel)</h2>
+        <h2 style="color: #ea580c;"><i class="fa-solid fa-oil-can"></i> État des Vidanges (Temps Réel)</h2>
         <div id="vidangeSectionContainer"></div>
       </div>
     </div>
@@ -310,259 +539,101 @@
     <div id="maintenanceHistory" class="tab-content">
       <div class="controls-section">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-             <h2 style="color: var(--red); margin:0;"><i class="fa-solid fa-clipboard-list"></i> Historique Maintenance & Réparations</h2>
-             <button class="btn-primary" onclick="ui.openMaintenanceModal()"><i class="fa-solid fa-plus-circle"></i> Ajouter Manuellement</button>
+             <h2 style="color: #dc2626; margin:0;"><i class="fa-solid fa-clipboard-check"></i> Historique Maintenance & Réparations</h2>
+             <button class="btn-primary" onclick="ui.openMaintenanceModal()"><i class="fa-solid fa-plus-circle"></i> Ajouter Entrée</button>
         </div>
         
-        <div class="report-filters">
-              <div class="form-group">
-                  <label>Du:</label>
-                  <input type="date" id="maintDateStart">
-              </div>
-              <div class="form-group">
-                  <label>Au:</label>
-                  <input type="date" id="maintDateEnd">
-              </div>
-              <div class="form-group">
-                  <label>Type:</label>
+        <div class="report-filters" style="margin-top:20px; display:flex; gap:10px; align-items:end; flex-wrap:wrap;">
+              <div class="form-group"><label>Du:</label><input type="date" id="maintDateStart"></div>
+              <div class="form-group"><label>Au:</label><input type="date" id="maintDateEnd"></div>
+              <div class="form-group"><label>Type:</label>
                   <select id="maintTypeFilter">
                       <option value="all">Tout</option>
                       <option value="Vidange">Vidange</option>
-                      <option value="Plaquettes">Plaquettes de Frein</option>
+                      <option value="Plaquettes">Plaquettes</option>
                       <option value="Maintenance">Maintenance Générale</option>
                   </select>
               </div>
-              <div class="form-group">
-                  <label>Camion:</label>
-                  <input type="text" id="maintTruckSearch" placeholder="Rechercher nom...">
-              </div>
+              <div class="form-group"><label>Camion:</label><input type="text" id="maintTruckSearch" placeholder="Rechercher nom..."></div>
               <div style="margin-left: auto; display:flex; gap:8px;">
-                  <button class="btn-secondary btn-xs" id="applyMaintFiltersBtn"><i class="fa-solid fa-filter"></i> Filtrer</button>
-                  <button class="btn-primary btn-xs" id="exportMaintBtn" style="background: #c62828;"><i class="fa-solid fa-file-excel"></i> Exporter</button>
+                  <button class="btn-secondary" id="applyMaintFiltersBtn"><i class="fa-solid fa-filter"></i> Filtrer</button>
+                  <button class="btn-primary" id="exportMaintBtn" style="background: #c62828; border:none;"><i class="fa-solid fa-file-excel"></i> Exporter</button>
               </div>
-          </div>
-
-          <div id="maintenanceListContainer" style="margin-top: 20px;"></div>
-      </div>
-    </div>
-
-    <div id="routing" class="tab-content">
-      <div class="controls-section">
-        <h2><i class="fa-solid fa-calculator"></i> Planification & Coûts</h2>
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 150px; gap: 16px; margin-top: 16px;">
-          <div class="form-group"><label>Camion</label><select id="routeTruck"><option value="">-- Choisir --</option></select></div>
-          <div class="form-group"><label>Destination</label><input type="text" id="routeDestSearch" placeholder="Ville..."></div>
-          <div class="form-group" style="position: relative;"><label>&nbsp;</label><div id="routeAutocompleteDropdown" class="autocomplete-dropdown"></div></div>
-          <button class="btn-primary" id="calculateRouteBtn" style="margin-top: auto;"><i class="fa-solid fa-calculator"></i> Calculer</button>
-        </div>
-      </div>
-      <div id="routeResultsContainer"></div>
-    </div>
-
-    <div id="settings" class="tab-content">
-      <div class="controls-section">
-        <h2><i class="fa-solid fa-sliders"></i> Paramètres de Flotte</h2>
-        
-        <div class="settings-accordion-item">
-            <div class="settings-header">
-                <span><i class="fa-solid fa-database"></i> Sauvegarde & Restauration (Base de Données)</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content">
-                <p style="color:#666; font-size:13px;">Téléchargez une copie complète de vos données (Maintenance, Historique, Paramètres) ou restaurez une ancienne version.</p>
-                
-                <div style="display:flex; gap:20px; align-items:center; flex-wrap:wrap;">
-                    <div style="flex:1; min-width:250px; background:#f0fdf4; padding:15px; border:1px solid #bbf7d0; border-radius:8px;">
-                        <h4 style="margin-top:0; color:#166534;"><i class="fa-solid fa-download"></i> Créer une Sauvegarde</h4>
-                        <button class="btn-primary" onclick="ui.downloadServerBackup()" style="background:#166534; width:100%;">
-                            Télécharger JSON Complet
-                        </button>
-                    </div>
-
-                    <div style="flex:1; min-width:250px; background:#eff6ff; padding:15px; border:1px solid #bfdbfe; border-radius:8px;">
-                        <h4 style="margin-top:0; color:#1e40af;"><i class="fa-solid fa-upload"></i> Restaurer une Sauvegarde</h4>
-                        <div style="display:flex; gap:10px;">
-                            <input type="file" id="restoreFile" accept=".json" style="background:white;">
-                            <button class="btn-primary" id="btnRestore" onclick="ui.restoreBackup()" style="background:#1e40af;">
-                                Restaurer
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
 
-        <div class="settings-accordion-item">
-            <div class="settings-header">
-                <span><i class="fa-solid fa-map-location-dot"></i> Gestion des Lieux Personnalisés</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content">
-                <p style="font-size: 13px; color: #555; margin-top:0;">Définissez vos zones (usines, garages) pour l'automatisation. <strong>IMPORTANT: Créez un lieu de type "Site Douroub" pour le découchage.</strong></p>
-                <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1.5fr auto; gap: 10px; align-items: end; margin-bottom: 15px;">
-                    <div class="form-group"><label>Nom</label><input type="text" id="customLocName" placeholder="Ex: Garage Biskra"></div>
-                    <div class="form-group"><label>Wilaya</label><input type="text" id="customLocWilaya" placeholder="Ex: Biskra"></div>
-                    <div class="form-group"><label>Lat</label><input type="number" id="customLocLat" placeholder="36.xxx" step="0.000001"></div>
-                    <div class="form-group"><label>Lng</label><input type="number" id="customLocLng" placeholder="3.xxx" step="0.000001"></div>
-                    <div class="form-group"><label>Rayon (m)</label><input type="number" id="customLocRadius" value="500"></div>
-                    <div class="form-group">
-                        <label>Type</label>
-                        <select id="customLocType">
-                            <option value="douroub">🏢 Site Douroub</option>
-                            <option value="client">👤 Client</option>
-                            <option value="maintenance">🔧 Site de Maintenance</option>
-                            <option value="other">📍 Autre</option>
-                        </select>
-                    </div>
-                    <button class="btn-primary" id="addCustomLocBtn" style="background: #166534;"><i class="fa-solid fa-plus"></i></button>
-                </div>
-                <h4 style="font-size: 14px; margin-bottom: 10px;">Vos Lieux:</h4>
-                <div id="customLocationsList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px;"></div>
-            </div>
-        </div>
-
-        <div class="settings-accordion-item">
-            <div class="settings-header">
-                <span><i class="fa-solid fa-network-wired"></i> Connexion & API Keys</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content">
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label for="serverUrl">URL Serveur (API)</label>
-                    <input type="text" id="serverUrl" value="http://localhost:3000" style="width: 100%; max-width: 500px;">
-                </div>
-                <div class="form-group">
-                   <label style="color:var(--teal-dark); font-weight:bold;"><i class="fa-solid fa-key"></i> Geoapify API Keys (Rotation)</label>
-                   <div class="api-keys-box">
-                       <textarea id="geoapifyApiKeys" rows="4" placeholder="Collez vos clés API ici (une par ligne ou séparées par des virgules)"></textarea>
-                       <div style="font-size:11px; color:#666; margin-top:4px;">Utilisez plusieurs comptes pour éviter les limites. Le système changera automatiquement de clé.</div>
-                   </div>
-               </div>
-               <button class="btn-primary" id="saveConnectionBtn" style="margin-top: 15px;"><i class="fa-solid fa-save"></i> Enregistrer Paramètres de Connexion</button>
-            </div>
-        </div>
-
-        <div class="settings-accordion-item">
-            <div class="settings-header">
-                <span><i class="fa-solid fa-globe"></i> Configuration Globale (Par Défaut)</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
-                    <div class="form-group"><label>Réservoir (L)</label><input type="number" id="defaultFuelCapacity" value="600"></div>
-                    <div class="form-group"><label>Conso (L/100km)</label><input type="number" id="defaultFuelConsumption" value="35"></div>
-                    <div class="form-group"><label>Prix Carburant (DA/L)</label><input type="number" id="defaultFuelPrice" value="29"></div>
-                    <div class="form-group"><label>Marge Sécurité (L)</label><input type="number" id="defaultSecurityMargin" value="100"></div>
-                    <div class="form-group"><label>Alerte Carburant (%)</label><input type="number" id="defaultFuelThreshold" value="30"></div>
-                    <div class="form-group"><label>Niveau Critique (%)</label><input type="number" id="defaultCriticalLevel" value="15"></div>
-                    <div class="form-group" style="grid-column: span 2;"><label>Liste Vidanges (km)</label><input type="text" id="defaultVidangeMilestones" value="30000, 60000, 90000, 120000"></div>
-                    <div class="form-group"><label>Alerte Avant (km)</label><input type="number" id="defaultVidangeAlert" value="1000"></div>
-                    <div class="calibration-box global">
-                      <label style="color: #005a7a; font-weight: bold;">🌍 Calibration Globale</label>
-                      <textarea id="defaultCalibration" rows="5" placeholder="25=255&#10;28=305..."></textarea>
-                    </div>
-                </div>
-                <button class="btn-primary" id="saveDefaultsBtn" style="margin-top: 16px;">💾 Enregistrer Configuration Globale</button>
-            </div>
-        </div>
-
-        <div class="settings-accordion-item">
-            <div class="settings-header">
-                <span><i class="fa-solid fa-layer-group"></i> Règles de Flotte (Groupes)</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <p style="font-size: 13px; color: #666; margin: 0;">Créez des règles (ex: "Sahara", "Ville") et assignez-y des camions.</p>
-                    <button class="btn-primary" onclick="ui.openRuleEditor()"><i class="fa-solid fa-plus"></i> Nouvelle Règle</button>
-                </div>
-                
-                <div id="rulesListContainer" class="rule-cards-container">
-                    </div>
-            </div>
-        </div>
-
+        <div id="maintenanceListContainer" style="margin-top: 20px;"></div>
       </div>
     </div>
 
     <div id="reports" class="tab-content">
-      <div class="controls-section">
-        <h2><i class="fa-solid fa-file-csv"></i> Rapports et Exportation</h2>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn-primary" id="exportCSVBtn"><i class="fa-solid fa-download"></i> Exporter Rapport Global CSV</button>
-          <button class="btn-primary" id="exportJSONBtn"><i class="fa-solid fa-code"></i> Sauvegarde JSON</button>
-          <button class="btn-secondary" id="clearHistoryBtn" style="background: #fee; color: #e63946; border-color: #e63946;"><i class="fa-solid fa-trash"></i> Effacer Historique Session</button>
+      
+      <div class="controls-section" style="border-left: 5px solid #059669;">
+        <h2 style="color: #059669; font-size: 1.1rem; text-transform:uppercase;"><i class="fa-solid fa-download"></i> Centre de Téléchargement (Archives)</h2>
+        <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 10px;">
+            <button class="btn-primary" onclick="ui.generateSuperReportCSV()" style="background: #059669; border:none; box-shadow: 0 4px 10px rgba(5, 150, 105, 0.3);">
+                <i class="fa-solid fa-file-excel"></i> EXTRAIRE LE RAPPORT FLOTTE (GLOBAL)
+            </button>
+            <button class="btn-primary" id="exportJSONBtn" style="background:#334155; border:none;">
+                <i class="fa-solid fa-database"></i> Backup Complet (JSON)
+            </button>
         </div>
       </div>
-      
-      <div style="display: flex; gap: 10px; margin-top: 20px;">
-          <button class="tab-button active" id="btnReportFuel" onclick="ui.toggleReportView('fuel')"><i class="fa-solid fa-gas-pump"></i> Historique Carburant</button>
-          <button class="tab-button" id="btnReportDecouchage" onclick="ui.toggleReportView('decouchage')"><i class="fa-solid fa-bed"></i> Rapport Découchage</button>
+
+      <div class="controls-section" style="border-left: 5px solid #4f46e5; margin-top: 20px;">
+        <h2 style="color: #4f46e5; font-size: 1.1rem; text-transform:uppercase;"><i class="fa-solid fa-microscope"></i> Outils d'Analyse & Audit</h2>
+        
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <button class="btn-primary" onclick="ui.openReportModal()" style="background: white; border: 2px solid #4f46e5; color:#4f46e5; font-weight:800;">
+                <i class="fa-solid fa-clock-rotate-left"></i> 📼 AUDIT & REPLAY (GPS)
+            </button>
+            
+            <span style="color:#e2e8f0; font-size:20px;">|</span>
+
+            <div style="display: flex; gap: 10px;">
+                <button class="tab-button active" id="btnReportFuel" onclick="ui.toggleReportView('fuel')" style="border:1px solid #e2e8f0;">
+                    <i class="fa-solid fa-gas-pump"></i> Audit Carburant
+                </button>
+                <button class="tab-button" id="btnReportDecouchage" onclick="ui.toggleReportView('decouchage')" style="border:1px solid #e2e8f0;">
+                    <i class="fa-solid fa-bed"></i> Audit Découchage
+                </button>
+            </div>
+            
+            <button class="btn-secondary" id="clearHistoryBtn" style="margin-left:auto; font-size:11px;">
+                <i class="fa-solid fa-trash"></i> Vider Cache
+            </button>
+        </div>
       </div>
 
       <div id="reportFuelSection" class="controls-section" style="margin-top: 10px;">
           <h2 style="color: #166534;"><i class="fa-solid fa-gas-pump"></i> Historique des Remplissages</h2>
-          <p>Le serveur enregistre les variations. <strong>Le calcul des litres se fait selon vos paramètres actuels.</strong></p>
-          
-          <div class="report-filters">
-              <div class="form-group">
-                  <label>Du:</label>
-                  <input type="date" id="refuelDateStart">
-              </div>
-              <div class="form-group">
-                  <label>Au:</label>
-                  <input type="date" id="refuelDateEnd">
-              </div>
-              <div class="form-group">
-                  <label>Camion:</label>
-                  <input type="text" id="refuelTruckSearch" placeholder="Rechercher nom...">
-              </div>
-              <div class="form-group">
-                  <label>Lieu:</label>
-                  <input type="text" id="refuelLocationSearch" placeholder="Rechercher lieu...">
-              </div>
-              <div class="form-group">
-                  <label>Trier par:</label>
+          <div class="report-filters" style="display:flex; gap:10px; align-items:end;">
+              <div class="form-group"><label>Du:</label><input type="date" id="refuelDateStart"></div>
+              <div class="form-group"><label>Au:</label><input type="date" id="refuelDateEnd"></div>
+              <div class="form-group"><label>Camion:</label><input type="text" id="refuelTruckSearch" placeholder="Rechercher..."></div>
+              <div class="form-group"><label>Lieu:</label><input type="text" id="refuelLocationSearch" placeholder="Rechercher lieu..."></div>
+              <div class="form-group"><label>Trier par:</label>
                   <select id="refuelSortSelect">
                       <option value="date_desc">📅 Date (Récent)</option>
-                      <option value="date_asc">📅 Date (Ancien)</option>
                       <option value="qty_desc">💧 Quantité (Grand)</option>
-                      <option value="qty_asc">💧 Quantité (Petit)</option>
                   </select>
               </div>
               <div style="margin-left: auto; display:flex; gap:8px;">
-                  <button class="btn-secondary btn-xs" id="applyRefuelFiltersBtn"><i class="fa-solid fa-filter"></i> Filtrer</button>
-                  <button class="btn-primary btn-xs" id="exportRefuelsBtn" style="background: #166534;"><i class="fa-solid fa-file-excel"></i> Exporter</button>
+                  <button class="btn-secondary" id="applyRefuelFiltersBtn">Filtrer</button>
+                  <button class="btn-primary" id="exportRefuelsBtn">Exporter</button>
               </div>
           </div>
-
           <div id="refuelHistoryContainer"></div>
       </div>
       
-<div id="reportDecouchageSection" class="controls-section" style="margin-top: 10px; display: none;">
-          <h2 style="color: #1e3a8a; display:flex; align-items:center; gap:10px;">
-              <i class="fa-solid fa-moon"></i> Rapport de Découchage
-          </h2>
-          <p>Suivi des camions hors site à 00h00. <span style="color:#b91c1c; font-weight:bold;">Confirmé</span> = Absent après 05h00. <span style="color:#1e40af; font-weight:bold;">Non Confirmé</span> = Rentré avant 05h00.</p>
-
-          <div style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid #ddd; padding-bottom:10px;">
-              <button class="tab-button active" id="btnSubDecouchageRecap" onclick="ui.toggleDecouchageSubTab('recap')" style="background:#e0f2fe; color:#0369a1; border:1px solid #bae6fd;">
-                  <i class="fa-solid fa-table"></i> Vue Récapitulative
-              </button>
-              <button class="tab-button" id="btnSubDecouchageDetail" onclick="ui.toggleDecouchageSubTab('detail')">
-                  <i class="fa-solid fa-list"></i> Vue Détaillée
-              </button>
+      <div id="reportDecouchageSection" class="controls-section" style="margin-top: 10px; display: none;">
+          <h2 style="color: #1e3a8a;"><i class="fa-solid fa-moon"></i> Audit de Découchage</h2>
+          <div style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
+            <button class="tab-button active" id="btnSubDecouchageRecap" onclick="ui.toggleDecouchageSubTab('recap')" style="background:#166534; color:#ffffff;">Vue Récap</button>
+            <button class="tab-button" id="btnSubDecouchageDetail" onclick="ui.toggleDecouchageSubTab('detail')">Vue Détaillée</button>
           </div>
-
-          <div class="report-filters" style="background:#f8fafc; border:1px solid #e2e8f0;">
-              <div class="form-group">
-                  <label>Du (Date Début):</label>
-                  <input type="date" id="decouchageDateStart">
-              </div>
-              <div class="form-group">
-                  <label>Au (Date Fin):</label>
-                  <input type="date" id="decouchageDateEnd">
-              </div>
+          <div class="report-filters" style="display:flex; gap:10px; align-items:end;">
+              <div class="form-group"><label>Du:</label><input type="date" id="decouchageDateStart"></div>
+              <div class="form-group"><label>Au:</label><input type="date" id="decouchageDateEnd"></div>
               <div class="form-group">
                   <label>Statut:</label>
                   <select id="decouchageStatusSelect">
@@ -571,67 +642,135 @@
                       <option value="Non Confirmé">Non Confirmé (&lt;05h00)</option>
                   </select>
               </div>
-              <div class="form-group">
-                  <label>Camion:</label>
-                  <input type="text" id="decouchageTruckSearch" placeholder="Rechercher nom...">
-              </div>
-              <div style="margin-left: auto; display:flex; gap:8px; align-items:flex-end;">
-                  <button class="btn-secondary btn-xs" id="applyDecouchageFiltersBtn"><i class="fa-solid fa-filter"></i> Actualiser</button>
-                  <button class="btn-primary btn-xs" onclick="ui.exportDecouchageRecapCSV()" id="btnExportRecap" style="background: #0f766e;"><i class="fa-solid fa-table"></i> Export Récap</button>
-                  <button class="btn-primary btn-xs" id="exportDecouchageBtn" style="background: #1e3a8a; display:none;"><i class="fa-solid fa-file-csv"></i> Export Détails</button>
+              <div class="form-group"><label>Camion:</label><input type="text" id="decouchageTruckSearch"></div>
+              <div style="margin-left: auto;">
+                   <button class="btn-secondary" id="applyDecouchageFiltersBtn">Actualiser</button>
+                   <button class="btn-primary" onclick="ui.exportDecouchageRecapCSV()" id="btnExportRecap">Export Récap</button>
+                   <button class="btn-primary" id="exportDecouchageBtn" style="display:none;">Export Détails</button>
               </div>
           </div>
-          
-          <div id="decouchageRecapView" style="margin-top:20px; animation:fadeIn 0.3s;">
-              <div id="decouchageStatsGrid" class="stats-grid" style="margin-bottom: 20px;"></div>
-              <h4 style="color:#0369a1; border-bottom:2px solid #0369a1; padding-bottom:5px; margin-bottom:10px;">Classement par Camion</h4>
-              <div id="decouchageRecapContainer" style="overflow-x:auto;"></div>
-          </div>
-
-          <div id="decouchageDetailView" style="margin-top:20px; display:none; animation:fadeIn 0.3s;">
-               <div style="background:#fff; border:1px solid #e9ecef; border-left:4px solid #1e3a8a; padding:15px; margin-bottom:15px; font-size:12px; color:#555; border-radius:4px;">
-                  <strong style="color:#1e3a8a; display:block; margin-bottom:5px;"><i class="fa-solid fa-circle-info"></i> Guide de Lecture:</strong>
-                  <ul style="margin:0; padding-left:20px; line-height:1.6;">
-                      <li><strong>Statut:</strong> <span style="color:#b91c1c; font-weight:bold;">Confirmé</span> (Pas rentré la nuit) | <span style="color:#1e40af; font-weight:bold;">Non Confirmé</span> (Rentré tardivement avant 05h).</li>
-                      <li><strong>Distance:</strong> Rayon par rapport au "Site Douroub" à minuit.</li>
-                  </ul>
-              </div>
-              <div id="decouchageHistoryContainer"></div>
-          </div>
+          <div id="decouchageRecapView"><div id="decouchageRecapContainer"></div></div>
+          <div id="decouchageDetailView" style="display:none;"><div id="decouchageHistoryContainer"></div></div>
       </div>
+    </div>
 
-	  </div>
-  </div>
+    <div id="settings" class="tab-content">
+      <div class="controls-section">
+        <h2><i class="fa-solid fa-sliders"></i> Configuration Système</h2>
+        
+        <div class="settings-accordion-item" style="border:1px solid #ddd; border-radius:6px; margin-bottom:10px; padding:10px;">
+            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold;">
+                <span><i class="fa-solid fa-network-wired"></i> Connexion & API Keys</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content" style="margin-top:10px;">
+                <div class="form-group">
+                    <label>URL Serveur</label>
+                    <input type="text" id="serverUrl" value="http://localhost:3000" style="width:100%;">
+                </div>
+                <div class="form-group" style="margin-top:10px;">
+                    <label>Geoapify Keys (Rotation)</label>
+                    <textarea id="geoapifyApiKeys" rows="3" placeholder="Clés API ici..."></textarea>
+                </div>
+                <button class="btn-primary" id="saveConnectionBtn" style="margin-top:10px;">Enregistrer</button>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item" style="border:1px solid #ddd; border-radius:6px; margin-bottom:10px; padding:10px;">
+            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold;">
+                <span><i class="fa-solid fa-map-location-dot"></i> Lieux & Zones</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content" style="margin-top:10px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; align-items: center;">
+                    <input type="text" id="customLocName" placeholder="Nom">
+                    <input type="text" id="customLocWilaya" placeholder="Wilaya">
+                    <input type="number" id="customLocLat" placeholder="Lat">
+                    <input type="number" id="customLocLng" placeholder="Lng">
+                    <input type="number" id="customLocRadius" value="500" placeholder="Rayon (m)">
+                    <select id="customLocType">
+                        <option value="douroub">🏢 Site Douroub</option>
+                        <option value="client">👤 Client</option>
+                        <option value="maintenance">🔧 Garage</option>
+                        <option value="other">📍 Autre</option>
+                    </select>
+                    <button class="btn-primary" id="addCustomLocBtn">+</button>
+                </div>
+                <div id="customLocationsList" style="margin-top:10px;"></div>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item" style="border:1px solid #ddd; border-radius:6px; margin-bottom:10px; padding:10px;">
+            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold;">
+                <span><i class="fa-solid fa-globe"></i> Calibration Globale</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content" style="margin-top:10px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+                    <div class="form-group"><label>Réservoir (L)</label><input type="number" id="defaultFuelCapacity" value="600"></div>
+                    <div class="form-group"><label>Conso (L/100)</label><input type="number" id="defaultFuelConsumption" value="35"></div>
+                    <div class="form-group"><label>Prix Carburant (DA/L)</label><input type="number" id="defaultFuelPrice" value="29"></div>
+                    <div class="form-group"><label>Marge Sécurité (L)</label><input type="number" id="defaultSecurityMargin" value="100"></div>
+                    
+                    <div class="form-group"><label>Seuil Alerte (%)</label><input type="number" id="defaultFuelThreshold" value="30"></div>
+                    <div class="form-group"><label>Niveau Critique (%)</label><input type="number" id="defaultCriticalLevel" value="15"></div>
+                    <div class="form-group"><label>Alerte Vidange (km avant)</label><input type="number" id="defaultVidangeAlert" value="1000"></div>
+                    <div class="form-group"><label>Jalons Vidange (km)</label><input type="text" id="defaultVidangeMilestones" value="30000, 60000, 90000, 120000"></div>
+                </div>
+                <div class="calibration-box global" style="margin-top:10px;">
+                     <textarea id="defaultCalibration" rows="3" placeholder="Calibration (ex: 25=255)"></textarea>
+                </div>
+                <button class="btn-primary" id="saveDefaultsBtn" style="margin-top:10px;">Enregistrer Global</button>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item" style="border:1px solid #ddd; border-radius:6px; margin-bottom:10px; padding:10px;">
+            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold;">
+                <span><i class="fa-solid fa-layer-group"></i> Règles de Flotte</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content" style="margin-top:10px;">
+                <button class="btn-primary" onclick="ui.openRuleEditor()">+ Nouvelle Règle</button>
+                <div id="rulesListContainer" class="rule-cards-container" style="margin-top:10px;"></div>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item" style="border: 1px solid #bbf7d0; background:#f0fdf4; border-radius:6px; margin-bottom:10px; padding:10px;">
+            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold; color: #15803d;">
+                <span><i class="fa-solid fa-database"></i> Sauvegarde & Restauration (Base de Données)</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content" style="margin-top:10px;">
+                <div style="display:flex; gap:20px; flex-wrap:wrap;">
+                    <button class="btn-primary" onclick="ui.downloadServerBackup()" style="background:#166534; flex:1; border:none;">
+                        <i class="fa-solid fa-download"></i> Télécharger Backup JSON
+                    </button>
+                    <div style="flex:1; display:flex; gap:5px;">
+                        <input type="file" id="restoreFile" accept=".json" style="background:white;">
+                        <button class="btn-primary" id="btnRestore" onclick="ui.restoreBackup()" style="background:#1e40af; border:none;">Restaurer</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+      </div>
+    </div>
+  </div> 
 
   <div id="maintenanceModal" class="modal">
       <div class="modal-content">
-          <h3 style="margin-top:0; color:var(--teal-dark);">Ajouter Maintenance Manuelle</h3>
-          <div style="display:grid; gap:15px;">
-              <div class="form-group">
-                  <label>Camion</label>
-                  <select id="modalMaintTruck"></select>
-              </div>
-              <div class="form-group">
-                  <label>Type d'intervention</label>
-                  <select id="modalMaintType">
-                      <option value="Vidange">Vidange (Huile + Filtres)</option>
-                      <option value="Plaquettes">Plaquettes de Frein</option>
-                      <option value="Maintenance">Autre Maintenance</option>
-                  </select>
-              </div>
-              <div class="form-group">
-                  <label>Date</label>
-                  <input type="datetime-local" id="modalMaintDate">
-              </div>
-              <div class="form-group">
-                  <label>Kilométrage (Compteur)</label>
-                  <input type="number" id="modalMaintOdo" placeholder="Ex: 30000">
-              </div>
-              <div class="form-group">
-                  <label>Note / Description</label>
-                  <textarea id="modalMaintNote" rows="3" placeholder="Détails (ex: Changement filtres, marque huile...)"></textarea>
-              </div>
-              <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+          <h3 style="margin-top:0;">Ajouter Maintenance</h3>
+          <div style="display:grid; gap:10px;">
+              <select id="modalMaintTruck"></select>
+              <select id="modalMaintType">
+                  <option value="Vidange">Vidange</option>
+                  <option value="Plaquettes">Plaquettes</option>
+                  <option value="Maintenance">Autre</option>
+              </select>
+              <input type="datetime-local" id="modalMaintDate">
+              <input type="number" id="modalMaintOdo" placeholder="Km Compteur">
+              <textarea id="modalMaintNote" placeholder="Note..."></textarea>
+              <div style="display:flex; justify-content:flex-end; gap:10px;">
                   <button class="btn-secondary" onclick="ui.closeMaintenanceModal()">Annuler</button>
                   <button class="btn-primary" onclick="ui.saveManualMaintenance()">Enregistrer</button>
               </div>
@@ -639,19 +778,66 @@
       </div>
   </div>
 
-  <div id="ruleEditorModal" class="modal-overlay">
-      <div class="modal-box">
-          <div class="modal-header">
-              <span class="modal-title">Éditeur de Règle</span>
-              <button class="btn-secondary btn-xs" onclick="ui.closeRuleEditor()"><i class="fa-solid fa-times"></i></button>
+  <div id="ruleEditorModal" class="modal" style="display:none; align-items:center; justify-content:center;">
+      <div class="modal-content">
+          <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
+              <span style="font-weight:bold;">Éditeur de Règle</span>
+              <button class="btn-secondary" onclick="ui.closeRuleEditor()">X</button>
           </div>
-          <div id="ruleEditorContent">
-              </div>
+          <div id="ruleEditorContent"></div>
       </div>
   </div>
 
   <script src="config.js"></script>
-  <script src="algeria-map.js"></script> <script src="geocode.js"></script>
+  
+  <script>
+    // 1. SAFETY PATCH: Prevents Mapbox crashes if layer doesn't exist
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof mapboxgl !== 'undefined' && mapboxgl.Map) {
+            const originalQuery = mapboxgl.Map.prototype.queryRenderedFeatures;
+            mapboxgl.Map.prototype.queryRenderedFeatures = function(geometry, options) {
+                try {
+                    return originalQuery.call(this, geometry, options);
+                } catch (e) {
+                    if (e.message && e.message.includes('does not exist')) {
+                        console.warn("🛡️ Safety Patch: Ignored Mapbox layer error.");
+                        return [];
+                    }
+                    throw e;
+                }
+            };
+        }
+    });
+
+    // 2. HELPER: Resets map visibility (Fixes "Ouvrir Carte 3D" bug)
+    function resetMapContext() {
+        // Ensure the Map Tab is active in logic
+        if(ui && ui.switchTab) ui.switchTab('byWilaya');
+
+        // Force DOM visibility
+        const mapDiv = document.getElementById('map-wrapper');
+        const listDiv = document.getElementById('wilayaContainer');
+        
+        if(mapDiv) mapDiv.style.display = 'block';
+        if(listDiv) listDiv.innerHTML = ''; // Clear list
+
+        // Resize map to fix rendering issues
+        if(window.AlgeriaMap && window.AlgeriaMap.map) {
+            window.AlgeriaMap.map.resize();
+            // Optional: Toggle 3D or Fullscreen if you want
+            // window.AlgeriaMap.toggleMode('3d');
+        }
+    }
+
+    // 3. HELPER: Highlights active pill filter
+    function setActiveFilter(element) {
+        document.querySelectorAll('.map-filter-btn').forEach(btn => btn.classList.remove('active'));
+        element.classList.add('active');
+    }
+  </script>
+
+  <script src="algeria-map.js"></script> 
+  <script src="geocode.js"></script>
   <script src="app.js"></script>
   <script src="ui.js"></script>
 
@@ -665,4 +851,3 @@
   </script>
 </body>
 </html>
-}
