@@ -96,7 +96,28 @@ const AlgeriaMap = {
         this.map.on('mouseenter', 'route-alt', () => { this.map.getCanvas().style.cursor = 'pointer'; });
         this.map.on('mouseleave', 'route-alt', () => { this.map.getCanvas().style.cursor = ''; });
     },
+// HELPER: Finds the address when you hover a marker
+fetchAddress: function(lat, lng, targetElement) {
+    if (targetElement.getAttribute('data-loaded') === 'true') return; // Don't fetch twice
+    
+    targetElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Recherche adresse...';
+    
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=address,poi&limit=1&language=fr&access_token=${mapboxgl.accessToken}`;
 
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
+            if (data.features && data.features.length > 0) {
+                targetElement.innerHTML = `📍 ${data.features[0].place_name_fr || data.features[0].place_name}`;
+                targetElement.setAttribute('data-loaded', 'true');
+            } else {
+                targetElement.innerHTML = '📍 Adresse inconnue (Zone rurale)';
+            }
+        })
+        .catch(err => {
+            targetElement.innerHTML = '⚠️ Erreur adresse';
+        });
+},
     // =========================================================
     // 🎬 VISUAL HISTORY ENGINE (TIME MACHINE)
     // =========================================================
@@ -349,56 +370,115 @@ const AlgeriaMap = {
         const timeEl = document.getElementById('playerTime');
         if(timeEl) timeEl.innerText = date.toLocaleTimeString().substring(0,5) + ' ' + date.toLocaleDateString();
     },
+// --- FIXED: Renamed to match index.html + Update Counts ---
+filterMap: function(type, btnElement) {
+    this.currentFilter = type;
+    
+    // Update button UI
+    if(btnElement) {
+        document.querySelectorAll('.map-filter-btn').forEach(b => b.classList.remove('active'));
+        btnElement.classList.add('active');
+    }
 
-    // 4. Markers & Decouchage Logic
-    addRefillMarkers: function(refills) {
-        if(!refills) return;
-        refills.forEach(r => {
-            if(parseInt(r.volume) < 50) return;
+    this.updateMarkers(this.truckDataCache);
+},
+addRefillMarkers: function(refills) {
+    if (!this.map) return;
+    refills.forEach(refill => {
+        // 1. Create Icon (Green Pump)
+        const el = document.createElement('div');
+        el.className = 'history-marker-refill';
+        el.innerHTML = '<i class="fa-solid fa-gas-pump"></i>';
+        el.style.cssText = "background:#166534; color:white; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3); cursor:pointer; z-index:10; font-size:14px;";
 
+        // 2. Format Time
+        const timeStr = new Date(refill.time).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const dateStr = new Date(refill.time).toLocaleDateString('fr-FR');
+
+        // 3. Create Popup Content
+        const popupDiv = document.createElement('div');
+        popupDiv.style.textAlign = "center";
+        popupDiv.innerHTML = `
+            <strong style="color:#166534; font-size:12px;">⛽ PLEIN CARBURANT</strong><br>
+            <div style="font-size:18px; font-weight:900; margin:4px 0;">+${refill.volume} L</div>
+            <div style="font-size:11px; color:#555; margin-bottom:5px;">📅 ${dateStr} à ${timeStr}</div>
+            <div class="address-box" style="font-size:10px; color:#555; background:#f0fdf4; padding:4px; border-radius:4px; min-width:150px;">
+                📍 Survoler pour l'adresse
+            </div>
+        `;
+
+        const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setDOMContent(popupDiv);
+
+        // 4. Add Hover Logic
+        el.addEventListener('mouseenter', () => {
+            popup.addTo(this.map);
+            const addrBox = popupDiv.querySelector('.address-box');
+            this.fetchAddress(refill.lat, refill.lng, addrBox);
+        });
+        el.addEventListener('mouseleave', () => popup.remove());
+
+        const marker = new mapboxgl.Marker({ element: el }).setLngLat([refill.lng, refill.lat]).setPopup(popup).addTo(this.map);
+        this.historyLayers.refills.push(marker);
+    });
+    this.updateFilterCounts();
+},
+	
+// Update the UI stats in the History Player
+    updateStats: function(data) {
+        this.stats.distance = data.distance;
+        this.stats.fuel = data.fuel;
+        
+        if(document.getElementById('statKm')) document.getElementById('statKm').innerText = data.distance + ' km';
+        if(document.getElementById('statFuel')) document.getElementById('statFuel').innerText = data.fuel + ' L';
+        if(document.getElementById('cntStops')) document.getElementById('cntStops').innerText = data.stopCount;
+    },
+	
+addStopMarkers: function(stops) {
+    if (!this.map) return;
+
+    stops.forEach(stop => {
+        // 1. Check for Decouchage
+        if (this.isDecouchage(stop)) {
+            this.addDecouchageMarker(stop);
+        } else {
+            // 2. NORMAL STOP: Small Red "P"
             const el = document.createElement('div');
-            el.innerHTML = '<i class="fa-solid fa-gas-pump"></i>';
-            el.style.cssText = `background-color: #166534; color: white; width: 28px; height: 28px;
-                border-radius: 50%; display: flex; align-items: center; justify-content: center;
-                border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3); font-size: 12px; z-index: 10;`;
+            el.className = 'history-marker-stop';
+            el.innerHTML = 'P';
+            el.style.cssText = "background-color: #d32f2f; color: white; width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; border: 1px solid white; font-weight:bold; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); cursor: pointer; z-index: 5;";
 
-            const popup = new mapboxgl.Popup({offset: 25, closeButton: false})
-                .setHTML(`<div style="text-align:center;"><strong>⛽ +${r.volume}L</strong><br><small>${new Date(r.time).toLocaleTimeString()}</small></div>`);
+            // 3. Format Time
+            const startStr = new Date(stop.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            const endStr = new Date(stop.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-            const m = new mapboxgl.Marker(el).setLngLat([r.lng, r.lat]).setPopup(popup).addTo(this.map);
-            el.addEventListener('mouseenter', () => popup.addTo(this.map));
+            // 4. Create Popup Content
+            const popupDiv = document.createElement('div');
+            popupDiv.style.textAlign = "center";
+            popupDiv.innerHTML = `
+                <strong style="color:#d32f2f; font-size:13px;">✋ ARRÊT</strong><br>
+                <div style="font-size:14px; font-weight:800; margin:3px 0; color:#1e293b;">${stop.durationStr}</div>
+                <div style="font-size:11px; color:#555; margin-bottom:5px;">🕒 ${startStr} ➝ ${endStr}</div>
+                <div class="address-box" style="font-size:10px; color:#555; background:#fff1f2; padding:4px; border-radius:4px; min-width:150px;">
+                    📍 Survoler pour l'adresse
+                </div>
+            `;
+
+            const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setDOMContent(popupDiv);
+
+            // 5. Add Hover Logic
+            el.addEventListener('mouseenter', () => {
+                popup.addTo(this.map);
+                const addrBox = popupDiv.querySelector('.address-box');
+                this.fetchAddress(stop.lat, stop.lng, addrBox);
+            });
             el.addEventListener('mouseleave', () => popup.remove());
-            this.historyLayers.refills.push(m);
-        });
-        this.updateFilterCounts();
-    },
 
-    addStopMarkers: function(stops) {
-        if(!stops) return;
-        stops.forEach(s => {
-            // Check for Decouchage (Req #3)
-            if (this.isDecouchage(s)) {
-                this.addDecouchageMarker(s);
-            } else {
-                // Normal Stop
-                const el = document.createElement('div');
-                el.innerHTML = 'P'; 
-                el.style.cssText = `background-color: #d32f2f; color: white; width: 22px; height: 22px;
-                    border-radius: 4px; display: flex; align-items: center; justify-content: center;
-                    border: 1px solid white; font-weight:bold; font-size: 12px; z-index: 5;`;
-
-                const popup = new mapboxgl.Popup({offset: 25, closeButton: false})
-                    .setHTML(`<div style="text-align:center;"><strong style="color:#d32f2f;">🅿️ Arrêt</strong><br>${s.durationStr}<br><small>${new Date(s.startTime).toLocaleTimeString()}</small></div>`);
-
-                const m = new mapboxgl.Marker(el).setLngLat([s.lng, s.lat]).setPopup(popup).addTo(this.map);
-                el.addEventListener('mouseenter', () => popup.addTo(this.map));
-                el.addEventListener('mouseleave', () => popup.remove());
-                this.historyLayers.stops.push(m);
-            }
-        });
-        this.updateFilterCounts();
-    },
-
+            const marker = new mapboxgl.Marker({ element: el }).setLngLat([stop.lng, stop.lat]).setPopup(popup).addTo(this.map);
+            this.historyLayers.stops.push(marker);
+        }
+    });
+    this.updateFilterCounts();
+},
     // Req #3: Decouchage Logic
     isDecouchage: function(s) {
         // 1. Time Check: Does it cross midnight?
@@ -437,21 +517,43 @@ const AlgeriaMap = {
         return false;
     },
 
-    addDecouchageMarker: function(s) {
-        const el = document.createElement('div');
-        el.innerHTML = '<i class="fa-solid fa-moon"></i>';
-        el.style.cssText = `background-color: #4f46e5; color: white; width: 30px; height: 30px;
-            border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            border: 2px solid white; box-shadow: 0 0 10px #4f46e5; font-size: 14px; z-index: 15;`;
+addDecouchageMarker: function(s) {
+    // 1. Create the Marker Icon (Purple Moon)
+    const el = document.createElement('div');
+    el.innerHTML = '<i class="fa-solid fa-moon"></i>';
+    el.style.cssText = `background-color: #4f46e5; color: white; width: 32px; height: 32px;
+        border-radius: 50%; display: flex; align-items: center; justify-content: center;
+        border: 2px solid white; box-shadow: 0 0 10px #4f46e5; font-size: 16px; z-index: 15; cursor: pointer;`;
 
-        const popup = new mapboxgl.Popup({offset: 25, closeButton: false})
-            .setHTML(`<div style="text-align:center;"><strong style="color:#4f46e5;">💤 DÉCOUCHAGE</strong><br>Hors Zone<br><small>${s.durationStr}</small></div>`);
+    // 2. Format Time
+    const startTime = new Date(s.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const fullDate = new Date(s.startTime).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 
-        const m = new mapboxgl.Marker(el).setLngLat([s.lng, s.lat]).setPopup(popup).addTo(this.map);
-        el.addEventListener('mouseenter', () => popup.addTo(this.map));
-        el.addEventListener('mouseleave', () => popup.remove());
-        this.historyLayers.decouchages.push(m);
-    },
+    // 3. Create Popup Content (With Address Placeholder)
+    const popupDiv = document.createElement('div');
+    popupDiv.style.textAlign = "center";
+    popupDiv.innerHTML = `
+        <strong style="color:#4f46e5; font-size:13px;">💤 DÉCOUCHAGE</strong><br>
+        <div style="font-size:11px; font-weight:bold; margin:4px 0;">${fullDate} à ${startTime}</div>
+        <div style="font-weight:800; font-size:14px; margin-bottom:4px;">⏱️ ${s.durationStr}</div>
+        <div class="address-box" style="font-size:10px; color:#555; background:#f3f4f6; padding:4px; border-radius:4px; margin-top:4px; min-width:150px;">
+            📍 Survoler pour l'adresse
+        </div>
+    `;
+
+    const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setDOMContent(popupDiv);
+
+    // 4. Add "Hover" Event to Fetch Address
+    el.addEventListener('mouseenter', () => {
+        popup.addTo(this.map);
+        const addrBox = popupDiv.querySelector('.address-box');
+        this.fetchAddress(s.lat, s.lng, addrBox); // Call the helper
+    });
+    el.addEventListener('mouseleave', () => popup.remove());
+
+    const m = new mapboxgl.Marker(el).setLngLat([s.lng, s.lat]).setPopup(popup).addTo(this.map);
+    this.historyLayers.decouchages.push(m);
+},
 
     // 5. Cleanup & Utils
     clearHistory: function() {
@@ -632,60 +734,89 @@ const AlgeriaMap = {
         }
     },
 
-    updateMarkers: function(trucks) {
-        this.truckDataCache = trucks;
-        this.populateTruckList();
-        if (!this.map || !this.map.style || !this.map.style.stylesheet) return;
+updateMarkers: function(trucks) {
+    this.truckDataCache = trucks;
+    this.populateTruckList();
 
-        if(this.isPlaying || this.historyPoints.length > 0) return;
+    // Live Counts
+    const total = trucks.length;
+    const moving = trucks.filter(t => t.speed >= 1 && !t.isGpsCut).length;
+    const stopped = trucks.filter(t => t.speed < 1 || t.isGpsCut).length;
 
-        if (this.selectedTruck && this.isFollowMode) {
-            const fresh = trucks.find(t => t.id === this.selectedTruck.id);
-            if(fresh) this.map.easeTo({ center: this.getCoordinates(fresh), duration: 1000 });
+    if (document.getElementById('mapCountAll')) document.getElementById('mapCountAll').innerText = `(${total})`;
+    if (document.getElementById('mapCountMoving')) document.getElementById('mapCountMoving').innerText = `(${moving})`;
+    if (document.getElementById('mapCountStopped')) document.getElementById('mapCountStopped').innerText = `(${stopped})`;
+
+    if (!this.map || !this.map.style || !this.map.style.stylesheet) return;
+    if (this.isPlaying || this.historyPoints.length > 0) return;
+
+    if (this.selectedTruck && this.isFollowMode) {
+        const fresh = trucks.find(t => t.id === this.selectedTruck.id);
+        if (fresh) this.map.easeTo({
+            center: this.getCoordinates(fresh),
+            duration: 1000
+        });
+    }
+
+    trucks.forEach(truck => {
+        const id = truck.deviceId || truck.id;
+        const coords = this.getCoordinates(truck);
+        if (!coords) return;
+
+        // --- NEW FOCUS LOGIC ---
+        // If a truck is selected, SKIP rendering/showing others
+        if (this.selectedTruck && this.selectedTruck.id !== id) {
+            if (this.markers[id]) this.markers[id].getElement().style.display = 'none';
+            return;
+        }
+        // -----------------------
+
+        if (!this.checkFilter(truck)) {
+            if (this.markers[id]) this.markers[id].getElement().style.display = 'none';
+            return;
         }
 
-        trucks.forEach(truck => {
-            const id = truck.deviceId || truck.id;
-            const coords = this.getCoordinates(truck);
-            if (!coords) return;
+        const isMoving = truck.speed > 0;
+        const isSelected = this.selectedTruck && (this.selectedTruck.id === id);
+        let markerClass = isMoving ? 'moving' : 'stopped';
+        if (truck.isGpsCut) markerClass = 'stopped';
 
-            if (!this.checkFilter(truck)) {
-                if(this.markers[id]) this.markers[id].getElement().style.display = 'none';
-                return;
-            }
+        const popup = new mapboxgl.Popup({
+                offset: 25,
+                closeButton: false,
+                className: 'hover-popup',
+                maxWidth: '300px'
+            })
+            .setHTML(this.getPopupHTML(truck));
 
-            const isMoving = truck.speed > 0;
-            const isSelected = this.selectedTruck && (this.selectedTruck.id === id);
-            let markerClass = isMoving ? 'moving' : 'stopped';
-            if (truck.isGpsCut) markerClass = 'stopped'; 
-
-            const popup = new mapboxgl.Popup({offset: 25, closeButton: false, className: 'hover-popup', maxWidth: '300px'})
-                .setHTML(this.getPopupHTML(truck));
-
-            if (this.markers[id]) {
-                const m = this.markers[id];
-                m.setLngLat(coords);
-                m.setPopup(popup);
-                m.getElement().style.display = 'block';
-                const icon = m.getElement().querySelector('.marker-icon');
-                icon.className = `marker-icon ${markerClass} ${isSelected ? 'selected' : ''}`;
-                if(truck.isGpsCut) { icon.style.borderColor = '#333'; icon.style.backgroundColor = '#ddd'; } 
-                else { icon.style.borderColor = ''; icon.style.backgroundColor = ''; }
-                this.attachMarkerListeners(m.getElement(), popup, truck);
+        if (this.markers[id]) {
+            const m = this.markers[id];
+            m.setLngLat(coords);
+            m.setPopup(popup);
+            m.getElement().style.display = 'block'; // Make sure visible
+            const icon = m.getElement().querySelector('.marker-icon');
+            icon.className = `marker-icon ${markerClass} ${isSelected ? 'selected' : ''}`;
+            if (truck.isGpsCut) {
+                icon.style.borderColor = '#333';
+                icon.style.backgroundColor = '#ddd';
             } else {
-                const el = document.createElement('div');
-                el.className = 'truck-marker';
-                el.innerHTML = `<div class="marker-icon ${markerClass}"><i class="fas fa-truck"></i></div>`;
-                if(truck.isGpsCut) {
-                    el.querySelector('.marker-icon').style.borderColor = '#333';
-                    el.querySelector('.marker-icon').style.backgroundColor = '#ddd';
-                }
-                this.attachMarkerListeners(el, popup, truck);
-                this.markers[id] = new mapboxgl.Marker(el).setLngLat(coords).setPopup(popup).addTo(this.map);
+                icon.style.borderColor = '';
+                icon.style.backgroundColor = '';
             }
-        });
-    },
-
+            this.attachMarkerListeners(m.getElement(), popup, truck);
+        } else {
+            const el = document.createElement('div');
+            el.className = 'truck-marker';
+            el.innerHTML = `<div class="marker-icon ${markerClass}"><i class="fas fa-truck"></i></div>`;
+            if (truck.isGpsCut) {
+                el.querySelector('.marker-icon').style.borderColor = '#333';
+                el.querySelector('.marker-icon').style.backgroundColor = '#ddd';
+            }
+            this.attachMarkerListeners(el, popup, truck);
+            this.markers[id] = new mapboxgl.Marker(el).setLngLat(coords).setPopup(popup).addTo(this.map);
+        }
+    });
+},
     attachMarkerListeners: function(el, popup, truck) {
         el.onclick = (e) => { e.stopPropagation(); this.selectTruck(truck); popup.addTo(this.map); };
         let timer;
@@ -796,21 +927,45 @@ const AlgeriaMap = {
             this.customMarkers.push(m);
         });
     },
-    selectTruck: function(truck) {
-        this.selectedTruck = truck;
-        Object.values(this.markers).forEach(m => m.getElement().querySelector('.marker-icon').classList.remove('selected'));
-        if(this.markers[truck.id]) this.markers[truck.id].getElement().querySelector('.marker-icon').classList.add('selected');
-        document.getElementById('mapTruckSelect').value = truck.id;
-        if(!this.isFollowMode) this.map.flyTo({ center: this.getCoordinates(truck), zoom: 14 });
-        this.showToast(`🚛 ${truck.name} prêt. Cliquez pour router.`);
-    },
-    deselectTruck: function() {
-        this.selectedTruck = null; this.currentRoutes = []; this.isFollowMode = false;
-        document.getElementById('btnFollow').classList.remove('active');
-        document.getElementById('mapTruckSelect').value = "";
-        Object.values(this.markers).forEach(m => m.getElement().querySelector('.marker-icon').classList.remove('selected'));
-        this.clearPlanningRoute(); this.clearHistory();
-    },
+selectTruck: function(truck) {
+    this.selectedTruck = truck;
+
+    // 1. HIDE ALL OTHER TRUCKS (Focus Mode)
+    Object.keys(this.markers).forEach(id => {
+        const marker = this.markers[id];
+        if (id === truck.id) {
+            marker.getElement().style.display = 'block'; // Ensure selected is visible
+            marker.getElement().querySelector('.marker-icon').classList.add('selected');
+        } else {
+            marker.getElement().style.display = 'none'; // Hide everyone else
+        }
+    });
+
+    document.getElementById('mapTruckSelect').value = truck.id;
+    if (!this.isFollowMode) this.map.flyTo({
+        center: this.getCoordinates(truck),
+        zoom: 14
+    });
+    this.showToast(`🚛 ${truck.name} sélectionné (Focus Mode)`);
+},
+
+deselectTruck: function() {
+    this.selectedTruck = null;
+    this.currentRoutes = [];
+    this.isFollowMode = false;
+    document.getElementById('btnFollow').classList.remove('active');
+    document.getElementById('mapTruckSelect').value = "";
+
+    // 1. SHOW ALL TRUCKS AGAIN
+    Object.values(this.markers).forEach(m => {
+        m.getElement().style.display = 'block';
+        m.getElement().querySelector('.marker-icon').classList.remove('selected');
+    });
+
+    this.clearPlanningRoute();
+    this.clearHistory();
+},
+
     selectTruckById: function(id) { if(!id) this.deselectTruck(); else this.selectTruck(this.truckDataCache.find(t=>t.id===id)); },
     getCoordinates: function(t) { return t.coordinates ? [t.coordinates.lng, t.coordinates.lat] : [t.lng, t.lat]; },
     populateTruckList: function() {

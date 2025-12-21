@@ -1,4 +1,23 @@
 /**
+ * Fleet Tracker UI Controller - Cloud/Firebase Edition
+ * FEATURES: 
+ * - Rule-Based Fleet Management (NEW)
+ * - Full Maintenance History (Vidange/Plaquettes)
+ * - Multi-API Key Management for Geoapify
+ * - Cloud Settings Sync
+ * - Custom Location Types
+ * - WILAYA FILTER & SEARCH
+ * - 3D INTERACTIVE MAP INTEGRATION
+ * - FULL BACKUP & RESTORE
+ * - SHOW ALL TRUCKS + GPS CUT INDICATOR
+ * - NEW: DÉCOUCHAGE REPORTING (Overnight Stay)
+ */
+/**
+ * 🔒 GATEKEEPER INTERCEPTOR
+ * Automatically injects the Access Code into every API request.
+ * Redirects to Lock Screen if the server rejects the code.
+ */
+/**
  * 🔒 GATEKEEPER INTERCEPTOR (Fixed for Mapbox)
  * Automatically injects the Access Code into every API request.
  * Handles both String URLs and Request Objects to prevent Mapbox crashes.
@@ -42,21 +61,6 @@ window.fetch = async function(url, options) {
     }
 };
 
-/**
- * Fleet Tracker UI Controller - Cloud/Firebase Edition
- * FEATURES: 
- * - Rule-Based Fleet Management (NEW)
- * - Full Maintenance History (Vidange/Plaquettes)
- * - Multi-API Key Management for Geoapify
- * - Cloud Settings Sync
- * - Custom Location Types
- * - WILAYA FILTER & SEARCH
- * - 3D INTERACTIVE MAP INTEGRATION
- * - FULL BACKUP & RESTORE
- * - SHOW ALL TRUCKS + GPS CUT INDICATOR
- * - NEW: DÉCOUCHAGE REPORTING (Overnight Stay)
- */
-
 class UIController {
   constructor() {
     this.wilayaExpandState = {};
@@ -80,6 +84,7 @@ class UIController {
     this.refuelItemsPerPage = 10;
     this.refuelSortOrder = 'date_desc';
 
+    // DECOUCHAGE HISTORY STATE
     // DECOUCHAGE HISTORY STATE
     this.allDecouchageLogs = [];
     this.decouchageCurrentPage = 1;
@@ -141,7 +146,6 @@ class UIController {
       this.fetchAndRenderMaintenance(); 
     }, 100);
   }
-
 toggleDecouchageSubTab(view) {
       // 1. Reset Buttons (Remove old styles)
       this.btnSubDecouchageRecap.className = 'tab-button';
@@ -552,170 +556,250 @@ initElements() {
       return `${lat.toFixed(4)}, ${lng.toFixed(4)}`; // Fallback for CSV if waiting
   }
   
+// Helper: Finds the best name for a location (Custom Site > Geoapify City > GPS)
+  resolveDecouchageLocation(lat, lng, elementId = null) {
+      if (!lat || !lng) return "Position Inconnue";
+
+      // 1. CHECK CUSTOM LOCATIONS (Priority)
+      if (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.CUSTOM_LOCATIONS) {
+          for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+              // Simple distance calc (Haversine approximation)
+              const R = 6371e3; // Earth radius in meters
+              const φ1 = lat * Math.PI/180, φ2 = loc.lat * Math.PI/180;
+              const Δφ = (loc.lat-lat) * Math.PI/180, Δλ = (loc.lng-lng) * Math.PI/180;
+              const a = Math.sin(Δφ/2)*Math.sin(Δφ/2) + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)*Math.sin(Δλ/2);
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+              const dist = R * c;
+              
+              if (dist <= (loc.radius || 500)) return loc.name; // Found Custom Site (e.g. "Sgem Guedila")
+          }
+      }
+
+      // 2. CHECK GEOCODE CACHE (Instant)
+      if (typeof geocodeService !== 'undefined') {
+          const cached = geocodeService.checkCacheInstant(lat, lng);
+          if (cached) return cached.formatted || `${cached.city}, ${cached.wilaya}`;
+          
+          // 3. FETCH FROM API (If elementId is provided for UI update)
+          if (elementId) {
+              geocodeService.reverseGeocode(lat, lng).then(data => {
+                  const el = document.getElementById(elementId);
+                  if (el) el.innerHTML = `<strong><i class="fa-solid fa-location-dot"></i> ${data.formatted || data.city || 'Lieu Inconnu'}</strong>`;
+              });
+              return "Recherche..."; 
+          }
+      }
+
+      return null; // Return null so we know to fallback or wait
+  }
+  
 renderDecouchageList() {
-    // 1. Safe Data Init (Don't return early if empty!)
-    const logs = this.allDecouchageLogs || [];
+      // 1. Check if data exists
+      if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
+          if(this.decouchageHistoryContainer) this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun découchage enregistré.</div>';
+          if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = '';
+          if(this.decouchageStatsGrid) this.decouchageStatsGrid.innerHTML = '';
+          return;
+      }
 
-    // 2. Filter Logic (Date Range, Status, Truck Name)
-    const startStr = this.decouchageDateStart.value;
-    const endStr = this.decouchageDateEnd.value;
-    const statusFilter = this.decouchageStatusSelect.value;
-    const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
-    
-    let filtered = logs.filter(log => {
-        // Name Filter
-        if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
-        
-        // Status Filter
-        if (statusFilter !== 'all' && log.status !== statusFilter) return false;
-        
-        // Date Range Check
-        if (startStr && log.date < startStr) return false;
-        if (endStr && log.date > endStr) return false;
-        
-        return true;
-    });
+      // 2. Filter Logic (Date Range, Status, Truck Name)
+      const startStr = this.decouchageDateStart.value;
+      const endStr = this.decouchageDateEnd.value;
+      const statusFilter = this.decouchageStatusSelect.value;
+      const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
+      
+      let filtered = this.allDecouchageLogs.filter(log => {
+          if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
+          if (statusFilter !== 'all' && log.status !== statusFilter) return false;
+          // Date Range Check
+          if (startStr && log.date < startStr) return false;
+          if (endStr && log.date > endStr) return false;
+          
+          return true;
+      });
 
-    // 3. Sort (Recent First)
-    filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+      // 3. Sort (Recent First)
+      filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // 4. Summary Calculation (ALWAYS RUNS NOW)
-    const summaryMap = new Map();
-    
-    // Initialize ALL trucks with 0 to show complete fleet status
-    if (typeof app !== 'undefined' && app.trucks) {
-        app.getAllTrucks().forEach(t => {
-            summaryMap.set(t.name, { name: t.name, total: 0, confirme: 0, nonConfirme: 0 });
-        });
-    }
+      // 4. Recap / Summary Calculation
+      const summary = {};
+      filtered.forEach(log => {
+          const name = log.truckName;
+          if(!summary[name]) summary[name] = { name: name, total: 0, confirme: 0, nonConfirme: 0 };
+          
+          summary[name].total++;
+          if(log.status === 'Confirmé') summary[name].confirme++;
+          else summary[name].nonConfirme++;
+      });
 
-    // Fill with actual data (if any)
-    filtered.forEach(log => {
-        if (!summaryMap.has(log.truckName)) {
-             summaryMap.set(log.truckName, { name: log.truckName, total: 0, confirme: 0, nonConfirme: 0 });
-        }
-        const entry = summaryMap.get(log.truckName);
-        entry.total++;
-        if(log.status === 'Confirmé') entry.confirme++;
-        else entry.nonConfirme++;
-    });
-
-    const summaryArray = Array.from(summaryMap.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
-    this.currentDecouchageSummary = summaryArray;
-
-    // 5. Render Recap Table
-    let tableHtml = `
-        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom:20px;">
-        <table style="width:100%; border-collapse:collapse; font-size:13px; background:white;">
-            <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
-                <tr style="color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;">
+      // Convert to Array & Sort by Total
+      this.currentDecouchageSummary = Object.values(summary).sort((a,b) => b.total - a.total);
+      
+      // 5. Render Recap Table
+      let tableHtml = `
+        <table style="width:100%; border-collapse:collapse; font-size:13px; background:white; border:1px solid #e2e8f0; margin-bottom:15px; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+            <thead>
+                <tr style="background:#f8fafc; color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;">
                     <th style="padding:10px 15px;">Camion</th>
-                    <th style="padding:10px; text-align:center;">Total Nuits</th>
+                    <th style="padding:10px; text-align:center;">Total</th>
                     <th style="padding:10px; text-align:center; color:#b91c1c;">Confirmés</th>
                     <th style="padding:10px; text-align:center; color:#1e40af;">Non Confirmés</th>
                 </tr>
             </thead>
             <tbody>
-    `;
+      `;
 
-    if (summaryArray.length === 0) {
-        tableHtml += '<tr><td colspan="4" style="padding:15px; text-align:center; color:#888;">Aucun camion trouvé.</td></tr>';
-    } else {
-        summaryArray.forEach((item, index) => {
-            if (truckFilter && !item.name.toLowerCase().includes(truckFilter)) return;
-            // Highlight rows with activity
-            const bg = item.total > 0 ? '#fff1f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc');
-            const weight = item.total > 0 ? 'bold' : 'normal';
-            
-            tableHtml += `
+      if(this.currentDecouchageSummary.length === 0) {
+          tableHtml += '<tr><td colspan="4" style="padding:15px; text-align:center; color:#888;">Aucune donnée pour cette période.</td></tr>';
+      } else {
+          this.currentDecouchageSummary.forEach((item, index) => {
+              const bg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+              tableHtml += `
                 <tr style="background:${bg}; border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:8px 15px; font-weight:${weight}; color:#334155;">${item.name}</td>
-                    <td style="padding:8px; text-align:center; font-weight:${weight};">${item.total}</td>
+                    <td style="padding:8px 15px; font-weight:bold; color:#334155;">${item.name}</td>
+                    <td style="padding:8px; text-align:center; font-weight:bold;">${item.total}</td>
                     <td style="padding:8px; text-align:center; color:#b91c1c; font-weight:600;">${item.confirme}</td>
                     <td style="padding:8px; text-align:center; color:#1e40af;">${item.nonConfirme}</td>
                 </tr>
-            `;
-        });
-    }
-    tableHtml += '</tbody></table></div>';
-    
-    if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = tableHtml;
+              `;
+          });
+      }
+      tableHtml += '</tbody></table>';
+      
+      if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = tableHtml;
 
-    // 6. Stats Cards
-    if(this.decouchageStatsGrid) {
-        const countTotal = filtered.length;
-        const countConfirme = filtered.filter(l => l.status === 'Confirmé').length;
-        const countNonConfirme = countTotal - countConfirme;
-        
-        this.decouchageStatsGrid.innerHTML = `
-            <div class="stat-card" style="border-bottom: 3px solid #6366f1;"><div class="stat-value" style="color:#6366f1">${countTotal}</div><div class="stat-label">Total Détections</div></div>
-            <div class="stat-card" style="border-bottom: 3px solid #ef4444;"><div class="stat-value" style="color:#ef4444">${countConfirme}</div><div class="stat-label">Découchages (>05h)</div></div>
-            <div class="stat-card" style="border-bottom: 3px solid #3b82f6;"><div class="stat-value" style="color:#3b82f6">${countNonConfirme}</div><div class="stat-label">Retours Tôt</div></div>
-        `;
-    }
-
-    // 7. Render Detailed List (Only if items exist)
-    const totalPages = Math.ceil(filtered.length / this.decouchageItemsPerPage);
-    if (this.decouchageCurrentPage > totalPages) this.decouchageCurrentPage = totalPages || 1;
-    const startIndex = (this.decouchageCurrentPage - 1) * this.decouchageItemsPerPage;
-    const paginatedItems = filtered.slice(startIndex, startIndex + this.decouchageItemsPerPage);
-
-    if (paginatedItems.length === 0) {
-        this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun événement détaillé pour ce filtre.</div>';
-        return;
-    }
-
-    // 8. Render Detailed Cards (WITH EXACT TIME AND DATE)
-    let html = '<div style="display:grid; gap:12px;">';
-    paginatedItems.forEach(log => {
-        const isConfirmed = log.status === 'Confirmé';
-        const distKm = (log.distanceFromSite / 1000).toFixed(1);
-        
-        // Exact Date & Time Logic
-        const logDate = new Date(log.date).toLocaleDateString('fr-FR');
-        const timeStr = log.snapshotTime ? new Date(log.snapshotTime).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'}) : "00:00"; 
-        
-        const returnTime = log.entryTime 
-            ? `<span style="color:#166534; font-weight:bold;">✅ Retour: ${new Date(log.entryTime).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'})}</span>` 
-            : `<span style="color:#b91c1c; font-style:italic; font-weight:bold;">⚠️ Toujours Dehors</span>`;
-
-        const locId = `dec-loc-${log.id || Math.random().toString(36).substr(2,9)}`;
-        const resolvedName = this.resolveDecouchageLocation(log.locationAtMidnight.lat, log.locationAtMidnight.lng, locId);
-
-        html += `
-        <div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid ${isConfirmed ? '#dc2626' : '#2563eb'}; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
-            <div style="flex:1;">
-                <div style="font-weight:bold; color:#1e293b; font-size:15px;">${log.truckName}</div>
-                <div style="font-size:12px; color:#64748b; margin-top:2px;">
-                    <i class="fa-regular fa-calendar"></i> ${logDate} <span style="color:#d97706; font-weight:bold;">à ${timeStr}</span>
-                </div>
+      // 6. Stats Cards Update
+      const countTotal = filtered.length;
+      const countConfirme = filtered.filter(l => l.status === 'Confirmé').length;
+      const countNonConfirme = filtered.filter(l => l.status === 'Non Confirmé').length;
+      
+      if(this.decouchageStatsGrid) {
+          this.decouchageStatsGrid.innerHTML = `
+            <div class="stat-card" style="border-bottom: 3px solid #6366f1;">
+                <div class="stat-value" style="color:#6366f1">${countTotal}</div>
+                <div class="stat-label">Total Période</div>
             </div>
-
-            <div style="flex:1.8; text-align:center; display:flex; flex-direction:column; align-items:center; gap:5px;">
-                <span style="background:${isConfirmed ? '#fef2f2' : '#eff6ff'}; color:${isConfirmed ? '#b91c1c' : '#1e40af'}; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:bold; border:1px solid currentColor;">
-                    <i class="fa-solid ${isConfirmed ? 'fa-exclamation-circle' : 'fa-undo'}"></i> ${log.status}
-                </span>
-                <div style="font-size:12px; color:#475569; font-weight:600;">${distKm} km du site</div>
-                <div id="${locId}" style="font-size:12px; color:#1e3a8a; background:#eff6ff; padding:4px 10px; border-radius:4px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    ${resolvedName || "Position GPS"}
-                </div>
+            <div class="stat-card" style="border-bottom: 3px solid #ef4444;">
+                <div class="stat-value" style="color:#ef4444">${countConfirme}</div>
+                <div class="stat-label">Confirmés (>05h)</div>
             </div>
+            <div class="stat-card" style="border-bottom: 3px solid #3b82f6;">
+                <div class="stat-value" style="color:#3b82f6">${countNonConfirme}</div>
+                <div class="stat-label">Non Confirmés</div>
+            </div>
+          `;
+      }
 
-            <div style="flex:1; text-align:right; font-size:13px;">${returnTime}</div>
-        </div>`;
-    });
-    
-    // 9. Pagination Controls
-    if (totalPages > 1) {
-        html += `<div class="pagination-controls" style="display:flex; justify-content:center; gap:10px; margin-top:15px;">
-            <button class="pagination-btn" onclick="ui.changeDecouchagePage(-1)" ${this.decouchageCurrentPage === 1 ? 'disabled' : ''}>« Préc.</button>
-            <span class="pagination-info">Page ${this.decouchageCurrentPage} / ${totalPages}</span>
-            <button class="pagination-btn" onclick="ui.changeDecouchagePage(1)" ${this.decouchageCurrentPage === totalPages ? 'disabled' : ''}>Suiv. »</button>
-        </div>`;
-    }
-    this.decouchageHistoryContainer.innerHTML = html + '</div>';
-}
+      // 7. Pagination Logic
+      const totalPages = Math.ceil(filtered.length / this.decouchageItemsPerPage);
+      if (this.decouchageCurrentPage > totalPages) this.decouchageCurrentPage = totalPages || 1;
+      if (this.decouchageCurrentPage < 1) this.decouchageCurrentPage = 1;
 
+      const startIndex = (this.decouchageCurrentPage - 1) * this.decouchageItemsPerPage;
+      const paginatedItems = filtered.slice(startIndex, startIndex + this.decouchageItemsPerPage);
+
+      if (paginatedItems.length === 0) {
+          this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun résultat détaillé.</div>';
+          return;
+      }
+
+      // 8. Render Detailed Cards
+      let html = '<div style="display:grid; gap:12px;">';
+      
+      paginatedItems.forEach(log => {
+          // Status Badges
+          const isConfirmed = log.status === 'Confirmé';
+          const icon = isConfirmed ? 'fa-exclamation-circle' : 'fa-undo';
+          const statusColor = isConfirmed ? '#b91c1c' : '#1e40af';
+          const statusBg = isConfirmed ? '#fef2f2' : '#eff6ff';
+          
+          const distKm = (log.distanceFromSite / 1000).toFixed(1);
+          
+          const returnTimeDisplay = log.entryTime 
+              ? `<span style="font-weight:bold; color:#166534;"><i class="fa-solid fa-check"></i> Retour: ${new Date(log.entryTime).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>` 
+              : `<span style="color:#b91c1c; font-style:italic;">Pas encore rentré</span>`;
+
+          // --- LOCATION & TIME LOGIC ---
+          const locId = `decouchage-loc-${log.id || Math.random().toString(36).substr(2,9)}`;
+          let locationDisplay = "Position Inconnue";
+          let mapLink = "#";
+          
+          // Get Exact Time (from server snapshot) or default to 00:00
+          let timeStr = "00:00";
+          if (log.snapshotTime) {
+              const d = new Date(log.snapshotTime);
+              timeStr = d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          }
+          const timeSuffix = ` <span style="color:#d97706; font-weight:bold; font-size:11px;">(${timeStr})</span>`;
+
+          // Location Resolver
+          if (log.locationAtMidnight) {
+              const lat = log.locationAtMidnight.lat;
+              const lng = log.locationAtMidnight.lng;
+              mapLink = `https://www.google.com/maps?q=${lat},${lng}`;
+              
+              // Use Helper
+              const resolvedName = this.resolveDecouchageLocation(lat, lng, locId);
+              
+              if (resolvedName === "Recherche...") {
+                  locationDisplay = `<span style="color:#64748b; font-style:italic;"><i class="fa-solid fa-circle-notch fa-spin"></i> Recherche...</span>`;
+              } else if (resolvedName) {
+                  locationDisplay = `<strong><i class="fa-solid fa-map-pin"></i> ${resolvedName}</strong>${timeSuffix}`;
+              } else {
+                  locationDisplay = `<span>${lat.toFixed(4)}, ${lng.toFixed(4)}</span>${timeSuffix}`;
+              }
+          }
+
+          html += `
+          <div style="background:white; border:1px solid #e2e8f0; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+              
+              <div style="flex:1;">
+                  <div style="font-weight:bold; color:#1e293b; font-size:15px;">${log.truckName}</div>
+                  <div style="font-size:12px; color:#64748b; margin-top:2px;">
+                      <i class="fa-regular fa-calendar"></i> ${new Date(log.date).toLocaleDateString()}
+                  </div>
+              </div>
+
+              <div style="flex:1.8; text-align:center; display:flex; flex-direction:column; align-items:center; gap:5px;">
+                  
+                  <span style="background:${statusBg}; color:${statusColor}; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:bold; border:1px solid ${statusColor}20;">
+                      <i class="fa-solid ${icon}"></i> ${log.status}
+                  </span>
+                  
+                  <div style="font-size:12px; color:#475569; font-weight:600;">
+                    <i class="fa-solid fa-ruler-horizontal" style="color:#94a3b8;"></i> ${distKm} km <span style="font-weight:normal; color:#94a3b8;">(du site)</span>
+                  </div>
+
+                  <div id="${locId}" style="font-size:12px; color:#1e3a8a; background:#eff6ff; padding:4px 10px; border-radius:4px; border:1px solid #dbeafe; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                      ${locationDisplay}
+                  </div>
+                  
+                  <a href="${mapLink}" target="_blank" style="color:#059669; text-decoration:none; font-size:11px; font-weight:600; display:flex; align-items:center; gap:4px;">
+                      <i class="fa-solid fa-up-right-from-square"></i> Voir Carte
+                  </a>
+
+              </div>
+
+              <div style="flex:1; text-align:right; font-size:13px;">
+                  ${returnTimeDisplay}
+              </div>
+          </div>
+          `;
+      });
+      html += '</div>';
+      
+      // 9. Pagination Controls
+      if (totalPages > 1) {
+          html += `
+          <div class="pagination-controls">
+              <button class="pagination-btn" onclick="ui.changeDecouchagePage(-1)" ${this.decouchageCurrentPage === 1 ? 'disabled' : ''}>&laquo; Préc.</button>
+              <span class="pagination-info">Page ${this.decouchageCurrentPage} / ${totalPages}</span>
+              <button class="pagination-btn" onclick="ui.changeDecouchagePage(1)" ${this.decouchageCurrentPage === totalPages ? 'disabled' : ''}>Suiv. &raquo;</button>
+          </div>`;
+      }
+      
+      this.decouchageHistoryContainer.innerHTML = html;
+  }  
   // 1. FIXED REFUEL EXPORT
   exportRefuelsCSV() {
     if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) { alert("Rien à exporter."); return; }
@@ -1317,11 +1401,11 @@ if (tabName === 'byWilaya') {
           </div>
 
           <div class="location-box">
-              <i class="fa-solid fa-map-marker-alt" style="${truck.location.isCustom ? 'color: #166534;' : ''}"></i>
-              <div>
-                <div style="font-weight: 600; color: ${truck.location.isCustom ? '#166534' : '#333'};">${truck.location.city}</div>
-                <div>${truck.location.wilaya}</div>
-              </div>
+             <i class="fa-solid fa-map-marker-alt" style="${truck.location.isCustom ? 'color: #166534;' : ''}"></i>
+             <div>
+               <div style="font-weight: 600; color: ${truck.location.isCustom ? '#166534' : '#333'};">${truck.location.city}</div>
+               <div>${truck.location.wilaya}</div>
+             </div>
           </div>
 
           ${truck.vidange.alert ? `
@@ -1628,7 +1712,7 @@ if (tabName === 'byWilaya') {
                   </div>
                   <span style="background: #eee; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold;">${trucks.length}</span>
             `;
-              
+             
             div.onclick = () => {
                 const grid = div.nextElementSibling;
                 const isHidden = grid.style.display === 'none';
@@ -1641,7 +1725,7 @@ if (tabName === 'byWilaya') {
             grid.style.marginTop = '10px';
             grid.style.marginBottom = '20px';
             grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
-              
+             
             trucks.forEach(t => {
                  let isMoving = t.speed >= 1;
                  let statusHtml = isMoving 
@@ -1673,7 +1757,7 @@ if (tabName === 'byWilaya') {
                  `;
                  grid.appendChild(card);
             });
-              
+             
             this.wilayaContainer.appendChild(div);
             this.wilayaContainer.appendChild(grid);
         });
@@ -1870,72 +1954,41 @@ changeRefuelPage(dir) {
     this.renderFilteredRefuels();
 }
 
-// --- PLANNING & ROUTING (FIXED LANGUAGE & CLARITY) ---
+  // --- PLANNING & ROUTING ---
   handleRouteDestinationSearch(query) {
     if (query.length < 2) { this.routeAutocompleteDropdown.style.display = 'none'; return; }
-    
     let apiKey = FLEET_CONFIG.GEOAPIFY_API_KEY;
     if(FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0) apiKey = FLEET_CONFIG.GEOAPIFY_API_KEYS[0];
 
-    // ADDED: &lang=fr to force French names
-    fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&apiKey=${apiKey}&limit=5&country=dz&lang=fr`)
+    fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&apiKey=${apiKey}&limit=5&country=dz`)
       .then(res => res.json())
       .then(data => {
         this.routeAutocompleteDropdown.innerHTML = '';
-        if (data.features && data.features.length > 0) {
+        if (data.features) {
           data.features.forEach(f => {
-            const p = f.properties;
-            
-            // 1. SMART NAME PRIORITY (Avoids "undefined")
-            const cityName = p.city || p.town || p.village || p.municipality || p.name || "Lieu";
-            
-            // 2. CLEAN WILAYA/STATE
-            let context = p.state || p.county || 'Algérie';
-            
-            // Avoid redundancy (e.g., "Alger, Alger")
-            if (context.toLowerCase() === cityName.toLowerCase()) context = "Wilaya";
-
             const div = document.createElement('div');
-            div.style.cssText = 'padding: 10px; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: background 0.2s;';
-            div.onmouseover = () => { div.style.background = '#f8fafc'; };
-            div.onmouseout = () => { div.style.background = 'white'; };
-
-            // 3. IMPROVED VISUAL LAYOUT
-            div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:#1e293b; font-size:13px;">
-                        <i class="fa-solid fa-map-pin" style="color: var(--teal); margin-right: 8px;"></i> 
-                        <strong>${cityName}</strong>
-                    </span>
-                    <span style="font-size:10px; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px; font-weight:bold;">
-                        ${context}
-                    </span>
-                </div>
-                <div style="font-size:10px; color:#94a3b8; margin-left:22px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                    ${p.formatted || ''}
-                </div>
-            `;
-
+            div.style.padding = '10px';
+            div.style.cursor = 'pointer';
+            div.style.borderBottom = '1px solid #eee';
+            div.innerHTML = `<i class="fa-solid fa-map-pin" style="color: var(--teal); margin-right: 5px;"></i> <strong>${f.properties.city || f.properties.name}</strong>, ${f.properties.state || 'Algérie'}`;
             div.onclick = () => {
               this.selectedRouteDestination = { 
-                city: cityName, 
+                city: f.properties.city || f.properties.name, 
                 lat: f.geometry.coordinates[1], 
                 lng: f.geometry.coordinates[0],
-                wilaya: p.state || context 
+                wilaya: f.properties.state 
               };
-              // Update Input Field
-              this.routeDestSearch.value = `${cityName}, ${this.selectedRouteDestination.wilaya}`;
+              this.routeDestSearch.value = `${this.selectedRouteDestination.city}, ${this.selectedRouteDestination.wilaya}`;
               this.routeAutocompleteDropdown.style.display = 'none';
             };
             this.routeAutocompleteDropdown.appendChild(div);
           });
           this.routeAutocompleteDropdown.style.display = 'block';
-        } else {
-            this.routeAutocompleteDropdown.style.display = 'none';
         }
       })
       .catch(e => console.log("Geo search failed", e));
-  }  
+  }
+  
   calculateRoute() {
     const truckId = this.routeTruck.value;
     const destination = this.selectedRouteDestination;
@@ -2229,7 +2282,7 @@ if (item.exitDate) {
                       ${statusHtml}
                       <div style="font-size:12px; color:#666; margin-top:3px;">
                           <i class="fa-solid fa-road"></i> ${item.odometer.toLocaleString()} km
-                          ${item.location ? ` |  <i class="fa-solid fa-map-pin"></i> ${item.location}` : ''}
+                          ${item.location ? `&nbsp;|&nbsp; <i class="fa-solid fa-map-pin"></i> ${item.location}` : ''}
                       </div>
                       ${item.note ? `<div style="font-size:12px; color:#444; margin-top:4px; font-style:italic;">"${item.note}"</div>` : ''}
                   </div>
@@ -2250,9 +2303,9 @@ if (item.exitDate) {
       if (totalPages > 1) {
           html += `
           <div class="pagination-controls">
-              <button class="pagination-btn" onclick="ui.changeMaintPage(-1)" ${this.maintCurrentPage === 1 ? 'disabled' : ''}>« Préc.</button>
+              <button class="pagination-btn" onclick="ui.changeMaintPage(-1)" ${this.maintCurrentPage === 1 ? 'disabled' : ''}>&laquo; Préc.</button>
               <span class="pagination-info">Page ${this.maintCurrentPage} / ${totalPages} (${totalItems} entrées)</span>
-              <button class="pagination-btn" onclick="ui.changeMaintPage(1)" ${this.maintCurrentPage === totalPages ? 'disabled' : ''}>Suiv. »</button>
+              <button class="pagination-btn" onclick="ui.changeMaintPage(1)" ${this.maintCurrentPage === totalPages ? 'disabled' : ''}>Suiv. &raquo;</button>
           </div>
           `;
       }
@@ -2463,19 +2516,7 @@ openReportModal() {
                   </div>
               </div>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                  <span style="font-size:12px; font-weight:bold; color:#555;">Sélectionnez les camions :</span>
-                  <div style="display:flex; gap:5px;">
-                      <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(true)">
-                          <i class="fa-solid fa-check-double"></i> Tout Cocher
-                      </button>
-                      <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(false)">
-                          <i class="fa-solid fa-square"></i> Tout Décocher
-                      </button>
-                  </div>
-              </div>
-
-              <div style="height:300px; overflow-y:auto; border:1px solid #eee; padding:10px; margin-bottom:15px; background:#fafafa; border-radius:4px;">
+              <div style="height:300px; overflow-y:auto; border:1px solid #eee; padding:10px; margin-bottom:15px;">
                   <div id="reportTruckList"></div>
               </div>
 
@@ -2490,14 +2531,10 @@ openReportModal() {
       const list = document.getElementById('reportTruckList');
       app.getAllTrucks().sort((a,b)=>a.name.localeCompare(b.name)).forEach(t => {
           const d = document.createElement('div');
-          d.style.padding = "4px 0";
-          d.innerHTML = `<label style="display:flex; align-items:center; cursor:pointer; font-size:13px;">
-                            <input type="checkbox" class="report-check" value="${t.id}" style="margin-right:8px;"> 
-                            ${t.name}
-                         </label>`;
+          d.innerHTML = `<label style="display:block; padding:5px; cursor:pointer;"><input type="checkbox" class="report-check" value="${t.id}"> ${t.name}</label>`;
           list.appendChild(d);
       });
-}
+  }
   
   toggleSelectReport(state) {
       document.querySelectorAll('.report-check').forEach(c => c.checked = state);
@@ -2822,9 +2859,9 @@ csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.co
       document.getElementById('historyModal').remove();
   }
 
-// --- UPDATED LOADING LOGIC (Stats + Date + Counters) ---
+  // --- UPDATED LOADING LOGIC (Smart Stops & Filters) ---
   async loadVisualHistory(imei, start, end) {
-      // 1. Force Switch to Map Tab
+      // 1. Force Switch to Map
       if(this.zoneGroupingMode !== 'map') {
           this.setZoneGrouping('map');
           const mapTabBtn = document.querySelector('[data-tab="byWilaya"]');
@@ -2836,7 +2873,7 @@ csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.co
       if(btn) btn.innerHTML = '<i class="fa-solid fa-satellite-dish fa-spin"></i> Chargement...';
 
       try {
-          // 2. Fetch History Data
+          // 2. Fetch Data
           const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${imei}&start=${start}&end=${end}`);
           const json = await res.json();
           let rawPoints = json.messages || json;
@@ -2847,11 +2884,11 @@ csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.co
               return;
           }
 
-          // 3. Normalize & Sort Data
+          // 3. Normalize & Sort
           const points = rawPoints.map(p => {
               if (Array.isArray(p)) {
                   return { 
-                      time: new Date(p[0]).getTime(), // Convert to Timestamp Number
+                      time: new Date(p[0]).getTime(), // Use timestamp number for math
                       lat: parseFloat(p[1]), 
                       lng: parseFloat(p[2]), 
                       speed: parseInt(p[5]), 
@@ -2868,51 +2905,34 @@ csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.co
           let lastFuel = null;
           const tankCap = getTruckConfig(imei).fuelTankCapacity || 600;
 
-          // STATS ACCUMULATORS
-          let totalDist = 0;
-          let totalFuelAdded = 0;
-          let lastLat = null;
-
-          // STOP LOGIC
+          // --- SMART STOP LOGIC VARIABLES ---
           let isStopped = false;
           let stopStartTime = 0;
           let stopStartCoord = null;
 
-          points.forEach((p) => {
-              // A. Route & Distance
+          points.forEach((p, index) => {
+              // A. Build Route Line
               if (p.lat && p.lng && p.lat !== 0) {
                   coords.push([p.lng, p.lat]);
-                  
-                  // Calculate Distance
-                  if (lastLat) {
-                      const R = 6371; 
-                      const dLat = (p.lat - lastLat.lat) * Math.PI / 180;
-                      const dLng = (p.lng - lastLat.lng) * Math.PI / 180;
-                      const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lastLat.lat*Math.PI/180)*Math.cos(p.lat*Math.PI/180) * Math.sin(dLng/2)*Math.sin(dLng/2);
-                      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-                      totalDist += R * c;
-                  }
-                  lastLat = { lat: p.lat, lng: p.lng };
               }
 
-              // B. Refills
+              // B. Refills (> 50L Strict Filter)
               let currentFuel = 0;
               if (p.params && p.params.io87) {
                   currentFuel = Math.round((parseFloat(p.params.io87) / 100) * tankCap);
               }
 
-              if (lastFuel !== null && currentFuel > (lastFuel + 50)) { 
-                  const added = currentFuel - lastFuel;
-                  totalFuelAdded += added; 
+              if (lastFuel !== null && currentFuel > (lastFuel + 50)) { // Req #3: Strict 50L
                   refills.push({ 
-                      lat: p.lat, lng: p.lng, 
-                      volume: added.toFixed(0), 
+                      lat: p.lat, 
+                      lng: p.lng, 
+                      volume: (currentFuel - lastFuel).toFixed(0), 
                       time: p.time 
                   });
               }
               if (currentFuel > 0) lastFuel = currentFuel;
 
-              // C. Stops
+              // C. Smart Stop Detection (Req #4)
               if (p.speed < 1) {
                   if (!isStopped) {
                       isStopped = true;
@@ -2921,8 +2941,10 @@ csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.co
                   }
               } else {
                   if (isStopped) {
+                      // Truck started moving. Close the stop.
                       const durationMs = p.time - stopStartTime;
-                      if (durationMs > 300000) { // > 5 mins
+                      // Only record stops longer than 5 minutes (300000ms) to avoid traffic lights
+                      if (durationMs > 300000) {
                           const hours = Math.floor(durationMs / 3600000);
                           const minutes = Math.floor((durationMs % 3600000) / 60000);
                           const durationStr = (hours > 0 ? `${hours}h ` : '') + `${minutes}min`;
@@ -2931,7 +2953,6 @@ csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.co
                               lat: stopStartCoord.lat,
                               lng: stopStartCoord.lng,
                               startTime: stopStartTime,
-                              endTime: p.time, // <--- CAPTURE END TIME
                               durationStr: durationStr
                           });
                       }
@@ -2940,22 +2961,15 @@ csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.co
               }
           });
 
-// Inside ui.js -> loadVisualHistory
-if(window.AlgeriaMap && window.AlgeriaMap.drawRoute) {
-    window.AlgeriaMap.drawRoute(points, coords);
-    window.AlgeriaMap.addRefillMarkers(refills);
-    window.AlgeriaMap.addStopMarkers(stops);
-    
-    // Pass the correct structure to the map engine
-    window.AlgeriaMap.updateStats({
-        distance: totalDist.toFixed(1),
-        fuel: totalFuelAdded.toFixed(0),
-        stopCount: stops.length
-    });
-
+          // 4. Send to Map Engine
+          if(window.AlgeriaMap && window.AlgeriaMap.drawRoute) {
+              window.AlgeriaMap.drawRoute(points, coords); // Pass full points for animation
+              window.AlgeriaMap.addRefillMarkers(refills);
+              window.AlgeriaMap.addStopMarkers(stops);
+              
               const toast = document.createElement('div');
               toast.className = 'map-toast-msg';
-              toast.innerHTML = `✅ Chargé: ${points.length} points | ${totalDist.toFixed(1)} km`;
+              toast.innerHTML = `✅ Chargé: ${points.length} points | ${stops.length} arrêts`;
               document.getElementById('map-wrapper').appendChild(toast);
               setTimeout(()=>toast.remove(), 3000);
           }
@@ -2967,8 +2981,9 @@ if(window.AlgeriaMap && window.AlgeriaMap.drawRoute) {
           if(btn) btn.innerHTML = originalText;
       }
   }
-  
+
   // --- SUPER EXPORT FUNCTION ---
+// --- SUPER EXPORT FUNCTION ---
   async generateSuperReportCSV() {
       if(!app || !app.trucks) return;
 

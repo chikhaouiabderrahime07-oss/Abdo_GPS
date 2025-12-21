@@ -10,24 +10,21 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(__dirname));
 
-// --- 1. CONFIGURATION ---
-// --- 1. CONFIGURATION ---
+// --- 1. CONFIGURATION (Hybrid: Env Var or Hardcoded Backup) ---
 const PORT = process.env.PORT || 3000;
 const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
 
-// ⚠️ HARDCODED CREDENTIALS (SECURITY RISK: Do not share this file publicly)
-const MONGO_URI = "mongodb+srv://MrNoBoDy:123Chikh1994@cluster0.cljee0n.mongodb.net/fleet_db?retryWrites=true&w=majority&appName=Cluster0";
+// ⚠️ DUAL-LAYER CONNECTION STRING (Safe for Render)
+const DB_URI = process.env.MONGO_URI || "mongodb+srv://MrNoBoDy:123Chikh1994@cluster0.cljee0n.mongodb.net/fleet_db?retryWrites=true&w=majority&appName=Cluster0";
 
-// --- 2. DATA MODELS & AUTO-DELETE RULES (TTL) ---
+// --- 2. DATA MODELS ---
 
-// A. Access Control
 const AccessCodeSchema = new mongoose.Schema({
     code: { type: String, required: true, unique: true, index: true },
     note: String 
 });
 const AccessCode = mongoose.model('AccessCode', AccessCodeSchema);
 
-// B. Truck State 
 const TruckSchema = new mongoose.Schema({
     deviceId: { type: String, unique: true },
     truckName: String,
@@ -40,7 +37,6 @@ const TruckSchema = new mongoose.Schema({
     params: Object 
 }, { strict: false });
 
-// C. Events (Auto-Delete after 90 Days)
 const expireRule = { expires: '90d' }; 
 
 const RefuelSchema = new mongoose.Schema({
@@ -157,6 +153,7 @@ async function runFleetBot() {
     const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
     const truckArray = Array.isArray(rawData) ? rawData : Object.entries(rawData).map(([id, val]) => ({ ...val, id }));
 
+    // RUN THE FIXED DECOUCHAGE LOGIC HERE
     await runDecouchageLogic(truckArray);
 
     for (const truck of truckArray) {
@@ -220,22 +217,27 @@ async function runFleetBot() {
                 updatePayload.zone = zoneName; updatePayload.entryTime = now; 
                 updatePayload.hasLogged = false; updatePayload.logId = null;
                 needsUpdate = true;
-            } else {
+} else {
                 const duration = (now - (lastState.entryTime || now)) / 60000;
-                if (duration >= minDuration && !lastState.hasLogged) {
+                
+                // FIX: Check every cycle. If you delete a log, this will recreate it immediately.
+                if (duration >= minDuration) {
                     const dup = await Maintenance.findOne({ deviceId, exitDate: null });
                     if(!dup) {
+                        // Log is missing (or was deleted)? Create it now!
                         const log = await Maintenance.create({
                             truckName, deviceId, type: 'Plaquettes', location: zoneName,
                             odometer: parseInt(truck.params.io192||0)/1000,
                             date: new Date(lastState.entryTime || now), exitDate: null, 
                             note: 'Session Automatique', isAuto: true
                         });
-                        updatePayload.hasLogged = true; updatePayload.logId = log._id.toString();
+                        updatePayload.hasLogged = true; 
+                        updatePayload.logId = log._id.toString();
+                        needsUpdate = true; // Update DB only if we created a new log
                     }
-                    needsUpdate = true;
                 }
             }
+			
         } else if (lastState.zone) {
             if (lastState.logId) await closeMaintenanceSession(lastState.logId, truckName, now);
             updatePayload.zone = null; updatePayload.entryTime = null;
@@ -253,39 +255,102 @@ async function runFleetBot() {
     setTimeout(runFleetBot, 120000); 
 }
 
+// 🌙 DECOUCHAGE LOGIC V7 (MULTI-SITE & BY TYPE)
 async function runDecouchageLogic(trucks) {
-    const today = new Date().toISOString().split('T')[0];
-    const site = SYSTEM_SETTINGS.customLocations.find(l => l.name.toLowerCase().includes('douroub'));
-    if (!site) return;
+    // 1. CALCULATE ALGERIA TIME (GMT+1)
+    const nowUTC = new Date();
+    const dzTime = new Date(nowUTC.getTime() + (3600000)); // +1 Hour
+    
+    const dzHour = dzTime.getUTCHours();
+    const dzToday = dzTime.toISOString().split('T')[0]; // YYYY-MM-DD
 
-    if (SYSTEM_SETTINGS.lastDecouchageCheck !== today) {
-        console.log("🌙 Performing Midnight Découchage Scan...");
+    // 2. FIND SAFE ZONES BY TYPE (Better than Name!)
+    // We look for ANY site where type is 'douroub'
+    const safeZones = SYSTEM_SETTINGS.customLocations.filter(l => l.type === 'douroub');
+
+    if (safeZones.length === 0) return; // No bases defined in settings? Stop.
+
+    // 3. DETECTION WINDOW: 00:00 to 05:00 (ALGERIA TIME)
+    if (dzHour >= 0 && dzHour < 5) {
         for (const t of trucks) {
-            if (!t.params) continue;
-            const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), site.lat, site.lng);
-            if (dist > (site.radius || 500)) {
-                await Decouchage.create({
-                    date: today, snapshotTime: new Date(), deviceId: String(t.id||t.imei),
-                    truckName: t.name, locationAtMidnight: { lat: parseFloat(t.lat), lng: parseFloat(t.lng) },
-                    distanceFromSite: Math.round(dist), status: 'Confirmé',
-                    isClosed: false, lastUpdate: new Date()
-                });
+            if (!t.params || !t.lat || !t.lng) continue;
+            const deviceId = String(t.id || t.imei);
+
+            // A. Check Existence for TODAY (Prevents double counting)
+            const exists = await Decouchage.findOne({ date: dzToday, deviceId: deviceId });
+            
+            if (!exists) {
+                // B. Check Position against ALL Safe Zones
+                let isInsideAnyBase = false;
+                let closestDist = Infinity;
+
+                for (const zone of safeZones) {
+                    const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
+                    const radius = zone.radius || 500;
+                    
+                    if (dist <= radius) {
+                        isInsideAnyBase = true; // He is safe in at least one base
+                        break; 
+                    }
+                    if (dist < closestDist) closestDist = dist; // Keep track of closest for stats
+                }
+                
+                // If he is NOT inside ANY base -> DECOUCHAGE !
+                if (!isInsideAnyBase) {
+                    console.log(`🌙 Decouchage Detected: ${t.name} (${Math.round(closestDist)}m from nearest base)`);
+                    
+                    await Decouchage.create({
+                        date: dzToday, 
+                        snapshotTime: dzTime, 
+                        deviceId: deviceId,
+                        truckName: t.name, 
+                        locationAtMidnight: { lat: parseFloat(t.lat), lng: parseFloat(t.lng) },
+                        distanceFromSite: Math.round(closestDist), 
+                        status: 'Confirmé', 
+                        isClosed: false, 
+                        lastUpdate: dzTime
+                    });
+                }
             }
         }
-        SYSTEM_SETTINGS.lastDecouchageCheck = today;
-        await Settings.findOneAndUpdate({ id: 'global' }, { lastDecouchageCheck: today });
     }
 
+    // 4. RETURN CHECK (Runs continuously)
     const open = await Decouchage.find({ isClosed: false });
     for (const doc of open) {
+        // If date has passed, close it
+        if (doc.date !== dzToday) {
+             doc.isClosed = true;
+             await doc.save();
+             continue;
+        }
+
         const t = trucks.find(tr => String(tr.id||tr.imei) === doc.deviceId);
-        if (t && calculateDistance(parseFloat(t.lat), parseFloat(t.lng), site.lat, site.lng) <= (site.radius || 500)) {
-            const hour = new Date().getHours();
-            await Decouchage.findByIdAndUpdate(doc._id, { status: hour < 5 ? 'Non Confirmé' : 'Confirmé', entryTime: new Date(), isClosed: true });
+        if (!t) continue;
+
+        // Check if truck returned to ANY safe zone
+        let returnedToSafety = false;
+        for (const zone of safeZones) {
+             const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
+             if (dist <= (zone.radius || 500)) {
+                 returnedToSafety = true;
+                 break;
+             }
+        }
+        
+        // If truck is back inside ANY zone
+        if (returnedToSafety) {
+            const finalStatus = dzHour < 5 ? 'Non Confirmé' : 'Confirmé';
+            
+            await Decouchage.findByIdAndUpdate(doc._id, { 
+                status: finalStatus, 
+                entryTime: dzTime, 
+                isClosed: true 
+            });
+            console.log(`✅ Truck Returned: ${t.name} -> ${finalStatus}`);
         }
     }
 }
-
 async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
     try {
         const doc = await Maintenance.findById(logId);
@@ -311,10 +376,8 @@ async function checkAccess(req, res, next) {
 
 // --- 6. API ROUTES ---
 
-// ✅ PUBLIC
 app.get('/health', (req, res) => res.send('System Operational'));
 
-// 🔐 SECURE SETUP ROUTE
 app.get('/api/admin/add-code/:code', async (req, res) => {
     const MASTER_SECRET = "Douroub_2025_Admin_Secure"; 
     if (req.query.secret !== MASTER_SECRET) {
@@ -328,7 +391,7 @@ app.get('/api/admin/add-code/:code', async (req, res) => {
     }
 });
 
-// 🔒 LOCKED ROUTES
+// LOCKED ROUTES
 app.get('/api/trucks', checkAccess, async (req, res) => {
     try {
         const r = await fetch(GPS_API_URL);
@@ -361,9 +424,7 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
         doc.type = type || doc.type;
         doc.note = note || doc.note;
         doc.odometer = odometer || doc.odometer;
-        if (isAuto !== undefined) {
-            doc.isAuto = isAuto;
-        }
+        if (isAuto !== undefined) doc.isAuto = isAuto;
         await doc.save();
         res.json({ success: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -408,7 +469,7 @@ app.get('/api/backup/download', checkAccess, async (req, res) => {
     } catch (e) { res.status(500).send(e.message); }
 });
 
-// --- 7. ADMIN TOOLS (Protected) ---
+// ADMIN TOOLS
 app.get('/api/admin/repair', checkAccess, async (req, res) => {
     try {
         const refuels = await Refuel.find({ $or: [{ deviceId: "undefined" }, { lat: null }] });
@@ -439,22 +500,18 @@ app.get('/api/admin/flush-all-history', checkAccess, async (req, res) => {
     res.json({ success: true, message: "Burned migration data cleared." });
 });
 
-// --- 8. INITIALIZATION (WAIT FOR DB!) ---
-if (MONGO_URI) {
-    mongoose.connect(MONGO_URI)
+// --- 8. INITIALIZATION (CONNECTION LOGIC) ---
+if (DB_URI) {
+    mongoose.connect(DB_URI)
         .then(() => {
             console.log("✅ MongoDB Connected! Starting App...");
-            
-            // Start Express Server
             app.listen(PORT, () => console.log(`🚀 Fleet Analytics Engine running on port ${PORT}`));
-            
-            // Start Fleet Bot (Only now!)
             runFleetBot();
         })
         .catch(err => {
             console.error("❌ Mongo Connection Failed:", err);
-            process.exit(1);
         });
 } else {
-    console.error("❌ FATAL: Missing MONGO_URI in Environment Variables");
+    console.error("❌ FATAL: Missing DB_URI");
+    app.listen(PORT, () => console.log(`🚀 Server running (No DB Mode) on port ${PORT}`));
 }

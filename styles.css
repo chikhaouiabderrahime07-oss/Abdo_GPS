@@ -200,11 +200,13 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgb
 .filter-pill.normal.active { background: var(--green); border-color: var(--green); }
 
 
-/* Stats Grid */
 .stats-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 15px; margin-bottom: 20px;
-}
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 20px;
+        margin-bottom: 20px;
+        padding: 0 20px; /* <--- THIS FIXES THE SYMMETRY */
+    }
 
 .stat-card {
   background: white; padding: 15px; border-radius: 10px; box-shadow: var(--shadow);

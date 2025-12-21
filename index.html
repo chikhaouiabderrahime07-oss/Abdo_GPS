@@ -16,11 +16,11 @@
        GLOBAL & RESET
        ========================================= */
     :root {
-        --primary-dark: #0f172a;  /* Deep Navy */
-        --primary-light: #1e293b; /* Lighter Navy */
-        --accent-blue: #38bdf8;   /* Cyan/Blue */
-        --accent-teal: #0084a7;   /* Teal */
-        --accent-red: #dc2626;    /* Red for History/Maintenance */
+        --primary-dark: #0f172a;
+        --primary-light: #1e293b;
+        --accent-blue: #38bdf8;
+        --accent-teal: #0084a7;
+        --accent-red: #dc2626;
         --text-white: #f8fafc;
         --text-gray: #94a3b8;
     }
@@ -30,6 +30,11 @@
         padding: 0;
         background-color: #f1f5f9;
         font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* FIX: Force Modals on Top of Fullscreen Map */
+    .modal, .modal-overlay { 
+        z-index: 99999 !important; 
     }
 
     /* =========================================
@@ -162,10 +167,10 @@
         right: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 2px;          
-        height: 35px;        
+        width: 2px;           
+        height: 35px;         
         background: #cbd5e1; 
-        opacity: 1;          
+        opacity: 1;           
         border-radius: 2px;
     }
 
@@ -293,6 +298,7 @@
         color: #64748b;
         transition: all 0.2s;
         text-decoration: none !important; /* Remove underline */
+        white-space: nowrap;
     }
 
     .map-filter-btn:hover { background: #e2e8f0; }
@@ -308,7 +314,7 @@
     .map-filter-btn[data-filter="stopped"].active { color: #dc2626; } /* Red */
     /* ================================================= */
 
-    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+    .modal { display: none; position: fixed; z-index: 99999; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); align-items: center; justify-content: center; backdrop-filter: blur(2px); }
     .modal-content { background-color: #fff; padding: 25px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
     @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -447,14 +453,37 @@
           </button>
       </div>
 
-      <div class="global-search-container">
-          <i class="fa-solid fa-magnifying-glass" style="color:#94a3b8;"></i>
-          <input type="text" id="globalSearchInput" placeholder="Chercher un camion..." autocomplete="off">
-      </div>
+<div class="global-search-container" style="
+    background: #ffffff !important; 
+    border: 2px solid #0084a7 !important; 
+    box-shadow: 0 4px 15px rgba(0, 132, 167, 0.15) !important; 
+    height: 42px !important; 
+    width: 280px !important; 
+    border-radius: 50px !important;
+    display: flex; 
+    align-items: center; 
+    padding: 0 15px !important;">
+
+    <i class="fa-solid fa-magnifying-glass" style="
+        color: #0084a7 !important; 
+        font-size: 18px !important; 
+        filter: drop-shadow(0 0 1px rgba(0,132,167,0.5));"></i>
+    
+    <input type="text" id="globalSearchInput" placeholder="🔍 Rechercher un camion..." autocomplete="off" style="
+        border: none !important; 
+        background: transparent !important; 
+        outline: none !important; 
+        width: 100% !important; 
+        font-size: 14px !important; 
+        margin-left: 10px !important; 
+        font-weight: 800 !important; 
+        color: #0f172a !important; 
+        letter-spacing: 0.5px !important;">
+</div>
   </div>
 
   <div class="container">
-  
+   
     <div id="dashboard" class="tab-content active">
       <div class="controls-section">
         <div class="controls-grid" style="display:grid; grid-template-columns: 1fr auto; gap:20px;">
@@ -516,6 +545,26 @@
       <div id="map-wrapper">
           <div id="map-container"></div>
           
+        <div id="historyControls" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.95); padding: 10px 20px; border-radius: 8px; display: none; align-items: center; gap: 20px; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.3); z-index: 50; border: 1px solid rgba(255,255,255,0.1);">
+            <div style="text-align: center;">
+                <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Distance</div>
+                <div style="font-weight: bold; color: #38bdf8;"><span id="histDist">0</span> km</div>
+            </div>
+            <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.2);"></div>
+            <div style="text-align: center;">
+                <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Carburant</div>
+                <div style="font-weight: bold; color: #4ade80;">+<span id="histFuel">0</span> L</div>
+            </div>
+            <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.2);"></div>
+            <div style="text-align: center;">
+                <div style="font-size: 10px; color: #94a3b8; text-transform: uppercase;">Arrêts</div>
+                <div style="font-weight: bold; color: #f87171;"><span id="histStop">0</span></div>
+            </div>
+            <button onclick="window.AlgeriaMap.clearHistoryLayers()" style="background: #ef4444; border: none; color: white; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; margin-left: 10px;">
+                <i class="fa-solid fa-times"></i>
+            </button>
+        </div>
+
         <div class="map-overlay-controls">
             <div style="margin-bottom: 10px; display: flex; gap: 5px;">
                 <div class="map-mode-switch" style="flex: 1; margin: 0; display:flex; border:1px solid #ddd; border-radius:4px; overflow:hidden;">
@@ -551,9 +600,15 @@
             </div>
 
             <div class="map-filters">
-                <div class="map-filter-btn active" data-filter="all" onclick="window.AlgeriaMap.filter('all'); setActiveFilter(this)">Tous</div>
-                <div class="map-filter-btn" data-filter="moving" onclick="window.AlgeriaMap.filter('moving'); setActiveFilter(this)">En Route</div>
-                <div class="map-filter-btn" data-filter="stopped" onclick="window.AlgeriaMap.filter('stopped'); setActiveFilter(this)">À l'Arrêt</div>
+                <div class="map-filter-btn active" data-filter="all" onclick="window.AlgeriaMap.filterMap('all', this)">
+                    Tous <span id="mapCountAll" style="font-size:10px; opacity:0.7; margin-left:3px;">(0)</span>
+                </div>
+                <div class="map-filter-btn" data-filter="moving" onclick="window.AlgeriaMap.filterMap('moving', this)">
+                    En Route <span id="mapCountMoving" style="font-size:10px; opacity:0.7; margin-left:3px;">(0)</span>
+                </div>
+                <div class="map-filter-btn" data-filter="stopped" onclick="window.AlgeriaMap.filterMap('stopped', this)">
+                    À l'Arrêt <span id="mapCountStopped" style="font-size:10px; opacity:0.7; margin-left:3px;">(0)</span>
+                </div>
             </div>
         </div>
 
@@ -784,7 +839,7 @@
                     <div class="form-group"><label>Jalons Vidange (km)</label><input type="text" id="defaultVidangeMilestones" value="30000, 60000, 90000, 120000"></div>
                 </div>
                 <div class="calibration-box global" style="margin-top:10px;">
-                     <textarea id="defaultCalibration" rows="3" placeholder="Calibration (ex: 25=255)"></textarea>
+                      <textarea id="defaultCalibration" rows="3" placeholder="Calibration (ex: 25=255)"></textarea>
                 </div>
                 <button class="btn-primary" id="saveDefaultsBtn" style="margin-top:10px;">Enregistrer Global</button>
             </div>
