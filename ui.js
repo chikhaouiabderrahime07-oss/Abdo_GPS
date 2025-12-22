@@ -552,44 +552,60 @@ initElements() {
       return `${lat.toFixed(4)}, ${lng.toFixed(4)}`; // Fallback for CSV if waiting
   }
   
+  // --- HELPER: JUMP TO MAP ---
+  viewOnMap(lat, lng) {
+      // 1. Force Switch to Map Tab (using your 'byWilaya' ID for the map view)
+      this.switchTab('byWilaya'); 
+
+      // 2. Wait 300ms for the map to un-hide and render
+      setTimeout(() => {
+          if (window.AlgeriaMap && window.AlgeriaMap.map) {
+              window.AlgeriaMap.map.resize(); // Fixes grey map bug
+              window.AlgeriaMap.map.flyTo({
+                  center: [lng, lat],
+                  zoom: 16,
+                  essential: true
+              });
+              
+              // Optional: Add a temporary red marker to show the spot
+              new mapboxgl.Marker({ color: 'red' })
+                  .setLngLat([lng, lat])
+                  .addTo(window.AlgeriaMap.map);
+          } else {
+              alert("⚠️ La carte n'est pas encore prête. Veuillez patienter.");
+          }
+      }, 300);
+  }
+  
 renderDecouchageList() {
-    // 1. Safe Data Init (Don't return early if empty!)
+    // 1. Safe Data Init
     const logs = this.allDecouchageLogs || [];
 
-    // 2. Filter Logic (Date Range, Status, Truck Name)
+    // 2. Filter Logic
     const startStr = this.decouchageDateStart.value;
     const endStr = this.decouchageDateEnd.value;
     const statusFilter = this.decouchageStatusSelect.value;
     const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
     
     let filtered = logs.filter(log => {
-        // Name Filter
         if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
-        
-        // Status Filter
         if (statusFilter !== 'all' && log.status !== statusFilter) return false;
-        
-        // Date Range Check
         if (startStr && log.date < startStr) return false;
         if (endStr && log.date > endStr) return false;
-        
         return true;
     });
 
     // 3. Sort (Recent First)
     filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // 4. Summary Calculation (ALWAYS RUNS NOW)
+    // 4. Summary Calculation
     const summaryMap = new Map();
-    
-    // Initialize ALL trucks with 0 to show complete fleet status
     if (typeof app !== 'undefined' && app.trucks) {
         app.getAllTrucks().forEach(t => {
             summaryMap.set(t.name, { name: t.name, total: 0, confirme: 0, nonConfirme: 0 });
         });
     }
 
-    // Fill with actual data (if any)
     filtered.forEach(log => {
         if (!summaryMap.has(log.truckName)) {
              summaryMap.set(log.truckName, { name: log.truckName, total: 0, confirme: 0, nonConfirme: 0 });
@@ -605,12 +621,12 @@ renderDecouchageList() {
 
     // 5. Render Recap Table
     let tableHtml = `
-        <div style="max-height: 400px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom:20px;">
+        <div style="max-height: 250px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom:20px;">
         <table style="width:100%; border-collapse:collapse; font-size:13px; background:white;">
             <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
                 <tr style="color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;">
                     <th style="padding:10px 15px;">Camion</th>
-                    <th style="padding:10px; text-align:center;">Total Nuits</th>
+                    <th style="padding:10px; text-align:center;">Total</th>
                     <th style="padding:10px; text-align:center; color:#b91c1c;">Confirmés</th>
                     <th style="padding:10px; text-align:center; color:#1e40af;">Non Confirmés</th>
                 </tr>
@@ -623,7 +639,6 @@ renderDecouchageList() {
     } else {
         summaryArray.forEach((item, index) => {
             if (truckFilter && !item.name.toLowerCase().includes(truckFilter)) return;
-            // Highlight rows with activity
             const bg = item.total > 0 ? '#fff1f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc');
             const weight = item.total > 0 ? 'bold' : 'normal';
             
@@ -638,7 +653,6 @@ renderDecouchageList() {
         });
     }
     tableHtml += '</tbody></table></div>';
-    
     if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = tableHtml;
 
     // 6. Stats Cards
@@ -649,38 +663,40 @@ renderDecouchageList() {
         
         this.decouchageStatsGrid.innerHTML = `
             <div class="stat-card" style="border-bottom: 3px solid #6366f1;"><div class="stat-value" style="color:#6366f1">${countTotal}</div><div class="stat-label">Total Détections</div></div>
-            <div class="stat-card" style="border-bottom: 3px solid #ef4444;"><div class="stat-value" style="color:#ef4444">${countConfirme}</div><div class="stat-label">Découchages (>05h)</div></div>
+            <div class="stat-card" style="border-bottom: 3px solid #ef4444;"><div class="stat-value" style="color:#ef4444">${countConfirme}</div><div class="stat-label">Découchages</div></div>
             <div class="stat-card" style="border-bottom: 3px solid #3b82f6;"><div class="stat-value" style="color:#3b82f6">${countNonConfirme}</div><div class="stat-label">Retours Tôt</div></div>
         `;
     }
 
-    // 7. Render Detailed List (Only if items exist)
+    // 7. Render Detailed List (Pagination)
     const totalPages = Math.ceil(filtered.length / this.decouchageItemsPerPage);
     if (this.decouchageCurrentPage > totalPages) this.decouchageCurrentPage = totalPages || 1;
     const startIndex = (this.decouchageCurrentPage - 1) * this.decouchageItemsPerPage;
     const paginatedItems = filtered.slice(startIndex, startIndex + this.decouchageItemsPerPage);
 
     if (paginatedItems.length === 0) {
-        this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun événement détaillé pour ce filtre.</div>';
+        this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun événement détaillé.</div>';
         return;
     }
 
-    // 8. Render Detailed Cards (WITH EXACT TIME AND DATE)
+    // 8. RENDER CARDS (NOW CLICKABLE!)
     let html = '<div style="display:grid; gap:12px;">';
     paginatedItems.forEach(log => {
         const isConfirmed = log.status === 'Confirmé';
         const distKm = (log.distanceFromSite / 1000).toFixed(1);
-        
-        // Exact Date & Time Logic
         const logDate = new Date(log.date).toLocaleDateString('fr-FR');
         const timeStr = log.snapshotTime ? new Date(log.snapshotTime).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'}) : "00:00"; 
-        
         const returnTime = log.entryTime 
             ? `<span style="color:#166534; font-weight:bold;">✅ Retour: ${new Date(log.entryTime).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'})}</span>` 
             : `<span style="color:#b91c1c; font-style:italic; font-weight:bold;">⚠️ Toujours Dehors</span>`;
 
         const locId = `dec-loc-${log.id || Math.random().toString(36).substr(2,9)}`;
         const resolvedName = this.resolveDecouchageLocation(log.locationAtMidnight.lat, log.locationAtMidnight.lng, locId);
+        
+        // --- NEW CLICK ACTION ---
+        // Flies to the exact coordinates detected at midnight
+        // Uses the new helper function that handles the tab switch safely
+const clickAction = `ui.viewOnMap(${log.locationAtMidnight.lat}, ${log.locationAtMidnight.lng})`;
 
         html += `
         <div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid ${isConfirmed ? '#dc2626' : '#2563eb'}; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
@@ -695,9 +711,16 @@ renderDecouchageList() {
                 <span style="background:${isConfirmed ? '#fef2f2' : '#eff6ff'}; color:${isConfirmed ? '#b91c1c' : '#1e40af'}; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:bold; border:1px solid currentColor;">
                     <i class="fa-solid ${isConfirmed ? 'fa-exclamation-circle' : 'fa-undo'}"></i> ${log.status}
                 </span>
+                
                 <div style="font-size:12px; color:#475569; font-weight:600;">${distKm} km du site</div>
-                <div id="${locId}" style="font-size:12px; color:#1e3a8a; background:#eff6ff; padding:4px 10px; border-radius:4px; max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                    ${resolvedName || "Position GPS"}
+
+                <div id="${locId}" 
+                     onclick="${clickAction}"
+                     title="📍 Voir sur la carte"
+                     onmouseover="this.style.background='#dbeafe'; this.style.transform='scale(1.02)';"
+                     onmouseout="this.style.background='#eff6ff'; this.style.transform='scale(1)';"
+                     style="font-size:12px; color:#1e3a8a; background:#eff6ff; padding:5px 12px; border-radius:6px; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; border:1px solid #bfdbfe; transition:all 0.2s; font-weight:bold; display:flex; align-items:center; gap:5px;">
+                    <i class="fa-solid fa-location-dot"></i> <span>${resolvedName || "📍 Position GPS"}</span>
                 </div>
             </div>
 

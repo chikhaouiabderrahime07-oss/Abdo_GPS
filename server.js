@@ -255,20 +255,18 @@ async function runFleetBot() {
     setTimeout(runFleetBot, 120000); 
 }
 
-// 🌙 DECOUCHAGE LOGIC V7 (MULTI-SITE & BY TYPE)
+// 🌙 DECOUCHAGE LOGIC V8 (FIXED TIMEZONES)
 async function runDecouchageLogic(trucks) {
-    // 1. CALCULATE ALGERIA TIME (GMT+1)
-    const nowUTC = new Date();
-    const dzTime = new Date(nowUTC.getTime() + (3600000)); // +1 Hour
+    // 1. TIMING: Get Real UTC and "Logic" Algeria Time
+    const nowUTC = new Date(); // Real time (e.g., 23:01 UTC)
+    const dzTime = new Date(nowUTC.getTime() + (3600000)); // Shifted for Logic (e.g., 00:01 DZ)
     
     const dzHour = dzTime.getUTCHours();
-    const dzToday = dzTime.toISOString().split('T')[0]; // YYYY-MM-DD
+    const dzToday = dzTime.toISOString().split('T')[0]; // Logic Date (e.g., "2023-10-25")
 
-    // 2. FIND SAFE ZONES BY TYPE (Better than Name!)
-    // We look for ANY site where type is 'douroub'
+    // 2. FIND SAFE ZONES
     const safeZones = SYSTEM_SETTINGS.customLocations.filter(l => l.type === 'douroub');
-
-    if (safeZones.length === 0) return; // No bases defined in settings? Stop.
+    if (safeZones.length === 0) return; 
 
     // 3. DETECTION WINDOW: 00:00 to 05:00 (ALGERIA TIME)
     if (dzHour >= 0 && dzHour < 5) {
@@ -276,49 +274,44 @@ async function runDecouchageLogic(trucks) {
             if (!t.params || !t.lat || !t.lng) continue;
             const deviceId = String(t.id || t.imei);
 
-            // A. Check Existence for TODAY (Prevents double counting)
+            // Check if alert already exists for this date
             const exists = await Decouchage.findOne({ date: dzToday, deviceId: deviceId });
             
             if (!exists) {
-                // B. Check Position against ALL Safe Zones
+                // Check Position
                 let isInsideAnyBase = false;
                 let closestDist = Infinity;
 
                 for (const zone of safeZones) {
                     const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
                     const radius = zone.radius || 500;
-                    
-                    if (dist <= radius) {
-                        isInsideAnyBase = true; // He is safe in at least one base
-                        break; 
-                    }
-                    if (dist < closestDist) closestDist = dist; // Keep track of closest for stats
+                    if (dist <= radius) { isInsideAnyBase = true; break; }
+                    if (dist < closestDist) closestDist = dist;
                 }
                 
-                // If he is NOT inside ANY base -> DECOUCHAGE !
+                // CREATE ALERT
                 if (!isInsideAnyBase) {
-                    console.log(`🌙 Decouchage Detected: ${t.name} (${Math.round(closestDist)}m from nearest base)`);
+                    console.log(`🌙 Decouchage Detected: ${t.name}`);
                     
                     await Decouchage.create({
                         date: dzToday, 
-                        snapshotTime: dzTime, 
+                        snapshotTime: nowUTC, // <--- FIXED: Use Real UTC, not shifted time
                         deviceId: deviceId,
                         truckName: t.name, 
                         locationAtMidnight: { lat: parseFloat(t.lat), lng: parseFloat(t.lng) },
                         distanceFromSite: Math.round(closestDist), 
                         status: 'Confirmé', 
                         isClosed: false, 
-                        lastUpdate: dzTime
+                        lastUpdate: nowUTC // <--- FIXED
                     });
                 }
             }
         }
     }
 
-    // 4. RETURN CHECK (Runs continuously)
+    // 4. RETURN CHECK
     const open = await Decouchage.find({ isClosed: false });
     for (const doc of open) {
-        // If date has passed, close it
         if (doc.date !== dzToday) {
              doc.isClosed = true;
              await doc.save();
@@ -328,29 +321,24 @@ async function runDecouchageLogic(trucks) {
         const t = trucks.find(tr => String(tr.id||tr.imei) === doc.deviceId);
         if (!t) continue;
 
-        // Check if truck returned to ANY safe zone
         let returnedToSafety = false;
         for (const zone of safeZones) {
              const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
-             if (dist <= (zone.radius || 500)) {
-                 returnedToSafety = true;
-                 break;
-             }
+             if (dist <= (zone.radius || 500)) { returnedToSafety = true; break; }
         }
         
-        // If truck is back inside ANY zone
         if (returnedToSafety) {
             const finalStatus = dzHour < 5 ? 'Non Confirmé' : 'Confirmé';
-            
             await Decouchage.findByIdAndUpdate(doc._id, { 
                 status: finalStatus, 
-                entryTime: dzTime, 
+                entryTime: nowUTC, // <--- FIXED: Use Real UTC
                 isClosed: true 
             });
-            console.log(`✅ Truck Returned: ${t.name} -> ${finalStatus}`);
+            console.log(`✅ Truck Returned: ${t.name}`);
         }
     }
 }
+
 async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
     try {
         const doc = await Maintenance.findById(logId);
