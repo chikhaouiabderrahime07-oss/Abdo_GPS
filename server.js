@@ -177,18 +177,30 @@ async function runFleetBot() {
 
 let needsUpdate = false;
 
-        // --- 1. ACCUMULATOR LOGIC (Fixes "Missing" Refills) ---
-        // If fuel rises small amounts (e.g. +10L), DO NOT save it to DB yet.
-        // We force the DB to keep the old value so the difference grows (10..20..30..50)
-        const diff = currentLiters - lastState.lastFuelLiters;
-        const isStopped = (parseInt(truck.speed) || 0) < 5;
+// --- LOGIC V5: STABILIZER (Anti-Dip + Accumulator) ---
+        // Solves the "810L vs 764L" issue by ignoring false drops.
+        
+        const rawDiff = currentLiters - lastState.lastFuelLiters;
+        const isStopped = (parseInt(truck.speed) || 0) < 12; 
         let fuelToSave = currentLiters;
 
-        if (isStopped && diff > 0 && diff < 50) {
-            // IGNORE this update in the DB so 'diff' accumulates on next cycle
-            fuelToSave = lastState.lastFuelLiters; 
+        if (isStopped) {
+            // 1. ANTI-DIP: If fuel drops suddenly (>5L) while stopped, it's just sloshing.
+            // Ignore it to keep the "Start Level" high (e.g., keep 126L, don't drop to 82L).
+            if (rawDiff < -5) {
+                fuelToSave = lastState.lastFuelLiters;
+            }
+            
+            // 2. ACCUMULATOR: If fuel rises slowly (<50L), wait for the full amount.
+            // This groups small splashes into one big refill event.
+            else if (rawDiff > 0 && rawDiff < 50) {
+                fuelToSave = lastState.lastFuelLiters;
+            }
         }
-
+        
+        // Recalculate diff using the STABLE value for the Refuel Event check below
+        // This ensures we calculate (892 - 126) instead of (892 - 82)
+        const diff = currentLiters - (isStopped && rawDiff < -5 ? lastState.lastFuelLiters : lastState.lastFuelLiters);
         let updatePayload = {
             truckName, lastUpdate: now,
             lastFuelLiters: fuelToSave, // <--- Key Change: Uses the Anchor
