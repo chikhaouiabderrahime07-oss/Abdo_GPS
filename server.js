@@ -168,82 +168,138 @@ for (const truck of truckArray) {
         const capacity = config.fuelTankCapacity || 600;
         const currentLiters = Math.round((rawSensor / 100) * capacity);
         
-        const lastState = await Truck.findOne({ deviceId });
+        // Load Truck State
+        let dbTruck = await Truck.findOne({ deviceId });
         
-        if (!lastState) {
-            await Truck.findOneAndUpdate({ deviceId }, { truckName, lastUpdate: now, lastFuelLiters: currentLiters, lat, lng, params: truck.params }, { upsert: true });
+        if (!dbTruck) {
+            await Truck.findOneAndUpdate({ deviceId }, { 
+                truckName, lastUpdate: now, lastFuelLiters: currentLiters, 
+                lat, lng, params: truck.params 
+            }, { upsert: true });
             continue;
         }
 
         let needsUpdate = false;
-
-        // --- LOGIC V8: THE "RATCHET" SYSTEM (Final Robust Version) ---
-        // 1. GPS DRIFT GUARD: Increase tolerance to 12 km/h
-        const isStopped = (parseInt(truck.speed) || 0) < 12; 
-        
-        let fuelToSave = currentLiters;
-        const rawDiff = currentLiters - lastState.lastFuelLiters;
-
-        if (isStopped) {
-            // 2. THE RATCHET LOCK (Safety Zone):
-            // Ignore noise between -15L and +40L.
-            // This locks the "Start Level" at the high point (e.g. 126L) and ignores dips.
-            if (rawDiff > -15 && rawDiff < 40) {
-                 fuelToSave = lastState.lastFuelLiters; 
-            }
-        }
-        
-        // 3. DETECTION DIFF:
-        // Always calculate against the stable 'lastState' baseline.
-        const diff = currentLiters - lastState.lastFuelLiters;
-
-        // --- PREPARE DATA ---
         let updatePayload = {
             truckName, lastUpdate: now,
-            lastFuelLiters: fuelToSave, // Saves the STABLE value
-            lastFuelPercent: rawSensor,
             lat, lng, speed: parseInt(truck.speed) || 0,
-            params: truck.params
+            params: truck.params,
+            // Keep existing session data alive
+            refuelSession: dbTruck.refuelSession || null 
         };
 
-        // --- REFUEL LOGIC (With 60 Min Merge) ---
-        if (lastState.lastFuelLiters > 0) {
-            if (diff >= 50 && isStopped) {
-                 // Update DB to the new high level
-                 updatePayload.lastFuelLiters = currentLiters;
+        // --- LOGIC V9: SESSION-BASED REFUELING ---
+        // 1. We detect the START, snapshot the location, then WAIT for the END.
+        
+        const isStopped = (parseInt(truck.speed) || 0) < 12; 
+        
+        // A. STABILIZER: Calculate a "Stable" current level (Ignore small dips)
+        let stableCurrent = currentLiters;
+        if (isStopped && currentLiters < dbTruck.lastFuelLiters && (dbTruck.lastFuelLiters - currentLiters) < 15) {
+            // If dropping small amount (<15L), ignore it. Keep old High Value.
+            stableCurrent = dbTruck.lastFuelLiters;
+        }
+        updatePayload.lastFuelLiters = stableCurrent; // Always save the stable value
 
-                 // FIX: Increased merge window to 60 Minutes to catch slow pumps
-                 const oneHourAgo = new Date(Date.now() - 60 * 60000);
-                 const recent = await Refuel.findOne({ deviceId, timestamp: { $gte: oneHourAgo } }).sort({timestamp: -1});
+        // B. SESSION MANAGEMENT
+        if (updatePayload.refuelSession) {
+            // --- INSIDE A REFUEL SESSION ---
+            const session = updatePayload.refuelSession;
+            
+            // Update the Peak (Max fuel seen during this session)
+            if (currentLiters > session.maxLiters) {
+                session.maxLiters = currentLiters;
+                session.lastRiseTime = now; // Reset timeout if fuel is still going up
+            }
 
-                 if (recent) {
-                     // MERGE EXISTING
-                     console.log(`⛽ MERGING REFUEL: ${truckName} (+${diff}L merged)`);
-                     recent.addedLiters += diff;
-                     recent.newLevel = currentLiters;
-                     recent.timestamp = new Date();
-                     await recent.save();
-                 } else {
-                     // CREATE NEW
-                     console.log(`⛽ NEW REFUEL: ${truckName} (+${diff}L)`);
-                     let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
-                     let isInternal = false;
-                     for (const loc of SYSTEM_SETTINGS.customLocations) {
-                         if (calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
-                             locName = loc.name; isInternal = true; break;
+            // CHECK FOR END OF SESSION
+            // End if: Truck moves OR No rise for 20 mins
+            const timeSinceLastRise = now - session.lastRiseTime;
+            const isFinished = !isStopped || timeSinceLastRise > (20 * 60000);
+
+            if (isFinished) {
+                console.log(`🏁 REFUEL SESSION FINISHED: ${truckName}`);
+                
+                // Calculate Final Amount using the SNAPSHOT Start Level
+                const totalAdded = session.maxLiters - session.startLiters;
+                
+                if (totalAdded >= 50) {
+                     console.log(`✅ SAVING REFUEL: +${totalAdded}L at ${session.startLocName}`);
+                     
+                     // CHECK FOR DUPLICATE (Safety)
+                     const oneHourAgo = new Date(Date.now() - 60 * 60000);
+                     const recent = await Refuel.findOne({ deviceId, timestamp: { $gte: oneHourAgo } });
+
+                     if (recent) {
+                         // Update existing (rare case)
+                         recent.addedLiters += totalAdded;
+                         recent.newLevel = session.maxLiters;
+                         recent.timestamp = new Date(session.startTime);
+                         await recent.save();
+                     } else {
+                         // Create New Log using SNAPSHOT Location & Time
+                         let isInternal = false;
+                         let locName = session.startLocName;
+                         
+                         // Re-verify location against zones (just in case)
+                         for (const loc of SYSTEM_SETTINGS.customLocations) {
+                             if (calculateDistance(session.startLat, session.startLng, loc.lat, loc.lng) <= (loc.radius || 500)) {
+                                 locName = loc.name; isInternal = true; break;
+                             }
                          }
+
+                         await Refuel.create({
+                            deviceId, truckName, 
+                            addedLiters: totalAdded,
+                            oldLevel: session.startLiters, 
+                            newLevel: session.maxLiters,
+                            timestamp: new Date(session.startTime), // Use START time
+                            locationRaw: locName, 
+                            isInternal, 
+                            lat: session.startLat, 
+                            lng: session.startLng
+                         });
                      }
-                     await Refuel.create({
-                        deviceId, truckName, addedLiters: diff,
-                        oldLevel: lastState.lastFuelLiters, newLevel: currentLiters,
-                        timestamp: new Date(), locationRaw: locName, isInternal, lat, lng
-                     });
-                 }
-                 needsUpdate = true;
+                }
+                
+                // Clear Session
+                updatePayload.refuelSession = null;
+                needsUpdate = true;
+            } else {
+                // Keep session alive
+                updatePayload.refuelSession = session; 
+                needsUpdate = true;
+            }
+
+        } else {
+            // --- LOOKING FOR NEW SESSION ---
+            // Trigger: Fuel rises by > 15L while stopped
+            if (isStopped && (currentLiters - dbTruck.lastFuelLiters) > 15) {
+                console.log(`⛽ REFUEL STARTED: ${truckName} (Snapshotting Location...)`);
+                
+                // 1. SNAPSHOT LOCATION NOW
+                let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+                for (const loc of SYSTEM_SETTINGS.customLocations) {
+                     if (calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
+                         locName = loc.name; break;
+                     }
+                }
+
+                // 2. START SESSION
+                updatePayload.refuelSession = {
+                    startTime: now,
+                    startLiters: dbTruck.lastFuelLiters, // Use the OLD Stable value (Fixes Gap)
+                    startLat: lat,
+                    startLng: lng,
+                    startLocName: locName,
+                    maxLiters: currentLiters,
+                    lastRiseTime: now
+                };
+                needsUpdate = true;
             }
         }
 
-        // --- MAINTENANCE LOGIC ---
+        // --- MAINTENANCE LOGIC (Unchanged) ---
         let inZone = false, zoneName = '';
         for (const loc of SYSTEM_SETTINGS.customLocations) {
             if (loc.type === 'maintenance' && calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
@@ -252,12 +308,12 @@ for (const truck of truckArray) {
         }
 
         if (inZone) {
-            if (!lastState.zone) {
+            if (!dbTruck.zone) {
                 updatePayload.zone = zoneName; updatePayload.entryTime = now; 
                 updatePayload.hasLogged = false; updatePayload.logId = null;
                 needsUpdate = true;
             } else {
-                const duration = (now - (lastState.entryTime || now)) / 60000;
+                const duration = (now - (dbTruck.entryTime || now)) / 60000;
                 const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
                 
                 if (duration >= minDuration) {
@@ -266,7 +322,7 @@ for (const truck of truckArray) {
                         const log = await Maintenance.create({
                             truckName, deviceId, type: 'Plaquettes', location: zoneName,
                             odometer: parseInt(truck.params.io192||0)/1000,
-                            date: new Date(lastState.entryTime || now), exitDate: null, 
+                            date: new Date(dbTruck.entryTime || now), exitDate: null, 
                             note: 'Session Automatique', isAuto: true
                         });
                         updatePayload.hasLogged = true; 
@@ -275,20 +331,20 @@ for (const truck of truckArray) {
                     }
                 }
             }
-        } else if (lastState.zone) {
-            if (lastState.logId) await closeMaintenanceSession(lastState.logId, truckName, now);
+        } else if (dbTruck.zone) {
+            if (dbTruck.logId) await closeMaintenanceSession(dbTruck.logId, truckName, now);
             updatePayload.zone = null; updatePayload.entryTime = null;
             updatePayload.hasLogged = false; updatePayload.logId = null;
             needsUpdate = true;
         }
 
         // --- FINAL SAVE ---
-        const distMoved = calculateDistance(lat, lng, lastState.lat, lastState.lng);
-        if (needsUpdate || distMoved > 50 || Math.abs(currentLiters - lastState.lastFuelLiters) > 2 || (now - lastState.lastUpdate) > 600000) {
+        const distMoved = calculateDistance(lat, lng, dbTruck.lat, dbTruck.lng);
+        // Save if: Needs Update OR Moved > 50m OR Fuel Changed > 2L OR 10 mins passed
+        if (needsUpdate || distMoved > 50 || Math.abs(currentLiters - dbTruck.lastFuelLiters) > 2 || (now - dbTruck.lastUpdate) > 600000) {
             await Truck.findOneAndUpdate({ deviceId }, updatePayload, { upsert: true });
         }
-    }    
-    // Loop (2 mins)
+    }    // Loop (2 mins)
     setTimeout(runFleetBot, 120000); 
 }
 
