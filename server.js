@@ -175,35 +175,66 @@ async function runFleetBot() {
             continue;
         }
 
-        let needsUpdate = false;
+let needsUpdate = false;
+
+        // --- 1. ACCUMULATOR LOGIC (Fixes "Missing" Refills) ---
+        // If fuel rises small amounts (e.g. +10L), DO NOT save it to DB yet.
+        // We force the DB to keep the old value so the difference grows (10..20..30..50)
+        const diff = currentLiters - lastState.lastFuelLiters;
+        const isStopped = (parseInt(truck.speed) || 0) < 5;
+        let fuelToSave = currentLiters;
+
+        if (isStopped && diff > 0 && diff < 50) {
+            // IGNORE this update in the DB so 'diff' accumulates on next cycle
+            fuelToSave = lastState.lastFuelLiters; 
+        }
+
         let updatePayload = {
             truckName, lastUpdate: now,
-            lastFuelLiters: currentLiters, lastFuelPercent: rawSensor,
+            lastFuelLiters: fuelToSave, // <--- Key Change: Uses the Anchor
+            lastFuelPercent: rawSensor,
             lat, lng, speed: parseInt(truck.speed) || 0,
             params: truck.params
         };
 
-        // REFUEL
+        // --- 2. REFUEL LOGIC V3 (Cumulative + Merging) ---
         if (lastState.lastFuelLiters > 0) {
-            const diff = currentLiters - lastState.lastFuelLiters;
-            if (diff >= 50 && (parseInt(truck.speed) || 0) < 5) {
-                console.log(`⛽ REAL REFUEL DETECTED: ${truckName} (+${diff}L)`);
-                let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
-                let isInternal = false;
-                for (const loc of SYSTEM_SETTINGS.customLocations) {
-                    if (calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
-                        locName = loc.name; isInternal = true; break;
-                    }
-                }
-                await Refuel.create({
-                    deviceId, truckName, addedLiters: diff,
-                    oldLevel: lastState.lastFuelLiters, newLevel: currentLiters,
-                    timestamp: new Date(), locationRaw: locName, isInternal, lat, lng
-                });
-                needsUpdate = true;
+            // Note: 'diff' is calculated against the OLD value, so it captures the full jump
+            if (diff >= 50 && isStopped) {
+                 // NOW we allow the DB to update to the new high level
+                 updatePayload.lastFuelLiters = currentLiters;
+
+                 // Check for recent split (30 mins)
+                 const thirtyMinsAgo = new Date(Date.now() - 30 * 60000);
+                 const recent = await Refuel.findOne({ deviceId, timestamp: { $gte: thirtyMinsAgo } }).sort({timestamp: -1});
+
+                 if (recent) {
+                     // MERGE (Fixes "Refill Splitted in Half")
+                     console.log(`⛽ MERGING REFUEL: ${truckName} (+${diff}L merged)`);
+                     recent.addedLiters += diff;
+                     recent.newLevel = currentLiters;
+                     recent.timestamp = new Date();
+                     await recent.save();
+                 } else {
+                     // NEW REFUEL
+                     console.log(`⛽ NEW REFUEL: ${truckName} (+${diff}L)`);
+                     
+                     let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
+                     let isInternal = false;
+                     for (const loc of SYSTEM_SETTINGS.customLocations) {
+                         if (calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
+                             locName = loc.name; isInternal = true; break;
+                         }
+                     }
+                     await Refuel.create({
+                        deviceId, truckName, addedLiters: diff,
+                        oldLevel: lastState.lastFuelLiters, newLevel: currentLiters,
+                        timestamp: new Date(), locationRaw: locName, isInternal, lat, lng
+                     });
+                 }
+                 needsUpdate = true;
             }
         }
-
         // MAINTENANCE
         let inZone = false, zoneName = '';
         for (const loc of SYSTEM_SETTINGS.customLocations) {
