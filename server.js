@@ -156,7 +156,7 @@ async function runFleetBot() {
     // RUN THE FIXED DECOUCHAGE LOGIC HERE
     await runDecouchageLogic(truckArray);
 
-    for (const truck of truckArray) {
+for (const truck of truckArray) {
         const deviceId = String(truck.id || truck.imei);
         if (!truck.params || truck.loc_valid === '0' || deviceId === "undefined") continue;
 
@@ -175,62 +175,57 @@ async function runFleetBot() {
             continue;
         }
 
-let needsUpdate = false;
+        let needsUpdate = false;
 
-// --- LOGIC V5: STABILIZER (Anti-Dip + Accumulator) ---
-        // Solves the "810L vs 764L" issue by ignoring false drops.
-        
-        const rawDiff = currentLiters - lastState.lastFuelLiters;
+        // --- LOGIC V8: THE "RATCHET" SYSTEM (Final Robust Version) ---
+        // 1. GPS DRIFT GUARD: Increase tolerance to 12 km/h
         const isStopped = (parseInt(truck.speed) || 0) < 12; 
+        
         let fuelToSave = currentLiters;
+        const rawDiff = currentLiters - lastState.lastFuelLiters;
 
         if (isStopped) {
-            // 1. ANTI-DIP: If fuel drops suddenly (>5L) while stopped, it's just sloshing.
-            // Ignore it to keep the "Start Level" high (e.g., keep 126L, don't drop to 82L).
-            if (rawDiff < -5) {
-                fuelToSave = lastState.lastFuelLiters;
-            }
-            
-            // 2. ACCUMULATOR: If fuel rises slowly (<50L), wait for the full amount.
-            // This groups small splashes into one big refill event.
-            else if (rawDiff > 0 && rawDiff < 50) {
-                fuelToSave = lastState.lastFuelLiters;
+            // 2. THE RATCHET LOCK (Safety Zone):
+            // Ignore noise between -15L and +40L.
+            // This locks the "Start Level" at the high point (e.g. 126L) and ignores dips.
+            if (rawDiff > -15 && rawDiff < 40) {
+                 fuelToSave = lastState.lastFuelLiters; 
             }
         }
         
-        // Recalculate diff using the STABLE value for the Refuel Event check below
-        // This ensures we calculate (892 - 126) instead of (892 - 82)
-        const diff = currentLiters - (isStopped && rawDiff < -5 ? lastState.lastFuelLiters : lastState.lastFuelLiters);
+        // 3. DETECTION DIFF:
+        // Always calculate against the stable 'lastState' baseline.
+        const diff = currentLiters - lastState.lastFuelLiters;
+
+        // --- PREPARE DATA ---
         let updatePayload = {
             truckName, lastUpdate: now,
-            lastFuelLiters: fuelToSave, // <--- Key Change: Uses the Anchor
+            lastFuelLiters: fuelToSave, // Saves the STABLE value
             lastFuelPercent: rawSensor,
             lat, lng, speed: parseInt(truck.speed) || 0,
             params: truck.params
         };
 
-        // --- 2. REFUEL LOGIC V3 (Cumulative + Merging) ---
+        // --- REFUEL LOGIC (With 60 Min Merge) ---
         if (lastState.lastFuelLiters > 0) {
-            // Note: 'diff' is calculated against the OLD value, so it captures the full jump
             if (diff >= 50 && isStopped) {
-                 // NOW we allow the DB to update to the new high level
+                 // Update DB to the new high level
                  updatePayload.lastFuelLiters = currentLiters;
 
-                 // Check for recent split (30 mins)
-                 const thirtyMinsAgo = new Date(Date.now() - 30 * 60000);
-                 const recent = await Refuel.findOne({ deviceId, timestamp: { $gte: thirtyMinsAgo } }).sort({timestamp: -1});
+                 // FIX: Increased merge window to 60 Minutes to catch slow pumps
+                 const oneHourAgo = new Date(Date.now() - 60 * 60000);
+                 const recent = await Refuel.findOne({ deviceId, timestamp: { $gte: oneHourAgo } }).sort({timestamp: -1});
 
                  if (recent) {
-                     // MERGE (Fixes "Refill Splitted in Half")
+                     // MERGE EXISTING
                      console.log(`⛽ MERGING REFUEL: ${truckName} (+${diff}L merged)`);
                      recent.addedLiters += diff;
                      recent.newLevel = currentLiters;
                      recent.timestamp = new Date();
                      await recent.save();
                  } else {
-                     // NEW REFUEL
+                     // CREATE NEW
                      console.log(`⛽ NEW REFUEL: ${truckName} (+${diff}L)`);
-                     
                      let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
                      let isInternal = false;
                      for (const loc of SYSTEM_SETTINGS.customLocations) {
@@ -247,7 +242,8 @@ let needsUpdate = false;
                  needsUpdate = true;
             }
         }
-        // MAINTENANCE
+
+        // --- MAINTENANCE LOGIC ---
         let inZone = false, zoneName = '';
         for (const loc of SYSTEM_SETTINGS.customLocations) {
             if (loc.type === 'maintenance' && calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
@@ -260,14 +256,13 @@ let needsUpdate = false;
                 updatePayload.zone = zoneName; updatePayload.entryTime = now; 
                 updatePayload.hasLogged = false; updatePayload.logId = null;
                 needsUpdate = true;
-} else {
+            } else {
                 const duration = (now - (lastState.entryTime || now)) / 60000;
+                const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
                 
-                // FIX: Check every cycle. If you delete a log, this will recreate it immediately.
                 if (duration >= minDuration) {
                     const dup = await Maintenance.findOne({ deviceId, exitDate: null });
                     if(!dup) {
-                        // Log is missing (or was deleted)? Create it now!
                         const log = await Maintenance.create({
                             truckName, deviceId, type: 'Plaquettes', location: zoneName,
                             odometer: parseInt(truck.params.io192||0)/1000,
@@ -276,11 +271,10 @@ let needsUpdate = false;
                         });
                         updatePayload.hasLogged = true; 
                         updatePayload.logId = log._id.toString();
-                        needsUpdate = true; // Update DB only if we created a new log
+                        needsUpdate = true; 
                     }
                 }
             }
-			
         } else if (lastState.zone) {
             if (lastState.logId) await closeMaintenanceSession(lastState.logId, truckName, now);
             updatePayload.zone = null; updatePayload.entryTime = null;
@@ -288,12 +282,12 @@ let needsUpdate = false;
             needsUpdate = true;
         }
 
+        // --- FINAL SAVE ---
         const distMoved = calculateDistance(lat, lng, lastState.lat, lastState.lng);
         if (needsUpdate || distMoved > 50 || Math.abs(currentLiters - lastState.lastFuelLiters) > 2 || (now - lastState.lastUpdate) > 600000) {
             await Truck.findOneAndUpdate({ deviceId }, updatePayload, { upsert: true });
         }
-    }
-    
+    }    
     // Loop (2 mins)
     setTimeout(runFleetBot, 120000); 
 }
