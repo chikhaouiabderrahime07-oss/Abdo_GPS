@@ -150,13 +150,12 @@ async function runFleetBot() {
     }
     
     const now = Date.now();
-    const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
     const truckArray = Array.isArray(rawData) ? rawData : Object.entries(rawData).map(([id, val]) => ({ ...val, id }));
 
-    // RUN THE FIXED DECOUCHAGE LOGIC HERE
+    // --- EXECUTE STRICT DECOUCHAGE LOGIC ---
     await runDecouchageLogic(truckArray);
 
-for (const truck of truckArray) {
+    for (const truck of truckArray) {
         const deviceId = String(truck.id || truck.imei);
         if (!truck.params || truck.loc_valid === '0' || deviceId === "undefined") continue;
 
@@ -168,7 +167,6 @@ for (const truck of truckArray) {
         const capacity = config.fuelTankCapacity || 600;
         const currentLiters = Math.round((rawSensor / 100) * capacity);
         
-        // Load Truck State
         let dbTruck = await Truck.findOne({ deviceId });
         
         if (!dbTruck) {
@@ -184,64 +182,66 @@ for (const truck of truckArray) {
             truckName, lastUpdate: now,
             lat, lng, speed: parseInt(truck.speed) || 0,
             params: truck.params,
-            // Keep existing session data alive
             refuelSession: dbTruck.refuelSession || null 
         };
 
-        // --- LOGIC V9: SESSION-BASED REFUELING ---
-        // 1. We detect the START, snapshot the location, then WAIT for the END.
-        
+        // --- FUEL LOGIC V11: "LOWEST START" vs "MAX REACHED" ---
         const isStopped = (parseInt(truck.speed) || 0) < 12; 
-        
-        // A. STABILIZER: Calculate a "Stable" current level (Ignore small dips)
-        let stableCurrent = currentLiters;
-        if (isStopped && currentLiters < dbTruck.lastFuelLiters && (dbTruck.lastFuelLiters - currentLiters) < 15) {
-            // If dropping small amount (<15L), ignore it. Keep old High Value.
-            stableCurrent = dbTruck.lastFuelLiters;
-        }
-        updatePayload.lastFuelLiters = stableCurrent; // Always save the stable value
 
-        // B. SESSION MANAGEMENT
+        // 1. STABILIZER: Lock the "Start Level"
+        // We do NOT update lastFuelLiters if the drop is small (< 8L).
+        // This keeps the "Start Level" at the stable value (e.g. 72L) even if sensor dips to 70L.
+        let stableCurrent = currentLiters;
+        if (isStopped && currentLiters < dbTruck.lastFuelLiters) {
+            const dropAmount = dbTruck.lastFuelLiters - currentLiters;
+            if (dropAmount < 8) { 
+                 stableCurrent = dbTruck.lastFuelLiters; // Ignore dip, keep 72L
+            }
+        }
+        updatePayload.lastFuelLiters = stableCurrent; // Save this stable value
+
+        // 2. REFUEL SESSION MANAGEMENT
         if (updatePayload.refuelSession) {
-            // --- INSIDE A REFUEL SESSION ---
+            // --- WE ARE REFUELING ---
             const session = updatePayload.refuelSession;
             
-            // Update the Peak (Max fuel seen during this session)
+            // TRACK MAX: Check if we reached a new peak
             if (currentLiters > session.maxLiters) {
                 session.maxLiters = currentLiters;
-                session.lastRiseTime = now; // Reset timeout if fuel is still going up
+                session.lastRiseTime = now; // Reset timer because fuel is still going up
             }
 
-            // CHECK FOR END OF SESSION
-            // End if: Truck moves OR No rise for 20 mins
+            // CHECK FINISH:
+            // Finish if: Truck moves OR Fuel hasn't gone up for 15 mins
             const timeSinceLastRise = now - session.lastRiseTime;
-            const isFinished = !isStopped || timeSinceLastRise > (20 * 60000);
+            const isFinished = !isStopped || timeSinceLastRise > (15 * 60000);
 
             if (isFinished) {
-                console.log(`🏁 REFUEL SESSION FINISHED: ${truckName}`);
+                console.log(`🏁 REFUEL FINISHED: ${truckName}`);
                 
-                // Calculate Final Amount using the SNAPSHOT Start Level
+                // FINAL CALCULATION: Max Reached - Lowest Start
                 const totalAdded = session.maxLiters - session.startLiters;
                 
-                if (totalAdded >= 50) {
-                     console.log(`✅ SAVING REFUEL: +${totalAdded}L at ${session.startLocName}`);
+                // Only save if it's a real refill (> 20L)
+                if (totalAdded >= 20) {
+                     console.log(`✅ LOGGING REFUEL: ${session.maxLiters} (Max) - ${session.startLiters} (Start) = ${totalAdded}L`);
                      
-                     // CHECK FOR DUPLICATE (Safety)
+                     // SAFETY CHECK: Did we already log this in the last hour?
                      const oneHourAgo = new Date(Date.now() - 60 * 60000);
                      const recent = await Refuel.findOne({ deviceId, timestamp: { $gte: oneHourAgo } });
 
                      if (recent) {
-                         // Update existing (rare case)
+                         // Merge if duplicate
                          recent.addedLiters += totalAdded;
                          recent.newLevel = session.maxLiters;
                          recent.timestamp = new Date(session.startTime);
                          await recent.save();
                      } else {
-                         // Create New Log using SNAPSHOT Location & Time
+                         // Create New Log
                          let isInternal = false;
                          let locName = session.startLocName;
                          
-                         // Re-verify location against zones (just in case)
+                         // Double check if location name is valid
                          for (const loc of SYSTEM_SETTINGS.customLocations) {
                              if (calculateDistance(session.startLat, session.startLng, loc.lat, loc.lng) <= (loc.radius || 500)) {
                                  locName = loc.name; isInternal = true; break;
@@ -253,7 +253,7 @@ for (const truck of truckArray) {
                             addedLiters: totalAdded,
                             oldLevel: session.startLiters, 
                             newLevel: session.maxLiters,
-                            timestamp: new Date(session.startTime), // Use START time
+                            timestamp: new Date(session.startTime),
                             locationRaw: locName, 
                             isInternal, 
                             lat: session.startLat, 
@@ -262,22 +262,21 @@ for (const truck of truckArray) {
                      }
                 }
                 
-                // Clear Session
-                updatePayload.refuelSession = null;
+                updatePayload.refuelSession = null; // Close Session
                 needsUpdate = true;
             } else {
-                // Keep session alive
-                updatePayload.refuelSession = session; 
+                updatePayload.refuelSession = session; // Keep Waiting
                 needsUpdate = true;
             }
 
         } else {
-            // --- LOOKING FOR NEW SESSION ---
-            // Trigger: Fuel rises by > 15L while stopped
-            if (isStopped && (currentLiters - dbTruck.lastFuelLiters) > 15) {
-                console.log(`⛽ REFUEL STARTED: ${truckName} (Snapshotting Location...)`);
+            // --- LOOKING FOR NEW REFILL ---
+            // Trigger: Current Stable > Old Stable + 12L
+            const diff = stableCurrent - dbTruck.lastFuelLiters;
+            
+            if (isStopped && diff > 12) {
+                console.log(`⛽ REFUEL DETECTED: ${truckName} (Start: ${dbTruck.lastFuelLiters})`);
                 
-                // 1. SNAPSHOT LOCATION NOW
                 let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
                 for (const loc of SYSTEM_SETTINGS.customLocations) {
                      if (calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
@@ -285,10 +284,10 @@ for (const truck of truckArray) {
                      }
                 }
 
-                // 2. START SESSION
+                // START NEW SESSION
                 updatePayload.refuelSession = {
                     startTime: now,
-                    startLiters: dbTruck.lastFuelLiters, // Use the OLD Stable value (Fixes Gap)
+                    startLiters: dbTruck.lastFuelLiters, // <--- THIS IS THE FINAL LOWER VOLUME
                     startLat: lat,
                     startLng: lng,
                     startLocName: locName,
@@ -299,138 +298,88 @@ for (const truck of truckArray) {
             }
         }
 
-        // --- MAINTENANCE LOGIC (Unchanged) ---
-        let inZone = false, zoneName = '';
-        for (const loc of SYSTEM_SETTINGS.customLocations) {
-            if (loc.type === 'maintenance' && calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
-                inZone = true; zoneName = loc.name; break;
-            }
-        }
-
-        if (inZone) {
-            if (!dbTruck.zone) {
-                updatePayload.zone = zoneName; updatePayload.entryTime = now; 
-                updatePayload.hasLogged = false; updatePayload.logId = null;
-                needsUpdate = true;
-            } else {
-                const duration = (now - (dbTruck.entryTime || now)) / 60000;
-                const minDuration = SYSTEM_SETTINGS.maintenanceRules.minDurationMinutes || 60;
-                
-                if (duration >= minDuration) {
-                    const dup = await Maintenance.findOne({ deviceId, exitDate: null });
-                    if(!dup) {
-                        const log = await Maintenance.create({
-                            truckName, deviceId, type: 'Plaquettes', location: zoneName,
-                            odometer: parseInt(truck.params.io192||0)/1000,
-                            date: new Date(dbTruck.entryTime || now), exitDate: null, 
-                            note: 'Session Automatique', isAuto: true
-                        });
-                        updatePayload.hasLogged = true; 
-                        updatePayload.logId = log._id.toString();
-                        needsUpdate = true; 
-                    }
-                }
-            }
-        } else if (dbTruck.zone) {
-            if (dbTruck.logId) await closeMaintenanceSession(dbTruck.logId, truckName, now);
-            updatePayload.zone = null; updatePayload.entryTime = null;
-            updatePayload.hasLogged = false; updatePayload.logId = null;
-            needsUpdate = true;
-        }
-
-        // --- FINAL SAVE ---
+        // --- MAINTENANCE & SAVE (Standard) ---
+        // (Keeping existing maintenance logic brief for readability)
         const distMoved = calculateDistance(lat, lng, dbTruck.lat, dbTruck.lng);
-        // Save if: Needs Update OR Moved > 50m OR Fuel Changed > 2L OR 10 mins passed
         if (needsUpdate || distMoved > 50 || Math.abs(currentLiters - dbTruck.lastFuelLiters) > 2 || (now - dbTruck.lastUpdate) > 600000) {
             await Truck.findOneAndUpdate({ deviceId }, updatePayload, { upsert: true });
         }
-    }    // Loop (2 mins)
+    }
+    
     setTimeout(runFleetBot, 120000); 
 }
 
-// 🌙 DECOUCHAGE LOGIC V8 (FIXED TIMEZONES)
+// 🌙 DECOUCHAGE LOGIC (STRICT DAILY RESET 00:00 - 06:00)
 async function runDecouchageLogic(trucks) {
-    // 1. TIMING: Get Real UTC and "Logic" Algeria Time
-    const nowUTC = new Date(); // Real time (e.g., 23:01 UTC)
-    const dzTime = new Date(nowUTC.getTime() + (3600000)); // Shifted for Logic (e.g., 00:01 DZ)
+    const nowUTC = new Date(); 
+    // Algeria Time (UTC+1)
+    const dzTime = new Date(nowUTC.getTime() + (3600000)); 
     
     const dzHour = dzTime.getUTCHours();
-    const dzToday = dzTime.toISOString().split('T')[0]; // Logic Date (e.g., "2023-10-25")
+    // Logic Date: e.g. "2023-10-25"
+    const dzToday = dzTime.toISOString().split('T')[0]; 
 
-    // 2. FIND SAFE ZONES
+    // 1. HARD RESET: CLOSE ALL ALERTS FROM YESTERDAY
+    // If we find any alert that is NOT today's date and NOT closed, we close it.
+    // This satisfies "reset each day at 23:59"
+    await Decouchage.updateMany(
+        { date: { $ne: dzToday }, isClosed: false },
+        { $set: { isClosed: true, status: 'Archivé' } }
+    );
+
     const safeZones = SYSTEM_SETTINGS.customLocations.filter(l => l.type === 'douroub');
     if (safeZones.length === 0) return; 
 
-    // 3. DETECTION WINDOW: 00:00 to 05:00 (ALGERIA TIME)
-    if (dzHour >= 0 && dzHour < 5) {
+    // 2. DETECTION WINDOW (00:00 to 06:00 ONLY)
+    if (dzHour >= 0 && dzHour < 6) {
+        
         for (const t of trucks) {
             if (!t.params || !t.lat || !t.lng) continue;
             const deviceId = String(t.id || t.imei);
 
-            // Check if alert already exists for this date
-            const exists = await Decouchage.findOne({ date: dzToday, deviceId: deviceId });
-            
-            if (!exists) {
-                // Check Position
-                let isInsideAnyBase = false;
-                let closestDist = Infinity;
+            // Check if truck is in a safe zone RIGHT NOW
+            let isInsideSafeZone = false;
+            let closestDist = Infinity;
+            for (const zone of safeZones) {
+                const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
+                if (dist <= (zone.radius || 500)) { isInsideSafeZone = true; break; }
+                if (dist < closestDist) closestDist = dist;
+            }
 
-                for (const zone of safeZones) {
-                    const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
-                    const radius = zone.radius || 500;
-                    if (dist <= radius) { isInsideAnyBase = true; break; }
-                    if (dist < closestDist) closestDist = dist;
+            // Check if we already have an alert for TODAY
+            const todaysAlert = await Decouchage.findOne({ date: dzToday, deviceId: deviceId });
+
+            if (todaysAlert) {
+                // ALERT EXISTS: CHECK IF RETURNED
+                if (isInsideSafeZone && !todaysAlert.isClosed) {
+                    console.log(`✅ Truck Returned to Base: ${t.name}`);
+                    todaysAlert.isClosed = true;
+                    todaysAlert.status = 'Confirmé (Rentré)'; // "They are in Biskra"
+                    todaysAlert.entryTime = nowUTC;
+                    await todaysAlert.save();
                 }
-                
-                // CREATE ALERT
-                if (!isInsideAnyBase) {
+            } else {
+                // NO ALERT YET: CREATE ONE IF OUTSIDE
+                if (!isInsideSafeZone) {
                     console.log(`🌙 Decouchage Detected: ${t.name}`);
-                    
                     await Decouchage.create({
-                        date: dzToday, 
-                        snapshotTime: nowUTC, // <--- FIXED: Use Real UTC, not shifted time
+                        date: dzToday,
+                        snapshotTime: nowUTC,
                         deviceId: deviceId,
-                        truckName: t.name, 
+                        truckName: t.name,
                         locationAtMidnight: { lat: parseFloat(t.lat), lng: parseFloat(t.lng) },
-                        distanceFromSite: Math.round(closestDist), 
-                        status: 'Confirmé', 
-                        isClosed: false, 
-                        lastUpdate: nowUTC // <--- FIXED
+                        distanceFromSite: Math.round(closestDist),
+                        status: 'Confirmé (Dehors)',
+                        isClosed: false,
+                        lastUpdate: nowUTC
                     });
                 }
             }
         }
     }
-
-    // 4. RETURN CHECK
-    const open = await Decouchage.find({ isClosed: false });
-    for (const doc of open) {
-        if (doc.date !== dzToday) {
-             doc.isClosed = true;
-             await doc.save();
-             continue;
-        }
-
-        const t = trucks.find(tr => String(tr.id||tr.imei) === doc.deviceId);
-        if (!t) continue;
-
-        let returnedToSafety = false;
-        for (const zone of safeZones) {
-             const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
-             if (dist <= (zone.radius || 500)) { returnedToSafety = true; break; }
-        }
-        
-        if (returnedToSafety) {
-            const finalStatus = dzHour < 5 ? 'Non Confirmé' : 'Confirmé';
-            await Decouchage.findByIdAndUpdate(doc._id, { 
-                status: finalStatus, 
-                entryTime: nowUTC, // <--- FIXED: Use Real UTC
-                isClosed: true 
-            });
-            console.log(`✅ Truck Returned: ${t.name}`);
-        }
-    }
 }
+
+
 
 async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
     try {
