@@ -34,7 +34,8 @@ const TruckSchema = new mongoose.Schema({
     lat: Number, lng: Number, speed: Number,
     zone: String, entryTime: Number,
     hasLogged: Boolean, logId: String,
-    params: Object 
+    params: Object,
+    refuelSession: Object // Stores temporary refill data
 }, { strict: false });
 
 const expireRule = { expires: '90d' }; 
@@ -185,63 +186,63 @@ async function runFleetBot() {
             refuelSession: dbTruck.refuelSession || null 
         };
 
-        // --- FUEL LOGIC V11: "LOWEST START" vs "MAX REACHED" ---
-        const isStopped = (parseInt(truck.speed) || 0) < 12; 
+        // =========================================================
+        // ⛽ FUEL LOGIC V12: STRICT STABILIZATION & 50L LIMIT
+        // =========================================================
+        const isStopped = (parseInt(truck.speed) || 0) < 10; 
 
-        // 1. STABILIZER: Lock the "Start Level"
-        // We do NOT update lastFuelLiters if the drop is small (< 8L).
-        // This keeps the "Start Level" at the stable value (e.g. 72L) even if sensor dips to 70L.
+        // 1. ANTI-SLOSHING STABILIZER
+        // If fuel drops slightly (< 4L), we ignore it to keep the "Start Level" clean.
+        // If it drops heavily (consumption), we allow it.
         let stableCurrent = currentLiters;
         if (isStopped && currentLiters < dbTruck.lastFuelLiters) {
             const dropAmount = dbTruck.lastFuelLiters - currentLiters;
-            if (dropAmount < 8) { 
-                 stableCurrent = dbTruck.lastFuelLiters; // Ignore dip, keep 72L
+            if (dropAmount < 4) { 
+                 // It's just a wave, ignore the drop
+                 stableCurrent = dbTruck.lastFuelLiters; 
             }
         }
-        updatePayload.lastFuelLiters = stableCurrent; // Save this stable value
+        updatePayload.lastFuelLiters = stableCurrent;
 
         // 2. REFUEL SESSION MANAGEMENT
         if (updatePayload.refuelSession) {
-            // --- WE ARE REFUELING ---
+            // --- WE ARE IN THE MIDDLE OF A REFILL ---
             const session = updatePayload.refuelSession;
             
-            // TRACK MAX: Check if we reached a new peak
+            // TRACK MAX: If fuel keeps going up, update the Max
             if (currentLiters > session.maxLiters) {
                 session.maxLiters = currentLiters;
-                session.lastRiseTime = now; // Reset timer because fuel is still going up
+                session.lastRiseTime = now; // Reset timer
             }
 
-            // CHECK FINISH:
-            // Finish if: Truck moves OR Fuel hasn't gone up for 15 mins
+            // DECISION TIME:
+            // Finish if: Truck starts moving OR Fuel hasn't gone up for 15 mins
             const timeSinceLastRise = now - session.lastRiseTime;
             const isFinished = !isStopped || timeSinceLastRise > (15 * 60000);
 
             if (isFinished) {
-                console.log(`🏁 REFUEL FINISHED: ${truckName}`);
+                console.log(`🏁 REFUEL DECISION: ${truckName}`);
                 
-                // FINAL CALCULATION: Max Reached - Lowest Start
+                // FINAL MATH: Max Stable Level - Start Level
                 const totalAdded = session.maxLiters - session.startLiters;
                 
-                // Only save if it's a real refill (> 20L)
-                if (totalAdded >= 20) {
-                     console.log(`✅ LOGGING REFUEL: ${session.maxLiters} (Max) - ${session.startLiters} (Start) = ${totalAdded}L`);
+                // ⚠️ STRICT RULE: ONLY SAVE IF > 50L
+                if (totalAdded >= 50) {
+                     console.log(`✅ VALID REFILL SAVED: +${totalAdded}L`);
                      
-                     // SAFETY CHECK: Did we already log this in the last hour?
+                     // Check for duplicates in the last hour
                      const oneHourAgo = new Date(Date.now() - 60 * 60000);
                      const recent = await Refuel.findOne({ deviceId, timestamp: { $gte: oneHourAgo } });
 
                      if (recent) {
-                         // Merge if duplicate
                          recent.addedLiters += totalAdded;
                          recent.newLevel = session.maxLiters;
                          recent.timestamp = new Date(session.startTime);
                          await recent.save();
                      } else {
-                         // Create New Log
+                         // Find Location Name
                          let isInternal = false;
                          let locName = session.startLocName;
-                         
-                         // Double check if location name is valid
                          for (const loc of SYSTEM_SETTINGS.customLocations) {
                              if (calculateDistance(session.startLat, session.startLng, loc.lat, loc.lng) <= (loc.radius || 500)) {
                                  locName = loc.name; isInternal = true; break;
@@ -260,34 +261,31 @@ async function runFleetBot() {
                             lng: session.startLng
                          });
                      }
+                } else {
+                    console.log(`❌ REFILL IGNORED: ${totalAdded}L is below 50L threshold.`);
                 }
                 
                 updatePayload.refuelSession = null; // Close Session
                 needsUpdate = true;
             } else {
-                updatePayload.refuelSession = session; // Keep Waiting
+                updatePayload.refuelSession = session; // Keep Monitoring
                 needsUpdate = true;
             }
 
         } else {
             // --- LOOKING FOR NEW REFILL ---
-            // Trigger: Current Stable > Old Stable + 12L
+            // Trigger: Current Stable > Old Stable + 15L (To start monitoring)
             const diff = stableCurrent - dbTruck.lastFuelLiters;
             
-            if (isStopped && diff > 12) {
-                console.log(`⛽ REFUEL DETECTED: ${truckName} (Start: ${dbTruck.lastFuelLiters})`);
+            if (isStopped && diff > 15) {
+                console.log(`⛽ POTENTIAL REFUEL: ${truckName} (Detected rise of ${diff}L)`);
                 
                 let locName = `GPS: ${lat.toFixed(3)}, ${lng.toFixed(3)}`;
-                for (const loc of SYSTEM_SETTINGS.customLocations) {
-                     if (calculateDistance(lat, lng, loc.lat, loc.lng) <= (loc.radius || 500)) {
-                         locName = loc.name; break;
-                     }
-                }
-
-                // START NEW SESSION
+                
+                // Start Session
                 updatePayload.refuelSession = {
                     startTime: now,
-                    startLiters: dbTruck.lastFuelLiters, // <--- THIS IS THE FINAL LOWER VOLUME
+                    startLiters: dbTruck.lastFuelLiters, // Lock the low point
                     startLat: lat,
                     startLng: lng,
                     startLocName: locName,
@@ -297,9 +295,9 @@ async function runFleetBot() {
                 needsUpdate = true;
             }
         }
+        // =========================================================
 
         // --- MAINTENANCE & SAVE (Standard) ---
-        // (Keeping existing maintenance logic brief for readability)
         const distMoved = calculateDistance(lat, lng, dbTruck.lat, dbTruck.lng);
         if (needsUpdate || distMoved > 50 || Math.abs(currentLiters - dbTruck.lastFuelLiters) > 2 || (now - dbTruck.lastUpdate) > 600000) {
             await Truck.findOneAndUpdate({ deviceId }, updatePayload, { upsert: true });
@@ -320,8 +318,6 @@ async function runDecouchageLogic(trucks) {
     const dzToday = dzTime.toISOString().split('T')[0]; 
 
     // 1. HARD RESET: CLOSE ALL ALERTS FROM YESTERDAY
-    // If we find any alert that is NOT today's date and NOT closed, we close it.
-    // This satisfies "reset each day at 23:59"
     await Decouchage.updateMany(
         { date: { $ne: dzToday }, isClosed: false },
         { $set: { isClosed: true, status: 'Archivé' } }
@@ -354,7 +350,7 @@ async function runDecouchageLogic(trucks) {
                 if (isInsideSafeZone && !todaysAlert.isClosed) {
                     console.log(`✅ Truck Returned to Base: ${t.name}`);
                     todaysAlert.isClosed = true;
-                    todaysAlert.status = 'Confirmé (Rentré)'; // "They are in Biskra"
+                    todaysAlert.status = 'Confirmé (Rentré)'; 
                     todaysAlert.entryTime = nowUTC;
                     await todaysAlert.save();
                 }
@@ -378,8 +374,6 @@ async function runDecouchageLogic(trucks) {
         }
     }
 }
-
-
 
 async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
     try {

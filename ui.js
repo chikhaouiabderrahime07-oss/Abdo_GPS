@@ -2463,131 +2463,391 @@ const eventData = {
   // 📊 RAPPORT: BIG WINDOW & EXACT TIME
   // =========================================================
 
+// REPLACE openReportModal in ui.js
+
 openReportModal() {
-      if (document.getElementById('reportModal')) document.getElementById('reportModal').remove();
+    if (document.getElementById('reportModal')) document.getElementById('reportModal').remove();
 
-      const div = document.createElement('div');
-      div.id = 'reportModal';
-      div.className = 'modal-overlay';
-      div.style.display = 'flex';
-      
-      const now = new Date();
-      const yest = new Date(now); yest.setDate(yest.getDate() - 1);
-      const toInput = (d) => d.toISOString().slice(0,16);
+    const div = document.createElement('div');
+    div.id = 'reportModal';
+    div.className = 'modal-overlay';
+    div.style.display = 'flex';
+    
+    const now = new Date();
+    const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+    const toInput = (d) => d.toISOString().slice(0,16);
 
-      div.innerHTML = `
-          <div class="modal-box" style="width: 700px; max-width:95vw; background:white; padding:20px; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.3);">
-              <h2 style="margin-top:0; color:var(--teal);"><i class="fa-solid fa-chart-pie"></i> Rapport Opérationnel</h2>
-              
-              <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin:15px 0;">
-                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
-                      <div><label>Début</label><input type="datetime-local" id="reportStart" style="width:100%; padding:8px;" value="${toInput(yest)}"></div>
-                      <div><label>Fin</label><input type="datetime-local" id="reportEnd" style="width:100%; padding:8px;" value="${toInput(now)}"></div>
-                  </div>
-              </div>
+    div.innerHTML = `
+        <div class="modal-box" style="width: 700px; max-width:95vw; background:white; padding:20px; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.3);">
+            <h2 style="margin-top:0; color:var(--teal);"><i class="fa-solid fa-file-invoice"></i> Centre de Rapports</h2>
+            
+            <div style="background:#f0f9ff; padding:15px; border-radius:6px; margin:15px 0; border:1px solid #bae6fd;">
+                <label style="font-weight:bold; color:#0369a1; display:block; margin-bottom:5px;">TYPE DE RAPPORT</label>
+                <select id="reportTypeSelector" style="width:100%; padding:10px; border:1px solid #0ea5e9; border-radius:4px; font-weight:bold; color:#0c4a6e;">
+                    <option value="global">📊 Audit Global (Standard)</option>
+                    <option value="decouchage">🌙 Détail Découchages (Lieu Exact)</option>
+                    <option value="refill">⛽ Détail Carburant (Remplissages)</option>
+                </select>
+            </div>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                  <span style="font-size:12px; font-weight:bold; color:#555;">Sélectionnez les camions :</span>
-                  <div style="display:flex; gap:5px;">
-                      <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(true)">
-                          <i class="fa-solid fa-check-double"></i> Tout Cocher
-                      </button>
-                      <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(false)">
-                          <i class="fa-solid fa-square"></i> Tout Décocher
-                      </button>
-                  </div>
-              </div>
+            <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin:15px 0;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
+                    <div><label>Début</label><input type="datetime-local" id="reportStart" style="width:100%; padding:8px;" value="${toInput(yest)}"></div>
+                    <div><label>Fin</label><input type="datetime-local" id="reportEnd" style="width:100%; padding:8px;" value="${toInput(now)}"></div>
+                </div>
+            </div>
 
-              <div style="height:300px; overflow-y:auto; border:1px solid #eee; padding:10px; margin-bottom:15px; background:#fafafa; border-radius:4px;">
-                  <div id="reportTruckList"></div>
-              </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                <span style="font-size:12px; font-weight:bold; color:#555;">Sélectionnez les camions :</span>
+                <div style="display:flex; gap:5px;">
+                    <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(true)">
+                        <i class="fa-solid fa-check-double"></i> Tout
+                    </button>
+                    <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(false)">
+                        <i class="fa-solid fa-square"></i> Rien
+                    </button>
+                </div>
+            </div>
 
-              <div style="text-align:right; gap:10px; display:flex; justify-content:flex-end;">
-                  <button class="btn-secondary" onclick="document.getElementById('reportModal').remove()">Annuler</button>
-                  <button class="btn-primary" onclick="ui.startBulkReport()">Générer Rapport</button>
-              </div>
-          </div>
-      `;
-      document.body.appendChild(div);
+            <div style="height:250px; overflow-y:auto; border:1px solid #eee; padding:10px; margin-bottom:15px; background:#fafafa; border-radius:4px;">
+                <div id="reportTruckList"></div>
+            </div>
 
-      const list = document.getElementById('reportTruckList');
-      app.getAllTrucks().sort((a,b)=>a.name.localeCompare(b.name)).forEach(t => {
-          const d = document.createElement('div');
-          d.style.padding = "4px 0";
-          d.innerHTML = `<label style="display:flex; align-items:center; cursor:pointer; font-size:13px;">
-                            <input type="checkbox" class="report-check" value="${t.id}" style="margin-right:8px;"> 
-                            ${t.name}
-                         </label>`;
-          list.appendChild(d);
-      });
-}
-  
+            <div style="text-align:right; gap:10px; display:flex; justify-content:flex-end;">
+                <button class="btn-secondary" onclick="document.getElementById('reportModal').remove()">Annuler</button>
+                <button class="btn-primary" onclick="ui.startBulkReport()">Générer Rapport</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(div);
+
+    const list = document.getElementById('reportTruckList');
+    app.getAllTrucks().sort((a,b)=>a.name.localeCompare(b.name)).forEach(t => {
+        const d = document.createElement('div');
+        d.style.padding = "4px 0";
+        d.innerHTML = `<label style="display:flex; align-items:center; cursor:pointer; font-size:13px;">
+                          <input type="checkbox" class="report-check" value="${t.id}" style="margin-right:8px;"> 
+                          ${t.name}
+                       </label>`;
+        list.appendChild(d);
+    });
+}  
   toggleSelectReport(state) {
       document.querySelectorAll('.report-check').forEach(c => c.checked = state);
   }
 
+// REPLACE startBulkReport in ui.js
+
 async startBulkReport() {
-      // 1. Get DateTime Inputs
-      const startInput = document.getElementById('reportStart').value;
-      const endInput = document.getElementById('reportEnd').value;
-      
-      if (!startInput || !endInput) { alert("Dates invalides."); return; }
-      
-      const startDate = startInput.replace('T', ' ') + ':00';
-      const endDate = endInput.replace('T', ' ') + ':59';
+    const reportType = document.getElementById('reportTypeSelector').value;
+    const startInput = document.getElementById('reportStart').value;
+    const endInput = document.getElementById('reportEnd').value;
+    
+    if (!startInput || !endInput) { alert("Dates invalides."); return; }
+    
+    const startDate = startInput.replace('T', ' ') + ':00';
+    const endDate = endInput.replace('T', ' ') + ':59';
 
-      const selectedIds = Array.from(document.querySelectorAll('.report-check:checked')).map(c => c.value);
-      if (selectedIds.length === 0) { alert("Sélectionnez au moins un camion."); return; }
+    const selectedIds = Array.from(document.querySelectorAll('.report-check:checked')).map(c => c.value);
+    if (selectedIds.length === 0) { alert("Sélectionnez au moins un camion."); return; }
 
-      document.getElementById('reportModal').style.display = 'none';
+    document.getElementById('reportModal').style.display = 'none';
 
-      // 2. Prepare CSV Header (ADDED: Découchages column)
-      const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
-      const originalText = btn ? btn.innerHTML : 'Rapport';
-      if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Traitement...`;
+    // ROUTER: Choose the right report
+    if (reportType === 'decouchage') {
+        this.generateDetailedDecouchageReport(selectedIds, startDate, endDate);
+    } else if (reportType === 'refill') {
+        this.generateDetailedRefillReport(selectedIds, startDate, endDate);
+    } else {
+        // Default Global Audit
+        this.generateGlobalAudit(selectedIds, startDate, endDate);
+    }
+}  
+ 
+// === NEW REPORT GENERATORS ===
+// REPLACE THESE 3 FUNCTIONS IN ui.js TO FIX ALL CRASHES
 
-let csv = "Camion,Début,Fin,Distance (km),Conso (L),Conso/100,Remplissages,Ajouté (L),Temps Conduite,Conduite Nuit (00h-05h),Arrêts,Vitesse Max,Découchages (Nuits Dehors)\n";
-      
-      let count = 0;
+// 1. GLOBAL AUDIT (Fixed: skips server errors)
+async generateGlobalAudit(selectedIds, startDate, endDate) {
+    const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
+    const originalText = btn ? btn.innerHTML : 'Rapport';
+    if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Audit Global...`;
 
-      // 3. Process Loop
-      for (const id of selectedIds) {
-          const truck = app.trucks.get(id);
-          if(!truck) continue;
+    let csv = "Camion,Début,Fin,Distance (km),Conso (L),Conso/100,Remplissages,Ajouté (L),Temps Conduite,Conduite Nuit (00h-05h),Arrêts,Vitesse Max,Découchages (Nuits Dehors)\n";
+    let count = 0;
 
-          count++;
-          if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Analyse ${count}/${selectedIds.length}: ${truck.name}`;
-          
-          try {
-              const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              const json = await res.json();
-              const points = json.messages || json;
+    for (const id of selectedIds) {
+        const truck = app.trucks.get(id);
+        if(!truck) continue;
+        count++;
+        if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Audit ${count}/${selectedIds.length}`;
 
-              // CALL THE V6 ANALYZER
-              const stats = this.analyzeTruckPrecise(points, truck);
-              
-              // ADD DATA ROW (Including stats.decouchageCount)
-csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.consumption},${stats.avgConso},${stats.refillCount},${stats.refillVolume},"${stats.drivingDuration}","${stats.nightDuration}","${stats.stopDuration}","${stats.maxSpeed}",${stats.decouchageCount}\n`;
-              
-          } catch (e) {
-              console.error(e);
-              csv += `"${truck.name}","${startDate}","${endDate}",0,0,0,0,0,"Erreur Données"\n`;
-          }
-      }
+        try {
+            const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
+            
+            // 🛑 STOP: If server errors (500), skip this truck
+            if (!res.ok) {
+                console.warn(`⚠️ Serveur Erreur ${res.status} pour ${truck.name}`);
+                csv += `"${truck.name}","${startDate}","${endDate}",0,0,0,0,0,"Erreur Serveur","0","0",0,0\n`;
+                continue; 
+            }
 
-      // 4. Download
-      if(btn) btn.innerHTML = originalText;
-      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `RAPPORT_PRECIS_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
-      alert("✅ Rapport Terminé !");
-  }
-  
-  
+            const json = await res.json();
+            
+            // Safety: Ensure we pass an Array
+            let safeData = [];
+            if (Array.isArray(json)) safeData = json;
+            else if (json && Array.isArray(json.messages)) safeData = json.messages;
+
+            const stats = this.analyzeTruckPrecise(safeData, truck);
+            
+            csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.consumption},${stats.avgConso},${stats.refillCount},${stats.refillVolume},"${stats.drivingDuration}","${stats.nightDuration}","${stats.stopDuration}","${stats.maxSpeed}",${stats.decouchageCount}\n`;
+        } catch (e) {
+            console.error(e);
+            csv += `"${truck.name}","${startDate}","${endDate}",0,0,0,0,0,"Erreur Données","0","0",0,0\n`;
+        }
+    }
+
+    if(btn) btn.innerHTML = originalText;
+    this._downloadCSV(csv, `AUDIT_GLOBAL_${new Date().toISOString().slice(0,10)}.csv`);
+}
+
+// 2. DETAILED DECOUCHAGE (Fixed: Parallel Speed + Distance Calculation)
+async generateDetailedDecouchageReport(selectedIds, startDate, endDate) {
+    const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
+    const originalText = btn ? btn.innerHTML : 'Rapport';
+    
+    // --- 1. PREPARE CSV HEADER ---
+    let csv = "Date,Heure (Capture),Camion,Statut,Lieu Exact (Nom),Coordonnées,Distance Site (km)\n";
+    let eventsFound = 0;
+    
+    // --- 2. PARALLEL CONFIGURATION (Batching) ---
+    const BATCH_SIZE = 5; // Processes 5 trucks at the same time (faster!)
+    let processedCount = 0;
+
+    // Helper function to process ONE truck
+    const processTruck = async (id) => {
+        const truck = app.trucks.get(id);
+        if (!truck) return ""; 
+
+        let truckCsv = "";
+
+        try {
+            const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
+            if (!res.ok) return ""; // Skip errors silently
+            
+            const json = await res.json();
+            
+            // Data Sanitization
+            let rawPoints = [];
+            if (Array.isArray(json)) rawPoints = json;
+            else if (json && Array.isArray(json.messages)) rawPoints = json.messages;
+
+            // Sort by time
+            let points = rawPoints.map(p => ({
+                time: new Date(p[0]).getTime(),
+                dateStr: p[0].split(' ')[0], // Get YYYY-MM-DD
+                lat: parseFloat(p[1]),
+                lng: parseFloat(p[2]),
+                speed: parseInt(p[5])
+            })).sort((a,b) => a.time - b.time);
+
+            // Filter for Night (00:00 - 05:00)
+            const nightPoints = points.filter(p => {
+                const h = new Date(p.time).getHours();
+                return h >= 0 && h < 5;
+            });
+
+            // Group by Day (One event per night max)
+            const dailyStatus = {};
+            
+            for (const p of nightPoints) {
+                if (!dailyStatus[p.dateStr]) {
+                    let isSafe = false;
+                    let nearestDist = Infinity; // Track nearest distance
+
+                    if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
+                        for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+                            // Only check "douroub" bases
+                            if (loc.type === 'douroub') {
+                                const dist = this.getDistKm(p.lat, p.lng, loc.lat, loc.lng);
+                                
+                                // Keep track of the closest site distance
+                                if (dist < nearestDist) nearestDist = dist;
+
+                                // Check if inside safe radius
+                                if (dist <= (loc.radius ? loc.radius/1000 : 0.5)) { 
+                                    isSafe = true; 
+                                    break; // Found a safe spot, stop looking
+                                }
+                            }
+                        }
+                    }
+
+                    // Store the result for this day
+                    dailyStatus[p.dateStr] = { 
+                        status: isSafe ? 'SAFE' : 'DECOUCHAGE', 
+                        point: p,
+                        // Fix: Save the actual calculated distance (or 0 if no sites found)
+                        dist: (nearestDist === Infinity) ? 0 : nearestDist.toFixed(2)
+                    };
+                }
+            }
+
+            // Generate Rows for this truck
+            for (const [dateStr, data] of Object.entries(dailyStatus)) {
+                if (data.status === 'DECOUCHAGE') {
+                    // We resolve address here (it might slow down slightly, but it's parallel now!)
+                    const address = await this.resolveLocationNameAsync(data.point.lat, data.point.lng);
+                    const timeStr = new Date(data.point.time).toLocaleTimeString();
+                    
+                    // Add to CSV string
+                    truckCsv += `"${dateStr}","${timeStr}","${truck.name}","DECOUCHAGE","${address}","${data.point.lat},${data.point.lng}",${data.dist}\n`;
+                    eventsFound++;
+                }
+            }
+        } catch (e) { console.error(e); }
+
+        return truckCsv;
+    };
+
+    // --- 3. EXECUTE IN BATCHES (The Speed Fix) ---
+    for (let i = 0; i < selectedIds.length; i += BATCH_SIZE) {
+        const batch = selectedIds.slice(i, i + BATCH_SIZE);
+        
+        // Update Button with Elegant Progress
+        const percent = Math.round((processedCount / selectedIds.length) * 100);
+        if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Audit... ${percent}% (${processedCount}/${selectedIds.length})`;
+
+        // Run this batch in PARALLEL
+        const results = await Promise.all(batch.map(id => processTruck(id)));
+        
+        // Add results to main CSV
+        results.forEach(res => csv += res);
+        
+        processedCount += batch.length;
+    }
+
+    // --- 4. FINISH ---
+    if(btn) btn.innerHTML = originalText;
+    
+    if(eventsFound === 0) {
+        alert("Aucun découchage trouvé sur cette période.");
+    } else {
+        this._downloadCSV(csv, `DETAIL_DECOUCHAGES_${new Date().toISOString().slice(0,10)}.csv`);
+    }
+}
+// 3. DETAILED REFILL (Fixed: skips server errors)
+async generateDetailedRefillReport(selectedIds, startDate, endDate) {
+    const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
+    if(btn) btn.innerHTML = `<i class="fa-solid fa-gas-pump fa-spin"></i> Analyse Carburant...`;
+
+    let csv = "Date,Heure,Camion,Volume Ajouté (L),Nouveau Niveau (L),Lieu Exact (Nom),Coordonnées\n";
+    let eventsFound = 0;
+
+    for (const id of selectedIds) {
+        const truck = app.trucks.get(id);
+        if(!truck) continue;
+        const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
+
+        try {
+            const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
+            
+            // 🛑 STOP: If server errors (500), skip
+            if (!res.ok) {
+                console.warn(`Skipping ${truck.name} due to Server Error ${res.status}`);
+                continue;
+            }
+
+            const json = await res.json();
+
+            // 🛡️ DATA SANITIZATION
+            let rawPoints = [];
+            if (Array.isArray(json)) rawPoints = json;
+            else if (json && Array.isArray(json.messages)) rawPoints = json.messages;
+            else rawPoints = []; 
+
+            // Now it is safe to map
+            let points = rawPoints.map(p => ({
+                time: new Date(p[0]).getTime(),
+                lat: parseFloat(p[1]),
+                lng: parseFloat(p[2]),
+                speed: parseInt(p[5]),
+                fuelVal: p[6] && p[6].io87 ? parseFloat(p[6].io87) : 0
+            })).sort((a,b) => a.time - b.time);
+
+            if (points.length === 0) continue;
+
+            let lastLiters = (points[0].fuelVal / 100) * tankCap;
+
+            for (let i = 1; i < points.length; i++) {
+                const p = points[i];
+                const currentLiters = (p.fuelVal / 100) * tankCap;
+                
+                if (currentLiters > (lastLiters + 50) && p.speed < 5) {
+                    eventsFound++;
+                    const added = Math.round(currentLiters - lastLiters);
+                    const newLvl = Math.round(currentLiters);
+                    
+                    if(btn) btn.innerHTML = `🔍 Lieu: +${added}L (${truck.name})`;
+
+                    const address = await this.resolveLocationNameAsync(p.lat, p.lng);
+                    const dateStr = new Date(p.time).toLocaleDateString();
+                    const timeStr = new Date(p.time).toLocaleTimeString();
+
+                    csv += `"${dateStr}","${timeStr}","${truck.name}",${added},${newLvl},"${address}","${p.lat},${p.lng}"\n`;
+                    
+                    lastLiters = currentLiters;
+                } else if (currentLiters > 0) {
+                     if(p.speed > 5) lastLiters = currentLiters; 
+                     else if (currentLiters < lastLiters) lastLiters = currentLiters; 
+                }
+            }
+        } catch (e) { console.error("Refill Report Error:", e); }
+    }
+
+    if(btn) btn.innerHTML = 'Rapport';
+    if(eventsFound === 0) alert("Aucun remplissage trouvé (ou erreur serveur).");
+    else this._downloadCSV(csv, `DETAIL_CARBURANT_${new Date().toISOString().slice(0,10)}.csv`);
+}
+
+
+
+// 4. HELPER: Async Location Resolver (Custom -> Cache -> API)
+async resolveLocationNameAsync(lat, lng) {
+    if(!lat || !lng) return "Inconnu";
+
+    // A. Check Custom Sites (Instant)
+    if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
+        for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+            const dist = this.getDistKm(lat, lng, loc.lat, loc.lng);
+            if (dist <= (loc.radius ? loc.radius/1000 : 0.5)) return `🏢 ${loc.name}`;
+        }
+    }
+
+    // B. Check Cache (Instant)
+    if (typeof geocodeService !== 'undefined') {
+        const cached = geocodeService.checkCacheInstant(lat, lng);
+        if (cached) return `${cached.city}, ${cached.wilaya}`;
+    }
+
+    // C. Live Fetch (Slow but Exact)
+    try {
+        const res = await geocodeService.reverseGeocode(lat, lng);
+        return `${res.formatted || res.city}`;
+    } catch (e) {
+        return `${lat.toFixed(4)}, ${lng.toFixed(4)}`; // Fallback
+    }
+}
+
+// 5. HELPER: Distance
+getDistKm(lat1, lon1, lat2, lon2) {
+    const R = 6371; 
+    const dLat = (lat2-lat1) * Math.PI/180;
+    const dLon = (lon2-lon1) * Math.PI/180;
+    const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)*Math.sin(dLon/2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+} 
   
 // 🧮 ANALYZER V6: STRICT NIGHT (00-05h) + CUTOFF DÉCOUCHAGE
 // 🧮 ANALYZER V7: TIMEZONE FIX + CUTOFF LOGIC

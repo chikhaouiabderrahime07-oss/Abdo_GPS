@@ -480,43 +480,60 @@ addStopMarkers: function(stops) {
     this.updateFilterCounts();
 },
     // Req #3: Decouchage Logic
+// REPLACEMENT FOR algeria-map.js
+
+    // Corrected: Strict check for 00:00 - 05:00
     isDecouchage: function(s) {
-        // 1. Time Check: Does it cross midnight?
+        // 1. Get Stop Times
         const start = new Date(s.startTime);
-        // We approximate end time based on duration (durationStr parsing is complex, let's assume we pass durationMs if available or parse)
-        // Better: Check if start is between 22:00 and 04:00 or simple midnight check
-        // User rule: "after the 00 00"
+        const end = new Date(s.endTime);
+
+        // 2. Check if the stop overlaps with the critical window (00:00 to 05:00)
+        // We convert everything to "minutes from midnight" to be precise
+        const startMin = start.getHours() * 60 + start.getMinutes();
+        const endMin = end.getHours() * 60 + end.getMinutes();
         
-        // Simple heuristic: If stop started yesterday and it's a new day now?
-        // Or if stop starts very late (e.g. 23:00) and lasts > 4 hours
-        // Let's assume ui.js calculated duration correctly.
+        // If the stop spans across days, endMin needs to account for that (add 24h)
+        const durationMin = (end - start) / 60000;
         
-        // STRICT CHECK: Does it cover 00:00:00?
-        // Since we don't have endTime explicitly in simple object, let's check start hour
-        const hour = start.getHours();
-        const isNightStop = (hour >= 20 || hour <= 4); 
+        // Critical Window: 00:00 (0 min) to 05:00 (300 min)
+        // A stop is a "Decouchage Risk" if it exists during these hours
+        let overlapsMorning = false;
+
+        // Case A: Starts in the window (e.g. 01:00)
+        if (startMin >= 0 && startMin < 300) overlapsMorning = true;
         
-        // Duration Check (> 4 hours) - We parse "3h 15min" roughly
-        let durationHours = 0;
-        if(s.durationStr.includes('h')) durationHours = parseInt(s.durationStr.split('h')[0]);
+        // Case B: Ends in the window (e.g. 04:30)
+        if (endMin > 0 && endMin <= 300) overlapsMorning = true;
         
-        if (isNightStop && durationHours >= 4) {
-            // 2. Zone Check (Geofence)
-            return !this.isInsideSafeZone(s.lat, s.lng);
+        // Case C: Spans over the window (e.g. 23:00 to 06:00)
+        // (Start is late night OR previous day) AND (Duration covers the gap)
+        if ((start.getHours() >= 20 || start.getHours() <= 5) && durationMin > 240) {
+             overlapsMorning = true;
+        }
+
+        if (overlapsMorning) {
+            // 3. Strict Zone Check (Must be outside DOUROUB sites)
+            const isSafe = this.isInsideSafeZone(s.lat, s.lng);
+            return !isSafe; // If NOT safe, it is a decouchage
         }
         return false;
     },
 
+    // Corrected: Checks ONLY for 'douroub' type sites
     isInsideSafeZone: function(lat, lng) {
         if (!FLEET_CONFIG.CUSTOM_LOCATIONS) return false;
-        // Check distance to any custom location (Threshold 1km)
-        for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+        
+        // Filter: We only care about type 'douroub'
+        const safeSites = FLEET_CONFIG.CUSTOM_LOCATIONS.filter(l => l.type === 'douroub');
+        
+        for (const loc of safeSites) {
             const dist = this.getDistanceFromLatLonInKm(lat, lng, loc.lat, loc.lng);
-            if (dist < 1.0) return true; // It is inside a zone (safe)
+            const radiusKm = (loc.radius ? loc.radius / 1000 : 0.5); // Default 500m (0.5km) if not set
+            if (dist <= radiusKm) return true; // Safe inside Douroub site
         }
         return false;
     },
-
 addDecouchageMarker: function(s) {
     // 1. Create the Marker Icon (Purple Moon)
     const el = document.createElement('div');
