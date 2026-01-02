@@ -402,6 +402,59 @@ async function checkAccess(req, res, next) {
     } catch (e) { res.status(500).json({ error: "Auth Error" }); }
 }
 
+// --- NEW MODEL: AUDIT REPORTS ---
+const AuditSchema = new mongoose.Schema({
+    date: { type: Date, default: Date.now },
+    truckName: String,
+    truckId: String,
+    periodStart: String,
+    periodEnd: String,
+    stats: {
+        uptime: String,
+        downtime: String,
+        sleep: String,
+        score: String
+    },
+    incidents: Array, // Stores the cuts
+    parkings: Array   // Stores the sleep logs
+});
+const AuditReport = mongoose.model('AuditReport', AuditSchema);
+
+// --- NEW ROUTES: AUDIT HISTORY ---
+
+// 1. SAVE REPORT
+app.post('/api/audit/save', checkAccess, async (req, res) => {
+    try {
+        const report = new AuditReport(req.body);
+        await report.save();
+        res.json({ success: true, id: report._id });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 2. LIST REPORTS
+app.get('/api/audit/list', checkAccess, async (req, res) => {
+    try {
+        // Return light version (no heavy arrays) for the list
+        const list = await AuditReport.find({}, 'date truckName periodStart periodEnd stats.score').sort({ date: -1 }).limit(50);
+        res.json(list);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 3. GET FULL REPORT
+app.get('/api/audit/:id', checkAccess, async (req, res) => {
+    try {
+        const report = await AuditReport.findById(req.params.id);
+        res.json(report);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 4. DELETE REPORT
+app.delete('/api/audit/:id', checkAccess, async (req, res) => {
+    try {
+        await AuditReport.findByIdAndDelete(req.params.id);
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // --- 6. API ROUTES ---
 
 app.get('/health', (req, res) => res.send('System Operational'));
@@ -472,14 +525,47 @@ app.get('/api/decouchages', checkAccess, async (req, res) => {
     res.json(fmt(data));
 });
 
+// --- REPLACE THE /api/history ROUTE IN server.js WITH THIS ---
+
 app.get('/api/history', checkAccess, async (req, res) => {
     const { imei, start, end } = req.query;
-    const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${imei},${start},${end}`;
+
+    // 1. Clean Inputs: Encode spaces manually to prevent node-fetch crashes
+    // If the browser sent %20, Express decodes it to ' '. We put %20 back.
+    const safeStart = start.replace(' ', '%20');
+    const safeEnd = end.replace(' ', '%20');
+
+    // 2. Construct URL
+    const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${imei},${safeStart},${safeEnd}`;
+
+    console.log("------------------------------------------");
+    console.log("📡 FETCHING HISTORY...");
+    console.log("URL:", url); // <--- Check your terminal for this!
+
     try {
-        const r = await fetch(url);
-        const t = await r.text();
-        res.json(JSON.parse(t));
-    } catch(e) { res.status(500).json({error:"Proxy Error"}); }
+        // 3. Fetch with SSL Verification Disabled (Fixes "UNABLE_TO_VERIFY_LEAF_SIGNATURE")
+        const https = require('https');
+        const agent = new https.Agent({ rejectUnauthorized: false });
+        
+        const r = await fetch(url, { agent });
+        const text = await r.text(); // Get raw text first
+        
+        console.log("📩 RESPONSE RAW:", text.substring(0, 100) + "..."); // Log first 100 chars
+
+        // 4. Try to parse JSON safely
+        try {
+            const json = JSON.parse(text);
+            res.json(json);
+        } catch (parseError) {
+            console.error("❌ JSON PARSE ERROR. API returned non-JSON.");
+            // Send the raw text to the frontend so we can see the error
+            res.status(502).json({ error: "Provider Error", details: text });
+        }
+
+    } catch(e) { 
+        console.error("🔥 NETWORK/FETCH ERROR:", e.message);
+        res.status(500).json({ error: "Server Error", details: e.message }); 
+    }
 });
 
 app.get('/api/backup/download', checkAccess, async (req, res) => {
