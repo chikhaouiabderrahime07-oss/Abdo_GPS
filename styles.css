@@ -1127,3 +1127,96 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgb
     .stats-group { font-size: 11px; gap: 8px; }
     .filter-btn span { display: none; } /* Hide text on small screens, keep icons */
 }
+/* =========================================
+   TV VISUALIZATION MODE - BIG ICONS
+   ========================================= */
+
+.futuristic-marker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    /* Smooth gliding movement for TV */
+    transition: transform 2s linear; 
+}
+
+/* 1. The Name Tag (Big & Clear for TV) */
+.f-marker-name {
+    background: rgba(0, 0, 0, 0.85);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 2px solid white;
+    font-size: 16px; /* Huge text for TV */
+    font-weight: 900;
+    text-transform: uppercase;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.6);
+    margin-bottom: 6px;
+    white-space: nowrap;
+    text-shadow: 0 2px 4px rgba(0,0,0,1);
+    font-family: 'Segoe UI', sans-serif;
+    letter-spacing: 1px;
+}
+
+/* 2. The Truck Icon Container */
+.f-marker-icon {
+    width: 44px;
+    height: 44px;
+    background: #1e293b; /* Dark Blue Base */
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid white;
+    box-shadow: 0 0 25px rgba(0,0,0,0.6);
+    color: white;
+    font-size: 20px;
+    position: relative;
+    z-index: 2;
+}
+
+/* 3. Status: MOVING (Green Pulse) */
+.f-marker-icon.status-moving {
+    background: #059669;
+    border-color: #34d399;
+    box-shadow: 0 0 30px #059669;
+    animation: pulse-tv 1.5s infinite;
+}
+
+/* 4. Status: STOPPED (Red Glow) */
+.f-marker-icon.status-stopped {
+    background: #b91c1c;
+    border-color: #f87171;
+    box-shadow: 0 0 20px #b91c1c;
+}
+
+/* 5. Status: GPS CUT (Grey Glitch) */
+.f-marker-icon.status-cut {
+    background: #000;
+    border-color: #666;
+    color: #aaa;
+    border-style: dashed;
+}
+
+/* 6. The Arrow Tip */
+.f-marker-arrow {
+    width: 0; height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 10px solid white;
+    margin-top: -2px;
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5));
+    z-index: 1;
+}
+
+/* Color the arrow tip based on status */
+.f-marker-icon.status-moving + .f-marker-arrow { border-top-color: #34d399; }
+.f-marker-icon.status-stopped + .f-marker-arrow { border-top-color: #f87171; }
+
+@keyframes pulse-tv {
+    0% { transform: scale(1); box-shadow: 0 0 20px #059669; }
+    50% { transform: scale(1.15); box-shadow: 0 0 50px #059669; }
+    100% { transform: scale(1); box-shadow: 0 0 20px #059669; }
+}

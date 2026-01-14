@@ -2737,12 +2737,12 @@ async generateDetailedDecouchageReport(selectedIds, startDate, endDate) {
         this._downloadCSV(csv, `DETAIL_DECOUCHAGES_${new Date().toISOString().slice(0,10)}.csv`);
     }
 }
-// 3. DETAILED REFILL (Fixed: skips server errors)
+// 3. DETAILED REFILL REPORT (UPDATED: Strict Stop/Start Logic)
 async generateDetailedRefillReport(selectedIds, startDate, endDate) {
     const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
     if(btn) btn.innerHTML = `<i class="fa-solid fa-gas-pump fa-spin"></i> Analyse Carburant...`;
 
-    let csv = "Date,Heure,Camion,Volume Ajouté (L),Nouveau Niveau (L),Lieu Exact (Nom),Coordonnées\n";
+    let csv = "Date,Heure,Camion,Volume Ajouté (L),Niveau Avant (L),Nouveau Niveau (L),Lieu,Coordonnées\n";
     let eventsFound = 0;
 
     for (const id of selectedIds) {
@@ -2752,65 +2752,70 @@ async generateDetailedRefillReport(selectedIds, startDate, endDate) {
 
         try {
             const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
-            
-            // 🛑 STOP: If server errors (500), skip
-            if (!res.ok) {
-                console.warn(`Skipping ${truck.name} due to Server Error ${res.status}`);
-                continue;
-            }
+            if (!res.ok) continue;
 
             const json = await res.json();
-
-            // 🛡️ DATA SANITIZATION
             let rawPoints = [];
             if (Array.isArray(json)) rawPoints = json;
             else if (json && Array.isArray(json.messages)) rawPoints = json.messages;
-            else rawPoints = []; 
 
-            // Now it is safe to map
+            // Sort points by time
             let points = rawPoints.map(p => ({
                 time: new Date(p[0]).getTime(),
                 lat: parseFloat(p[1]),
                 lng: parseFloat(p[2]),
                 speed: parseInt(p[5]),
-                fuelVal: p[6] && p[6].io87 ? parseFloat(p[6].io87) : 0
+                // Calculate Liters immediately
+                liters: p[6] && p[6].io87 ? Math.round((parseFloat(p[6].io87) / 100) * tankCap) : 0
             })).sort((a,b) => a.time - b.time);
 
             if (points.length === 0) continue;
 
-            let lastLiters = (points[0].fuelVal / 100) * tankCap;
+            // --- STRICT SESSION ANALYSIS ---
+            let isStopped = false;
+            let fuelAtStopStart = 0;
+            let stopStartTime = 0;
 
-            for (let i = 1; i < points.length; i++) {
-                const p = points[i];
-                const currentLiters = (p.fuelVal / 100) * tankCap;
-                
-                if (currentLiters > (lastLiters + 50) && p.speed < 5) {
-                    eventsFound++;
-                    const added = Math.round(currentLiters - lastLiters);
-                    const newLvl = Math.round(currentLiters);
-                    
-                    if(btn) btn.innerHTML = `🔍 Lieu: +${added}L (${truck.name})`;
+            for (const p of points) {
+                if (p.speed < 5) {
+                    // TRUCK IS STOPPED
+                    if (!isStopped) {
+                        // Just stopped: Record baseline
+                        isStopped = true;
+                        fuelAtStopStart = p.liters;
+                        stopStartTime = p.time;
+                    }
+                    // While stopped, we ignore fluctuations (sloshing)
+                } else {
+                    // TRUCK IS MOVING
+                    if (isStopped) {
+                        // Just started moving: Compare Fuel NOW vs START OF STOP
+                        const fuelNow = p.liters;
+                        const diff = fuelNow - fuelAtStopStart;
 
-                    const address = await this.resolveLocationNameAsync(p.lat, p.lng);
-                    const dateStr = new Date(p.time).toLocaleDateString();
-                    const timeStr = new Date(p.time).toLocaleTimeString();
+                        // THRESHOLD: > 50 Liters (Ignores noise)
+                        if (diff >= 50) {
+                            eventsFound++;
+                            const address = await this.resolveLocationNameAsync(p.lat, p.lng);
+                            const dateStr = new Date(stopStartTime).toLocaleDateString();
+                            const timeStr = new Date(stopStartTime).toLocaleTimeString();
 
-                    csv += `"${dateStr}","${timeStr}","${truck.name}",${added},${newLvl},"${address}","${p.lat},${p.lng}"\n`;
-                    
-                    lastLiters = currentLiters;
-                } else if (currentLiters > 0) {
-                     if(p.speed > 5) lastLiters = currentLiters; 
-                     else if (currentLiters < lastLiters) lastLiters = currentLiters; 
+                            csv += `"${dateStr}","${timeStr}","${truck.name}",${diff},${fuelAtStopStart},${fuelNow},"${address}","${p.lat},${p.lng}"\n`;
+                        }
+                        
+                        // Reset stop state
+                        isStopped = false;
+                    }
                 }
             }
+
         } catch (e) { console.error("Refill Report Error:", e); }
     }
 
     if(btn) btn.innerHTML = 'Rapport';
-    if(eventsFound === 0) alert("Aucun remplissage trouvé (ou erreur serveur).");
-    else this._downloadCSV(csv, `DETAIL_CARBURANT_${new Date().toISOString().slice(0,10)}.csv`);
+    if(eventsFound === 0) alert("Aucun remplissage > 50L détecté sur cette période.");
+    else this._downloadCSV(csv, `DETAIL_CARBURANT_STRICT_${new Date().toISOString().slice(0,10)}.csv`);
 }
-
 
 
 // 4. HELPER: Async Location Resolver (Custom -> Cache -> API)
