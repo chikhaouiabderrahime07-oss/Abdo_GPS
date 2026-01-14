@@ -137,6 +137,8 @@ async function saveSettings() {
     } catch (e) { console.error("Settings Save Error:", e.message); }
 }
 
+// --- 5. LOGIC ENGINE (FINAL ROBUST VERSION) ---
+
 async function runFleetBot() {
     await loadSettings(); 
 
@@ -146,47 +148,50 @@ async function runFleetBot() {
         const json = await response.json();
         rawData = json.data || json; 
     } catch (e) {
-        console.log("Bot fetch error:", e.message);
-        setTimeout(runFleetBot, 60000); // Retry in 1 min if fail
+        console.error("⚠️ Bot Fetch Error:", e.message);
+        setTimeout(runFleetBot, 60000); 
         return; 
     }
     
     const now = Date.now();
-    // Convert object to array if needed
     const truckArray = Array.isArray(rawData) ? rawData : Object.entries(rawData).map(([id, val]) => ({ ...val, id }));
 
-    // --- 1. RUN DECOUCHAGE CHECKS FIRST ---
+    // 1. RUN DECOUCHAGE CHECKS
     await runDecouchageLogic(truckArray);
 
-    // --- 2. PROCESS EACH TRUCK ---
+    // 2. PROCESS EACH TRUCK
     for (const truck of truckArray) {
         const deviceId = String(truck.id || truck.imei);
-
-        // Safety Check: Skip if invalid data
         if (!truck.params || deviceId === "undefined") continue;
 
-        // PARSE DATA
+        // --- PARSE DATA ---
         const lat = parseFloat(truck.lat);
         const lng = parseFloat(truck.lng);
         const truckName = truck.name;
         const config = getTruckConfig(deviceId);
         
-        // FUEL CALCULATION
+        // FUEL: Normalize to Liters (Handle Raw vs Percentage)
+        // If io87 is raw (0-65535) or percent (0-100), we rely on calibration if possible, 
+        // otherwise assume io87 is percentage 0-100.
         const rawSensor = parseFloat(truck.params.io87) || 0; 
         const capacity = config.fuelTankCapacity || 600;
-        const currentLiters = Math.round((rawSensor / 100) * capacity);
         
-        // SPEED CHECK (We use 5 km/h to filter out GPS drift)
+        // Simple calculation: (Percent / 100) * Capacity
+        // We clamp it so it never exceeds capacity + 10% (sensor error tolerance)
+        let currentLiters = Math.round((rawSensor / 100) * capacity);
+        if (currentLiters > capacity * 1.1) currentLiters = capacity; 
+
         const speed = parseInt(truck.speed) || 0;
         const isMoving = speed > 5;
 
-        // GET TRUCK FROM DB
+        // --- GET DB STATE ---
         let dbTruck = await Truck.findOne({ deviceId });
         
+        // INITIALIZE NEW TRUCK
         if (!dbTruck) {
-            // First time seeing this truck? Create it and skip logic.
             await Truck.findOneAndUpdate({ deviceId }, { 
-                truckName, lastUpdate: now, lastFuelLiters: currentLiters, 
+                truckName, lastUpdate: now, 
+                lastFuelLiters: currentLiters, 
                 lat, lng, params: truck.params 
             }, { upsert: true });
             continue;
@@ -195,113 +200,110 @@ async function runFleetBot() {
         let needsUpdate = false;
         let updatePayload = {
             truckName, lastUpdate: now,
-            lat, lng, speed,
-            params: truck.params,
-            refuelSession: dbTruck.refuelSession || null // Keep existing session
+            lat, lng, speed, params: truck.params,
+            refuelSession: dbTruck.refuelSession || { state: 'MOVING' }, 
+            lastFuelLiters: dbTruck.lastFuelLiters 
         };
 
         // =========================================================
-        // ⛽ NEW "EZ PZ" REFILL LOGIC (Monitor Stopped -> Calc Moving)
+        // ⛽ ROBUST "PARKING SESSION" LOGIC
         // =========================================================
-        
+
         if (isMoving) {
-            // --- CASE A: TRUCK IS MOVING ---
+            // [SCENARIO 1]: TRUCK IS MOVING
             
-            // 1. Did we just come from a stop (Active Session)?
-            if (updatePayload.refuelSession && updatePayload.refuelSession.isActive) {
-                console.log(`🚚 ${truckName} Started Moving! Calculating Refill...`);
-
+            // Check: Did we just finish a stop?
+            if (updatePayload.refuelSession.state === 'STOPPED') {
+                console.log(`🚚 ${truckName}: Started Moving. Analyzing Stop...`);
+                
                 const session = updatePayload.refuelSession;
-                const startLevel = session.startLiters;
-                const finalLevel = session.maxLiters; // The highest level seen while stopped
-                const added = finalLevel - startLevel;
+                // Calculate the true gain: Highest Point - Lowest Point during the stop
+                const potentialRefill = session.maxLiters - session.minLiters;
 
-                // 2. CHECK THE 50 LITER RULE
-                if (added >= 50) {
-                    console.log(`✅ CONFIRMED REFILL: +${added} Liters! Saving...`);
-                    
-                    // Determine Location Name (Internal or External?)
-                    let locName = "External Station";
+                // THRESHOLD CHECK: > 50 Liters
+                if (potentialRefill >= 50) {
+                    console.log(`✅ REFILL CONFIRMED: +${potentialRefill}L`);
+
+                    // 1. Detect Location
+                    let locName = "Station Externe"; 
                     let isInternal = false;
                     
                     if (SYSTEM_SETTINGS.customLocations) {
                         for (const loc of SYSTEM_SETTINGS.customLocations) {
-                            const dist = calculateDistance(session.lat, session.lng, loc.lat, loc.lng);
-                            if (dist <= (loc.radius || 500)) {
+                            const d = calculateDistance(lat, lng, loc.lat, loc.lng);
+                            if (d <= (loc.radius || 500)) { 
                                 locName = loc.name; 
                                 isInternal = true; 
-                                break;
+                                break; 
                             }
                         }
                     }
 
-                    // SAVE TO DATABASE
+                    // 2. Save Log
                     await Refuel.create({
                         deviceId, truckName,
-                        addedLiters: added,
-                        oldLevel: startLevel,
-                        newLevel: finalLevel,
-                        timestamp: new Date(session.startTime), // Use time when they stopped
+                        addedLiters: potentialRefill,
+                        oldLevel: session.minLiters,
+                        newLevel: session.maxLiters,
+                        timestamp: new Date(session.startTime), // Date of the stop
                         locationRaw: locName,
                         lat: session.lat, lng: session.lng,
                         isInternal
                     });
                 } else {
-                    console.log(`📉 IGNORED Small Change: +${added}L (Under 50L threshold)`);
+                    console.log(`📉 Ignored Variance: ${potentialRefill}L (Threshold 50L)`);
                 }
 
-                // 3. CLOSE SESSION
-                updatePayload.refuelSession = null;
+                // Close the session
+                updatePayload.refuelSession = { state: 'MOVING' };
                 needsUpdate = true;
             }
 
-            // 4. Update the "Last Known Stable Level"
-            // While moving, the sensor is bouncing, but we update the baseline continuously
-            // so we're ready for the next stop.
-            updatePayload.lastFuelLiters = currentLiters;
-
-        } else {
-            // --- CASE B: TRUCK IS STOPPED (Engine Off / Idling) ---
+            // Continuously update the "Last Known" fuel while moving (for the next stop baseline)
+            updatePayload.lastFuelLiters = currentLiters; 
+        } 
+        else {
+            // [SCENARIO 2]: TRUCK IS STOPPED
             
-            if (!updatePayload.refuelSession) {
-                // 1. START MONITORING (First moment of stop)
-                console.log(`🛑 ${truckName} Stopped. Monitoring Fuel (Start: ${currentLiters}L)`);
-                
+            if (updatePayload.refuelSession.state !== 'STOPPED') {
+                // START NEW STOP SESSION
+                console.log(`🛑 ${truckName}: Stop Detected. Scanning Fuel...`);
                 updatePayload.refuelSession = {
-                    isActive: true,
+                    state: 'STOPPED',
                     startTime: now,
-                    startLiters: currentLiters, // Lock this value!
-                    maxLiters: currentLiters,   // Initialize max
+                    minLiters: currentLiters, // Start assuming this is the low point
+                    maxLiters: currentLiters, // Start assuming this is the high point
                     lat: lat, lng: lng
                 };
                 needsUpdate = true;
-
             } else {
-                // 2. CONTINUE MONITORING
-                // If the fuel goes UP while stopped, update the "maxLiters".
-                // We do NOT update "startLiters" because that's our baseline.
+                // UPDATE EXISTING SESSION
+                // We track the lowest and highest values seen during the ENTIRE stop.
+                // This captures the "Before" (Low) and "After" (High) regardless of sensor noise.
+                if (currentLiters < updatePayload.refuelSession.minLiters) {
+                    updatePayload.refuelSession.minLiters = currentLiters;
+                    needsUpdate = true;
+                }
                 if (currentLiters > updatePayload.refuelSession.maxLiters) {
-                    // Filter: Only update if it's a "sane" increase (e.g. not +1000L instantly error)
-                    if (currentLiters <= capacity + 50) {
-                        updatePayload.refuelSession.maxLiters = currentLiters;
-                        needsUpdate = true;
-                    }
+                    updatePayload.refuelSession.maxLiters = currentLiters;
+                    needsUpdate = true;
                 }
             }
         }
+        
         // =========================================================
 
-        // --- SAVE UPDATES ---
         const distMoved = calculateDistance(lat, lng, dbTruck.lat, dbTruck.lng);
-        // Save if: Logic changed data OR Moved > 50m OR 10 mins passed
+        // Save to DB if: Logic update needed OR Moved 50m OR 10 mins passed
         if (needsUpdate || distMoved > 50 || (now - dbTruck.lastUpdate) > 600000) {
             await Truck.findOneAndUpdate({ deviceId }, updatePayload, { upsert: true });
         }
     }
     
-    // Run again in 2 minutes
+    // Loop every 2 minutes
     setTimeout(runFleetBot, 120000); 
 }
+
 // 🌙 DECOUCHAGE LOGIC (STRICT DAILY RESET 00:00 - 06:00)
 async function runDecouchageLogic(trucks) {
     const nowUTC = new Date(); 
