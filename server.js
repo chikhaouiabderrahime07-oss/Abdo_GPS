@@ -143,6 +143,8 @@ async function saveSettings() {
 
 // --- 5. LOGIC ENGINE (STRONG "MAX - MIN" MONITOR) ---
 
+// --- 5. ROBUST LOGIC ENGINE (PRECISE TIMESTAMPS) ---
+
 async function runFleetBot() {
     await loadSettings(); 
 
@@ -168,139 +170,140 @@ async function runFleetBot() {
         const deviceId = String(truck.id || truck.imei);
         if (!truck.params || deviceId === "undefined") continue;
 
-        // --- PARSE DATA ---
         const lat = parseFloat(truck.lat);
         const lng = parseFloat(truck.lng);
         const truckName = truck.name;
         const config = getTruckConfig(deviceId);
         
-        // FUEL CALCULATION
         const rawSensor = parseFloat(truck.params.io87) || 0; 
         const capacity = config.fuelTankCapacity || 600;
-        
         let currentLiters = Math.round((rawSensor / 100) * capacity);
-        if (currentLiters > capacity * 1.1) currentLiters = capacity; 
+        if (currentLiters > capacity) currentLiters = capacity; 
 
-        // ⚠️ CRITICAL: IGNORE "IGNITION" STATUS. TRUST ONLY SPEED.
-        // If speed is less than 4 km/h, the truck is effectively STOPPED/IDLING.
+        // SPEED FILTER (> 10 km/h is real movement)
         const speed = parseInt(truck.speed) || 0;
-        const isMoving = speed >= 4; // Stricter threshold
+        const isRealMotion = speed > 10; 
 
-        // --- GET DB STATE ---
         let dbTruck = await Truck.findOne({ deviceId });
         
         if (!dbTruck) {
             await Truck.findOneAndUpdate({ deviceId }, { 
-                truckName, lastUpdate: now, 
-                lastFuelLiters: currentLiters, 
-                lat, lng, params: truck.params,
-                refuelSession: { state: 'MOVING' } 
+                truckName, lastUpdate: now, lastFuelLiters: currentLiters, 
+                lat, lng, params: truck.params, refuelSession: { state: 'IDLE' } 
             }, { upsert: true });
             continue;
         }
 
         let needsUpdate = false;
-        let session = dbTruck.refuelSession || { state: 'MOVING' };
+        let session = dbTruck.refuelSession || { state: 'IDLE' };
         let payload = { truckName, lastUpdate: now, lat, lng, speed, params: truck.params };
 
         // =========================================================
-        // ⛽ THE STRONG REFILL AUDITOR (MAX - MIN)
+        // ⛽ PRECISE TIMESTAMP LOGIC
         // =========================================================
 
-        if (!isMoving) {
-            // [SCENARIO A]: TRUCK IS STOPPED (Speed < 4)
-            // We monitor "All Time" here. We track the lowest and highest point.
-
-            if (session.state !== 'STOPPED') {
-                // START MONITORING
-                console.log(`🛑 ${truckName}: Stopped. Initializing Monitor...`);
+        // STAGE 1: STOPPED
+        if (!isRealMotion) {
+            if (session.state === 'VERIFYING_MOVEMENT') {
+                // Paused at traffic light during test - do nothing
+            }
+            else if (session.state !== 'STOPPED') {
+                // START NEW STOP
                 session = {
                     state: 'STOPPED',
-                    startTime: now,
-                    minLiters: currentLiters, // Start with current
-                    maxLiters: currentLiters, // Start with current
+                    startTime: now,       // When he parked
+                    minLiters: currentLiters,
+                    maxLiters: currentLiters,
+                    maxTime: now,         // <--- NEW: Track when the High Point happened
                     lat: lat, lng: lng
                 };
                 needsUpdate = true;
-            } else {
-                // CONTINUOUS MONITORING (The "All Time" Check)
-                // We expand the range. If it drops, we lower Min. If it rises, we raise Max.
+            } 
+            else {
+                // UPDATE RANGE
                 if (currentLiters < session.minLiters) {
                     session.minLiters = currentLiters;
-                    console.log(`   📉 ${truckName} Low Point: ${session.minLiters}L`);
                     needsUpdate = true;
                 }
+                // IF FUEL GOES UP -> UPDATE TIMESTAMP
                 if (currentLiters > session.maxLiters) {
                     session.maxLiters = currentLiters;
-                    console.log(`   📈 ${truckName} High Point: ${session.maxLiters}L`);
+                    session.maxTime = now; // <--- UPDATE TIME: "It went up RIGHT NOW"
                     needsUpdate = true;
                 }
             }
+        } 
 
-        } else {
-            // [SCENARIO B]: TRUCK IS MOVING
-            // The moment it moves, we AUDIT the last session.
+        // STAGE 2: STARTED MOVING
+        else if (isRealMotion && session.state === 'STOPPED') {
+            const potentialRefill = session.maxLiters - session.minLiters;
+            
+            if (potentialRefill >= 50) {
+                console.log(`🧐 ${truckName}: Potential Refill (+${potentialRefill}L). Road Testing...`);
+                session.state = 'VERIFYING_MOVEMENT';
+                session.verificationStart = now; 
+                session.candidateAmount = potentialRefill;
+                session.preRefillLevel = session.minLiters;
+                // We keep session.maxTime in memory!
+                needsUpdate = true;
+            } else {
+                session = { state: 'IDLE' };
+                needsUpdate = true;
+            }
+        }
 
-            if (session.state === 'STOPPED') {
-                console.log(`🚚 ${truckName}: Moving. Auditing Refill Session...`);
-                
-                // --- THE AUDIT HELPER LOGIC ---
-                // We calculate the absolute difference between the lowest point and highest point
-                // seen during the ENTIRE stop.
-                const realAdded = session.maxLiters - session.minLiters;
-                const durationMins = (now - session.startTime) / 60000;
+        // STAGE 3: ROAD TEST (10 MINS)
+        else if (isRealMotion && session.state === 'VERIFYING_MOVEMENT') {
+            const timeDriving = now - session.verificationStart;
+            
+            // Check 1: Did fuel drop back down? (False Alarm)
+            if (currentLiters < (session.preRefillLevel + 20)) {
+                 console.log(`❌ ${truckName}: Refill Failed (Fuel dropped).`);
+                 session = { state: 'IDLE' };
+                 needsUpdate = true;
+            }
+            // Check 2: 10 Mins Passed?
+            else if (timeDriving > 600000) {
+                const confirmedAdded = currentLiters - session.preRefillLevel;
 
-                console.log(`   📊 Audit Result: Low ${session.minLiters}L | High ${session.maxLiters}L | Diff ${realAdded}L`);
+                if (confirmedAdded >= 40) {
+                    console.log(`✅ ${truckName}: CONFIRMED (+${confirmedAdded}L).`);
 
-                // RULE: Only accept if > 50 Liters (Fake refill protection)
-                if (realAdded >= 50) {
-                    console.log(`✅ REFILL CONFIRMED: +${realAdded}L (Duration: ${Math.round(durationMins)}m)`);
-
-                    // 1. Detect Location (Optional - Just for naming)
+                    // LOCATION
                     let locName = "Station Externe"; 
                     let isInternal = false;
-                    
-                    // We DO NOT filter by location. We just label it.
                     if (SYSTEM_SETTINGS.customLocations) {
                         for (const loc of SYSTEM_SETTINGS.customLocations) {
-                            const d = calculateDistance(lat, lng, loc.lat, loc.lng);
-                            if (d <= (loc.radius || 500)) { 
-                                locName = loc.name; 
-                                isInternal = true; 
-                                break; 
-                            }
+                            const d = calculateDistance(session.lat, session.lng, loc.lat, loc.lng);
+                            if (d <= (loc.radius || 500)) { locName = loc.name; isInternal = true; break; }
                         }
                     }
 
-                    // 2. Save the Event
+                    // SAVE WITH PRECISE TIME
+                    // We use session.maxTime (The exact moment it filled up)
+                    // If undefined for some reason, fallback to startTime.
+                    const eventDate = new Date(session.maxTime || session.startTime);
+
                     await Refuel.create({
                         deviceId, truckName,
-                        addedLiters: realAdded,
-                        oldLevel: session.minLiters,
-                        newLevel: session.maxLiters,
-                        timestamp: new Date(session.startTime), // Use start of stop
+                        addedLiters: confirmedAdded,
+                        oldLevel: session.preRefillLevel,
+                        newLevel: currentLiters,
+                        timestamp: eventDate, // <--- PRECISE TIMESTAMP
                         locationRaw: locName,
                         lat: session.lat, lng: session.lng,
                         isInternal
                     });
-                } else {
-                    console.log(`🗑️ Ignored Small Fluctuation: ${realAdded}L`);
                 }
-
-                // Close Session
-                session = { state: 'MOVING' };
+                session = { state: 'IDLE' };
                 needsUpdate = true;
             }
-
-            // Always update live fuel while moving
-            payload.lastFuelLiters = currentLiters;
         }
         
-        // =========================================================
-
         payload.refuelSession = session;
-        const distMoved = calculateDistance(lat, lng, dbTruck.lat, dbTruck.lng);
+        payload.lastFuelLiters = currentLiters; 
 
+        const distMoved = calculateDistance(lat, lng, dbTruck.lat, dbTruck.lng);
         if (needsUpdate || distMoved > 50 || (now - dbTruck.lastUpdate) > 600000) {
             await Truck.findOneAndUpdate({ deviceId }, payload, { upsert: true });
         }
@@ -308,6 +311,7 @@ async function runFleetBot() {
     
     setTimeout(runFleetBot, 60000); 
 }
+
 
 // 🌙 DECOUCHAGE LOGIC (STRICT DAILY RESET 00:00 - 06:00)
 async function runDecouchageLogic(trucks) {
