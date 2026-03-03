@@ -102,14 +102,23 @@ class UIController {
       // ---------------------------------------------------------
       // AUTO-DETECT LIVE SERVER (RENDER) vs LOCALHOST
       // ---------------------------------------------------------
-      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-          // We are on a Live Server (Render, Vercel, etc.)
-          FLEET_CONFIG.API.baseUrl = window.location.origin;
+      const _origin = window.location.origin;
+      const _isFile = window.location.protocol === 'file:' || !_origin || _origin === 'null';
+      const _isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      if (!_isFile && !_isLocalhost) {
+          // Live server (Render, Vercel, etc.)
+          FLEET_CONFIG.API.baseUrl = _origin;
           console.log(`🌍 Live Environment Detected. Switching API to: ${FLEET_CONFIG.API.baseUrl}`);
+      } else if (_isFile) {
+          // 🔧 FIX: file:// protocol — window.location.origin returns 'null'
+          // Keep whatever is in config.js (user must set it there for local file use)
+          console.warn(`📂 File Protocol Detected. Using config.js baseUrl: ${FLEET_CONFIG.API.baseUrl}`);
+          console.warn('💡 Tip: Open via http://localhost instead of file:// for full functionality.');
       } else {
-          // We are on Localhost -> USE LOCAL BACKEND
-          FLEET_CONFIG.API.baseUrl = 'http://localhost:3000'; 
-          console.log("💻 Localhost Detected. Switching API to: http://localhost:3000");
+          // Localhost dev server
+          FLEET_CONFIG.API.baseUrl = 'http://localhost:3000';
+          console.log('💻 Localhost Detected. Switching API to: http://localhost:3000');
       }
       
       // Load Settings from Server (Firebase) on startup
@@ -203,8 +212,9 @@ toggleDecouchageSubTab(view) {
       .api-keys-box { background: #f4f6f8; border: 1px solid #c7d2dd; border-radius: 6px; padding: 10px; margin-top:10px; }
       .api-keys-box textarea { width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; }
       /* Decouchage Badges */
-      .status-badge.confirme { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
-      .status-badge.non-confirme { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+      .zone-maintenance-badge { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; font-size: 11px; font-weight: bold; padding: 6px 10px; border-radius: 4px; margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+      .zone-vidange-badge { background: #fff7ed; border: 1px solid #fed7aa; color: #c2410c; font-size: 11px; font-weight: bold; padding: 6px 10px; border-radius: 4px; margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+      @keyframes zoneIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
     `;
     document.head.appendChild(style);
   }
@@ -322,6 +332,15 @@ initElements() {
     this.routeResultsContainer = document.getElementById('routeResultsContainer');
     
     this.restoreFileInput = document.getElementById('restoreFile');
+	// AUTO-SET DATES TO "YESTERDAY" (Because today's night hasn't happened yet)
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const yStr = yesterday.toISOString().split('T')[0];
+
+    if(this.decouchageDateStart) this.decouchageDateStart.value = yStr;
+    if(this.decouchageDateEnd) this.decouchageDateEnd.value = yStr;
   }
   // --- SETTINGS ACCORDION LOGIC ---
   initSettingsAccordions() {
@@ -578,167 +597,60 @@ initElements() {
   }
   
 renderDecouchageList() {
-    // 1. Safe Data Init
     const logs = this.allDecouchageLogs || [];
-
-    // 2. Filter Logic
     const startStr = this.decouchageDateStart.value;
     const endStr = this.decouchageDateEnd.value;
-    const statusFilter = this.decouchageStatusSelect.value;
     const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
     
+    // DIRECT LOGIC: User selects "18", we show "18".
     let filtered = logs.filter(log => {
         if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
-        if (statusFilter !== 'all' && log.status !== statusFilter) return false;
         if (startStr && log.date < startStr) return false;
         if (endStr && log.date > endStr) return false;
         return true;
     });
 
-    // 3. Sort (Recent First)
+    // Sort: Newest First
     filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // 4. Summary Calculation
+    // Summary
     const summaryMap = new Map();
     if (typeof app !== 'undefined' && app.trucks) {
-        app.getAllTrucks().forEach(t => {
-            summaryMap.set(t.name, { name: t.name, total: 0, confirme: 0, nonConfirme: 0 });
-        });
+        app.getAllTrucks().forEach(t => summaryMap.set(t.name, { name: t.name, total: 0 }));
     }
-
     filtered.forEach(log => {
-        if (!summaryMap.has(log.truckName)) {
-             summaryMap.set(log.truckName, { name: log.truckName, total: 0, confirme: 0, nonConfirme: 0 });
-        }
-        const entry = summaryMap.get(log.truckName);
-        entry.total++;
-        if(log.status === 'Confirmé') entry.confirme++;
-        else entry.nonConfirme++;
+        if (!summaryMap.has(log.truckName)) summaryMap.set(log.truckName, { name: log.truckName, total: 0 });
+        summaryMap.get(log.truckName).total++;
     });
+    const summaryArray = Array.from(summaryMap.values()).sort((a, b) => b.total - a.total);
 
-    const summaryArray = Array.from(summaryMap.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
-    this.currentDecouchageSummary = summaryArray;
-
-    // 5. Render Recap Table
-    let tableHtml = `
-        <div style="max-height: 250px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom:20px;">
-        <table style="width:100%; border-collapse:collapse; font-size:13px; background:white;">
-            <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 1;">
-                <tr style="color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;">
-                    <th style="padding:10px 15px;">Camion</th>
-                    <th style="padding:10px; text-align:center;">Total</th>
-                    <th style="padding:10px; text-align:center; color:#b91c1c;">Confirmés</th>
-                    <th style="padding:10px; text-align:center; color:#1e40af;">Non Confirmés</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-
-    if (summaryArray.length === 0) {
-        tableHtml += '<tr><td colspan="4" style="padding:15px; text-align:center; color:#888;">Aucun camion trouvé.</td></tr>';
-    } else {
-        summaryArray.forEach((item, index) => {
-            if (truckFilter && !item.name.toLowerCase().includes(truckFilter)) return;
-            const bg = item.total > 0 ? '#fff1f2' : (index % 2 === 0 ? '#ffffff' : '#f8fafc');
-            const weight = item.total > 0 ? 'bold' : 'normal';
-            
-            tableHtml += `
-                <tr style="background:${bg}; border-bottom:1px solid #f1f5f9;">
-                    <td style="padding:8px 15px; font-weight:${weight}; color:#334155;">${item.name}</td>
-                    <td style="padding:8px; text-align:center; font-weight:${weight};">${item.total}</td>
-                    <td style="padding:8px; text-align:center; color:#b91c1c; font-weight:600;">${item.confirme}</td>
-                    <td style="padding:8px; text-align:center; color:#1e40af;">${item.nonConfirme}</td>
-                </tr>
-            `;
-        });
-    }
+    // Render Table
+    let tableHtml = `<div style="max-height: 350px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;"><table style="width:100%; border-collapse:collapse; font-size:13px; background:white;"><thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;"><tr style="color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;"><th style="padding:12px 15px;">Camion</th><th style="padding:12px; text-align:center;">Nuits Dehors</th></tr></thead><tbody>`;
+    summaryArray.forEach((item, index) => {
+        const bg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+        const countStyle = item.total > 0 ? 'color:#dc2626; font-weight:bold; background:#fef2f2; padding:2px 8px; border-radius:4px;' : 'color:#94a3b8;';
+        tableHtml += `<tr style="background:${bg}; border-bottom:1px solid #eee;"><td style="padding:10px 15px; font-weight:600; color:#334155;">${item.name}</td><td style="padding:10px; text-align:center;"><span style="${countStyle}">${item.total}</span></td></tr>`;
+    });
     tableHtml += '</tbody></table></div>';
     if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = tableHtml;
 
-    // 6. Stats Cards
-    if(this.decouchageStatsGrid) {
-        const countTotal = filtered.length;
-        const countConfirme = filtered.filter(l => l.status === 'Confirmé').length;
-        const countNonConfirme = countTotal - countConfirme;
-        
-        this.decouchageStatsGrid.innerHTML = `
-            <div class="stat-card" style="border-bottom: 3px solid #6366f1;"><div class="stat-value" style="color:#6366f1">${countTotal}</div><div class="stat-label">Total Détections</div></div>
-            <div class="stat-card" style="border-bottom: 3px solid #ef4444;"><div class="stat-value" style="color:#ef4444">${countConfirme}</div><div class="stat-label">Découchages</div></div>
-            <div class="stat-card" style="border-bottom: 3px solid #3b82f6;"><div class="stat-value" style="color:#3b82f6">${countNonConfirme}</div><div class="stat-label">Retours Tôt</div></div>
-        `;
-    }
-
-    // 7. Render Detailed List (Pagination)
+    // Render List
     const totalPages = Math.ceil(filtered.length / this.decouchageItemsPerPage);
     if (this.decouchageCurrentPage > totalPages) this.decouchageCurrentPage = totalPages || 1;
     const startIndex = (this.decouchageCurrentPage - 1) * this.decouchageItemsPerPage;
     const paginatedItems = filtered.slice(startIndex, startIndex + this.decouchageItemsPerPage);
 
-    if (paginatedItems.length === 0) {
-        this.decouchageHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun événement détaillé.</div>';
-        return;
-    }
-
-    // 8. RENDER CARDS (NOW CLICKABLE!)
-    let html = '<div style="display:grid; gap:12px;">';
+    let html = '<div style="display:grid; gap:10px;">';
     paginatedItems.forEach(log => {
-        const isConfirmed = log.status === 'Confirmé';
         const distKm = (log.distanceFromSite / 1000).toFixed(1);
-        const logDate = new Date(log.date).toLocaleDateString('fr-FR');
-        const timeStr = log.snapshotTime ? new Date(log.snapshotTime).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'}) : "00:00"; 
-        const returnTime = log.entryTime 
-            ? `<span style="color:#166534; font-weight:bold;">✅ Retour: ${new Date(log.entryTime).toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'})}</span>` 
-            : `<span style="color:#b91c1c; font-style:italic; font-weight:bold;">⚠️ Toujours Dehors</span>`;
-
-        const locId = `dec-loc-${log.id || Math.random().toString(36).substr(2,9)}`;
-        const resolvedName = this.resolveDecouchageLocation(log.locationAtMidnight.lat, log.locationAtMidnight.lng, locId);
-        
-        // --- NEW CLICK ACTION ---
-        // Flies to the exact coordinates detected at midnight
-        // Uses the new helper function that handles the tab switch safely
-const clickAction = `ui.viewOnMap(${log.locationAtMidnight.lat}, ${log.locationAtMidnight.lng})`;
-
-        html += `
-        <div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid ${isConfirmed ? '#dc2626' : '#2563eb'}; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 2px rgba(0,0,0,0.05);">
-            <div style="flex:1;">
-                <div style="font-weight:bold; color:#1e293b; font-size:15px;">${log.truckName}</div>
-                <div style="font-size:12px; color:#64748b; margin-top:2px;">
-                    <i class="fa-regular fa-calendar"></i> ${logDate} <span style="color:#d97706; font-weight:bold;">à ${timeStr}</span>
-                </div>
-            </div>
-
-            <div style="flex:1.8; text-align:center; display:flex; flex-direction:column; align-items:center; gap:5px;">
-                <span style="background:${isConfirmed ? '#fef2f2' : '#eff6ff'}; color:${isConfirmed ? '#b91c1c' : '#1e40af'}; padding:4px 12px; border-radius:20px; font-size:11px; font-weight:bold; border:1px solid currentColor;">
-                    <i class="fa-solid ${isConfirmed ? 'fa-exclamation-circle' : 'fa-undo'}"></i> ${log.status}
-                </span>
-                
-                <div style="font-size:12px; color:#475569; font-weight:600;">${distKm} km du site</div>
-
-                <div id="${locId}" 
-                     onclick="${clickAction}"
-                     title="📍 Voir sur la carte"
-                     onmouseover="this.style.background='#dbeafe'; this.style.transform='scale(1.02)';"
-                     onmouseout="this.style.background='#eff6ff'; this.style.transform='scale(1)';"
-                     style="font-size:12px; color:#1e3a8a; background:#eff6ff; padding:5px 12px; border-radius:6px; max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; border:1px solid #bfdbfe; transition:all 0.2s; font-weight:bold; display:flex; align-items:center; gap:5px;">
-                    <i class="fa-solid fa-location-dot"></i> <span>${resolvedName || "📍 Position GPS"}</span>
-                </div>
-            </div>
-
-            <div style="flex:1; text-align:right; font-size:13px;">${returnTime}</div>
-        </div>`;
+        // 🔧 FIX: use server-provided locationName directly (no geo-lookup needed)
+        const resolvedName = log.locationName || `${log.locationAtMidnight?.lat?.toFixed(4) || '?'}, ${log.locationAtMidnight?.lng?.toFixed(4) || '?'}`;
+        const detectedTime = log.detectedAt ? new Date(log.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '00:00';
+        const dateStr = new Date(log.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+        html += `<div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid #dc2626; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;"><div style="flex:1;"><div style="font-weight:bold; color:#1e293b;">${log.truckName}</div><div style="font-size:12px; color:#64748b;">Nuit du <strong>${dateStr}</strong> · Détecté à ${detectedTime}</div></div><div style="flex:2; text-align:center;"><div style="font-size:12px; color:#1e40af; background:#eff6ff; padding:6px 12px; border-radius:6px;"><i class="fa-solid fa-map-pin"></i> ${resolvedName}</div><div style="font-size:11px; color:#64748b;">à ${distKm} km du site</div></div><div style="flex:0.5; text-align:right;"><span style="background:#fef2f2; color:#b91c1c; padding:4px 8px; border-radius:4px; font-size:11px; font-weight:bold;">INFRACTION</span></div></div>`;
     });
-    
-    // 9. Pagination Controls
-    if (totalPages > 1) {
-        html += `<div class="pagination-controls" style="display:flex; justify-content:center; gap:10px; margin-top:15px;">
-            <button class="pagination-btn" onclick="ui.changeDecouchagePage(-1)" ${this.decouchageCurrentPage === 1 ? 'disabled' : ''}>« Préc.</button>
-            <span class="pagination-info">Page ${this.decouchageCurrentPage} / ${totalPages}</span>
-            <button class="pagination-btn" onclick="ui.changeDecouchagePage(1)" ${this.decouchageCurrentPage === totalPages ? 'disabled' : ''}>Suiv. »</button>
-        </div>`;
-    }
     this.decouchageHistoryContainer.innerHTML = html + '</div>';
 }
-
   // 1. FIXED REFUEL EXPORT
   exportRefuelsCSV() {
     if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) { alert("Rien à exporter."); return; }
@@ -783,34 +695,41 @@ const clickAction = `ui.viewOnMap(${log.locationAtMidnight.lat}, ${log.locationA
     this._downloadCSV(csv, `rapport_remplissage_${new Date().toISOString().slice(0,10)}.csv`);
   }
 
-  // 2. FIXED DECOUCHAGE EXPORT (Detail)
-  exportDecouchageCSV() {
-      if(!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) { alert("Aucune donnée."); return; }
-      let csv = "Date,Camion,Statut,Heure Retour,Distance Site (m),Lieu (Snapshot)\n";
-      
-      this.allDecouchageLogs.forEach(log => {
-          const returnTime = log.entryTime ? new Date(log.entryTime).toLocaleTimeString() : 'N/A';
-          let locName = "Non disponible";
-          
-          if (log.locationAtMidnight && log.locationAtMidnight.lat) {
-              const resolved = this.resolveDecouchageLocation(log.locationAtMidnight.lat, log.locationAtMidnight.lng);
-              if (resolved && resolved !== "Recherche...") {
-                  locName = resolved.replace(/,/g, " "); 
-              } else {
-                  locName = `${parseFloat(log.locationAtMidnight.lat).toFixed(5)} ${parseFloat(log.locationAtMidnight.lng).toFixed(5)}`;
-              }
-          }
-          csv += `"${log.date}","${log.truckName}","${log.status}","${returnTime}",${log.distanceFromSite || 0},"${locName}"\n`;
-      });
-      this._downloadCSV(csv, `decouchage_detail_${new Date().toISOString().slice(0,10)}.csv`);
-  }
+exportDecouchageCSV() {
+    if(!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) { alert("Aucune donnée."); return; }
+    
+    // DIRECT FILTERING - No Date Shifting
+    const startStr = this.decouchageDateStart.value;
+    const endStr = this.decouchageDateEnd.value;
+    const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
+
+    const filtered = this.allDecouchageLogs.filter(log => {
+        if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
+        if (startStr && log.date < startStr) return false;
+        if (endStr && log.date > endStr) return false;
+        return true;
+    });
+
+    if(filtered.length === 0) { alert("Rien à exporter."); return; }
+
+    // 🔧 FIX: removed 'Statut' column (no status field in new data model)
+    let csv = "Date (Nuit du),Heure D\u00e9tection,Camion,Lieu,Distance du Site (km)\n";
+    filtered.forEach(log => {
+        const detectedTime = log.detectedAt ? new Date(log.detectedAt).toLocaleTimeString('fr-FR') : '00:00';
+        const locName = (log.locationName || `${log.locationAtMidnight?.lat?.toFixed(4) || '?'};${log.locationAtMidnight?.lng?.toFixed(4) || '?'}`).replace(/,/g, ' ');
+        const distKm = log.distanceFromSite ? (log.distanceFromSite / 1000).toFixed(1) : '?';
+        csv += `"${log.date}","${detectedTime}","${log.truckName}","${locName}","${distKm}"\n`;
+    });
+
+    this._downloadCSV(csv, `decouchage_${startStr}_${endStr}.csv`);
+}
 
   // 3. NEW: DECOUCHAGE RECAP EXPORT (The missing function)
   exportDecouchageRecapCSV() {
       if(!this.currentDecouchageSummary || this.currentDecouchageSummary.length === 0) { alert("Pas de résumé disponible."); return; }
-      let csv = "Camion,Total Nuits,Confirmés,Non Confirmés\n";
+      let csv = "Camion,Total Nuits\n"; // 🔧 FIX: removed confirme/nonConfirme (fields no longer exist)
       this.currentDecouchageSummary.forEach(item => {
-          csv += `"${item.name}",${item.total},${item.confirme},${item.nonConfirme}\n`;
+          csv += `"${item.name}",${item.total}\n`;
       });
       this._downloadCSV(csv, `decouchage_recap_${new Date().toISOString().slice(0,10)}.csv`);
   }
@@ -1351,6 +1270,15 @@ if (tabName === 'byWilaya') {
             <div style="margin-top: 12px; padding: 10px; background: #fff3e0; border-left: 3px solid var(--orange); border-radius: 4px; font-size: 12px;">
               <strong style="color: var(--orange);"><i class="fa-solid fa-wrench"></i> VIDANGE REQUISE</strong>
               <div style="margin-top: 2px;">Prévue à ${truck.vidange.nextKm}km (${truck.vidange.kmUntilNext} km restants)</div>
+            </div>
+          ` : ''}
+          ${truck.isVidangeCandidate ? `
+            <div class="zone-vidange-badge" style="animation:zoneIn 0.4s ease">
+              <i class="fa-solid fa-wrench"></i> VIDANGE EN COURS — ${truck.maintenanceZoneName || 'Zone Maintenance'} · ${truck.zoneTimeMinutes}min
+            </div>
+          ` : truck.inMaintenanceZone ? `
+            <div class="zone-maintenance-badge" style="animation:zoneIn 0.4s ease">
+              <i class="fa-solid fa-screwdriver-wrench"></i> EN ZONE MAINTENANCE — ${truck.maintenanceZoneName || ''} · ${truck.zoneTimeMinutes}min
             </div>
           ` : ''}
         </div>
@@ -2616,127 +2544,85 @@ async generateGlobalAudit(selectedIds, startDate, endDate) {
 async generateDetailedDecouchageReport(selectedIds, startDate, endDate) {
     const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
     const originalText = btn ? btn.innerHTML : 'Rapport';
-    
-    // --- 1. PREPARE CSV HEADER ---
-    let csv = "Date,Heure (Capture),Camion,Statut,Lieu Exact (Nom),Coordonnées,Distance Site (km)\n";
+    if (btn) btn.innerHTML = `<i class="fa-solid fa-moon fa-spin"></i> Analyse Nuits...`;
+
+    let csv = "Date (Nuit du),Heure Detection,Camion,Statut,Lieu Exact,Coordonnées\n";
     let eventsFound = 0;
     
-    // --- 2. PARALLEL CONFIGURATION (Batching) ---
-    const BATCH_SIZE = 5; // Processes 5 trucks at the same time (faster!)
-    let processedCount = 0;
-
-    // Helper function to process ONE truck
-    const processTruck = async (id) => {
+    // Process one by one to avoid memory overload
+    for (const id of selectedIds) {
         const truck = app.trucks.get(id);
-        if (!truck) return ""; 
-
-        let truckCsv = "";
+        if (!truck) continue; 
 
         try {
             const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
-            if (!res.ok) return ""; // Skip errors silently
-            
+            if (!res.ok) continue; 
             const json = await res.json();
             
-            // Data Sanitization
-            let rawPoints = [];
-            if (Array.isArray(json)) rawPoints = json;
-            else if (json && Array.isArray(json.messages)) rawPoints = json.messages;
-
-            // Sort by time
-            let points = rawPoints.map(p => ({
+            // Parse points
+            let points = (Array.isArray(json) ? json : json.messages || []).map(p => ({
                 time: new Date(p[0]).getTime(),
-                dateStr: p[0].split(' ')[0], // Get YYYY-MM-DD
                 lat: parseFloat(p[1]),
                 lng: parseFloat(p[2]),
-                speed: parseInt(p[5])
-            })).sort((a,b) => a.time - b.time);
+                dateObj: new Date(p[0])
+            }));
 
-            // Filter for Night (00:00 - 05:00)
-            const nightPoints = points.filter(p => {
-                const h = new Date(p.time).getHours();
-                return h >= 0 && h < 5;
-            });
+            // Set of processed nights to avoid duplicates per night
+            const processedNights = new Set(); 
 
-            // Group by Day (One event per night max)
-            const dailyStatus = {};
-            
-            for (const p of nightPoints) {
-                if (!dailyStatus[p.dateStr]) {
-                    let isSafe = false;
-                    let nearestDist = Infinity; // Track nearest distance
+            for (const p of points) {
+                const hour = p.dateObj.getHours();
 
-                    if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
-                        for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
-                            // Only check "douroub" bases
-                            if (loc.type === 'douroub') {
-                                const dist = this.getDistKm(p.lat, p.lng, loc.lat, loc.lng);
-                                
-                                // Keep track of the closest site distance
-                                if (dist < nearestDist) nearestDist = dist;
+                // STRICT DEFINITION: Decouchage is between 00:00 and 05:00
+                if (hour >= 0 && hour < 5) {
+                    
+                    // Logic: 3 AM on Jan 25th belongs to the night of Jan 24th
+                    const nightOfDate = new Date(p.dateObj);
+                    nightOfDate.setDate(nightOfDate.getDate() - 1);
+                    const nightStr = nightOfDate.toISOString().split('T')[0];
 
-                                // Check if inside safe radius
-                                if (dist <= (loc.radius ? loc.radius/1000 : 0.5)) { 
-                                    isSafe = true; 
-                                    break; // Found a safe spot, stop looking
+                    // If we haven't flagged this night yet
+                    if (!processedNights.has(nightStr)) {
+                        
+                        // Check Safe Zone (Douroub Site)
+                        let isSafe = false;
+                        if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
+                            for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+                                // Check both 'douroub' (Official) and 'client' (Delivery) sites if needed
+                                // Assuming 'douroub' is the only safe haven for night
+                                if (loc.type === 'douroub' || loc.type === 'depot') {
+                                    const dist = this.getDistKm(p.lat, p.lng, loc.lat, loc.lng);
+                                    // 500m radius
+                                    if (dist <= (loc.radius ? loc.radius/1000 : 0.5)) { 
+                                        isSafe = true; break; 
+                                    }
                                 }
                             }
                         }
+
+                        if (!isSafe) {
+                            processedNights.add(nightStr); // Mark night as "Caught"
+                            // Async resolve address for report
+                            const address = await this.resolveLocationNameAsync(p.lat, p.lng);
+                            const timeStr = p.dateObj.toLocaleTimeString();
+                            
+                            csv += `"${nightStr}","${timeStr}","${truck.name}","DECOUCHEMENT","${address}","${p.lat},${p.lng}"\n`;
+                            eventsFound++;
+                        } else {
+                            // If found inside safe zone, mark night as Safe (processed) so we don't check again
+                            processedNights.add(nightStr);
+                        }
                     }
-
-                    // Store the result for this day
-                    dailyStatus[p.dateStr] = { 
-                        status: isSafe ? 'SAFE' : 'DECOUCHAGE', 
-                        point: p,
-                        // Fix: Save the actual calculated distance (or 0 if no sites found)
-                        dist: (nearestDist === Infinity) ? 0 : nearestDist.toFixed(2)
-                    };
-                }
-            }
-
-            // Generate Rows for this truck
-            for (const [dateStr, data] of Object.entries(dailyStatus)) {
-                if (data.status === 'DECOUCHAGE') {
-                    // We resolve address here (it might slow down slightly, but it's parallel now!)
-                    const address = await this.resolveLocationNameAsync(data.point.lat, data.point.lng);
-                    const timeStr = new Date(data.point.time).toLocaleTimeString();
-                    
-                    // Add to CSV string
-                    truckCsv += `"${dateStr}","${timeStr}","${truck.name}","DECOUCHAGE","${address}","${data.point.lat},${data.point.lng}",${data.dist}\n`;
-                    eventsFound++;
                 }
             }
         } catch (e) { console.error(e); }
-
-        return truckCsv;
-    };
-
-    // --- 3. EXECUTE IN BATCHES (The Speed Fix) ---
-    for (let i = 0; i < selectedIds.length; i += BATCH_SIZE) {
-        const batch = selectedIds.slice(i, i + BATCH_SIZE);
-        
-        // Update Button with Elegant Progress
-        const percent = Math.round((processedCount / selectedIds.length) * 100);
-        if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Audit... ${percent}% (${processedCount}/${selectedIds.length})`;
-
-        // Run this batch in PARALLEL
-        const results = await Promise.all(batch.map(id => processTruck(id)));
-        
-        // Add results to main CSV
-        results.forEach(res => csv += res);
-        
-        processedCount += batch.length;
     }
 
-    // --- 4. FINISH ---
-    if(btn) btn.innerHTML = originalText;
-    
-    if(eventsFound === 0) {
-        alert("Aucun découchage trouvé sur cette période.");
-    } else {
-        this._downloadCSV(csv, `DETAIL_DECOUCHAGES_${new Date().toISOString().slice(0,10)}.csv`);
-    }
+    if (btn) btn.innerHTML = originalText;
+    if (eventsFound === 0) alert("Aucun découchage trouvé (Tous les camions étaient sur site).");
+    else this._downloadCSV(csv, `RAPPORT_NUITS_${new Date().toISOString().slice(0,10)}.csv`);
 }
+
 // 3. DETAILED REFILL REPORT (STRONG AUDIT LOGIC)
 async generateDetailedRefillReport(selectedIds, startDate, endDate) {
     const btn = document.querySelector('button[onclick="ui.openReportModal()"]');

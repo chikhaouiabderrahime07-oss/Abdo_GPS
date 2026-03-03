@@ -38,6 +38,18 @@ const FLEET_CONFIG = {
       minDurationMinutes: 60, // Must stay 60 mins to count
       vidangeKmTolerance: 3000 // Trigger "Vidange" if within 3000km of due date
     },
+
+    // Refuel Detection Rules (Server-side logic uses this too)
+    REFUEL_RULES: {
+      minRefuelLiters: 50,
+      stopSpeedThreshold: 4,
+      minStopMinutes: 2,
+      requireIgnOff: false,
+      dedupeMinutes: 5,
+      dedupeLitersTolerance: 10,
+      stableAfterIncreaseMinutes: 2
+    },
+
   
     // --- GLOBAL DEFAULT CONFIG ---
     DEFAULT_TRUCK_CONFIG: {

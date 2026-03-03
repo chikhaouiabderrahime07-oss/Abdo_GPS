@@ -137,108 +137,106 @@
     /* =========================================
        2. NAVIGATION BAR
        ========================================= */
+        /* ── V3.0 NAVBAR ── */
     .tabs {
         background: #ffffff;
-        padding: 0 30px;
-        height: 75px; 
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        padding: 0 24px;
+        height: 62px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
         border-bottom: 1px solid #e2e8f0;
         display: flex;
         align-items: center;
-        gap: 10px; 
+        gap: 4px;
         position: relative;
         z-index: 100;
         overflow-x: auto;
+        overflow-y: hidden;
     }
+    .tabs::-webkit-scrollbar { height: 3px; }
+    .tabs::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 
     .nav-group {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 2px;
         position: relative;
-        height: 100%;
-        padding-right: 20px; 
+        padding-right: 14px;
+        flex-shrink: 0;
     }
-
     .nav-group:not(:last-child)::after {
         content: '';
-        display: block;
         position: absolute;
         right: 0;
         top: 50%;
         transform: translateY(-50%);
-        width: 2px;           
-        height: 35px;         
-        background: #cbd5e1; 
-        opacity: 1;           
-        border-radius: 2px;
+        width: 1px;
+        height: 28px;
+        background: #e2e8f0;
+        border-radius: 1px;
     }
 
     .tab-button {
         background: transparent;
         border: none;
-        padding: 10px 16px;
-        border-radius: 8px;
+        padding: 8px 13px;
+        border-radius: 7px;
         font-family: 'Segoe UI', sans-serif;
-        font-size: 13px;
+        font-size: 12.5px;
         font-weight: 600;
         color: #64748b;
         cursor: pointer;
         display: flex;
         align-items: center;
-        gap: 8px;
-        transition: all 0.2s ease;
-        margin-top: 5px; 
+        gap: 7px;
+        transition: all 0.18s ease;
+        white-space: nowrap;
+        flex-shrink: 0;
     }
-
+    .tab-button i { font-size: 13px; }
     .tab-button:hover { background: #f1f5f9; color: #334155; }
     .tab-button.active { background: #e0f2fe; color: #0284c7; }
-    
+
     .btn-dashboard {
         background: #1e293b !important;
-        color: #fff !important;
-        box-shadow: 0 4px 12px rgba(30, 41, 59, 0.25);
-        margin-right: 15px; 
+        color: #ffffff !important;
+        box-shadow: 0 2px 8px rgba(30,41,59,0.25);
+        margin-right: 10px;
+        padding: 8px 16px;
     }
     .btn-dashboard i { color: #38bdf8 !important; }
-    .btn-dashboard.active { border: 1px solid #38bdf8; }
+    .btn-dashboard:hover { background: #0f172a !important; }
+    .btn-dashboard.active { outline: 2px solid #38bdf8; outline-offset: 1px; }
 
     .btn-calc.active { background: #fff7ed; color: #ea580c; }
-    .btn-admin.active { background: #f5f3ff; color: #7c3aed; }
-    
-    .btn-history.active { 
-        background: #fef2f2 !important; 
-        color: #dc2626 !important; 
-        border: 1px solid #fecaca;
-    }
+    .btn-history.active { background: #fef2f2 !important; color: #dc2626 !important; }
     .btn-history.active i { color: #dc2626; }
+    .btn-admin.active { background: #f5f3ff; color: #7c3aed; }
 
-    .group-label {
-        position: absolute;
-        top: 8px;
-        left: 0;
-        font-size: 9px;
-        font-weight: 800;
-        text-transform: uppercase;
-        color: #94a3b8;
-        letter-spacing: 0.5px;
-        pointer-events: none;
-        width: 100%;
+    .btn-audit {
+        border: 1.5px solid #16a34a;
+        color: #15803d;
+        background: #f0fdf4;
     }
+    .btn-audit:hover { background: #dcfce7 !important; color: #166534 !important; }
+    .btn-audit.active { background: #dcfce7; color: #166534; }
 
     .global-search-container {
         margin-left: auto;
+        flex-shrink: 0;
         background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        padding: 8px 12px;
+        border: 1.5px solid #e2e8f0;
+        border-radius: 50px;
+        padding: 7px 15px;
         display: flex;
         align-items: center;
-        width: 220px;
+        width: 240px;
+        gap: 8px;
         transition: all 0.2s;
     }
-    .global-search-container:focus-within { border-color: var(--accent-teal); background: #fff; }
-    .global-search-container input { border: none; background: transparent; outline: none; width: 100%; font-size: 13px; margin-left: 8px; }
+    .global-search-container:focus-within { border-color: #0284c7; background: #fff; box-shadow: 0 0 0 3px rgba(2,132,199,0.1); }
+    .global-search-container i { color: #94a3b8; font-size: 13px; flex-shrink: 0; }
+    .global-search-container input { border: none; background: transparent; outline: none; width: 100%; font-size: 13px; font-weight: 600; color: #0f172a; }
+    .global-search-container input::placeholder { font-weight: 500; color: #94a3b8; }
 
     /* =========================================
        3. CONTENT & UTILITIES
@@ -402,7 +400,7 @@
     <div class="system-info">
       <div class="developer-credit">
          <span class="developer-tag"><i class="fa-solid fa-code"></i> Dev: Abderrahime Chikhaoui</span>
-         <span class="developer-tag" style="margin-left:5px; background: rgba(56, 189, 248, 0.1); color: var(--accent-blue); border-color: var(--accent-blue);">V2.0 PRO</span>
+         <span class="developer-tag" style="margin-left:5px; background: rgba(56, 189, 248, 0.1); color: var(--accent-blue); border-color: var(--accent-blue);">V3.0 PRO</span>
       </div>
       <div class="digital-clock">
         <i class="fa-regular fa-clock"></i>
@@ -412,19 +410,21 @@
   </header>
 
   <div class="tabs">
+
+      <!-- Dashboard -->
       <button class="tab-button btn-dashboard active" data-tab="dashboard" onclick="switchTab('dashboard')">
           <i class="fa-solid fa-chart-pie"></i> DASHBOARD
       </button>
 
+      <!-- Supervision -->
       <div class="nav-group">
-          <span class="group-label">Supervision</span>
           <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')">
               <i class="fa-solid fa-map"></i> Mapping & Zones
           </button>
       </div>
 
+      <!-- Carburant -->
       <div class="nav-group">
-          <span class="group-label">Espace Carburant</span>
           <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')">
               <i class="fa-solid fa-gas-pump"></i> Carburant
           </button>
@@ -433,8 +433,8 @@
           </button>
       </div>
 
+      <!-- Vidange & Maintenance -->
       <div class="nav-group">
-          <span class="group-label">Vidange & Maintenance</span>
           <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')">
               <i class="fa-solid fa-wrench"></i> Vidanges
           </button>
@@ -443,46 +443,24 @@
           </button>
       </div>
 
+      <!-- Admin -->
       <div class="nav-group">
-          <span class="group-label">Admin</span>
           <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')">
               <i class="fa-solid fa-file-contract"></i> Rapports
           </button>
-		  <button class="tab-button" onclick="window.open('gps-checker.html', '_blank')" style="border: 2px solid #33ff00; color: #166534; background: #f0fdf4;">
-    <i class="fa-solid fa-user-secret"></i> GPS AUDIT
-</button>
+          <button class="tab-button btn-audit" onclick="window.open('gps-checker.html', '_blank')">
+              <i class="fa-solid fa-user-secret"></i> GPS AUDIT
+          </button>
           <button class="tab-button btn-admin" data-tab="settings" onclick="switchTab('settings')">
               <i class="fa-solid fa-sliders"></i> Config
           </button>
       </div>
 
-<div class="global-search-container" style="
-    background: #ffffff !important; 
-    border: 2px solid #0084a7 !important; 
-    box-shadow: 0 4px 15px rgba(0, 132, 167, 0.15) !important; 
-    height: 42px !important; 
-    width: 280px !important; 
-    border-radius: 50px !important;
-    display: flex; 
-    align-items: center; 
-    padding: 0 15px !important;">
-
-    <i class="fa-solid fa-magnifying-glass" style="
-        color: #0084a7 !important; 
-        font-size: 18px !important; 
-        filter: drop-shadow(0 0 1px rgba(0,132,167,0.5));"></i>
-    
-    <input type="text" id="globalSearchInput" placeholder="🔍 Rechercher un camion..." autocomplete="off" style="
-        border: none !important; 
-        background: transparent !important; 
-        outline: none !important; 
-        width: 100% !important; 
-        font-size: 14px !important; 
-        margin-left: 10px !important; 
-        font-weight: 800 !important; 
-        color: #0f172a !important; 
-        letter-spacing: 0.5px !important;">
-</div>
+      <!-- Search -->
+      <div class="global-search-container">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="globalSearchInput" placeholder="Rechercher un camion..." autocomplete="off">
+      </div>
   </div>
 
   <div class="container">
@@ -749,33 +727,40 @@
           <div id="refuelHistoryContainer"></div>
       </div>
       
-      <div id="reportDecouchageSection" class="controls-section" style="margin-top: 10px; display: none;">
-          <h2 style="color: #1e3a8a;"><i class="fa-solid fa-moon"></i> Audit de Découchage</h2>
+<div id="reportDecouchageSection" class="controls-section" style="margin-top: 10px; display: none;">
+          <h2 style="color: #1e3a8a;"><i class="fa-solid fa-moon"></i> Audit de Découchage (Nuits Dehors)</h2>
+          
           <div style="display:flex; gap:10px; margin-bottom:15px; border-bottom:1px solid #e2e8f0; padding-bottom:10px;">
             <button class="tab-button active" id="btnSubDecouchageRecap" onclick="ui.toggleDecouchageSubTab('recap')" style="background:#166534; color:#ffffff;">Vue Récap</button>
             <button class="tab-button" id="btnSubDecouchageDetail" onclick="ui.toggleDecouchageSubTab('detail')">Vue Détaillée</button>
           </div>
+
           <div class="report-filters" style="display:flex; gap:10px; align-items:end;">
-              <div class="form-group"><label>Du:</label><input type="date" id="decouchageDateStart"></div>
-              <div class="form-group"><label>Au:</label><input type="date" id="decouchageDateEnd"></div>
+              
               <div class="form-group">
-                  <label>Statut:</label>
-                  <select id="decouchageStatusSelect">
-                      <option value="all">Tout</option>
-                      <option value="Confirmé">Confirmé (>05h00 / Jamais)</option>
-                      <option value="Non Confirmé">Non Confirmé (&lt;05h00)</option>
-                  </select>
+<label>Du (Nuit du):</label>
+                  <input type="date" id="decouchageDateStart" title="Sélectionnez la date de constat (Le système affichera la nuit d'avant)">
               </div>
-              <div class="form-group"><label>Camion:</label><input type="text" id="decouchageTruckSearch"></div>
+              
+              <div class="form-group">
+<label>Au (Nuit du):</label>
+
+                  <input type="date" id="decouchageDateEnd">
+              </div>
+              
+              <div class="form-group"><label>Camion:</label><input type="text" id="decouchageTruckSearch" placeholder="Nom du camion..."></div>
+              
               <div style="margin-left: auto;">
-                   <button class="btn-secondary" id="applyDecouchageFiltersBtn">Actualiser</button>
-                   <button class="btn-primary" onclick="ui.exportDecouchageRecapCSV()" id="btnExportRecap">Export Récap</button>
-                   <button class="btn-primary" id="exportDecouchageBtn" style="display:none;">Export Détails</button>
+                   <button class="btn-secondary" id="applyDecouchageFiltersBtn"><i class="fa-solid fa-rotate"></i> Actualiser</button>
+                   <button class="btn-primary" onclick="ui.exportDecouchageRecapCSV()" id="btnExportRecap"><i class="fa-solid fa-file-csv"></i> Export Récap</button>
+                   <button class="btn-primary" id="exportDecouchageBtn" style="display:none;"><i class="fa-solid fa-file-csv"></i> Export Détails</button>
               </div>
           </div>
+          
           <div id="decouchageRecapView"><div id="decouchageRecapContainer"></div></div>
           <div id="decouchageDetailView" style="display:none;"><div id="decouchageHistoryContainer"></div></div>
       </div>
+	  
     </div>
 
     <div id="settings" class="tab-content">
