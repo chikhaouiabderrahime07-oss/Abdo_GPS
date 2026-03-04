@@ -23,7 +23,12 @@ const FLEET_CONFIG = {
     DEFAULT_POLL_INTERVAL: 120000, 
     
     // Default Server URL
-    DEFAULT_SERVER_URL: 'https://fleet-tracker-backend.onrender.com', 
+    // NOTE:
+    //   This app can be opened from:
+    //     - the same server as the backend (recommended)  → auto uses window.location.origin
+    //     - file:// (offline HTML)                         → defaults to http://localhost:3000
+    //     - a different static host                        → set ?server=https://YOUR-BACKEND or save in UI
+    DEFAULT_SERVER_URL: '', 
     
     // Location Types
     LOCATION_TYPES: {
@@ -78,11 +83,102 @@ const FLEET_CONFIG = {
     },
   
     API: {
-      baseUrl: 'https://fleet-tracker-backend.onrender.com',
+      // Will be resolved automatically below (query param > localStorage > same-origin > localhost fallback)
+      baseUrl: '',
       trucksEndpoint: '/api/trucks',
       settingsEndpoint: '/api/settings'
     }
 };
+
+// ============================================================
+// ✅ AUTO-RESOLVE BACKEND URL (CORS/404 FRIENDLY)
+// Priority:
+//   1) URL query parameter:  ?server=https://your-backend.onrender.com
+//      (also supports: ?backend=, ?api=)
+//   2) localStorage: fleetServerUrl
+//   3) If the page is served over http(s): window.location.origin
+//   4) If opened as file://: http://localhost:3000
+// Optional reset:
+//   ?reset=1  → clears stored fleetServerUrl
+// ============================================================
+(function resolveFleetBaseUrl() {
+  function normalizeUrl(u) {
+    if (!u) return null;
+    u = String(u).trim();
+    if (!u) return null;
+
+    // Allow //example.com
+    if (u.startsWith('//')) u = window.location.protocol + u;
+
+    // If user typed "localhost:3000" without protocol
+    if (!/^https?:\/\//i.test(u)) {
+      if (u.startsWith('localhost') || u.startsWith('127.0.0.1')) u = 'http://' + u;
+      else u = 'https://' + u;
+    }
+
+    // Remove trailing slashes
+    u = u.replace(/\/+$/, '');
+    return u;
+  }
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+
+    // Hard reset saved URL if asked
+    const reset = params.get('reset') || params.get('resetServer');
+    if (reset === '1' || reset === 'true') {
+      try { localStorage.removeItem('fleetServerUrl'); } catch (e) {}
+    }
+
+    // Query param has top priority
+    const qp = params.get('server') || params.get('backend') || params.get('api');
+    const qpUrl = normalizeUrl(qp);
+    if (qpUrl) {
+      FLEET_CONFIG.API.baseUrl = qpUrl;
+      FLEET_CONFIG.DEFAULT_SERVER_URL = qpUrl;
+      try { localStorage.setItem('fleetServerUrl', qpUrl); } catch (e) {}
+      console.log('🔗 Backend URL from query param:', qpUrl);
+      return;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // Use saved server URL if present
+  try {
+    const saved = normalizeUrl(localStorage.getItem('fleetServerUrl'));
+    if (saved) {
+      FLEET_CONFIG.API.baseUrl = saved;
+      FLEET_CONFIG.DEFAULT_SERVER_URL = saved;
+      console.log('🔗 Backend URL from localStorage:', saved);
+      return;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // Same-origin (best when UI is served by Express backend)
+  try {
+    const origin = window.location.origin;
+    const isFile = window.location.protocol === 'file:' || !origin || origin === 'null';
+    if (!isFile) {
+      const clean = normalizeUrl(origin);
+      FLEET_CONFIG.API.baseUrl = clean;
+      FLEET_CONFIG.DEFAULT_SERVER_URL = clean;
+      console.log('🔗 Backend URL from same-origin:', clean);
+      return;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // file:// fallback
+  const fallback = 'http://localhost:3000';
+  FLEET_CONFIG.API.baseUrl = fallback;
+  FLEET_CONFIG.DEFAULT_SERVER_URL = fallback;
+  console.warn('📂 file:// detected → defaulting backend to', fallback);
+  console.warn('💡 Tip: start the server and open http://localhost:3000 (avoid file://)');
+})();
   
 // --- GLOBAL HELPERS ---
 

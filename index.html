@@ -115,6 +115,38 @@
         font-weight: 500;
     }
 
+    /* ✅ Dev + version stacked, with Config placed under version (safer) */
+    .developer-credit {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 6px;
+    }
+    .dev-tags {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .tab-button.header-config-link {
+        padding: 6px 12px;
+        font-size: 11px;
+        border-radius: 16px;
+        background: rgba(0,0,0,0.25);
+        border: 1px dashed rgba(255,255,255,0.18);
+        color: var(--text-gray);
+    }
+    .tab-button.header-config-link:hover {
+        background: rgba(56, 189, 248, 0.12);
+        color: var(--accent-blue);
+        border-color: rgba(56, 189, 248, 0.35);
+    }
+    .tab-button.header-config-link.active {
+        background: rgba(56, 189, 248, 0.18);
+        color: var(--accent-blue);
+        border-color: rgba(56, 189, 248, 0.55);
+    }
+
     .digital-clock {
         background: rgba(15, 23, 42, 0.8);
         color: var(--text-white);
@@ -160,20 +192,22 @@
         align-items: center;
         gap: 2px;
         position: relative;
-        padding-right: 14px;
+        padding: 3px 6px;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        background: #ffffff;
+        margin-right: 10px;
         flex-shrink: 0;
     }
-    .nav-group:not(:last-child)::after {
-        content: '';
-        position: absolute;
-        right: 0;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 1px;
-        height: 28px;
-        background: #e2e8f0;
-        border-radius: 1px;
-    }
+    /* Old separator line not needed anymore (we use color-coded groups) */
+    .nav-group:not(:last-child)::after { display: none; }
+
+    /* ✅ Clear visual grouping (as requested) */
+    .nav-group.group-supervision { background: #f8fafc; }
+    .nav-group.group-fuel { background: #eff6ff; border-color: #bfdbfe; }
+    .nav-group.group-maintenance { background: #fff7ed; border-color: #fed7aa; }
+    .nav-group.group-reports { background: #f5f3ff; border-color: #ddd6fe; }
+    .nav-group.group-audit { background: #f0fdf4; border-color: #bbf7d0; }
 
     .tab-button {
         background: transparent;
@@ -399,9 +433,17 @@
 
     <div class="system-info">
       <div class="developer-credit">
-         <span class="developer-tag"><i class="fa-solid fa-code"></i> Dev: Abderrahime Chikhaoui</span>
-         <span class="developer-tag" style="margin-left:5px; background: rgba(56, 189, 248, 0.1); color: var(--accent-blue); border-color: var(--accent-blue);">V3.0 PRO</span>
+        <div class="dev-tags">
+          <span class="developer-tag"><i class="fa-solid fa-code"></i> Dev: Abderrahime Chikhaoui</span>
+          <span class="developer-tag" style="margin-left:5px; background: rgba(56, 189, 248, 0.1); color: var(--accent-blue); border-color: var(--accent-blue);">V3.0 PRO</span>
+        </div>
+
+        <!-- ⚙️ Config moved here (under version) to avoid accidental clicks in the main menu -->
+        <button class="tab-button header-config-link" data-tab="settings" onclick="switchTab('settings')" title="Configuration">
+          <i class="fa-solid fa-sliders"></i> Config
+        </button>
       </div>
+
       <div class="digital-clock">
         <i class="fa-regular fa-clock"></i>
         <span id="clockDisplay">--:--:--</span>
@@ -417,14 +459,14 @@
       </button>
 
       <!-- Supervision -->
-      <div class="nav-group">
+      <div class="nav-group group-supervision">
           <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')">
               <i class="fa-solid fa-map"></i> Mapping & Zones
           </button>
       </div>
 
       <!-- Carburant -->
-      <div class="nav-group">
+      <div class="nav-group group-fuel">
           <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')">
               <i class="fa-solid fa-gas-pump"></i> Carburant
           </button>
@@ -434,7 +476,7 @@
       </div>
 
       <!-- Vidange & Maintenance -->
-      <div class="nav-group">
+      <div class="nav-group group-maintenance">
           <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')">
               <i class="fa-solid fa-wrench"></i> Vidanges
           </button>
@@ -443,16 +485,17 @@
           </button>
       </div>
 
-      <!-- Admin -->
-      <div class="nav-group">
+      <!-- Rapport (alone) -->
+      <div class="nav-group group-reports">
           <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')">
-              <i class="fa-solid fa-file-contract"></i> Rapports
+              <i class="fa-solid fa-file-contract"></i> Rapport
           </button>
+      </div>
+
+      <!-- Audit GPS (alone) -->
+      <div class="nav-group group-audit">
           <button class="tab-button btn-audit" onclick="window.open('gps-checker.html', '_blank')">
               <i class="fa-solid fa-user-secret"></i> GPS AUDIT
-          </button>
-          <button class="tab-button btn-admin" data-tab="settings" onclick="switchTab('settings')">
-              <i class="fa-solid fa-sliders"></i> Config
           </button>
       </div>
 

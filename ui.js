@@ -67,6 +67,10 @@ class UIController {
     this.vidangeFilterState = 'all';
     this.zoneGroupingMode = 'city'; 
     this.searchQuery = '';
+
+    // ✅ Settings sync timestamp (used to refresh vidange overrides periodically)
+    this.lastSettingsSync = 0;
+    this.settingsSyncIntervalMs = 5 * 60 * 1000; // 5 minutes
     
     // REPORT STATES
     this.currentReportView = 'fuel'; // 'fuel' or 'decouchage'
@@ -204,6 +208,22 @@ toggleDecouchageSubTab(view) {
       }
       .fuel-card-container:hover .fuel-card-overlay-btn { display: block; animation: fadeIn 0.3s;}
       .fuel-card-overlay-btn:hover { background: var(--teal-dark); }
+
+      /* ✅ Quick Vidange Button */
+      .btn-vidange-done {
+          background: #166534;
+          color: #ffffff;
+          border: none;
+          padding: 8px 10px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 700;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+      }
+      .btn-vidange-done:hover { background: #14532d; }
       .pagination-controls { display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 15px; padding: 10px; }
       .pagination-btn { background: #fff; border: 1px solid #ddd; padding: 5px 12px; border-radius: 4px; cursor: pointer; color: #555; }
       .pagination-btn:hover { background: #f0f0f0; }
@@ -380,6 +400,13 @@ initElements() {
           if (data.customLocations) FLEET_CONFIG.CUSTOM_LOCATIONS = data.customLocations;
           if (data.pollInterval) FLEET_CONFIG.UI.pollInterval = data.pollInterval;
           if (data.apiKeys) FLEET_CONFIG.GEOAPIFY_API_KEYS = data.apiKeys;
+          if (data.maintenanceRules) FLEET_CONFIG.MAINTENANCE_RULES = data.maintenanceRules;
+
+          // ✅ NEW: vidange overrides (silence alert after confirmed vidange)
+          if (data.vidangeOverrides) FLEET_CONFIG.VIDANGE_OVERRIDES = data.vidangeOverrides;
+          else if (!FLEET_CONFIG.VIDANGE_OVERRIDES) FLEET_CONFIG.VIDANGE_OVERRIDES = {};
+
+          this.lastSettingsSync = Date.now();
           
           console.log("☁️ Settings synced from Cloud");
           this.loadGlobalSettingsToUI();
@@ -1016,7 +1043,8 @@ exportDecouchageCSV() {
   switchTab(tabName) {
     document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    const btn = document.querySelector(`[data-tab="${tabName}"]`);
+    if (btn) btn.classList.add('active');
     document.getElementById(tabName).classList.add('active');
 
 if (tabName === 'byWilaya') {
@@ -1102,6 +1130,12 @@ if (tabName === 'byWilaya') {
           this.loadingContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #666;"><i class="fa-solid fa-sync fa-spin"></i> Mise à jour...</div>';
       }
       this.errorContainer.innerHTML = '';
+
+      // ✅ Periodic settings refresh (keeps vidange overrides + rules synced without manual reload)
+      const now = Date.now();
+      if (!this.lastSettingsSync || (now - this.lastSettingsSync) > this.settingsSyncIntervalMs) {
+        await this.loadSettingsFromCloud();
+      }
       
       const response = await fetch(`${FLEET_CONFIG.API.baseUrl}${FLEET_CONFIG.API.trucksEndpoint}`);
       if (!response.ok) throw new Error(`Erreur: ${response.status}`);
@@ -1270,6 +1304,9 @@ if (tabName === 'byWilaya') {
             <div style="margin-top: 12px; padding: 10px; background: #fff3e0; border-left: 3px solid var(--orange); border-radius: 4px; font-size: 12px;">
               <strong style="color: var(--orange);"><i class="fa-solid fa-wrench"></i> VIDANGE REQUISE</strong>
               <div style="margin-top: 2px;">Prévue à ${truck.vidange.nextKm}km (${truck.vidange.kmUntilNext} km restants)</div>
+              <button class="btn-vidange-done" style="margin-top:8px; width:100%;" onclick="ui.quickAddVidange('${truck.id}')">
+                <i class="fa-solid fa-circle-check"></i> Déclarer Vidange
+              </button>
             </div>
           ` : ''}
           ${truck.isVidangeCandidate ? `
@@ -1511,11 +1548,60 @@ if (tabName === 'byWilaya') {
             <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; font-size: 11px; color: #666;">
                Actuel: ${t.odometer} km
             </div>
+
+            ${(isAlert || isWarning) ? `
+              <button class="btn-vidange-done" style="margin-top:10px; width:100%;" onclick="ui.quickAddVidange('${t.id}')">
+                <i class="fa-solid fa-circle-check"></i> Déclarer Vidange
+              </button>
+            ` : ''}
           </div>`;
         }).join('')}
       </div>`;
     }
     this.vidangeSectionContainer.appendChild(content);
+  }
+
+  // ✅ QUICK ACTION: declare a Vidange from an alert (opens Maintenance modal prefilled)
+  quickAddVidange(deviceId) {
+    try {
+      const trucks = app.getAllTrucks();
+      const t = trucks.find(x => String(x.id) === String(deviceId));
+      if (!t) {
+        alert('Camion introuvable');
+        return;
+      }
+
+      // Move to history + open modal (user request)
+      this.switchTab('maintenanceHistory');
+      this.fetchAndRenderMaintenance();
+
+      // Open modal after tab content is visible
+      setTimeout(() => {
+        this.openMaintenanceModal(null);
+
+        // Select the correct truck by deviceId
+        const select = document.getElementById('modalMaintTruck');
+        if (select) {
+          const opt = Array.from(select.options).find(o => o.dataset && String(o.dataset.id) === String(deviceId));
+          if (opt) select.value = opt.value;
+          // trigger change so default odometer fills correctly
+          select.dispatchEvent(new Event('change'));
+        }
+
+        const typeEl = document.getElementById('modalMaintType');
+        if (typeEl) typeEl.value = 'Vidange';
+
+        const odoEl = document.getElementById('modalMaintOdo');
+        if (odoEl) odoEl.value = t.odometer || '';
+
+        const noteEl = document.getElementById('modalMaintNote');
+        if (noteEl && !noteEl.value) noteEl.value = 'Vidange confirmée (manuel)';
+      }, 80);
+
+    } catch (e) {
+      console.error('quickAddVidange error:', e);
+      alert('Erreur: impossible d’ouvrir la vidange');
+    }
   }
 
   // --- WILAYA VIEW ---
@@ -2339,6 +2425,16 @@ const eventData = {
               alert(this.editingMaintenanceId ? "✅ Mis à jour !" : "✅ Enregistré !");
               this.closeMaintenanceModal();
               this.fetchAndRenderMaintenance();
+
+              // ✅ If it was a Vidange, refresh settings (override) + trucks so the Vidange alert disappears
+              if (eventData.type === 'Vidange') {
+                  try {
+                      await this.loadSettingsFromCloud();
+                      await this.fetchAndUpdateTrucks();
+                  } catch (e) {
+                      console.warn('Refresh after Vidange failed:', e.message);
+                  }
+              }
           } else {
               alert("Erreur serveur.");
           }

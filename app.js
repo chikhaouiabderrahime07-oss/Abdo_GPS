@@ -82,7 +82,9 @@ class FleetTrackerApp {
       const odometerMeters = truck.params ? (parseInt(truck.params.io192) || 0) : 0;
       const odometerKm = Math.round(odometerMeters / 1000);
 
-      const vidangeStatus = calculateVidangeStatus(odometerKm, config);
+            // ✅ If a vidange was confirmed, ignore the serviced milestone for alerts
+            const skipUntilKm = FLEET_CONFIG.VIDANGE_OVERRIDES?.[deviceId]?.skipUntilKm;
+            const vidangeStatus = calculateVidangeStatus(odometerKm, config, skipUntilKm);
       vidangeStatus.alertKm = config.vidangeAlertKm || 5000;
       if (vidangeStatus.kmUntilNext === undefined) vidangeStatus.kmUntilNext = 999999;
       if (vidangeStatus.nextKm === undefined) vidangeStatus.nextKm = 'N/A';

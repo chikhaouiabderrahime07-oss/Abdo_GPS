@@ -85,6 +85,9 @@ let SYSTEM_SETTINGS = {
   maintenanceRules: { minDurationMinutes: 60, vidangeKmTolerance: 3000 },
   defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35 },
   fleetRules: [],
+  // ✅ NEW: per-truck vidange acknowledgements (used to silence alerts after a confirmed vidange)
+  // Structure: { [deviceId]: { skipUntilKm: number, confirmedAt: ISOString, odometerAtConfirm?: number, truckName?: string } }
+  vidangeOverrides: {},
   lastDecouchageCheck: null
 };
 
@@ -109,20 +112,92 @@ function getTruckConfig(deviceId) {
   return { ...globalDefault, ...specificConfig };
 }
 
-// 🔧 NEW: calculateVidangeStatus (same as config.js helper, used server-side)
-function calculateVidangeStatus(currentOdometer, config) {
-  if (!config.vidangeMilestones) return { alert: false, kmUntilNext: 999999 };
-  let milestones = [];
-  if (typeof config.vidangeMilestones === 'string') {
-    milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a, b) => a - b);
-  } else if (Array.isArray(config.vidangeMilestones)) {
-    milestones = config.vidangeMilestones;
+// ============================================================
+// 🔧 Vidange helpers (server-side)
+// ============================================================
+function parseVidangeMilestones(milestonesRaw) {
+  if (!milestonesRaw) return [];
+  if (typeof milestonesRaw === 'string') {
+    return milestonesRaw
+      .split(',')
+      .map(s => parseInt(String(s).trim(), 10))
+      .filter(n => !isNaN(n))
+      .sort((a, b) => a - b);
   }
-  const nextMilestone = milestones.find(m => m > currentOdometer);
-  if (!nextMilestone) return { alert: false, kmUntilNext: 999999 };
-  const kmUntilNext = nextMilestone - currentOdometer;
+  if (Array.isArray(milestonesRaw)) {
+    return milestonesRaw
+      .map(n => parseInt(n, 10))
+      .filter(n => !isNaN(n))
+      .sort((a, b) => a - b);
+  }
+  return [];
+}
+
+// 🔧 calculateVidangeStatus (same as config.js helper, but supports skipUntilKm)
+// - skipUntilKm: if provided and > currentOdometer, we treat all milestones <= skipUntilKm as already done
+//                BUT kmUntilNext is still computed from the real currentOdometer (so numbers stay correct).
+function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
+  if (!config || !config.vidangeMilestones) {
+    return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm: config?.vidangeAlertKm || 5000 };
+  }
+
+  const milestones = parseVidangeMilestones(config.vidangeMilestones);
+  if (!milestones || milestones.length === 0) {
+    return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm: config?.vidangeAlertKm || 5000 };
+  }
+
   const alertKm = config.vidangeAlertKm || 5000;
+  const safeSkip = (skipUntilKm !== null && skipUntilKm !== undefined) ? parseInt(skipUntilKm, 10) : null;
+  const cutoff = (!isNaN(safeSkip) && safeSkip > 0) ? Math.max(currentOdometer, safeSkip) : currentOdometer;
+
+  const nextMilestone = milestones.find(m => m > cutoff);
+  if (!nextMilestone) {
+    return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
+  }
+
+  const kmUntilNext = nextMilestone - currentOdometer;
   return { alert: kmUntilNext <= alertKm, nextKm: nextMilestone, kmUntilNext, alertKm };
+}
+
+async function acknowledgeVidange(deviceId, truckName, odometerKm) {
+  try {
+    const cfg = getTruckConfig(deviceId);
+    const milestones = parseVidangeMilestones(cfg.vidangeMilestones);
+    if (!milestones || milestones.length === 0) return null;
+
+    const tol = (SYSTEM_SETTINGS.maintenanceRules && SYSTEM_SETTINGS.maintenanceRules.vidangeKmTolerance)
+      ? parseInt(SYSTEM_SETTINGS.maintenanceRules.vidangeKmTolerance, 10)
+      : 3000;
+
+    // Prefer a milestone that is "close" to the current odometer (covers early/late cases)
+    let candidate = null;
+    let bestAbs = Infinity;
+    for (const m of milestones) {
+      const abs = Math.abs(m - odometerKm);
+      if (abs <= tol && abs < bestAbs) {
+        bestAbs = abs;
+        candidate = m;
+      }
+    }
+
+    // If nothing close, assume we are servicing the *next* milestone
+    if (!candidate) candidate = milestones.find(m => m > odometerKm) || null;
+    if (!candidate) return null;
+
+    if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
+    SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)] = {
+      skipUntilKm: candidate,
+      confirmedAt: new Date().toISOString(),
+      odometerAtConfirm: odometerKm,
+      truckName: truckName || ''
+    };
+
+    await saveSettings();
+    return candidate;
+  } catch (e) {
+    console.error('acknowledgeVidange error:', e.message);
+    return null;
+  }
 }
 
 const fmt = (list) => list.map(d => {
@@ -173,7 +248,9 @@ async function runVidangeDetection(truck, dbTruck, config) {
 
   const odometerMeters = parseInt(truck.params?.io192 || 0);
   const odometerKm = Math.round(odometerMeters / 1000);
-  const vidangeStatus = calculateVidangeStatus(odometerKm, config);
+  // ✅ Apply vidange override (if user/auto already confirmed a vidange for the upcoming milestone)
+  const skipUntilKm = SYSTEM_SETTINGS.vidangeOverrides?.[String(deviceId)]?.skipUntilKm;
+  const vidangeStatus = calculateVidangeStatus(odometerKm, config, skipUntilKm);
   const minDurationMs = (SYSTEM_SETTINGS.maintenanceRules?.minDurationMinutes || 60) * 60000;
 
   // Check if truck is inside any zone
@@ -222,6 +299,12 @@ async function runVidangeDetection(truck, dbTruck, config) {
           isAuto: true,
           note: `Auto-détecté: ${durationMins} min sur place (${currentZone.name})`
         });
+
+        // ✅ If it was a Vidange, acknowledge it so the "vidange alert" goes away for the serviced milestone
+        if (maintenanceType === 'Vidange') {
+          await acknowledgeVidange(deviceId, truckName, odometerKm);
+        }
+
         await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true });
         console.log(`🔧 AUTO ${maintenanceType}: ${truckName} at ${currentZone.name} (${durationMins}min, ${odometerKm}km)`);
       } else {
@@ -357,12 +440,20 @@ async function runFleetBot() {
     if (rawVal < 0) rawVal = 0;
     const currentLiters = Math.round((rawVal / 100) * capacity);
 
-    // --- ENGINE STATE DETECTION ---
+    // --- ENGINE + MOVEMENT STATE ---
     // io1 = ignition key, acc = accessory power
-    const ignRaw = truck.params?.io1 ?? truck.params?.acc ?? 0;
-    const ignOn = parseInt(ignRaw) === 1;
-    const speed = parseInt(truck.speed) || 0;
-    const engineIsOn = ignOn || speed > 5; // Engine on = ignition OR moving
+    const ignRaw = truck.params?.io1 ?? truck.params?.acc;
+    const ignVal = parseInt(ignRaw, 10);
+    const hasIgn = !isNaN(ignVal);
+    const ignOn = hasIgn ? ignVal === 1 : false;
+
+    const speed = parseInt(truck.speed, 10) || 0;
+    const isMoving = speed >= 1;
+
+    // "Engine OFF" for our refuel logic = ignition OFF AND not moving.
+    // If ignition signal is missing, we treat engine as ON to avoid false refuels.
+    const engineIsOff = hasIgn ? (!ignOn && speed === 0) : false;
+    const engineIsOn = !engineIsOff;
 
     const truckLat = parseFloat(truck.lat);
     const truckLng = parseFloat(truck.lng);
@@ -376,25 +467,66 @@ async function runFleetBot() {
         lastFuelLiters: currentLiters,
         lat: truckLat, lng: truckLng,
         speed, params: truck.params,
-        engineState: {
-          isOff: !engineIsOn,
-          fuelAtOff: currentLiters,
+        engineState: engineIsOff ? {
+          phase: 'OFF',
+          offSnapshotFuel: currentLiters,
+          offSnapshotTime: now,
           latAtOff: truckLat,
           lngAtOff: truckLng,
-          offTime: now
-        }
+          minFuelWhileOff: currentLiters,
+          maxFuelWhileOff: currentLiters
+        } : { phase: 'ON' }
       }, { upsert: true });
       continue;
     }
 
     let needsUpdate = false;
-    let engineState = dbTruck.engineState || {
-      isOff: false,
-      fuelAtOff: currentLiters,
-      latAtOff: truckLat,
-      lngAtOff: truckLng,
-      offTime: now
+
+    // ------------------------------------------------------------
+    // ✅ REFUEL DETECTION STATE (ENGINE OFF -> ON)
+    // We keep a small state-machine in Mongo so the backend can
+    // detect refills even if the UI is closed.
+    //
+    // User requirements implemented:
+    //  1) When engine turns OFF, snapshot the fuel level *from the
+    //     previous reading right before OFF*.
+    //  2) When engine turns ON again, DO NOT compute immediately.
+    //     Wait for the max fuel level after ON (idle), and finalize
+    //     once the truck moves (>= 1 km/h) OR a timeout.
+    // ------------------------------------------------------------
+
+    const REFUEL_RULES = {
+      minRefuelLiters: 50,
+      minOffMinutes: 2,
+      postOnMinSeconds: 60,
+      postOnMaxMinutes: 10,
+      movingSpeedThreshold: 1,
+      dedupeMinutes: 5,
+      baselineDropToleranceLiters: 15
     };
+    const refuelRules = { ...REFUEL_RULES, ...(SYSTEM_SETTINGS.refuelRules || {}) };
+
+    const MIN_REFUEL_L = parseInt(refuelRules.minRefuelLiters, 10) || 50;
+    const MIN_OFF_MS = (parseFloat(refuelRules.minOffMinutes) || 2) * 60 * 1000;
+    const POST_ON_MIN_MS = (parseFloat(refuelRules.postOnMinSeconds) || 60) * 1000;
+    const POST_ON_MAX_MS = (parseFloat(refuelRules.postOnMaxMinutes) || 10) * 60 * 1000;
+    const MOVING_TH = parseFloat(refuelRules.movingSpeedThreshold) || 1;
+    const DEDUPE_MS = (parseFloat(refuelRules.dedupeMinutes) || 5) * 60 * 1000;
+    const DROP_TOL = parseFloat(refuelRules.baselineDropToleranceLiters) || 15;
+
+    // Migrate older engineState format if needed
+    let engineState = dbTruck.engineState || {};
+    if (engineState && typeof engineState === 'object' && !engineState.phase) {
+      if (typeof engineState.isOff === 'boolean') {
+        engineState.phase = engineState.isOff ? 'OFF' : 'ON';
+        if (engineState.fuelAtOff !== undefined) engineState.offSnapshotFuel = engineState.fuelAtOff;
+        if (engineState.offTime !== undefined) engineState.offSnapshotTime = engineState.offTime;
+      } else {
+        engineState.phase = engineIsOff ? 'OFF' : 'ON';
+      }
+    }
+
+    if (!engineState.phase) engineState.phase = engineIsOff ? 'OFF' : 'ON';
 
     let payload = {
       truckName, lastUpdate: now,
@@ -403,96 +535,157 @@ async function runFleetBot() {
     };
 
     // ============================================================
-    // 🔧 ENGINE-OFF → ENGINE-ON REFUEL DETECTION (Simplified)
-    // Logic:
-    //   1. Engine turns OFF  → snapshot fuel level + GPS position
-    //   2. While OFF          → track the LOWEST fuel (in case sensor dips)
-    //   3. Engine turns ON   → compare current fuel with snapshot
-    //   4. If diff ≥ 50L     → confirmed refill, save to DB
+    // ⛽ REFUEL DETECTION (MAN TRUCK LOGIC)
     // ============================================================
-
-    if (!engineIsOn) {
+    if (engineIsOff) {
+      // -----------------------
       // ENGINE IS OFF
-      if (!engineState.isOff) {
-        // 🔴 Just turned OFF — take snapshot
-        engineState.isOff = true;
-        engineState.fuelAtOff = currentLiters;
-        engineState.latAtOff = truckLat;
-        engineState.lngAtOff = truckLng;
-        engineState.offTime = now;
+      // -----------------------
+      if (engineState.phase !== 'OFF') {
+        // 🔴 Transition ON -> OFF
+        // Snapshot the fuel level from the last reading right BEFORE turning off.
+        const baselineBeforeOff = (typeof dbTruck.lastFuelLiters === 'number' && dbTruck.lastFuelLiters > 0)
+          ? dbTruck.lastFuelLiters
+          : currentLiters;
+
+        engineState = {
+          phase: 'OFF',
+          offSnapshotFuel: baselineBeforeOff,
+          offSnapshotTime: now,
+          latAtOff: truckLat,
+          lngAtOff: truckLng,
+          minFuelWhileOff: currentLiters,
+          maxFuelWhileOff: currentLiters
+        };
         needsUpdate = true;
-        console.log(`🔴 ${truckName}: Engine OFF. Fuel snapshot: ${currentLiters}L`);
+        console.log(`🔴 ${truckName}: Engine OFF. Snapshot(before off): ${baselineBeforeOff}L (reading now: ${currentLiters}L)`);
       } else {
-        // Already off — update fuel snapshot if it DROPS (sensor noise protection)
-        // Only lower the baseline if fuel decreases significantly (>15L natural drop = odd)
-        if (currentLiters < engineState.fuelAtOff - 15) {
-          engineState.fuelAtOff = currentLiters;
+        // Still OFF: track min/max (helps with sensor dips and refill rises)
+        const prevMin = (engineState.minFuelWhileOff !== undefined) ? engineState.minFuelWhileOff : currentLiters;
+        const prevMax = (engineState.maxFuelWhileOff !== undefined) ? engineState.maxFuelWhileOff : currentLiters;
+        const nextMin = Math.min(prevMin, currentLiters);
+        const nextMax = Math.max(prevMax, currentLiters);
+
+        // Persist min/max while OFF (important for correct baseline and to catch refills)
+        if (nextMin !== prevMin) {
+          engineState.minFuelWhileOff = nextMin;
+          // Any change matters for baseline; keep it.
+          needsUpdate = true;
+        }
+
+        if (nextMax !== prevMax) {
+          engineState.maxFuelWhileOff = nextMax;
+          // Any rise while OFF can indicate a refill.
           needsUpdate = true;
         }
       }
+
       payload.lastFuelLiters = currentLiters;
 
     } else {
+      // -----------------------
       // ENGINE IS ON
-      if (engineState.isOff) {
-        // 🟢 Just turned ON — compare fuel with snapshot
-        const fuelDiff = currentLiters - engineState.fuelAtOff;
+      // -----------------------
+      if (engineState.phase === 'OFF') {
+        // 🟢 Transition OFF -> ON: start post-start stabilization window
+        engineState.phase = 'POST_ON';
+        engineState.onTime = now;
+        engineState.maxFuelAfterOn = currentLiters;
+        engineState.finalizeBy = now + POST_ON_MAX_MS;
+        engineState.moved = isMoving;
+        needsUpdate = true;
 
-        console.log(`🟢 ${truckName}: Engine ON. Fuel now: ${currentLiters}L, was: ${engineState.fuelAtOff}L, diff: ${fuelDiff}L`);
+        const offDurationMin = Math.round((now - (engineState.offSnapshotTime || now)) / 60000);
+        console.log(`🟢 ${truckName}: Engine ON after OFF (${offDurationMin}min). Waiting for max fuel...`);
 
-        if (fuelDiff >= 50) {
-          // ✅ REFILL CONFIRMED (≥50L added while engine was off)
-
-          // 🔧 FIX: Anti-duplicate: check last 5 MINUTES only (was 30 min — too broad)
-          const fiveMinsAgo = new Date(now - 5 * 60 * 1000);
-          const recentRefill = await Refuel.findOne({
-            deviceId,
-            timestamp: { $gte: fiveMinsAgo }
-          });
-
-          if (!recentRefill) {
-            // 🔧 FIX: Use STORED GPS position at engine-off time (was using wrong coords)
-            const refillLat = engineState.latAtOff || truckLat;
-            const refillLng = engineState.lngAtOff || truckLng;
-
-            // Detect location from stored stop position
-            let locName = "Station Externe";
-            let isInternal = false;
-            for (const loc of (SYSTEM_SETTINGS.customLocations || [])) {
-              const d = calculateDistance(refillLat, refillLng, loc.lat, loc.lng);
-              if (d <= (loc.radius || 500)) {
-                locName = loc.name;
-                isInternal = true;
-                break;
-              }
-            }
-
-            await Refuel.create({
-              deviceId, truckName,
-              addedLiters: Math.round(fuelDiff),
-              oldLevel: engineState.fuelAtOff,
-              newLevel: currentLiters,
-              timestamp: new Date(),
-              locationRaw: locName,
-              lat: refillLat, lng: refillLng,
-              isInternal
-            });
-
-            console.log(`⛽ REFILL: ${truckName} +${Math.round(fuelDiff)}L @ ${locName}`);
-          } else {
-            console.log(`⚠️ ${truckName}: Duplicate refill ignored (+${Math.round(fuelDiff)}L within 5min)`);
-          }
-        } else if (fuelDiff < -30) {
-          // Fuel dropped significantly while engine was off → possible siphoning
-          console.log(`⚠️ ${truckName}: Fuel DROP detected while engine was off! (${Math.round(fuelDiff)}L)`);
+      } else if (engineState.phase === 'POST_ON') {
+        // Update max level while engine is ON (we want the max idle value before moving)
+        const prevMaxOn = (engineState.maxFuelAfterOn !== undefined) ? engineState.maxFuelAfterOn : currentLiters;
+        if (currentLiters > prevMaxOn) {
+          engineState.maxFuelAfterOn = currentLiters;
+          needsUpdate = true;
         }
 
-        // Reset engine state to ON
-        engineState.isOff = false;
-        engineState.fuelAtOff = currentLiters;
-        engineState.latAtOff = truckLat;
-        engineState.lngAtOff = truckLng;
-        needsUpdate = true;
+        if (isMoving) engineState.moved = true;
+
+        const onStart = engineState.onTime || now;
+        const onDurationMs = now - onStart;
+        const movedTrigger = speed >= MOVING_TH;
+        const timeoutTrigger = now >= (engineState.finalizeBy || (onStart + POST_ON_MAX_MS));
+        const readyTrigger = movedTrigger && onDurationMs >= POST_ON_MIN_MS;
+
+        if (readyTrigger || timeoutTrigger) {
+          const offStart = engineState.offSnapshotTime || now;
+          const offDurationMs = onStart - offStart;
+
+          // Baseline before refill = snapshot (before off) or the minimum seen while OFF
+          const baseline = Math.min(
+            (engineState.offSnapshotFuel !== undefined ? engineState.offSnapshotFuel : currentLiters),
+            (engineState.minFuelWhileOff !== undefined ? engineState.minFuelWhileOff : currentLiters)
+          );
+
+          const observedMax = Math.max(
+            (engineState.maxFuelWhileOff !== undefined ? engineState.maxFuelWhileOff : 0),
+            (engineState.maxFuelAfterOn !== undefined ? engineState.maxFuelAfterOn : 0),
+            currentLiters
+          );
+
+          const fuelDiff = observedMax - baseline;
+
+          console.log(`⛽ ${truckName}: Refuel check. baseline=${baseline}L, max=${observedMax}L, diff=${Math.round(fuelDiff)}L, off=${Math.round(offDurationMs/60000)}min, moved=${movedTrigger}`);
+
+          // Only treat as refuel if the engine was OFF long enough (refills take time)
+          if (offDurationMs >= MIN_OFF_MS && fuelDiff >= MIN_REFUEL_L) {
+            const dedupeSince = new Date(now - DEDUPE_MS);
+            const recentRefill = await Refuel.findOne({
+              deviceId,
+              timestamp: { $gte: dedupeSince }
+            });
+
+            if (!recentRefill) {
+              const refillLat = engineState.latAtOff || truckLat;
+              const refillLng = engineState.lngAtOff || truckLng;
+
+              let locName = 'Station Externe';
+              let isInternal = false;
+              for (const loc of (SYSTEM_SETTINGS.customLocations || [])) {
+                const d = calculateDistance(refillLat, refillLng, loc.lat, loc.lng);
+                if (d <= (loc.radius || 500)) {
+                  locName = loc.name;
+                  isInternal = true;
+                  break;
+                }
+              }
+
+              await Refuel.create({
+                deviceId,
+                truckName,
+                addedLiters: Math.round(fuelDiff),
+                oldLevel: baseline,
+                newLevel: observedMax,
+                timestamp: new Date(now),
+                locationRaw: locName,
+                lat: refillLat,
+                lng: refillLng,
+                isInternal
+              });
+
+              console.log(`⛽ REFILL: ${truckName} +${Math.round(fuelDiff)}L @ ${locName}`);
+            } else {
+              console.log(`⚠️ ${truckName}: Duplicate refill ignored (+${Math.round(fuelDiff)}L within ${Math.round(DEDUPE_MS/60000)}min)`);
+            }
+          }
+
+          // Reset state back to ON
+          engineState = { phase: 'ON' };
+          needsUpdate = true;
+        }
+      } else {
+        // phase ON (steady)
+        if (engineState.phase !== 'ON') {
+          engineState.phase = 'ON';
+          needsUpdate = true;
+        }
       }
 
       payload.lastFuelLiters = currentLiters;
@@ -583,6 +776,16 @@ app.get('/api/maintenance', checkAccess, async (req, res) => {
 });
 app.post('/api/maintenance/add', checkAccess, async (req, res) => {
   await Maintenance.create(req.body);
+
+  // ✅ If a Vidange was manually added, acknowledge it to silence the current milestone alert
+  try {
+    if (req.body && req.body.type === 'Vidange' && req.body.deviceId && req.body.odometer) {
+      await acknowledgeVidange(req.body.deviceId, req.body.truckName, parseInt(req.body.odometer, 10));
+    }
+  } catch (e) {
+    console.warn('Vidange acknowledge (manual) failed:', e.message);
+  }
+
   res.json({ success: true });
 });
 app.post('/api/maintenance/update', checkAccess, async (req, res) => {
@@ -590,11 +793,23 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     const { id, type, note, odometer, isAuto } = req.body;
     const doc = await Maintenance.findById(id);
     if (!doc) return res.status(404).json({ error: "Introuvable" });
+
+    const prevType = doc.type;
     doc.type = type || doc.type;
     doc.note = note !== undefined ? note : doc.note;
     doc.odometer = odometer || doc.odometer;
     if (isAuto !== undefined) doc.isAuto = isAuto;
     await doc.save();
+
+    // ✅ If user changed the entry to Vidange, acknowledge
+    try {
+      if (prevType !== 'Vidange' && doc.type === 'Vidange' && doc.deviceId && doc.odometer) {
+        await acknowledgeVidange(doc.deviceId, doc.truckName, parseInt(doc.odometer, 10));
+      }
+    } catch (e) {
+      console.warn('Vidange acknowledge (update) failed:', e.message);
+    }
+
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
