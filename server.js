@@ -134,8 +134,8 @@ function parseVidangeMilestones(milestonesRaw) {
 }
 
 // 🔧 calculateVidangeStatus (same as config.js helper, but supports skipUntilKm)
-// - skipUntilKm: if provided and > currentOdometer, we treat all milestones <= skipUntilKm as already done
-//                BUT kmUntilNext is still computed from the real currentOdometer (so numbers stay correct).
+// - skipUntilKm: last confirmed vidange milestone.
+//   IMPORTANT: the alert MUST stay active (even overdue) until a vidange is recorded.
 function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
   if (!config || !config.vidangeMilestones) {
     return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm: config?.vidangeAlertKm || 5000 };
@@ -148,9 +148,13 @@ function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
 
   const alertKm = config.vidangeAlertKm || 5000;
   const safeSkip = (skipUntilKm !== null && skipUntilKm !== undefined) ? parseInt(skipUntilKm, 10) : null;
-  const cutoff = (!isNaN(safeSkip) && safeSkip > 0) ? Math.max(currentOdometer, safeSkip) : currentOdometer;
 
-  const nextMilestone = milestones.find(m => m > cutoff);
+  // ✅ IMPORTANT FIX
+  // The alert must NOT disappear just because the truck passed the milestone.
+  // We only move to the next milestone once a vidange is recorded (skipUntilKm).
+  const base = (!isNaN(safeSkip) && safeSkip > 0) ? safeSkip : 0;
+
+  const nextMilestone = milestones.find(m => m > base);
   if (!nextMilestone) {
     return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
   }
@@ -169,20 +173,47 @@ async function acknowledgeVidange(deviceId, truckName, odometerKm) {
       ? parseInt(SYSTEM_SETTINGS.maintenanceRules.vidangeKmTolerance, 10)
       : 3000;
 
-    // Prefer a milestone that is "close" to the current odometer (covers early/late cases)
-    let candidate = null;
-    let bestAbs = Infinity;
-    for (const m of milestones) {
-      const abs = Math.abs(m - odometerKm);
-      if (abs <= tol && abs < bestAbs) {
-        bestAbs = abs;
-        candidate = m;
-      }
-    }
-
-    // If nothing close, assume we are servicing the *next* milestone
-    if (!candidate) candidate = milestones.find(m => m > odometerKm) || null;
-    if (!candidate) return null;
+	    // ✅ IMPORTANT FIX
+	    // We must pick the correct milestone even if the truck is late.
+	    // Old behavior ("next milestone > odometer") was WRONG for late vidanges.
+	    // New behavior:
+	    // 1) Don't go backwards (ignore milestones <= current skipUntilKm)
+	    // 2) Prefer a milestone within tolerance
+	    // 3) If none within tolerance, pick the closest milestone (late-safe)
+	
+	    const existingOverride = SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)];
+	    const currentSkip = existingOverride && existingOverride.skipUntilKm
+	      ? parseInt(existingOverride.skipUntilKm, 10)
+	      : 0;
+	
+	    const available = milestones.filter(m => !currentSkip || m > currentSkip);
+	    if (!available.length) return null;
+	
+	    let candidate = null;
+	    let bestAbs = Infinity;
+	
+	    // 1) Prefer a milestone close to current odometer (early/normal case)
+	    for (const m of available) {
+	      const abs = Math.abs(m - odometerKm);
+	      if (abs <= tol && abs < bestAbs) {
+	        bestAbs = abs;
+	        candidate = m;
+	      }
+	    }
+	
+	    // 2) If nothing is close, pick the closest milestone (late-safe)
+	    if (!candidate) {
+	      bestAbs = Infinity;
+	      for (const m of available) {
+	        const abs = Math.abs(m - odometerKm);
+	        if (abs < bestAbs || (abs === bestAbs && candidate !== null && m > candidate) || (abs === bestAbs && candidate === null)) {
+	          bestAbs = abs;
+	          candidate = m;
+	        }
+	      }
+	    }
+	
+	    if (!candidate) return null;
 
     if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
     SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)] = {
@@ -253,6 +284,31 @@ async function runVidangeDetection(truck, dbTruck, config) {
   const vidangeStatus = calculateVidangeStatus(odometerKm, config, skipUntilKm);
   const minDurationMs = (SYSTEM_SETTINGS.maintenanceRules?.minDurationMinutes || 60) * 60000;
 
+  // ✅ FIX: If we created an auto maintenance log, we MUST close it when the truck leaves the zone.
+  // Otherwise it will stay "EN COURS" forever in the history.
+  const closeOpenSessionIfAny = async (zoneName) => {
+    if (!zoneName) return;
+    try {
+      let logId = dbTruck.logId;
+      if (!logId) {
+        // Backward-compatible: old DB rows may not have logId saved
+        const openLog = await Maintenance.findOne({
+          deviceId,
+          location: zoneName,
+          isAuto: true,
+          $or: [{ exitDate: { $exists: false } }, { exitDate: null }]
+        }).sort({ date: -1 });
+        if (openLog) logId = openLog._id.toString();
+      }
+
+      if (logId) {
+        await closeMaintenanceSession(logId, truckName, now);
+      }
+    } catch (e) {
+      console.warn('closeOpenSessionIfAny failed:', e.message);
+    }
+  };
+
   // Check if truck is inside any zone
   let currentZone = null;
   for (const loc of maintLocations) {
@@ -267,10 +323,15 @@ async function runVidangeDetection(truck, dbTruck, config) {
     // Truck is inside a maintenance zone
     if (!dbTruck.zone || dbTruck.zone !== currentZone.name) {
       // ENTRY: Just arrived - start timer
+	      // If we were previously inside another maintenance zone, close that session first.
+	      if (dbTruck.zone && dbTruck.zone !== currentZone.name) {
+	        await closeOpenSessionIfAny(dbTruck.zone);
+	      }
       await Truck.findOneAndUpdate({ deviceId }, {
         zone: currentZone.name,
         entryTime: now,
-        hasLogged: false
+	        hasLogged: false,
+	        logId: null
       });
       console.log(`📍 ${truckName} entered zone: ${currentZone.name}`);
     } else if (!dbTruck.hasLogged && dbTruck.entryTime && (now - dbTruck.entryTime) >= minDurationMs) {
@@ -290,7 +351,7 @@ async function runVidangeDetection(truck, dbTruck, config) {
 
       if (!recentLog) {
         const durationMins = Math.round((now - dbTruck.entryTime) / 60000);
-        await Maintenance.create({
+	        const createdLog = await Maintenance.create({
           truckName, deviceId,
           type: maintenanceType,
           location: currentZone.name,
@@ -305,17 +366,37 @@ async function runVidangeDetection(truck, dbTruck, config) {
           await acknowledgeVidange(deviceId, truckName, odometerKm);
         }
 
-        await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true });
+	        // Save logId so we can close the session when the truck leaves
+	        await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true, logId: createdLog._id.toString() });
         console.log(`🔧 AUTO ${maintenanceType}: ${truckName} at ${currentZone.name} (${durationMins}min, ${odometerKm}km)`);
       } else {
         // Mark as logged to stop repeat checks
-        await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true });
+	        await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true, logId: null });
       }
     }
   } else {
     // Truck is OUTSIDE all zones - reset zone tracking
+	  // Backward-compatible cleanup: if a previous bug left an auto session open, close it now.
+	  try {
+	    const strayOpen = await Maintenance.findOne({
+	      deviceId,
+	      isAuto: true,
+	      $or: [{ exitDate: { $exists: false } }, { exitDate: null }]
+	    }).sort({ date: -1 });
+	    if (strayOpen && !strayOpen.exitDate) {
+	      await closeMaintenanceSession(strayOpen._id.toString(), truckName, now);
+	    }
+	  } catch (e) {
+	    console.warn('Stray maintenance cleanup failed:', e.message);
+	  }
+
     if (dbTruck.zone) {
-      await Truck.findOneAndUpdate({ deviceId }, { zone: null, entryTime: null, hasLogged: false });
+	    // Close any open auto session for the zone we just left
+	    await closeOpenSessionIfAny(dbTruck.zone);
+	    await Truck.findOneAndUpdate({ deviceId }, { zone: null, entryTime: null, hasLogged: false, logId: null });
+	  } else if (dbTruck.logId) {
+	    // No zone tracked anymore, but logId is still set (cleanup)
+	    await Truck.findOneAndUpdate({ deviceId }, { zone: null, entryTime: null, hasLogged: false, logId: null });
     }
   }
 }
@@ -618,11 +699,16 @@ async function runFleetBot() {
           const offStart = engineState.offSnapshotTime || now;
           const offDurationMs = onStart - offStart;
 
-          // Baseline before refill = snapshot (before off) or the minimum seen while OFF
-          const baseline = Math.min(
-            (engineState.offSnapshotFuel !== undefined ? engineState.offSnapshotFuel : currentLiters),
-            (engineState.minFuelWhileOff !== undefined ? engineState.minFuelWhileOff : currentLiters)
-          );
+	          // Baseline before refill = snapshot (before off) or the minimum seen while OFF.
+	          // Some sensors dip while stopped, which can create fake huge refills.
+	          // We clamp the drop using baselineDropToleranceLiters (DROP_TOL).
+	          const snapshot = (engineState.offSnapshotFuel !== undefined ? engineState.offSnapshotFuel : currentLiters);
+	          const minOff = (engineState.minFuelWhileOff !== undefined ? engineState.minFuelWhileOff : currentLiters);
+	          let baseline = Math.min(snapshot, minOff);
+	          if (Number.isFinite(snapshot) && Number.isFinite(minOff) && minOff < (snapshot - DROP_TOL)) {
+	            baseline = snapshot - DROP_TOL;
+	          }
+	          baseline = Math.max(0, baseline);
 
           const observedMax = Math.max(
             (engineState.maxFuelWhileOff !== undefined ? engineState.maxFuelWhileOff : 0),
@@ -635,7 +721,8 @@ async function runFleetBot() {
           console.log(`⛽ ${truckName}: Refuel check. baseline=${baseline}L, max=${observedMax}L, diff=${Math.round(fuelDiff)}L, off=${Math.round(offDurationMs/60000)}min, moved=${movedTrigger}`);
 
           // Only treat as refuel if the engine was OFF long enough (refills take time)
-          if (offDurationMs >= MIN_OFF_MS && fuelDiff >= MIN_REFUEL_L) {
+	          // Ignore minor refills of 50L or below
+	          if (offDurationMs >= MIN_OFF_MS && fuelDiff > MIN_REFUEL_L) {
             const dedupeSince = new Date(now - DEDUPE_MS);
             const recentRefill = await Refuel.findOne({
               deviceId,

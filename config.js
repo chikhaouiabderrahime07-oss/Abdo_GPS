@@ -210,8 +210,11 @@ function getTruckConfig(deviceId) {
     return { ...globalDefault, ...specificConfig, _ruleName: ruleName };
 }
 
-function calculateVidangeStatus(currentOdometer, config) {
-    if (!config.vidangeMilestones) return { alert: false };
+function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
+    const alertKm = (config && config.vidangeAlertKm) || 5000;
+    if (!config || !config.vidangeMilestones) {
+        return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
+    }
     
     let milestones = [];
     // Handle both string "30000, 60000" and array inputs
@@ -221,19 +224,25 @@ function calculateVidangeStatus(currentOdometer, config) {
         milestones = config.vidangeMilestones;
     }
     
-    const nextMilestone = milestones.find(m => m > currentOdometer);
+    // ✅ IMPORTANT FIX
+    // The alert must NOT disappear just because the truck passed the milestone.
+    // We only move to the next milestone when a vidange is recorded (skipUntilKm).
+    const safeSkip = (skipUntilKm !== null && skipUntilKm !== undefined) ? parseInt(skipUntilKm, 10) : null;
+    const base = (!isNaN(safeSkip) && safeSkip > 0) ? safeSkip : 0;
+
+    const nextMilestone = milestones.find(m => m > base);
     
     // If no more milestones or bad data
-    if (!nextMilestone) return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm: config.vidangeAlertKm };
+    if (!nextMilestone) return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
   
     const kmUntilNext = nextMilestone - currentOdometer;
-    const isAlert = kmUntilNext <= (config.vidangeAlertKm || 5000);
+    const isAlert = kmUntilNext <= alertKm;
   
     return {
         alert: isAlert,
         nextKm: nextMilestone,
         kmUntilNext: kmUntilNext,
-        alertKm: config.vidangeAlertKm || 5000
+        alertKm
     };
 }
 

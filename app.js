@@ -110,9 +110,13 @@ class FleetTrackerApp {
           alertLevel = 'warning';
           this.alerts.warning.push({ deviceId, truck: displayName, type: 'fuel', message: `Bas: ${fuelPercentage}%`, timestamp: displayDateISO });
         }
-        if (vidangeStatus.alert) {
-          this.alerts.vidange.push({ deviceId, truck: displayName, type: 'vidange', message: `Vidange: ${vidangeStatus.kmUntilNext}km`, timestamp: displayDateISO });
-        }
+	        if (vidangeStatus.alert) {
+	          const kmUntil = Number(vidangeStatus.kmUntilNext ?? 0);
+	          const msg = (kmUntil < 0)
+	            ? `Vidange: retard ${Math.abs(kmUntil)}km`
+	            : `Vidange: ${kmUntil}km`;
+	          this.alerts.vidange.push({ deviceId, truck: displayName, type: 'vidange', message: msg, timestamp: displayDateISO });
+	        }
       }
 
       // ----------------------------------------------------------

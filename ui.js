@@ -1253,6 +1253,16 @@ if (tabName === 'byWilaya') {
       const config = getTruckConfig(truck.id);
       const ruleLabel = config._ruleName ? `<div style="font-size:9px; background:var(--teal); color:white; padding:2px 4px; border-radius:2px; display:inline-block; margin-top:2px;">${config._ruleName}</div>` : '';
 
+      // --- VIDANGE DISPLAY (handle overdue nicely) ---
+      const vidangeKmUntil = Number(truck?.vidange?.kmUntilNext ?? 0);
+      const isVidangeOverdue = truck?.vidange?.alert && vidangeKmUntil < 0;
+      const vidangeTitle = isVidangeOverdue ? 'VIDANGE EN RETARD' : 'VIDANGE REQUISE';
+      const vidangeColor = isVidangeOverdue ? 'var(--red)' : 'var(--orange)';
+      const vidangeBg = isVidangeOverdue ? '#fff5f5' : '#fff3e0';
+      const vidangeRemainingText = isVidangeOverdue
+        ? `En retard de ${Math.abs(vidangeKmUntil).toLocaleString()} km`
+        : `${vidangeKmUntil.toLocaleString()} km restants`;
+
       const card = document.createElement('div');
       card.className = 'truck-card';
       card.innerHTML = `
@@ -1301,9 +1311,9 @@ if (tabName === 'byWilaya') {
           </div>
 
           ${truck.vidange.alert ? `
-            <div style="margin-top: 12px; padding: 10px; background: #fff3e0; border-left: 3px solid var(--orange); border-radius: 4px; font-size: 12px;">
-              <strong style="color: var(--orange);"><i class="fa-solid fa-wrench"></i> VIDANGE REQUISE</strong>
-              <div style="margin-top: 2px;">Prévue à ${truck.vidange.nextKm}km (${truck.vidange.kmUntilNext} km restants)</div>
+            <div style="margin-top: 12px; padding: 10px; background: ${vidangeBg}; border-left: 3px solid ${vidangeColor}; border-radius: 4px; font-size: 12px;">
+              <strong style="color: ${vidangeColor};"><i class="fa-solid fa-wrench"></i> ${vidangeTitle}</strong>
+              <div style="margin-top: 2px;">Prévue à ${truck.vidange.nextKm}km (${vidangeRemainingText})</div>
               <button class="btn-vidange-done" style="margin-top:8px; width:100%;" onclick="ui.quickAddVidange('${truck.id}')">
                 <i class="fa-solid fa-circle-check"></i> Déclarer Vidange
               </button>
@@ -1518,6 +1528,10 @@ if (tabName === 'byWilaya') {
         ${trucks.map(t => {
           const isAlert = t.vidange.alert;
           const isWarning = !isAlert && t.vidange.kmUntilNext < (t.vidange.alertKm + 3000);
+	          const kmUntil = Number(t?.vidange?.kmUntilNext ?? 0);
+	          const isOverdue = kmUntil < 0;
+	          const remainingLabel = isOverdue ? 'Retard' : 'Reste';
+	          const remainingValue = isOverdue ? Math.abs(kmUntil) : kmUntil;
           
           let color = '#2a9d8f'; 
           let statusText = 'OK';
@@ -1540,8 +1554,8 @@ if (tabName === 'byWilaya') {
                 <strong style="color: ${color}; font-size: 14px;">${t.vidange.nextKm} km</strong>
               </div>
               <div>
-                <div style="color:#888;">Reste</div>
-                <strong style="color: #333; font-size: 14px;">${t.vidange.kmUntilNext} km</strong>
+	                <div style="color:#888;">${remainingLabel}</div>
+	                <strong style="color: ${isOverdue ? color : '#333'}; font-size: 14px;">${remainingValue.toLocaleString()} km</strong>
               </div>
             </div>
             
@@ -1836,6 +1850,8 @@ renderFilteredRefuels() {
     // 3. Apply Filters
     processedLogs = processedLogs.filter(log => {
         const logDate = new Date(log.timestamp);
+	        // Ignore minor refills of 50L or below (keeps history clean)
+	        if (Number(log.realAdded) <= 50) return false;
         if (startDate && logDate < startDate) return false;
         if (endDate && logDate > endDate) return false;
         if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
@@ -2176,7 +2192,7 @@ const filtered = this.allMaintenanceLogs.filter(item => {
           const d = new Date(item.date);
           
           // FIX: Always show Active (En cours) items, regardless of date filter
-          const isActive = !item.exitDate;
+	      const isActive = item.isAuto && !item.exitDate;
           
           if (!isActive) {
               if(start && d < start) return false;
@@ -2194,9 +2210,9 @@ const filtered = this.allMaintenanceLogs.filter(item => {
       }
 
       // Sort: Active First, then Newest
-      filtered.sort((a,b) => {
-          const aActive = !a.exitDate;
-          const bActive = !b.exitDate;
+	      filtered.sort((a,b) => {
+	          const aActive = a.isAuto && !a.exitDate;
+	          const bActive = b.isAuto && !b.exitDate;
           if(aActive && !bActive) return -1; // Active comes first
           if(!aActive && bActive) return 1;  // Inactive goes down
           return new Date(b.date) - new Date(a.date);
@@ -2781,8 +2797,8 @@ async generateDetailedRefillReport(selectedIds, startDate, endDate) {
                         const durationMins = Math.round((p.time - stopStartTime) / 60000);
                         const realDiff = maxFuel - minFuel; // The Magic Calculation
 
-                        // Filter: > 50L
-                        if (realDiff >= 50) {
+	                        // Filter: ignore minor refills of 50L or below
+	                        if (realDiff > 50) {
                             eventsFound++;
                             const address = await this.resolveLocationNameAsync(stopLat, stopLng);
                             const dateStr = new Date(stopStartTime).toLocaleDateString();
@@ -2874,10 +2890,21 @@ getDistKm(lat1, lon1, lat2, lon2) {
       const endOdo = parseInt(points[points.length - 1].params.io192);
       const totalDist = (endOdo > startOdo) ? (endOdo - startOdo) / 1000 : 0;
 
-      const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
-      let refillCount = 0, refillVolume = 0, consumedLiters = 0;
-      let lastLiters = (parseFloat(points[0].params.io87) / 100) * tankCap;
-      let movingMs = 0, nightMs = 0, stopMs = 0, maxSpeed = 0;
+	      const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
+
+	      // ✅ FUEL LOGIC (MUST MATCH MAPBOX HISTORY)
+	      // - Only consider valid (>0) fuel readings
+	      // - Detect refills only when the level jumps by > 50L
+	      // - Ignore minor refills of 50L or below
+	      let refillCount = 0, refillVolume = 0, consumedLiters = 0;
+	      let lastLiters = null;
+
+	      // Initialize baseline with the first valid value (prevents false huge refills when io87 starts at 0)
+	      if (points[0].params && points[0].params.io87 && parseInt(points[0].params.io87) > 0) {
+	          lastLiters = (parseFloat(points[0].params.io87) / 100) * tankCap;
+	      }
+
+	      let movingMs = 0, nightMs = 0, stopMs = 0, maxSpeed = 0;
 
       // 4. DÉCOUCHAGE SETUP (Site Douroub)
       const SITE_LAT = 34.8331;
@@ -2900,13 +2927,27 @@ getDistKm(lat1, lon1, lat2, lon2) {
           const timeDiff = p.time - prev.time;
           const hour = new Date(p.time).getHours();
 
-          // A. FUEL
-          if (p.params.io87 && parseInt(p.params.io87) > 0) {
-              const currentLiters = (parseFloat(p.params.io87) / 100) * tankCap;
-              const diff = currentLiters - lastLiters;
-              if (diff > 50 && p.speed < 5) { refillCount++; refillVolume += diff; lastLiters = currentLiters; } 
-              else if (diff < 0 && Math.abs(diff) < 80) { consumedLiters += Math.abs(diff); lastLiters = currentLiters; }
-          }
+	          // A. FUEL (Same logic as Mapbox history: simple & effective)
+	          if (p.params && p.params.io87 && parseInt(p.params.io87) > 0) {
+	              const currentLiters = (parseFloat(p.params.io87) / 100) * tankCap;
+
+	              if (lastLiters !== null) {
+	                  const diff = currentLiters - lastLiters;
+
+	                  // ✅ Refuel detected only if > 50L
+	                  if (diff > 50) {
+	                      refillCount++;
+	                      refillVolume += diff;
+	                  }
+	                  // ✅ Consumption tracking (ignore extreme drops that are usually sensor glitches)
+	                  else if (diff < 0 && Math.abs(diff) < 80) {
+	                      consumedLiters += Math.abs(diff);
+	                  }
+	              }
+
+	              // Always move the baseline forward when we have a valid reading
+	              lastLiters = currentLiters;
+	          }
 
           // B. OPS
           if (p.speed > maxSpeed) maxSpeed = p.speed;
@@ -3011,8 +3052,8 @@ getDistKm(lat1, lon1, lat2, lon2) {
               currentFuel = Math.round((rawVal / 100) * tankCap);
           }
 
-          // Detect Refill > 20L
-          if (lastFuel !== null && currentFuel > (lastFuel + 20)) {
+	          // Detect Refills (same logic as Mapbox): ignore 50L and below
+	          if (lastFuel !== null && currentFuel > (lastFuel + 50)) {
               refillCount++;
               refillVolume += (currentFuel - lastFuel);
           }

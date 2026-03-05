@@ -455,11 +455,11 @@ class GPSAuditor {
       const liters2 = Math.round((p2.fuel / 100) * capacity);
       const diff = liters2 - liters1;
 
-      // Conditions: ≥50L added, truck was stopped, not duplicate within 5 min
+      // Conditions: >50L added (ignore 50L & below), truck was stopped, not duplicate within 5 min
       const truckWasStopped = p1.spd <= 2 && p1.ign !== 1;
       const notDuplicate = (p2.t - lastRefillTime) > 5 * 60 * 1000;
 
-      if (diff >= 50 && truckWasStopped && notDuplicate) {
+      if (diff > 50 && truckWasStopped && notDuplicate) {
         // Detect location from GPS coords at refill time
         let locName = 'Station Externe';
         let isInternal = false;
