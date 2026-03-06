@@ -5,27 +5,27 @@
 const FLEETCONFIG = {
 
     // --- MAPBOX CONFIGURATION ---
-    MAPBOXTOKEN: 'pk.eyJ1IjoiZGVzdGVuaXoiLCJhIjoiY21qYWNsZ2RsMDJ1NjNmc2IwdW4xeXdlbCJ9.toA-GeOlzBEuEJHrXsZp-w',
+    MAPBOX_TOKEN: 'pk.eyJ1IjoiZGVzdGVuaXoiLCJhIjoiY21qYWNsZ2RsMDJ1NjNmc2IwdW4xeXdlbCJ9.toA-GeOlzBEuEJHrXsZp-w',
 
     // --- OTHER KEYS ---
-    GEOAPIFYAPIKEY: 'b6fb88dee9494c9bab15b4f8e6bfbd58',
-    GEOAPIFYAPIKEYS: [],
+    GEOAPIFY_API_KEY: 'b6fb88dee9494c9bab15b4f8e6bfbd58',
+    GEOAPIFY_API_KEYS: [],
 
     LANGUAGE: 'fr',
-    AUTOSTART: true,
-    DEFAULTPOLLINTERVAL: 120000,
-    DEFAULTSERVERURL: '',
+    AUTO_START: true,
+    DEFAULT_POLL_INTERVAL: 120000,
+    DEFAULT_SERVER_URL: '',
 
     // Location Types
-    LOCATIONTYPES: [
-        { id: 'client', label: 'Client / Livraison', color: '1976d2', icon: 'fa-user-tie' },
-        { id: 'maintenance', label: 'Maintenance / Garage', color: 'd32f2f', icon: 'fa-wrench' },
-        { id: 'douroub', label: 'Site Douroub', color: '166534', icon: 'fa-building' },
-        { id: 'other', label: 'Autre', color: '666666', icon: 'fa-map-marker-alt' }
+    LOCATION_TYPES: [
+        { id: 'client', label: 'Client / Livraison', color: '#1976d2', icon: 'fa-user-tie' },
+        { id: 'maintenance', label: 'Maintenance / Garage', color: '#d32f2f', icon: 'fa-wrench' },
+        { id: 'douroub', label: 'Site Douroub', color: '#166534', icon: 'fa-building' },
+        { id: 'other', label: 'Autre', color: '#666666', icon: 'fa-map-marker-alt' }
     ],
 
     // Maintenance Trigger Rules
-    MAINTENANCERULES: {
+    MAINTENANCE_RULES: {
         minDurationMinutes: 60,
         vidangeKmTolerance: 3000
     },
@@ -101,13 +101,19 @@ const FLEETCONFIG = {
     //   → Common Chinese GPS values: 'io87', 'io84', 'fuel'
     //
     // -------------------------------------------------------
-    REFUELRULES: {
-        minRefuelLiters: 30,
+    REFUEL_RULES: {
+        minRefuelLiters: 50,
+        stopSpeedThreshold: 4,
+        minStopMinutes: 2,
+        requireIgnOff: false,
+        dedupeMinutes: 5,
+        dedupeLitersTolerance: 10,
+        stableAfterIncreaseMinutes: 2,
+        // --- Advanced (Chinese GPS) ---
         minOffMinutes: 2,
         postOnMaxMinutes: 10,
         postOnMinSeconds: 60,
         movingSpeedThreshold: 1,
-        dedupeMinutes: 5,
         baselineDropToleranceLiters: 15,
         sensorSmoothingWindow: 3,
         ignorePercentBelow: 1,
@@ -118,7 +124,7 @@ const FLEETCONFIG = {
     },
 
     // --- GLOBAL DEFAULT CONFIG ---
-    DEFAULTTRUCKCONFIG: {
+    DEFAULT_TRUCK_CONFIG: {
         fuelTankCapacity: 600,
         fuelConsumption: 32,
         fuelPricePerLiter: 29,
@@ -131,8 +137,8 @@ const FLEETCONFIG = {
     },
 
     // --- RULE BASED SYSTEM ---
-    FLEETRULES: [],
-    CUSTOMLOCATIONS: [],
+    FLEET_RULES: [],
+    CUSTOM_LOCATIONS: [],
 
     UI: {
         enableGeocoding: true,
@@ -142,10 +148,17 @@ const FLEETCONFIG = {
 
     API: {
         baseUrl: '',
-        trucksEndpoint: 'api/trucks',
-        settingsEndpoint: 'api/settings'
+        trucksEndpoint: '/api/trucks',
+        settingsEndpoint: '/api/settings'
     }
 };
+
+// =====================================================
+// COMPATIBILITY ALIAS
+// Some files use FLEET_CONFIG, some use FLEETCONFIG.
+// This alias ensures both work everywhere.
+// =====================================================
+const FLEET_CONFIG = FLEETCONFIG;
 
 // =====================================================
 // AUTO-RESOLVE BACKEND URL
@@ -175,7 +188,7 @@ const FLEETCONFIG = {
         const qpUrl = normalizeUrl(qp);
         if (qpUrl) {
             FLEETCONFIG.API.baseUrl = qpUrl;
-            FLEETCONFIG.DEFAULTSERVERURL = qpUrl;
+            FLEETCONFIG.DEFAULT_SERVER_URL = qpUrl;
             try { localStorage.setItem('fleetServerUrl', qpUrl); } catch (e) {}
             console.log('Backend URL from query param', qpUrl);
             return;
@@ -186,7 +199,7 @@ const FLEETCONFIG = {
         const saved = normalizeUrl(localStorage.getItem('fleetServerUrl'));
         if (saved) {
             FLEETCONFIG.API.baseUrl = saved;
-            FLEETCONFIG.DEFAULTSERVERURL = saved;
+            FLEETCONFIG.DEFAULT_SERVER_URL = saved;
             console.log('Backend URL from localStorage', saved);
             return;
         }
@@ -198,7 +211,7 @@ const FLEETCONFIG = {
         if (!isFile) {
             const clean = normalizeUrl(origin);
             FLEETCONFIG.API.baseUrl = clean;
-            FLEETCONFIG.DEFAULTSERVERURL = clean;
+            FLEETCONFIG.DEFAULT_SERVER_URL = clean;
             console.log('Backend URL from same-origin', clean);
             return;
         }
@@ -206,7 +219,7 @@ const FLEETCONFIG = {
 
     const fallback = 'http://localhost:3000';
     FLEETCONFIG.API.baseUrl = fallback;
-    FLEETCONFIG.DEFAULTSERVERURL = fallback;
+    FLEETCONFIG.DEFAULT_SERVER_URL = fallback;
     console.warn('file:// detected, defaulting backend to', fallback);
     console.warn('Tip: start the server and open http://localhost:3000 (avoid file://)');
 })();
@@ -216,12 +229,12 @@ const FLEETCONFIG = {
 // GLOBAL HELPERS
 // =====================================================
 function getTruckConfig(deviceId) {
-    const globalDefault = FLEETCONFIG.DEFAULTTRUCKCONFIG;
+    const globalDefault = FLEETCONFIG.DEFAULT_TRUCK_CONFIG;
     let specificConfig;
     let ruleName = null;
 
-    if (FLEETCONFIG.FLEETRULES && Array.isArray(FLEETCONFIG.FLEETRULES)) {
-        const matchedRule = FLEETCONFIG.FLEETRULES.find(rule =>
+    if (FLEETCONFIG.FLEET_RULES && Array.isArray(FLEETCONFIG.FLEET_RULES)) {
+        const matchedRule = FLEETCONFIG.FLEET_RULES.find(rule =>
             rule.truckIds && rule.truckIds.includes(deviceId.toString())
         );
         if (matchedRule && matchedRule.config) {

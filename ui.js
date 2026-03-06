@@ -688,7 +688,7 @@ renderDecouchageList() {
     if(endDate) endDate.setHours(23, 59, 59, 999);
     const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
 
-    const minRefuelExport = parseInt((FLEETCONFIG.REFUELRULES || {}).minRefuelLiters || 50);
+    const minRefuelExport = parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50);
     const processedLogs = this.allRefuelLogs.map(log => {
         const truckConfig = getTruckConfig(log.deviceId);
         const capacity = truckConfig.fuelTankCapacity || 600;
@@ -1874,7 +1874,7 @@ renderFilteredRefuels() {
     processedLogs = processedLogs.filter(log => {
         const logDate = new Date(log.timestamp);
         // Safety filter: ignore tiny refills (server already filters >50L)
-        const minRefuelDisplay = parseInt((FLEETCONFIG.REFUELRULES || {}).minRefuelLiters || 50);
+        const minRefuelDisplay = parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50);
         if (Number(log.realAdded) < minRefuelDisplay) return false;
         if (startDate && logDate < startDate) return false;
         if (endDate && logDate > endDate) return false;
@@ -1951,7 +1951,7 @@ renderFilteredRefuels() {
                 </div>
                 <div style="text-align:right;">
                     <div style="font-size:24px; font-weight:900; color:${log.isInternal ? '#15803d' : '#0f172a'}; line-height:1;">+${log.realAdded} L</div>
-                    <div style="font-size:10px; color:#94a3b8; margin-top:2px;">≈ ${Math.round(log.realAdded * (FLEETCONFIG.DEFAULTTRUCKCONFIG.fuelPricePerLiter || 29))} DA</div>
+                    <div style="font-size:10px; color:#94a3b8; margin-top:2px;">≈ ${Math.round(log.realAdded * (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29))} DA</div>
                 </div>
             </div>
 
@@ -2223,7 +2223,7 @@ changeRefuelPage(dir) {
       return;
     }
     FLEET_CONFIG.CUSTOM_LOCATIONS.forEach((loc, index) => {
-      const typeConfig = FLEET_CONFIG.LOCATION_TYPES[loc.type ? loc.type.toUpperCase() : 'OTHER'] || FLEET_CONFIG.LOCATION_TYPES.OTHER;
+      const typeConfig = (FLEET_CONFIG.LOCATION_TYPES || []).find(t => t.id === loc.type) || { color: '#666666', icon: 'fa-map-pin', label: 'Autre' };
       
       const div = document.createElement('div');
       div.style.cssText = `background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #ddd; border-left: 4px solid ${typeConfig.color || '#666'}; position: relative;`;

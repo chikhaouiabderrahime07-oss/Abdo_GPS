@@ -350,7 +350,34 @@
     .modal-content { background-color: #fff; padding: 25px; border-radius: 12px; width: 100%; max-width: 500px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
     @keyframes slideDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
 
-  </style>
+  
+        /* 🔴 DANGER ZONE: Settings Button */
+        .btn-settings-danger {
+            background: #fef2f2 !important;
+            color: #dc2626 !important;
+            border: 1.5px dashed #dc2626 !important;
+            font-weight: 800 !important;
+            font-size: 11px !important;
+            letter-spacing: 0.5px;
+            animation: dangerPulse 3s ease-in-out infinite;
+        }
+        .btn-settings-danger:hover {
+            background: #dc2626 !important;
+            color: white !important;
+            border-style: solid !important;
+            box-shadow: 0 0 15px rgba(220, 38, 38, 0.4);
+        }
+        .btn-settings-danger.active {
+            background: #dc2626 !important;
+            color: white !important;
+            border-style: solid !important;
+        }
+        .btn-settings-danger i { margin-right: 4px; }
+        @keyframes dangerPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+</style>
 </head>
 <body>
 <div id="loginOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0f172a; z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: white;">
@@ -439,9 +466,7 @@
         </div>
 
         <!-- ⚙️ Config moved here (under version) to avoid accidental clicks in the main menu -->
-        <button class="tab-button header-config-link" data-tab="settings" onclick="switchTab('settings')" title="Configuration">
-          <i class="fa-solid fa-sliders"></i> Config
-        </button>
+        
       </div>
 
       <div class="digital-clock">
@@ -497,6 +522,9 @@
           <button class="tab-button btn-audit" onclick="window.open('gps-checker.html', '_blank')">
               <i class="fa-solid fa-user-secret"></i> GPS AUDIT
           </button>
+            <button class="tab-button btn-settings-danger" data-tab="settings" onclick="switchTab('settings')" title="⚠️ Configuration Système - Zone Réservée">
+                <i class="fa-solid fa-skull-crossbones"></i> PARAMÈTRES
+            </button>
       </div>
 
       <!-- Search -->

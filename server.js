@@ -154,7 +154,17 @@ function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
   // We only move to the next milestone once a vidange is recorded (skipUntilKm).
   const base = (!isNaN(safeSkip) && safeSkip > 0) ? safeSkip : 0;
 
-  const nextMilestone = milestones.find(m => m > base);
+  // 🔧 AUTO-SKIP OLD OVERDUE MILESTONES (>10,000 km past = considered done silently)
+  // Trucks that passed a milestone >10k km ago without a recorded vidange are treated
+  // as "already done" — no way management left them that far overdue. This clears old
+  // "RETARD" alerts and starts fresh counting from the next upcoming milestone.
+  const GHOST_KM_THRESHOLD = 10000;
+  const activeMilestones = milestones.filter(m => {
+    if (m <= base) return false; // already explicitly acknowledged via skipUntilKm
+    if ((currentOdometer - m) > GHOST_KM_THRESHOLD) return false; // silently treat as done
+    return true;
+  });
+  const nextMilestone = activeMilestones.length > 0 ? activeMilestones[0] : null;
   if (!nextMilestone) {
     return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
   }
@@ -517,12 +527,12 @@ async function runFleetBot() {
 
     // --- FUEL CALCULATION ---
     // Dynamic sensor key from config
-        const sensorKey = (SYSTEMSETTINGS.refuelRules && SYSTEMSETTINGS.refuelRules.sensorType) || 'io87';
-        let rawVal = parseFloat(truck.params[sensorKey] || truck.params.io87 || truck.params.fuel || truck.params.io84 || 0);
+    const sensorKey = (SYSTEM_SETTINGS.refuelRules && SYSTEM_SETTINGS.refuelRules.sensorType) || 'io87';
+    let rawVal = parseFloat(truck.params[sensorKey] || truck.params.io87 || truck.params.fuel || truck.params.io84 || 0);
 
-        // Clamp to valid range (Chinese GPS protection)
-        const ignoreBelow = parseFloat((SYSTEMSETTINGS.refuelRules || {}).ignorePercentBelow || 1);
-        const ignoreAbove = parseFloat((SYSTEMSETTINGS.refuelRules || {}).ignorePercentAbove || 100);
+    // Clamp to valid range (Chinese GPS protection)
+    const ignoreBelow = parseFloat((SYSTEM_SETTINGS.refuelRules || {}).ignorePercentBelow || 1);
+    const ignoreAbove = parseFloat((SYSTEM_SETTINGS.refuelRules || {}).ignorePercentAbove || 100);
     if (rawVal > 100) rawVal = 100;
     if (rawVal < 0) rawVal = 0;
     const currentLiters = Math.round((rawVal / 100) * capacity);
@@ -1021,6 +1031,144 @@ app.get('/api/admin/flush-all-history', checkAccess, async (req, res) => {
 app.get('/api/admin/reset-engine-states', checkAccess, async (req, res) => {
   await Truck.updateMany({}, { $set: { engineState: null } });
   res.json({ success: true, message: "All engine states reset. Detection will restart fresh." });
+});
+
+
+// =============================================================
+// ADMIN: Bulk-acknowledge all overdue vidanges (>10,000 km past)
+// =============================================================
+// USE CASE: You just installed the system but trucks already have
+// 50,000+ km on the odometer. Old milestones (30k, 60k...) show as
+// "EN RETARD" even though the vidanges were done long ago.
+// This endpoint scans ALL trucks and acknowledges any milestone
+// that is more than 10,000 km overdue, so the system starts fresh
+// tracking the NEXT upcoming milestone.
+//
+// HOW TO USE: Just open this URL once in your browser:
+//   https://YOUR-SERVER/api/admin/reset-overdue-vidanges?secret=Douroub2025AdminSecure
+//
+// It will return a list of what was reset for each truck.
+// =============================================================
+app.get('/api/admin/reset-overdue-vidanges', async (req, res) => {
+  // Uses master secret OR access code header
+  const MASTER_SECRET = 'Douroub2025AdminSecure';
+  const userCode = req.headers['x-access-code'] || req.query.secret;
+  if (userCode !== MASTER_SECRET) {
+    const isValid = userCode ? await AccessCode.findOne({ code: userCode }) : null;
+    if (!isValid) return res.status(403).json({ error: 'Access Denied. Add ?secret=Douroub2025AdminSecure to the URL' });
+  }
+  try {
+    await loadSettings();
+
+    // Threshold: if a milestone is >10,000 km overdue, consider it "already done"
+    const OVERDUE_THRESHOLD_KM = parseInt(req.query.threshold || 10000);
+
+    // Fetch live GPS data to get current odometers
+    let rawData;
+    try {
+      const response = await fetch(GPS_API_URL);
+      const json = await response.json();
+      rawData = json.data || json;
+    } catch (e) {
+      return res.status(500).json({ error: 'Could not fetch GPS data', details: e.message });
+    }
+
+    const truckArray = Array.isArray(rawData) ? rawData : Object.entries(rawData).map(([id, val]) => ({ ...val, id }));
+    const results = [];
+
+    for (const truck of truckArray) {
+      const deviceId = String(truck.id || truck.imei);
+      if (!truck.params || !deviceId) continue;
+
+      const truckName = truck.name;
+      const config = getTruckConfig(deviceId);
+      const odometerMeters = parseInt(truck.params?.io192 || 0);
+      const odometerKm = Math.round(odometerMeters / 1000);
+
+      // Parse milestones
+      const milestones = parseVidangeMilestones(config.vidangeMilestones);
+      if (!milestones || milestones.length === 0) {
+        results.push({ truck: truckName, deviceId, odometer: odometerKm, action: 'SKIP - no milestones defined' });
+        continue;
+      }
+
+      // Current skip (already acknowledged milestones)
+      const currentSkip = SYSTEM_SETTINGS.vidangeOverrides?.[String(deviceId)]?.skipUntilKm
+        ? parseInt(SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)].skipUntilKm, 10) : 0;
+
+      // Find the HIGHEST milestone that is >OVERDUE_THRESHOLD_KM behind current odometer
+      // Example: odometer=75000, milestones=[30000,60000,90000], threshold=10000
+      //   30000 → 75000-30000=45000 > 10000 → overdue, acknowledge
+      //   60000 → 75000-60000=15000 > 10000 → overdue, acknowledge  
+      //   90000 → 75000-90000=-15000 → NOT overdue, this is the next target
+      // So we set skipUntilKm = 60000 (highest overdue milestone)
+
+      let highestOverdue = null;
+      const skippedMilestones = [];
+
+      for (const m of milestones) {
+        if (m <= currentSkip) continue; // Already acknowledged
+        const diff = odometerKm - m;
+        if (diff > OVERDUE_THRESHOLD_KM) {
+          highestOverdue = m;
+          skippedMilestones.push(`${m} km (${diff} km ago)`);
+        }
+      }
+
+      if (highestOverdue) {
+        // Set the override so the system skips past all overdue milestones
+        if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
+        SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)] = {
+          skipUntilKm: highestOverdue,
+          confirmedAt: new Date().toISOString(),
+          odometerAtConfirm: odometerKm,
+          truckName: truckName,
+          note: 'Bulk reset - overdue vidanges acknowledged'
+        };
+
+        // Find the next milestone after the acknowledged ones
+        const nextMilestone = milestones.find(m => m > highestOverdue);
+        const nextInfo = nextMilestone ? `${nextMilestone} km (in ${nextMilestone - odometerKm} km)` : 'No more milestones';
+
+        results.push({
+          truck: truckName,
+          deviceId,
+          odometer: `${odometerKm} km`,
+          acknowledged: skippedMilestones,
+          nextTarget: nextInfo,
+          action: 'RESET ✅'
+        });
+      } else {
+        // Find current next milestone
+        const base = currentSkip || 0;
+        const nextM = milestones.find(m => m > base);
+        const status = nextM ? `Next: ${nextM} km (in ${nextM - odometerKm} km)` : 'All done';
+
+        results.push({
+          truck: truckName,
+          deviceId,
+          odometer: `${odometerKm} km`,
+          action: `OK - no overdue milestones (>${OVERDUE_THRESHOLD_KM} km). ${status}`
+        });
+      }
+    }
+
+    // Save all overrides to DB
+    await saveSettings();
+
+    res.json({
+      success: true,
+      threshold: `${OVERDUE_THRESHOLD_KM} km`,
+      date: new Date().toISOString(),
+      totalTrucks: truckArray.length,
+      resetCount: results.filter(r => r.action === 'RESET ✅').length,
+      results: results
+    });
+
+  } catch (e) {
+    console.error('Reset overdue vidanges error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- 8. INITIALIZATION ---
