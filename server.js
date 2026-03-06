@@ -516,7 +516,13 @@ async function runFleetBot() {
     const capacity = config.fuelTankCapacity || 600;
 
     // --- FUEL CALCULATION ---
-    let rawVal = parseFloat(truck.params.io87 || truck.params.fuel || truck.params.io84 || 0);
+    // Dynamic sensor key from config
+        const sensorKey = (SYSTEMSETTINGS.refuelRules && SYSTEMSETTINGS.refuelRules.sensorType) || 'io87';
+        let rawVal = parseFloat(truck.params[sensorKey] || truck.params.io87 || truck.params.fuel || truck.params.io84 || 0);
+
+        // Clamp to valid range (Chinese GPS protection)
+        const ignoreBelow = parseFloat((SYSTEMSETTINGS.refuelRules || {}).ignorePercentBelow || 1);
+        const ignoreAbove = parseFloat((SYSTEMSETTINGS.refuelRules || {}).ignorePercentAbove || 100);
     if (rawVal > 100) rawVal = 100;
     if (rawVal < 0) rawVal = 0;
     const currentLiters = Math.round((rawVal / 100) * capacity);

@@ -1,263 +1,264 @@
-/**
+/*
  * Fleet Tracker Configuration
  * Contains API keys, server settings, and vehicle parameters.
  */
+const FLEETCONFIG = {
 
-const FLEET_CONFIG = {
     // --- MAPBOX CONFIGURATION ---
-    MAPBOX_TOKEN: 'pk.eyJ1IjoiZGVzdGVuaXoiLCJhIjoiY21qYWNsZ2RsMDJ1NjNmc2IwdW4xeXdlbCJ9.toA-GeOlzBEuEJHrXsZp-w',
+    MAPBOXTOKEN: 'pk.eyJ1IjoiZGVzdGVuaXoiLCJhIjoiY21qYWNsZ2RsMDJ1NjNmc2IwdW4xeXdlbCJ9.toA-GeOlzBEuEJHrXsZp-w',
 
     // --- OTHER KEYS ---
-    GEOAPIFY_API_KEY: 'b6fb88dee9494c9bab15b4f8e6bfbd58',
-    
-    // Multiple Keys for Rotation (Managed via UI)
-    GEOAPIFY_API_KEYS: [],
-  
-    // Language Support
+    GEOAPIFYAPIKEY: 'b6fb88dee9494c9bab15b4f8e6bfbd58',
+    GEOAPIFYAPIKEYS: [],
+
     LANGUAGE: 'fr',
-    
-    // Auto-start settings
-    AUTO_START: true,
-    
-    // Update Interval: 2 Minutes
-    DEFAULT_POLL_INTERVAL: 120000, 
-    
-    // Default Server URL
-    // NOTE:
-    //   This app can be opened from:
-    //     - the same server as the backend (recommended)  → auto uses window.location.origin
-    //     - file:// (offline HTML)                         → defaults to http://localhost:3000
-    //     - a different static host                        → set ?server=https://YOUR-BACKEND or save in UI
-    DEFAULT_SERVER_URL: '', 
-    
+    AUTOSTART: true,
+    DEFAULTPOLLINTERVAL: 120000,
+    DEFAULTSERVERURL: '',
+
     // Location Types
-    LOCATION_TYPES: {
-      CLIENT: { id: 'client', label: 'Client / Livraison', color: '#1976d2', icon: 'fa-user-tie' },
-      MAINTENANCE: { id: 'maintenance', label: 'Maintenance / Garage', color: '#d32f2f', icon: 'fa-wrench' },
-      DOUROUB: { id: 'douroub', label: 'Site Douroub', color: '#166534', icon: 'fa-building' },
-      OTHER: { id: 'other', label: 'Autre', color: '#666666', icon: 'fa-map-marker-alt' }
-    },
-  
+    LOCATIONTYPES: [
+        { id: 'client', label: 'Client / Livraison', color: '1976d2', icon: 'fa-user-tie' },
+        { id: 'maintenance', label: 'Maintenance / Garage', color: 'd32f2f', icon: 'fa-wrench' },
+        { id: 'douroub', label: 'Site Douroub', color: '166534', icon: 'fa-building' },
+        { id: 'other', label: 'Autre', color: '666666', icon: 'fa-map-marker-alt' }
+    ],
+
     // Maintenance Trigger Rules
-    MAINTENANCE_RULES: {
-      minDurationMinutes: 60, // Must stay 60 mins to count
-      vidangeKmTolerance: 3000 // Trigger "Vidange" if within 3000km of due date
+    MAINTENANCERULES: {
+        minDurationMinutes: 60,
+        vidangeKmTolerance: 3000
     },
 
-    // Refuel Detection Rules (Server-side logic uses this too)
-    REFUEL_RULES: {
-      minRefuelLiters: 50,
-      stopSpeedThreshold: 4,
-      minStopMinutes: 2,
-      requireIgnOff: false,
-      dedupeMinutes: 5,
-      dedupeLitersTolerance: 10,
-      stableAfterIncreaseMinutes: 2
+    // =====================================================
+    // REFUEL DETECTION RULES (Chinese GPS Tracker Edition)
+    // =====================================================
+    // These rules control how the server detects fuel refills.
+    // Tuned for Chinese GPS trackers (io87 fuel sensor).
+    //
+    // KEY OPTIONS EXPLAINED:
+    // -------------------------------------------------------
+    // minRefuelLiters: 50
+    //   → Minimum liters increase to count as a real refill.
+    //   → Anything ≤50L is ignored (sensor noise, small top-ups).
+    //   → Increase to 80 if you get too many false refills.
+    //
+    // minOffMinutes: 2
+    //   → Engine must be OFF at least this long before a refill counts.
+    //   → Chinese GPS sometimes reports erratic values when engine
+    //     just turned off. 2 min gives the sensor time to stabilize.
+    //   → Increase to 5 if you get ghost refills at traffic lights.
+    //
+    // postOnMaxMinutes: 10
+    //   → After engine turns ON, wait up to this long to capture
+    //     the max fuel level (sensor needs time to settle after restart).
+    //   → If truck starts moving before this, we finalize immediately.
+    //
+    // postOnMinSeconds: 60
+    //   → Minimum wait after engine ON before finalizing.
+    //   → Prevents premature detection from sensor spikes.
+    //
+    // movingSpeedThreshold: 1
+    //   → Speed (km/h) above which we consider the truck "moving".
+    //   → When moving, we finalize the refill check immediately.
+    //
+    // dedupeMinutes: 5
+    //   → Don't log another refill within this many minutes.
+    //   → Prevents double-counting from sensor bouncing.
+    //
+    // baselineDropToleranceLiters: 15
+    //   → Chinese GPS fuel sensors can DROP while engine is off
+    //     (temperature, sloshing). We allow this much drop without
+    //     inflating the refill amount.
+    //   → Example: was 200L, drops to 190L while parked, then fills
+    //     to 400L. Real refill = 400-200=200L, not 400-190=210L.
+    //
+    // sensorSmoothingWindow: 3
+    //   → Number of readings to average for smoothing.
+    //   → Chinese GPS sensors are NOISY. This reduces false spikes.
+    //   → Set to 1 to disable smoothing (raw values).
+    //
+    // ignorePercentBelow: 1
+    //   → Ignore fuel readings below this percentage.
+    //   → Chinese GPS sometimes reports 0% briefly during startup.
+    //
+    // ignorePercentAbove: 100
+    //   → Ignore fuel readings above this percentage.
+    //   → Some sensors overshoot to 101-105% after a full fill.
+    //
+    // maxRealisticRefillLiters: 600
+    //   → Maximum realistic refill in one stop.
+    //   → If detected refill exceeds this, it's likely a sensor glitch.
+    //   → Set to your tank capacity (or slightly above).
+    //
+    // requireEngineOff: true
+    //   → If true, only detect refills when engine was confirmed OFF.
+    //   → Chinese GPS io1 (ignition) isn't always reliable.
+    //   → Set to false if your GPS doesn't have ignition detection.
+    //
+    // sensorType: 'io87'
+    //   → Which parameter from the GPS contains fuel level.
+    //   → Common Chinese GPS values: 'io87', 'io84', 'fuel'
+    //
+    // -------------------------------------------------------
+    REFUELRULES: {
+        minRefuelLiters: 30,
+        minOffMinutes: 2,
+        postOnMaxMinutes: 10,
+        postOnMinSeconds: 60,
+        movingSpeedThreshold: 1,
+        dedupeMinutes: 5,
+        baselineDropToleranceLiters: 15,
+        sensorSmoothingWindow: 3,
+        ignorePercentBelow: 1,
+        ignorePercentAbove: 100,
+        maxRealisticRefillLiters: 600,
+        requireEngineOff: true,
+        sensorType: 'io87'
     },
 
-  
     // --- GLOBAL DEFAULT CONFIG ---
-    DEFAULT_TRUCK_CONFIG: {
-      fuelTankCapacity: 600,
-      fuelConsumption: 32, // L/100km
-      fuelPricePerLiter: 29, // DA
-      fuelSecurityMargin: 100, // Liters reserve
-      fuelAlertThreshold: 15, // %
-      criticalFuelLevel: 5, // %
-      vidangeMilestones: "30000, 60000, 90000",
-      vidangeAlertKm: 5000, // Warn 5000km before
-      calibration: []
+    DEFAULTTRUCKCONFIG: {
+        fuelTankCapacity: 600,
+        fuelConsumption: 32,
+        fuelPricePerLiter: 29,
+        fuelSecurityMargin: 100,
+        fuelAlertThreshold: 15,
+        criticalFuelLevel: 5,
+        vidangeMilestones: '30000, 60000, 90000',
+        vidangeAlertKm: 5000,
+        calibration: []
     },
-  
-    // --- NEW: RULE BASED SYSTEM (Replaces TRUCK_OVERRIDES) ---
-    // Structure: [{ id: 'rule_1', name: 'Sahara', truckIds: ['123', '456'], config: { ... } }]
-    FLEET_RULES: [],
-    
-    // Custom Locations
-    CUSTOM_LOCATIONS: [],
-  
+
+    // --- RULE BASED SYSTEM ---
+    FLEETRULES: [],
+    CUSTOMLOCATIONS: [],
+
     UI: {
-      enableGeocoding: true,
-      geocodeDistanceThresholdKm: 2, 
-      pollInterval: 120000 
+        enableGeocoding: true,
+        geocodeDistanceThresholdKm: 2,
+        pollInterval: 120000
     },
-  
+
     API: {
-      // Will be resolved automatically below (query param > localStorage > same-origin > localhost fallback)
-      baseUrl: '',
-      trucksEndpoint: '/api/trucks',
-      settingsEndpoint: '/api/settings'
+        baseUrl: '',
+        trucksEndpoint: 'api/trucks',
+        settingsEndpoint: 'api/settings'
     }
 };
 
-// ============================================================
-// ✅ AUTO-RESOLVE BACKEND URL (CORS/404 FRIENDLY)
-// Priority:
-//   1) URL query parameter:  ?server=https://your-backend.onrender.com
-//      (also supports: ?backend=, ?api=)
-//   2) localStorage: fleetServerUrl
-//   3) If the page is served over http(s): window.location.origin
-//   4) If opened as file://: http://localhost:3000
-// Optional reset:
-//   ?reset=1  → clears stored fleetServerUrl
-// ============================================================
+// =====================================================
+// AUTO-RESOLVE BACKEND URL
+// =====================================================
 (function resolveFleetBaseUrl() {
-  function normalizeUrl(u) {
-    if (!u) return null;
-    u = String(u).trim();
-    if (!u) return null;
-
-    // Allow //example.com
-    if (u.startsWith('//')) u = window.location.protocol + u;
-
-    // If user typed "localhost:3000" without protocol
-    if (!/^https?:\/\//i.test(u)) {
-      if (u.startsWith('localhost') || u.startsWith('127.0.0.1')) u = 'http://' + u;
-      else u = 'https://' + u;
+    function normalizeUrl(u) {
+        if (!u) return null;
+        u = String(u).trim();
+        if (!u) return null;
+        if (u.startsWith('//')) u = window.location.protocol + u;
+        if (!/^https?:/i.test(u)) {
+            if (u.startsWith('localhost') || u.startsWith('127.0.0.1'))
+                u = 'http://' + u;
+            else
+                u = 'https://' + u;
+        }
+        u = u.replace(/\/+$/, '');
+        return u;
     }
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const reset = params.get('reset') || params.get('resetServer');
+        if (reset === '1' || reset === 'true') {
+            try { localStorage.removeItem('fleetServerUrl'); } catch (e) {}
+        }
+        const qp = params.get('server') || params.get('backend') || params.get('api');
+        const qpUrl = normalizeUrl(qp);
+        if (qpUrl) {
+            FLEETCONFIG.API.baseUrl = qpUrl;
+            FLEETCONFIG.DEFAULTSERVERURL = qpUrl;
+            try { localStorage.setItem('fleetServerUrl', qpUrl); } catch (e) {}
+            console.log('Backend URL from query param', qpUrl);
+            return;
+        }
+    } catch (e) {}
 
-    // Remove trailing slashes
-    u = u.replace(/\/+$/, '');
-    return u;
-  }
+    try {
+        const saved = normalizeUrl(localStorage.getItem('fleetServerUrl'));
+        if (saved) {
+            FLEETCONFIG.API.baseUrl = saved;
+            FLEETCONFIG.DEFAULTSERVERURL = saved;
+            console.log('Backend URL from localStorage', saved);
+            return;
+        }
+    } catch (e) {}
 
-  try {
-    const params = new URLSearchParams(window.location.search);
+    try {
+        const origin = window.location.origin;
+        const isFile = window.location.protocol === 'file:' || !origin || origin === 'null';
+        if (!isFile) {
+            const clean = normalizeUrl(origin);
+            FLEETCONFIG.API.baseUrl = clean;
+            FLEETCONFIG.DEFAULTSERVERURL = clean;
+            console.log('Backend URL from same-origin', clean);
+            return;
+        }
+    } catch (e) {}
 
-    // Hard reset saved URL if asked
-    const reset = params.get('reset') || params.get('resetServer');
-    if (reset === '1' || reset === 'true') {
-      try { localStorage.removeItem('fleetServerUrl'); } catch (e) {}
-    }
-
-    // Query param has top priority
-    const qp = params.get('server') || params.get('backend') || params.get('api');
-    const qpUrl = normalizeUrl(qp);
-    if (qpUrl) {
-      FLEET_CONFIG.API.baseUrl = qpUrl;
-      FLEET_CONFIG.DEFAULT_SERVER_URL = qpUrl;
-      try { localStorage.setItem('fleetServerUrl', qpUrl); } catch (e) {}
-      console.log('🔗 Backend URL from query param:', qpUrl);
-      return;
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  // Use saved server URL if present
-  try {
-    const saved = normalizeUrl(localStorage.getItem('fleetServerUrl'));
-    if (saved) {
-      FLEET_CONFIG.API.baseUrl = saved;
-      FLEET_CONFIG.DEFAULT_SERVER_URL = saved;
-      console.log('🔗 Backend URL from localStorage:', saved);
-      return;
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  // Same-origin (best when UI is served by Express backend)
-  try {
-    const origin = window.location.origin;
-    const isFile = window.location.protocol === 'file:' || !origin || origin === 'null';
-    if (!isFile) {
-      const clean = normalizeUrl(origin);
-      FLEET_CONFIG.API.baseUrl = clean;
-      FLEET_CONFIG.DEFAULT_SERVER_URL = clean;
-      console.log('🔗 Backend URL from same-origin:', clean);
-      return;
-    }
-  } catch (e) {
-    // ignore
-  }
-
-  // file:// fallback
-  const fallback = 'http://localhost:3000';
-  FLEET_CONFIG.API.baseUrl = fallback;
-  FLEET_CONFIG.DEFAULT_SERVER_URL = fallback;
-  console.warn('📂 file:// detected → defaulting backend to', fallback);
-  console.warn('💡 Tip: start the server and open http://localhost:3000 (avoid file://)');
+    const fallback = 'http://localhost:3000';
+    FLEETCONFIG.API.baseUrl = fallback;
+    FLEETCONFIG.DEFAULTSERVERURL = fallback;
+    console.warn('file:// detected, defaulting backend to', fallback);
+    console.warn('Tip: start the server and open http://localhost:3000 (avoid file://)');
 })();
-  
-// --- GLOBAL HELPERS ---
 
-/**
- * Gets the config for a specific truck.
- * Logic: 
- * 1. Search if truck ID exists in any defined Rule.
- * 2. If yes, merge Global Defaults with Rule Config.
- * 3. If no, return Global Defaults.
- */
+
+// =====================================================
+// GLOBAL HELPERS
+// =====================================================
 function getTruckConfig(deviceId) {
-    const globalDefault = FLEET_CONFIG.DEFAULT_TRUCK_CONFIG;
-    let specificConfig = {};
+    const globalDefault = FLEETCONFIG.DEFAULTTRUCKCONFIG;
+    let specificConfig;
     let ruleName = null;
 
-    if (FLEET_CONFIG.FLEET_RULES && Array.isArray(FLEET_CONFIG.FLEET_RULES)) {
-        // Find a rule that contains this truck ID
-        const matchedRule = FLEET_CONFIG.FLEET_RULES.find(rule => 
+    if (FLEETCONFIG.FLEETRULES && Array.isArray(FLEETCONFIG.FLEETRULES)) {
+        const matchedRule = FLEETCONFIG.FLEETRULES.find(rule =>
             rule.truckIds && rule.truckIds.includes(deviceId.toString())
         );
-
         if (matchedRule && matchedRule.config) {
             specificConfig = matchedRule.config;
             ruleName = matchedRule.name;
         }
     }
-
-    // Return merged config (Global is base, Specific overrides it)
-    return { ...globalDefault, ...specificConfig, _ruleName: ruleName };
+    return { ...globalDefault, ...specificConfig, ruleName: ruleName };
 }
 
 function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
-    const alertKm = (config && config.vidangeAlertKm) || 5000;
-    if (!config || !config.vidangeMilestones) {
-        return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
-    }
-    
-    let milestones = [];
-    // Handle both string "30000, 60000" and array inputs
+    const alertKm = config && config.vidangeAlertKm ? config.vidangeAlertKm : 5000;
+    if (!config || !config.vidangeMilestones) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
+    let milestones;
     if (typeof config.vidangeMilestones === 'string') {
-        milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a,b)=>a-b);
+        milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a, b) => a - b);
     } else if (Array.isArray(config.vidangeMilestones)) {
         milestones = config.vidangeMilestones;
     }
-    
-    // ✅ IMPORTANT FIX
-    // The alert must NOT disappear just because the truck passed the milestone.
-    // We only move to the next milestone when a vidange is recorded (skipUntilKm).
     const safeSkip = (skipUntilKm !== null && skipUntilKm !== undefined) ? parseInt(skipUntilKm, 10) : null;
     const base = (!isNaN(safeSkip) && safeSkip > 0) ? safeSkip : 0;
-
     const nextMilestone = milestones.find(m => m > base);
-    
-    // If no more milestones or bad data
-    if (!nextMilestone) return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
-  
+    if (!nextMilestone) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
     const kmUntilNext = nextMilestone - currentOdometer;
     const isAlert = kmUntilNext <= alertKm;
-  
-    return {
-        alert: isAlert,
-        nextKm: nextMilestone,
-        kmUntilNext: kmUntilNext,
-        alertKm
-    };
+    return { alert: isAlert, nextKm: nextMilestone, kmUntilNext: kmUntilNext, alertKm };
 }
 
 function calculateFuelNeeded(distanceKm, consumptionPer100) {
-    return Math.round((distanceKm / 100) * consumptionPer100);
+    return Math.round(distanceKm / 100 * consumptionPer100);
 }
 
 function calculateDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371; // Earth radius km
+    const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a =
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return Math.round(R * c * 10) / 10;
 }
