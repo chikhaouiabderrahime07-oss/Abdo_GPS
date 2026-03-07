@@ -119,7 +119,7 @@ const FLEETCONFIG = {
         ignorePercentBelow: 1,
         ignorePercentAbove: 100,
         maxRealisticRefillLiters: 600,
-        requireEngineOff: true,
+        requireEngineOff: false,  // ★ Set true ONLY if your GPS has io1 ignition sensor. false = speed-based detection (works for ALL Chinese GPS)
         sensorType: 'io87'
     },
 

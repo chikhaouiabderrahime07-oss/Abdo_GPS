@@ -784,6 +784,13 @@
               <div class="form-group"><label>Au:</label><input type="date" id="refuelDateEnd"></div>
               <div class="form-group"><label>Camion:</label><input type="text" id="refuelTruckSearch" placeholder="Rechercher..."></div>
               <div class="form-group"><label>Lieu:</label><input type="text" id="refuelLocationSearch" placeholder="Rechercher lieu..."></div>
+              <div class="form-group"><label>Type Lieu:</label>
+                  <select id="refuelLocationTypeFilter">
+                      <option value="all">🏢 Tous</option>
+                      <option value="internal">🏭 Site Interne</option>
+                      <option value="external">⛽ Station Externe</option>
+                  </select>
+              </div>
               <div class="form-group"><label>Trier par:</label>
                   <select id="refuelSortSelect">
                       <option value="date_desc">📅 Date (Récent)</option>
