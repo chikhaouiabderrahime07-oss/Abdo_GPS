@@ -1864,13 +1864,22 @@ renderFilteredRefuels() {
             locationName = "Position Inconnue";
         }
 
+        // ✅ FIXED: Use addedLiters/newLevel/oldLevel directly (these are what MongoDB stores)
+        // realOld was MISSING from return - that's why "Avant" always showed "—"
+        const _realAdded = Math.round(log.addedLiters || 0);
+        const _realTotal = Math.round(log.newLevel || 
+            (log.newPercent !== undefined ? (log.newPercent / 100) * capacity : 0));
+        const _realOld = Math.round(log.oldLevel > 0 ? log.oldLevel : 
+            (_realTotal > 0 && _realAdded > 0 ? _realTotal - _realAdded : 0));
+
         return {
             ...log,
             lat: safeLat,
             lng: safeLng,
             domId: logId,
-            realAdded: (log.diffPercent !== undefined) ? Math.round((log.diffPercent / 100) * capacity) : (log.addedLiters || 0),
-            realTotal: (log.newPercent !== undefined) ? Math.round((log.newPercent / 100) * capacity) : (log.newLevel || 0),
+            realAdded: _realAdded,
+            realTotal: _realTotal,
+            realOld: _realOld,      // ← THIS WAS MISSING! Now "Avant" works correctly
             truckCapacity: capacity, 
             locationDisplay: locationName,
             isInternal: isInternal

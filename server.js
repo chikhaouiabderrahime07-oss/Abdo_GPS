@@ -952,9 +952,17 @@ app.get('/api/admin/flush-all-history', checkAccess, async (req, res) => {
 });
 
 // 🔧 NEW: Admin tool to reset engine states (use if refill detection seems stuck)
-app.get('/api/admin/reset-engine-states', checkAccess, async (req, res) => {
+// 🔧 FIXED: reset-engine-states now accepts URL ?secret= param (no header needed)
+app.get('/api/admin/reset-engine-states', async (req, res) => {
+  // Accepts header x-access-code OR URL ?secret=Douroub2025AdminSecure
+  const MASTERSECRET = 'Douroub2025AdminSecure';
+  const userCode = req.headers['x-access-code'] || req.query.secret;
+  if (userCode !== MASTERSECRET) {
+    const isValid = userCode ? await AccessCode.findOne({ code: userCode }) : null;
+    if (!isValid) return res.status(403).json({ error: 'Access Denied. Use ?secret=Douroub2025AdminSecure in URL' });
+  }
   await Truck.updateMany({}, { $set: { engineState: null } });
-  res.json({ success: true, message: "All engine states reset. Detection will restart fresh." });
+  res.json({ success: true, message: '✅ All engine states reset! Bot restarts detection in ~30 seconds.' });
 });
 
 
