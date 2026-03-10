@@ -261,7 +261,6 @@ initElements() {
     this.refuelDateEnd = document.getElementById('refuelDateEnd');
     this.refuelTruckSearch = document.getElementById('refuelTruckSearch');
     this.refuelLocationSearch = document.getElementById('refuelLocationSearch');
-        this.refuelLocationTypeFilter = document.getElementById('refuelLocationTypeFilter');
     this.refuelSortSelect = document.getElementById('refuelSortSelect');
     this.applyRefuelFiltersBtn = document.getElementById('applyRefuelFiltersBtn');
     this.exportRefuelsBtn = document.getElementById('exportRefuelsBtn');
@@ -502,12 +501,6 @@ initElements() {
             this.renderFilteredRefuels();
         });
     }
-    if (this.refuelLocationTypeFilter) {
-        this.refuelLocationTypeFilter.addEventListener('change', () => {
-            this.refuelCurrentPage = 1;
-            this.renderFilteredRefuels();
-        });
-    }
 
     // DECOUCHAGE EVENTS (NEW)
     if (this.applyDecouchageFiltersBtn) {
@@ -700,27 +693,11 @@ renderDecouchageList() {
         const truckConfig = getTruckConfig(log.deviceId);
         const capacity = truckConfig.fuelTankCapacity || 600;
 
-        // Same calculation as renderFilteredRefuels
-        let realAdded = 0;
-        if (log.addedLiters && log.addedLiters > 0) {
-            realAdded = Math.round(log.addedLiters);
-        } else if (log.diffPercent !== undefined && log.diffPercent > 0) {
-            realAdded = Math.round((log.diffPercent / 100) * capacity);
-        }
-
-        let realTotal = 0;
-        if (log.newLevel && log.newLevel > 0) {
-            realTotal = Math.round(log.newLevel);
-        } else if (log.newPercent !== undefined) {
-            realTotal = Math.round((log.newPercent / 100) * capacity);
-        }
-
-        let realOld = 0;
-        if (log.oldLevel && log.oldLevel > 0) {
-            realOld = Math.round(log.oldLevel);
-        } else if (realTotal > 0 && realAdded > 0) {
-            realOld = realTotal - realAdded;
-        }
+        // ✅ V4 FIX: Direct MongoDB field reads (no diffPercent/newPercent - they don't exist)
+        const realAdded = Math.round(log.addedLiters || 0);
+        const realTotal = Math.round(log.newLevel || 0);
+        const realOld = Math.round(log.oldLevel > 0 ? log.oldLevel : 
+            (realTotal > 0 && realAdded > 0 ? realTotal - realAdded : 0));
 
         return { ...log, realAdded, realTotal, realOld, capacity };
     }).filter(log => {
@@ -1864,22 +1841,18 @@ renderFilteredRefuels() {
             locationName = "Position Inconnue";
         }
 
-        // ✅ FIXED: Use addedLiters/newLevel/oldLevel directly (these are what MongoDB stores)
-        // realOld was MISSING from return - that's why "Avant" always showed "—"
-        const _realAdded = Math.round(log.addedLiters || 0);
-        const _realTotal = Math.round(log.newLevel || 
-            (log.newPercent !== undefined ? (log.newPercent / 100) * capacity : 0));
-        const _realOld = Math.round(log.oldLevel > 0 ? log.oldLevel : 
-            (_realTotal > 0 && _realAdded > 0 ? _realTotal - _realAdded : 0));
-
         return {
             ...log,
             lat: safeLat,
             lng: safeLng,
             domId: logId,
-            realAdded: _realAdded,
-            realTotal: _realTotal,
-            realOld: _realOld,      // ← THIS WAS MISSING! Now "Avant" works correctly
+            // ✅ V4 FIX: Use addedLiters/newLevel/oldLevel directly from MongoDB
+            // Server saves these fields. diffPercent/newPercent DON'T EXIST in the schema.
+            realAdded: Math.round(log.addedLiters || 0),
+            realTotal: Math.round(log.newLevel || 0),
+            realOld: Math.round(log.oldLevel > 0 ? log.oldLevel : 
+                ((log.newLevel || 0) > 0 && (log.addedLiters || 0) > 0 ? 
+                    (log.newLevel || 0) - (log.addedLiters || 0) : 0)),
             truckCapacity: capacity, 
             locationDisplay: locationName,
             isInternal: isInternal
@@ -1897,10 +1870,6 @@ renderFilteredRefuels() {
         if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
         // Search inside location name even if it's currently "Recherche..."
         if (locationSearch && !log.locationDisplay.toLowerCase().includes(locationSearch)) return false;
-        // ★ Location Type Filter (Site Interne / Station Externe)
-        const locationTypeFilter = this.refuelLocationTypeFilter ? this.refuelLocationTypeFilter.value : 'all';
-        if (locationTypeFilter === 'internal' && !log.isInternal) return false;
-        if (locationTypeFilter === 'external' && log.isInternal) return false;
         return true;
     });
 
@@ -1951,95 +1920,58 @@ renderFilteredRefuels() {
         const dateDisplay = dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
         const timeDisplay = dateObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-        // ★ Fuel bar calculations
+        const locBadge = log.isInternal 
+            ? `<span style="background:#dcfce7; color:#166534; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`
+            : `<span style="background:#fff7ed; color:#c2410c; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px;"><i class="fa-solid fa-gas-pump"></i> STATION</span>`;
+
+        // Fuel bar visualization
         const fillPercent = log.truckCapacity > 0 ? Math.min(100, Math.round((log.realTotal / log.truckCapacity) * 100)) : 0;
         const oldPercent = log.truckCapacity > 0 ? Math.min(100, Math.round(((log.realOld || 0) / log.truckCapacity) * 100)) : 0;
-        const addedPercent = fillPercent - oldPercent;
         const barColor = fillPercent < 15 ? '#dc2626' : fillPercent < 30 ? '#f59e0b' : '#22c55e';
-        const accentColor = log.isInternal ? '#059669' : '#d97706';
-        const accentBg = log.isInternal ? '#ecfdf5' : '#fffbeb';
-        const accentBorder = log.isInternal ? '#a7f3d0' : '#fde68a';
-        const locIcon = log.isInternal ? 'fa-industry' : 'fa-gas-pump';
-        const locLabel = log.isInternal ? 'SITE INTERNE' : 'STATION EXTERNE';
-        const costEstimate = Math.round(log.realAdded * (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29));
-        // ★ FIX: Only show "Avant" if we actually have the data (not 0 from missing sensor)
-        const hasOldData = log.realOld > 0;
-        const avantDisplay = hasOldData ? `${log.realOld} L` : '—';
-        const avantPercentDisplay = hasOldData ? `${oldPercent}%` : '';
-        const apresDisplay = log.realTotal > 0 ? `${log.realTotal} L` : '—';
 
         html += `
-        <div style="background:white; border-radius:14px; box-shadow:0 2px 12px rgba(0,0,0,0.06); overflow:hidden; transition:transform 0.15s, box-shadow 0.15s; cursor:default;" 
-             onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0,0,0,0.1)'" 
-             onmouseleave="this.style.transform=''; this.style.boxShadow='0 2px 12px rgba(0,0,0,0.06)'">
-
-            <!-- ═══ TOP ACCENT BAR ═══ -->
-            <div style="height:4px; background:linear-gradient(90deg, ${accentColor}, ${barColor});"></div>
-
-            <div style="padding:16px 18px;">
-
-                <!-- ═══ ROW 1: Truck + Amount ═══ -->
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <div style="width:42px; height:42px; border-radius:10px; background:${accentBg}; border:1.5px solid ${accentBorder}; display:flex; align-items:center; justify-content:center;">
-                            <i class="fa-solid fa-truck" style="font-size:18px; color:${accentColor};"></i>
-                        </div>
-                        <div>
-                            <div style="font-weight:800; font-size:16px; color:#0f172a; letter-spacing:0.3px;">${log.truckName}</div>
-                            <div style="font-size:11px; color:#94a3b8; margin-top:1px;">
-                                <i class="fa-regular fa-calendar" style="margin-right:3px;"></i>${dateDisplay}
-                                <span style="margin:0 5px; color:#e2e8f0;">|</span>
-                                <i class="fa-regular fa-clock" style="margin-right:3px;"></i>${timeDisplay}
-                            </div>
-                        </div>
-                    </div>
-                    <div style="text-align:right;">
-                        <div style="font-size:28px; font-weight:900; color:${accentColor}; line-height:1; letter-spacing:-1px;">+${log.realAdded}<span style="font-size:14px; font-weight:700; margin-left:2px;">L</span></div>
-                        <div style="font-size:10px; color:#94a3b8; margin-top:3px;">≈ ${costEstimate.toLocaleString()} DA</div>
+        <div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid ${log.isInternal ? '#22c55e' : '#f59e0b'}; padding:15px; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+                <div>
+                    <div style="font-weight:800; font-size:15px; color:#1e293b;">${log.truckName}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                        <i class="fa-regular fa-calendar"></i> ${dateDisplay} &nbsp; <i class="fa-regular fa-clock"></i> ${timeDisplay}
                     </div>
                 </div>
-
-                <!-- ═══ ROW 2: Fuel Gauge Visual ═══ -->
-                <div style="background:#f8fafc; border-radius:10px; padding:10px 12px; margin-bottom:12px; border:1px solid #f1f5f9;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                        <div style="display:flex; align-items:center; gap:12px; font-size:11px;">
-                            ${hasOldData ? `<span style="color:#64748b;"><i class="fa-solid fa-arrow-right-from-bracket" style="color:#94a3b8; margin-right:4px;"></i>Avant: <strong style="color:#334155;">${avantDisplay}</strong> <span style="color:#cbd5e1;">(${avantPercentDisplay})</span></span>` : ''}
-                            <span style="color:#64748b;"><i class="fa-solid fa-arrow-right-to-bracket" style="color:${barColor}; margin-right:4px;"></i>Après: <strong style="color:#334155;">${apresDisplay}</strong> <span style="color:#cbd5e1;">(${fillPercent}%)</span></span>
-                        </div>
-                        <span style="font-size:10px; color:#94a3b8;"><i class="fa-solid fa-database" style="margin-right:3px;"></i>${log.truckCapacity} L</span>
-                    </div>
-                    <!-- Gauge bar -->
-                    <div style="background:#e2e8f0; border-radius:6px; height:10px; overflow:hidden; position:relative;">
-                        ${hasOldData ? `<div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:#cbd5e1; border-radius:6px; transition:width 0.4s;"></div>` : ''}
-                        <div style="position:absolute; left:0; top:0; height:100%; width:${fillPercent}%; background:linear-gradient(90deg, ${barColor}dd, ${barColor}); border-radius:6px; transition:width 0.4s;"></div>
-                    </div>
-                    ${hasOldData && addedPercent > 0 ? `<div style="font-size:9px; color:${accentColor}; text-align:center; margin-top:4px; font-weight:700;">▲ +${addedPercent}% du réservoir</div>` : ''}
+                <div style="text-align:right;">
+                    <div style="font-size:24px; font-weight:900; color:${log.isInternal ? '#15803d' : '#0f172a'}; line-height:1;">+${log.realAdded} L</div>
+                    <div style="font-size:10px; color:#94a3b8; margin-top:2px;">≈ ${Math.round(log.realAdded * (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29))} DA</div>
                 </div>
+            </div>
 
-                <!-- ═══ ROW 3: Location + Actions ═══ -->
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
-                        <div style="background:${accentBg}; color:${accentColor}; padding:4px 10px; border-radius:20px; font-size:9px; font-weight:800; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; border:1px solid ${accentBorder};">
-                            <i class="fa-solid ${locIcon}"></i> ${locLabel}
-                        </div>
-                        <span style="font-size:11.5px; color:#334155; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" id="${log.domId}-text">${log.locationDisplay}</span>
-                    </div>
-                    ${(log.lat && log.lng && log.lat !== 0) ? `
-                    <div style="display:flex; gap:5px; flex-shrink:0; margin-left:8px;">
-                        <a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" 
-                           style="width:30px; height:30px; border-radius:8px; background:#eff6ff; border:1px solid #bfdbfe; display:flex; align-items:center; justify-content:center; text-decoration:none; transition:all 0.15s;"
-                           onmouseenter="this.style.background='#dbeafe'" onmouseleave="this.style.background='#eff6ff'"
-                           title="Google Maps">
-                            <i class="fa-solid fa-map-location-dot" style="font-size:12px; color:#2563eb;"></i>
-                        </a>
-                        <button onclick="ui.viewOnMap(${log.lat}, ${log.lng})" 
-                                style="width:30px; height:30px; border-radius:8px; background:#e0f2fe; border:1px solid #7dd3fc; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s;"
-                                onmouseenter="this.style.background='#bae6fd'" onmouseleave="this.style.background='#e0f2fe'"
-                                title="Voir sur Carte 3D">
-                            <i class="fa-solid fa-crosshairs" style="font-size:12px; color:#0284c7;"></i>
-                        </button>
-                    </div>` : ''}
+            <!-- Fuel level bar: before → after -->
+            <div style="margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8; margin-bottom:3px;">
+                    <span>Avant: ${log.realOld || '?'} L (${oldPercent}%)</span>
+                    <span>Après: ${log.realTotal} L (${fillPercent}%)</span>
                 </div>
+                <div style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; position:relative;">
+                    <div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:#cbd5e1; border-radius:4px;"></div>
+                    <div style="position:absolute; left:0; top:0; height:100%; width:${fillPercent}%; background:${barColor}; border-radius:4px; transition:width 0.3s;"></div>
+                </div>
+                <div style="font-size:10px; color:#64748b; text-align:right; margin-top:2px;">Capacité: ${log.truckCapacity} L</div>
+            </div>
+
+            <!-- Location -->
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    ${locBadge}
+                    <span style="font-size:12px; color:#334155; font-weight:600;" id="${log.domId}-text">${log.locationDisplay}</span>
+                </div>
+                ${(log.lat && log.lng && log.lat !== 0) ? `
+                <div style="display:flex; gap:6px;">
+                    <a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="font-size:10px; color:#2563eb; text-decoration:none; background:#eff6ff; padding:4px 8px; border-radius:4px; font-weight:600;">
+                        <i class="fa-solid fa-map-location-dot"></i> Maps
+                    </a>
+                    <button onclick="ui.viewOnMap(${log.lat}, ${log.lng})" style="font-size:10px; color:#0284c7; background:#e0f2fe; padding:4px 8px; border-radius:4px; font-weight:600; border:none; cursor:pointer;">
+                        <i class="fa-solid fa-crosshairs"></i> Carte
+                    </button>
+                </div>` : ''}
             </div>
         </div>`;
     }
@@ -2280,7 +2212,7 @@ changeRefuelPage(dir) {
       return;
     }
     FLEET_CONFIG.CUSTOM_LOCATIONS.forEach((loc, index) => {
-      const typeConfig = (FLEET_CONFIG.LOCATION_TYPES || []).find(t => t.id === loc.type) || { color: '#666666', icon: 'fa-map-pin', label: 'Autre' };
+      const typeConfig = (FLEET_CONFIG.LOCATION_TYPES || []).find(t => t.id === loc.type) || { color: '666666', icon: 'fa-map-pin', label: 'Autre' };
       
       const div = document.createElement('div');
       div.style.cssText = `background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #ddd; border-left: 4px solid ${typeConfig.color || '#666'}; position: relative;`;
