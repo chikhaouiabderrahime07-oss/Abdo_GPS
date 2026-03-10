@@ -559,13 +559,10 @@ async function runFleetBot() {
     let dbTruck = await Truck.findOne({ deviceId });
 
     if (!dbTruck) {
-      // First time seeing this truck
+      // First time seeing this truck — V5: just save fuel level, no engine state needed
       await Truck.findOneAndUpdate({ deviceId }, {
         truckName, lastUpdate: now, lastFuelLiters: currentLiters,
-        lat: truckLat, lng: truckLng, speed, params: truck.params,
-        engineState: engineIsOff
-          ? { phase: 'OFF', offSnapshotFuel: currentLiters, offSnapshotTime: now, latAtOff: truckLat, lngAtOff: truckLng, minFuelWhileOff: currentLiters, maxFuelWhileOff: currentLiters }
-          : { phase: 'ON' }
+        lat: truckLat, lng: truckLng, speed, params: truck.params
       }, { upsert: true });
       continue;
     }
@@ -573,147 +570,82 @@ async function runFleetBot() {
 
 
     // ═══════════════════════════════════════════════════════════════
-    //  REFUEL DETECTION V4 — SLIDING WINDOW (ENGINE-STATE-FREE)
+    //  REFUEL DETECTION V5 — MAPBOX-IDENTICAL (CONSECUTIVE COMPARISON)
     // ═══════════════════════════════════════════════════════════════
-    // WHY: The old OFF→POSTON→ON state machine missed refills when:
-    //   - Driver turned engine ON briefly (couple seconds) then OFF again
-    //   - Bot polls every 30s and missed the brief ON state entirely
-    //   - GPS speed bounced 0→3→0 creating false state transitions
+    // This is EXACTLY the same logic as the working Mapbox history view.
+    // 
+    // HOW IT WORKS (dead simple):
+    //   1. Read current fuel level (already calculated above as currentLiters)
+    //   2. Read previous fuel level from DB (dbTruck.lastFuelLiters)
+    //   3. If current > previous + 50L → REFILL DETECTED
+    //   4. Save current fuel to DB for next comparison
     //
-    // HOW V4 WORKS:
-    //   1. Track a "rolling baseline" = lowest fuel seen recently
-    //   2. Every cycle, compare current fuel to baseline
-    //   3. If current fuel > baseline + threshold → REFILL DETECTED
-    //   4. After logging refill, baseline resets to current level
-    //   5. No engine state needed. No transitions to miss.
+    // NO ENGINE STATE. NO BASELINE. NO STABILITY CHECK. NO SLIDING WINDOW.
+    // Just two numbers: previous vs current. That's it.
     //
-    // ANTI-NOISE PROTECTIONS:
-    //   - Sensor smoothing (average of last N readings)
-    //   - Minimum liters threshold (default 50L)
-    //   - Maximum realistic refill cap (default 600L)  
-    //   - Dedupe window (default 5min)
-    //   - Baseline drop tolerance (sensor can drop 15L without inflating refill)
-    //   - Stability check: fuel must stay high for 2+ readings (not a spike)
+    // WHY THIS WORKS:
+    //   - Bot polls every 30 seconds → gets current fuel level
+    //   - Between two polls, if fuel jumped by 50+ liters → someone added fuel
+    //   - Sensor noise is typically ±5-10L, never ±50L
+    //   - A real refill is 100-600L → impossible to confuse with noise
+    //
+    // ANTI-NOISE:
+    //   - minRefuelLiters (50L) filters out sensor fluctuations
+    //   - maxRealisticRefillLiters (600L) filters out sensor glitches  
+    //   - dedupeMinutes (5min) prevents double-counting
+    //   - Ignores readings where rawVal was 0 (GPS startup glitch)
     // ═══════════════════════════════════════════════════════════════
 
     const MIN_REFUEL_L = parseInt(refuelRulesLocal.minRefuelLiters, 10) || 50;
-    const DEDUPE_MS = (parseFloat(refuelRulesLocal.dedupeMinutes) || 5) * 60 * 1000;
-    const DROP_TOL = parseFloat(refuelRulesLocal.baselineDropToleranceLiters) || 15;
     const MAX_REALISTIC = parseInt(refuelRulesLocal.maxRealisticRefillLiters, 10) || 600;
-    const SMOOTH_WINDOW = parseInt(refuelRulesLocal.sensorSmoothingWindow, 10) || 3;
-    const STABILITY_COUNT = parseInt(refuelRulesLocal.stabilityReadings, 10) || 2;
+    const DEDUPE_MS = (parseFloat(refuelRulesLocal.dedupeMinutes) || 5) * 60 * 1000;
 
-    // ── Fuel State: stored in dbTruck.engineState (reused field, now holds sliding window data)
-    let fuelState = dbTruck.engineState || {};
+    const previousFuel = (typeof dbTruck.lastFuelLiters === 'number' && dbTruck.lastFuelLiters > 0) 
+      ? dbTruck.lastFuelLiters : 0;
 
-    // Initialize if empty or old format (migrate from v3 state machine)
-    if (!fuelState.version || fuelState.version < 4) {
-      fuelState = {
-        version: 4,
-        baseline: currentLiters,         // Rolling minimum fuel level
-        readings: [currentLiters],        // Recent readings for smoothing
-        highStreak: 0,                    // How many consecutive readings stayed high
-        lastRefuelTime: fuelState.lastRefuelTime || 0,
-        peakSinceBaseline: currentLiters  // Highest level seen since last baseline set
-      };
-      console.log(`🔄 ${truckName} Fuel V4 initialized: baseline=${currentLiters}L`);
-    }
+    // Only run detection when we have a valid current AND previous reading
+    // Skip if current is 0 (GPS startup / sensor not ready)
+    if (currentLiters > 0 && previousFuel > 0) {
+      const fuelDiff = currentLiters - previousFuel;
 
-    // ── Step 1: Update readings buffer (sliding window for smoothing)
-    if (!Array.isArray(fuelState.readings)) fuelState.readings = [];
-    fuelState.readings.push(currentLiters);
-    if (fuelState.readings.length > SMOOTH_WINDOW) {
-      fuelState.readings = fuelState.readings.slice(-SMOOTH_WINDOW);
-    }
+      // ★ THE MAPBOX LOGIC: if fuel jumped by >= threshold → it's a refill ★
+      if (fuelDiff >= MIN_REFUEL_L && fuelDiff <= MAX_REALISTIC) {
+        // Dedupe: don't log if we already logged a refill recently
+        const dedupeSince = new Date(now - DEDUPE_MS);
+        const recentRefill = await Refuel.findOne({ deviceId, timestamp: { $gte: dedupeSince } });
 
-    // Smoothed value = average of recent readings (reduces Chinese GPS noise)
-    const smoothedFuel = Math.round(
-      fuelState.readings.reduce((sum, v) => sum + v, 0) / fuelState.readings.length
-    );
+        if (!recentRefill) {
+          // Determine location (same as before)
+          let locName = 'Station Externe'; let isInternal = false;
+          for (const loc of SYSTEM_SETTINGS.customLocations) {
+            const d = calculateDistance(truckLat, truckLng, loc.lat, loc.lng);
+            if (d <= (loc.radius || 500)) { locName = loc.name; isInternal = true; break; }
+          }
 
-    // ── Step 2: Update peak since baseline
-    if (smoothedFuel > (fuelState.peakSinceBaseline || 0)) {
-      fuelState.peakSinceBaseline = smoothedFuel;
-    }
-
-    // ── Step 3: Calculate fuel jump from baseline
-    const baseline = fuelState.baseline || currentLiters;
-    const fuelJump = smoothedFuel - baseline;
-
-    // ── Step 4: Stability check — fuel must stay elevated for N readings
-    //    This prevents single-reading spikes from triggering false refills
-    if (fuelJump >= MIN_REFUEL_L) {
-      fuelState.highStreak = (fuelState.highStreak || 0) + 1;
-    } else {
-      fuelState.highStreak = 0;
-    }
-
-    // ── Step 5: DETECTION — if fuel jumped enough AND stayed stable
-    let refuelDetected = false;
-    if (fuelState.highStreak >= STABILITY_COUNT && fuelJump >= MIN_REFUEL_L && fuelJump <= MAX_REALISTIC) {
-      // Dedupe check
-      const dedupeSince = new Date(now - DEDUPE_MS);
-      const recentRefill = await Refuel.findOne({ deviceId, timestamp: { $gte: dedupeSince } });
-
-      if (!recentRefill) {
-        // Determine location
-        let refillLat = truckLat, refillLng = truckLng;
-        let locName = 'Station Externe'; let isInternal = false;
-        for (const loc of SYSTEM_SETTINGS.customLocations) {
-          const d = calculateDistance(refillLat, refillLng, loc.lat, loc.lng);
-          if (d <= (loc.radius || 500)) { locName = loc.name; isInternal = true; break; }
+          await Refuel.create({
+            deviceId, truckName,
+            addedLiters: Math.round(fuelDiff),
+            oldLevel: Math.round(previousFuel),
+            newLevel: Math.round(currentLiters),
+            timestamp: new Date(now),
+            locationRaw: locName,
+            lat: truckLat, lng: truckLng, isInternal
+          });
+          console.log(`✅ REFILL ${truckName} +${Math.round(fuelDiff)}L (${Math.round(previousFuel)}→${Math.round(currentLiters)}L) @ ${locName}`);
+        } else {
+          console.log(`⏭️ ${truckName} Dedupe: skipped +${Math.round(fuelDiff)}L (recent refill within ${Math.round(DEDUPE_MS/60000)}min)`);
         }
-
-        const addedLiters = Math.round(fuelJump);
-        const oldLevel = Math.round(baseline);
-        const newLevel = Math.round(smoothedFuel);
-
-        await Refuel.create({
-          deviceId, truckName, addedLiters,
-          oldLevel, newLevel,
-          timestamp: new Date(now), locationRaw: locName,
-          lat: refillLat, lng: refillLng, isInternal
-        });
-        console.log(`✅ REFILL ${truckName} +${addedLiters}L (${oldLevel}→${newLevel}L) @ ${locName}`);
-        refuelDetected = true;
-        fuelState.lastRefuelTime = now;
-      } else {
-        console.log(`⏭️ ${truckName} Dedupe: skipped +${Math.round(fuelJump)}L (recent refill exists)`);
       }
     }
 
-    // ── Step 6: Update baseline
-    //    After a refill: reset baseline to current level
-    //    Normal driving: baseline drifts DOWN as fuel is consumed (tracks minimum)
-    //    Sensor noise: allow DROP_TOL drop without lowering baseline too fast
-    if (refuelDetected) {
-      // Reset baseline to current high level after confirmed refill
-      fuelState.baseline = smoothedFuel;
-      fuelState.peakSinceBaseline = smoothedFuel;
-      fuelState.highStreak = 0;
-    } else if (smoothedFuel < baseline) {
-      // Fuel is going DOWN (normal consumption or sensor drift)
-      // Only update baseline if the drop is significant (> DROP_TOL) to avoid
-      // slowly lowering baseline from minor sensor fluctuations while parked
-      if (baseline - smoothedFuel > DROP_TOL) {
-        // Significant drop — fuel was consumed. Update baseline.
-        fuelState.baseline = smoothedFuel;
-        fuelState.peakSinceBaseline = smoothedFuel;
-        console.log(`📉 ${truckName} Baseline updated (consumption): ${baseline}→${smoothedFuel}L`);
-      }
-      // Small drops (< DROP_TOL) are ignored — could be sensor noise while parked
-    }
-    // If fuel is RISING but not yet past threshold, we just keep tracking
-    // The baseline stays at the last low point, so the full refill amount accumulates
-
-    let payload = { 
+    // Always save current fuel for next comparison (this IS the "state")
+    const payload = { 
       truckName, lastUpdate: now, lastFuelLiters: currentLiters,
-      lat: truckLat, lng: truckLng, speed, params: truck.params,
-      engineState: fuelState  // Store sliding window state
+      lat: truckLat, lng: truckLng, speed, params: truck.params
     };
 
     // Run vidange/maintenance zone detection
-    const freshDbTruck = { ...dbTruck.toObject(), ...payload }; // V4: always fresh
+    const freshDbTruck = { ...dbTruck.toObject(), ...payload }; // V5: always fresh
     await runVidangeDetection(truck, freshDbTruck, config);
 
     // Save to DB if changed or position moved significantly
