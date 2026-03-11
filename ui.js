@@ -693,11 +693,18 @@ renderDecouchageList() {
         const truckConfig = getTruckConfig(log.deviceId);
         const capacity = truckConfig.fuelTankCapacity || 600;
 
-        // V5: Direct field reads — diffPercent/newPercent don't exist in MongoDB
-        const realAdded = Math.round(log.addedLiters || 0);
-        const realTotal = Math.round(log.newLevel || 0);
-        const realOld = Math.round((log.oldLevel > 0) ? log.oldLevel : 
-            ((realTotal > 0 && realAdded > 0) ? (realTotal - realAdded) : 0));
+        // Same calculation as renderFilteredRefuels
+        let realAdded = 0;
+        realAdded = Math.round(log.addedLiters || 0);
+
+        let realTotal = Math.round(log.newLevel || 0);
+
+        let realOld = 0;
+        if (log.oldLevel && log.oldLevel > 0) {
+            realOld = Math.round(log.oldLevel);
+        } else if (realTotal > 0 && realAdded > 0) {
+            realOld = realTotal - realAdded;
+        }
 
         return { ...log, realAdded, realTotal, realOld, capacity };
     }).filter(log => {
@@ -1846,11 +1853,10 @@ renderFilteredRefuels() {
             lat: safeLat,
             lng: safeLng,
             domId: logId,
+            // V6 FIX: Read directly from MongoDB fields (diffPercent/newPercent DON'T EXIST)
             realAdded: Math.round(log.addedLiters || 0),
             realTotal: Math.round(log.newLevel || 0),
-            realOld: Math.round((log.oldLevel > 0) ? log.oldLevel : 
-                ((log.newLevel || 0) > 0 && (log.addedLiters || 0) > 0 ? 
-                    (log.newLevel || 0) - (log.addedLiters || 0) : 0)),
+            realOld: Math.round(log.oldLevel > 0 ? log.oldLevel : ((log.newLevel || 0) - (log.addedLiters || 0))),
             truckCapacity: capacity, 
             locationDisplay: locationName,
             isInternal: isInternal
@@ -1919,54 +1925,40 @@ renderFilteredRefuels() {
         const timeDisplay = dateObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
         const locBadge = log.isInternal 
-            ? `<span style="background:#166534; color:white; padding:4px 12px; border-radius:6px; font-size:10px; font-weight:700; display:inline-flex; align-items:center; gap:5px; letter-spacing:0.5px;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`
-            : `<span style="background:#ea580c; color:white; padding:4px 12px; border-radius:6px; font-size:10px; font-weight:700; display:inline-flex; align-items:center; gap:5px; letter-spacing:0.5px;"><i class="fa-solid fa-gas-pump"></i> STATION EXTERNE</span>`;
+            ? `<span style="background:#dcfce7; color:#166534; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`
+            : `<span style="background:#fff7ed; color:#c2410c; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px;"><i class="fa-solid fa-gas-pump"></i> STATION</span>`;
 
         // Fuel bar visualization
         const fillPercent = log.truckCapacity > 0 ? Math.min(100, Math.round((log.realTotal / log.truckCapacity) * 100)) : 0;
-        const oldPercent = (log.realOld > 0 && log.truckCapacity > 0) ? Math.min(100, Math.round((log.realOld / log.truckCapacity) * 100)) : 0;
+        const oldPercent = log.truckCapacity > 0 ? Math.min(100, Math.round(((log.realOld || 0) / log.truckCapacity) * 100)) : 0;
         const barColor = fillPercent < 15 ? '#dc2626' : fillPercent < 30 ? '#f59e0b' : '#22c55e';
-        const addedPercent = fillPercent - oldPercent;
-
-        // Avant display: HIDE entirely when 0 or unknown
-        const avantHtml = (log.realOld > 0) 
-            ? `<span style="font-weight:600; color:#64748b;"><i class="fa-solid fa-arrow-down" style="font-size:8px; color:#94a3b8;"></i> Avant: ${log.realOld} L <small>(${oldPercent}%)</small></span>`
-            : '';
 
         html += `
-        <div style="background:white; border:1px solid #e2e8f0; border-left:5px solid ${log.isInternal ? '#22c55e' : '#f59e0b'}; padding:16px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.08); transition:all 0.2s;" onmouseenter="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.12)'; this.style.transform='translateY(-1px)'" onmouseleave="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'; this.style.transform='translateY(0)'">
-            <!-- TOP ROW: truck name + amount -->
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid ${log.isInternal ? '#22c55e' : '#f59e0b'}; padding:15px; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
                 <div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <span style="background:#1e293b; color:white; padding:3px 8px; border-radius:5px; font-size:12px; font-weight:800; letter-spacing:0.5px;">${log.truckName}</span>
-                        ${locBadge}
-                    </div>
-                    <div style="font-size:11px; color:#64748b; margin-top:6px; font-weight:500;">
-                        <i class="fa-regular fa-calendar" style="color:#94a3b8;"></i> ${dateDisplay} &nbsp;|&nbsp; <i class="fa-regular fa-clock" style="color:#94a3b8;"></i> ${timeDisplay}
+                    <div style="font-weight:800; font-size:15px; color:#1e293b;">${log.truckName}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                        <i class="fa-regular fa-calendar"></i> ${dateDisplay} &nbsp; <i class="fa-regular fa-clock"></i> ${timeDisplay}
                     </div>
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:28px; font-weight:900; color:${log.isInternal ? '#15803d' : '#ea580c'}; line-height:1;">+${log.realAdded}<small style="font-size:14px; font-weight:700;"> L</small></div>
-                    <div style="font-size:11px; color:#64748b; font-weight:600; margin-top:2px;">≈ ${Math.round(log.realAdded * (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29)).toLocaleString()} DA</div>
+                    <div style="font-size:24px; font-weight:900; color:${log.isInternal ? '#15803d' : '#0f172a'}; line-height:1;">+${log.realAdded} L</div>
+                    <div style="font-size:10px; color:#94a3b8; margin-top:2px;">≈ ${Math.round(log.realAdded * (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29))} DA</div>
                 </div>
             </div>
 
-            <!-- FUEL GAUGE -->
-            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:10px; margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; margin-bottom:5px;">
-                    ${avantHtml}
-                    <span style="font-weight:700; color:#1e293b;"><i class="fa-solid fa-arrow-up" style="font-size:8px; color:${barColor};"></i> Après: ${log.realTotal} L <small>(${fillPercent}%)</small></span>
+            <!-- Fuel level bar: before → after -->
+            <div style="margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8; margin-bottom:3px;">
+                    <span>${(log.realOld && log.realOld > 0) ? ('↓ Avant: ' + log.realOld + ' L (' + oldPercent + '%)') : ''}</span>
+                    <span>Après: ${log.realTotal} L (${fillPercent}%)</span>
                 </div>
-                <div style="background:#e2e8f0; border-radius:6px; height:10px; overflow:hidden; position:relative;">
-                    ${(log.realOld > 0) ? `<div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:#94a3b8; border-radius:6px; opacity:0.4;"></div>` : ''}
-                    <div style="position:absolute; left:0; top:0; height:100%; width:${fillPercent}%; background:${barColor}; border-radius:6px; transition:width 0.4s;"></div>
+                <div style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; position:relative;">
+                    <div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:#cbd5e1; border-radius:4px;"></div>
+                    <div style="position:absolute; left:0; top:0; height:100%; width:${fillPercent}%; background:${barColor}; border-radius:4px; transition:width 0.3s;"></div>
                 </div>
-                <div style="display:flex; justify-content:space-between; margin-top:4px;">
-                    <span style="font-size:9px; color:#94a3b8;">0</span>
-                    <span style="font-size:9px; color:#64748b; font-weight:600;">▲ +${addedPercent > 0 ? addedPercent : '?'}% du réservoir</span>
-                    <span style="font-size:9px; color:#94a3b8;">${log.truckCapacity}L</span>
-                </div>
+                <div style="font-size:10px; color:#64748b; text-align:right; margin-top:2px;">Capacité: ${log.truckCapacity} L</div>
             </div>
 
             <!-- Location -->
