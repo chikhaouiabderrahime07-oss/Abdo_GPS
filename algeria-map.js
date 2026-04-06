@@ -437,45 +437,36 @@ addStopMarkers: function(stops) {
     if (!this.map) return;
 
     stops.forEach(stop => {
-        // 1. Check for Decouchage
-        if (this.isDecouchage(stop)) {
-            this.addDecouchageMarker(stop);
-        } else {
-            // 2. NORMAL STOP: Small Red "P"
-            const el = document.createElement('div');
-            el.className = 'history-marker-stop';
-            el.innerHTML = 'P';
-            el.style.cssText = "background-color: #d32f2f; color: white; width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; border: 1px solid white; font-weight:bold; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); cursor: pointer; z-index: 5;";
+        const el = document.createElement('div');
+        el.className = 'history-marker-stop';
+        el.innerHTML = 'P';
+        el.style.cssText = "background-color: #d32f2f; color: white; width: 24px; height: 24px; border-radius: 4px; display: flex; align-items: center; justify-content: center; border: 1px solid white; font-weight:bold; font-size: 13px; box-shadow: 0 2px 4px rgba(0,0,0,0.3); cursor: pointer; z-index: 5;";
 
-            // 3. Format Time
-            const startStr = new Date(stop.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-            const endStr = new Date(stop.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const startStr = new Date(stop.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const endStr = new Date(stop.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
-            // 4. Create Popup Content
-            const popupDiv = document.createElement('div');
-            popupDiv.style.textAlign = "center";
-            popupDiv.innerHTML = `
-                <strong style="color:#d32f2f; font-size:13px;">✋ ARRÊT</strong><br>
-                <div style="font-size:14px; font-weight:800; margin:3px 0; color:#1e293b;">${stop.durationStr}</div>
-                <div style="font-size:11px; color:#555; margin-bottom:5px;">🕒 ${startStr} ➝ ${endStr}</div>
-                <div class="address-box" style="font-size:10px; color:#555; background:#fff1f2; padding:4px; border-radius:4px; min-width:150px;">
-                    📍 Survoler pour l'adresse
-                </div>
-            `;
+        const popupDiv = document.createElement('div');
+        popupDiv.style.textAlign = "center";
+        popupDiv.innerHTML = `
+            <strong style="color:#d32f2f; font-size:13px;">✋ ARRÊT</strong><br>
+            <div style="font-size:14px; font-weight:800; margin:3px 0; color:#1e293b;">${stop.durationStr}</div>
+            <div style="font-size:11px; color:#555; margin-bottom:5px;">🕒 ${startStr} ➝ ${endStr}</div>
+            <div class="address-box" style="font-size:10px; color:#555; background:#fff1f2; padding:4px; border-radius:4px; min-width:150px;">
+                📍 Survoler pour l'adresse
+            </div>
+        `;
 
-            const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setDOMContent(popupDiv);
+        const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setDOMContent(popupDiv);
 
-            // 5. Add Hover Logic
-            el.addEventListener('mouseenter', () => {
-                popup.addTo(this.map);
-                const addrBox = popupDiv.querySelector('.address-box');
-                this.fetchAddress(stop.lat, stop.lng, addrBox);
-            });
-            el.addEventListener('mouseleave', () => popup.remove());
+        el.addEventListener('mouseenter', () => {
+            popup.addTo(this.map);
+            const addrBox = popupDiv.querySelector('.address-box');
+            this.fetchAddress(stop.lat, stop.lng, addrBox);
+        });
+        el.addEventListener('mouseleave', () => popup.remove());
 
-            const marker = new mapboxgl.Marker({ element: el }).setLngLat([stop.lng, stop.lat]).setPopup(popup).addTo(this.map);
-            this.historyLayers.stops.push(marker);
-        }
+        const marker = new mapboxgl.Marker({ element: el }).setLngLat([stop.lng, stop.lat]).setPopup(popup).addTo(this.map);
+        this.historyLayers.stops.push(marker);
     });
     this.updateFilterCounts();
 },
@@ -535,40 +526,49 @@ addStopMarkers: function(stops) {
         return false;
     },
 addDecouchageMarker: function(s) {
-    // 1. Create the Marker Icon (Purple Moon)
+    const markerLat = (s.lat !== undefined && s.lat !== null) ? s.lat : (s.locationAtMidnight ? s.locationAtMidnight.lat : null);
+    const markerLng = (s.lng !== undefined && s.lng !== null) ? s.lng : (s.locationAtMidnight ? s.locationAtMidnight.lng : null);
+    if (markerLat === null || markerLng === null) return;
+
     const el = document.createElement('div');
     el.innerHTML = '<i class="fa-solid fa-moon"></i>';
     el.style.cssText = `background-color: #4f46e5; color: white; width: 32px; height: 32px;
         border-radius: 50%; display: flex; align-items: center; justify-content: center;
         border: 2px solid white; box-shadow: 0 0 10px #4f46e5; font-size: 16px; z-index: 15; cursor: pointer;`;
 
-    // 2. Format Time
-    const startTime = new Date(s.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    const fullDate = new Date(s.startTime).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+    const startTime = new Date(s.startTime || s.detectedAt || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const fullDate = new Date(s.startTime || s.detectedAt || Date.now()).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+    const distanceHtml = s.distanceFromSite ? `<div style="font-size:10px; color:#64748b; margin-top:4px;">à ${(s.distanceFromSite / 1000).toFixed(1)} km du site</div>` : '';
+    const initialLocation = s.locationName ? `📍 ${s.locationName}` : '📍 Recherche...';
 
-    // 3. Create Popup Content (With Address Placeholder)
     const popupDiv = document.createElement('div');
     popupDiv.style.textAlign = "center";
     popupDiv.innerHTML = `
         <strong style="color:#4f46e5; font-size:13px;">💤 DÉCOUCHAGE</strong><br>
         <div style="font-size:11px; font-weight:bold; margin:4px 0;">${fullDate} à ${startTime}</div>
-        <div style="font-weight:800; font-size:14px; margin-bottom:4px;">⏱️ ${s.durationStr}</div>
-        <div class="address-box" style="font-size:10px; color:#555; background:#f3f4f6; padding:4px; border-radius:4px; margin-top:4px; min-width:150px;">
-            📍 Survoler pour l'adresse
-        </div>
+        <div style="font-weight:800; font-size:14px; margin-bottom:4px;">⏱️ ${s.durationStr || 'Nuit dehors'}</div>
+        <div class="address-box" style="font-size:10px; color:#555; background:#f3f4f6; padding:4px; border-radius:4px; margin-top:4px; min-width:150px;">${initialLocation}</div>
+        ${distanceHtml}
     `;
 
     const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setDOMContent(popupDiv);
 
-    // 4. Add "Hover" Event to Fetch Address
-    el.addEventListener('mouseenter', () => {
+    el.addEventListener('mouseenter', async () => {
         popup.addTo(this.map);
         const addrBox = popupDiv.querySelector('.address-box');
-        this.fetchAddress(s.lat, s.lng, addrBox); // Call the helper
+        if (!s.locationName && window.ui && typeof window.ui.resolveLocationNameAsync === 'function') {
+            addrBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Recherche...';
+            try {
+                const resolved = await window.ui.resolveLocationNameAsync(markerLat, markerLng);
+                addrBox.innerHTML = `📍 ${resolved}`;
+            } catch (e) {
+                addrBox.innerHTML = `📍 ${markerLat.toFixed(4)}, ${markerLng.toFixed(4)}`;
+            }
+        }
     });
     el.addEventListener('mouseleave', () => popup.remove());
 
-    const m = new mapboxgl.Marker(el).setLngLat([s.lng, s.lat]).setPopup(popup).addTo(this.map);
+    const m = new mapboxgl.Marker(el).setLngLat([markerLng, markerLat]).setPopup(popup).addTo(this.map);
     this.historyLayers.decouchages.push(m);
 },
 

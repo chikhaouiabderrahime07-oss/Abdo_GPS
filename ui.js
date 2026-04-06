@@ -504,7 +504,7 @@ initElements() {
 
     // DECOUCHAGE EVENTS (NEW)
     if (this.applyDecouchageFiltersBtn) {
-        this.applyDecouchageFiltersBtn.addEventListener('click', () => this.renderDecouchageList());
+        this.applyDecouchageFiltersBtn.addEventListener('click', () => this.fetchAndRenderDecouchages());
     }
     if (this.exportDecouchageBtn) {
         this.exportDecouchageBtn.addEventListener('click', () => this.exportDecouchageCSV());
@@ -547,16 +547,35 @@ initElements() {
   // =========================================================
   async fetchAndRenderDecouchages() {
       if(!this.decouchageHistoryContainer) return;
-      this.decouchageHistoryContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Chargement des découchages...</div>';
+      this.decouchageHistoryContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Analyse précise des découchages...</div>';
 
       try {
-          const response = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/decouchages`);
-          if (!response.ok) throw new Error("API Error");
-          
-          this.allDecouchageLogs = await response.json();
+          const trucks = (typeof app !== 'undefined' && typeof app.getAllTrucks === 'function') ? app.getAllTrucks() : [];
+          if (!trucks.length) throw new Error('Trucks unavailable');
+
+          const startNight = this.decouchageDateStart.value || new Date().toISOString().split('T')[0];
+          const endNight = this.decouchageDateEnd.value || startNight;
+          const truckFilter = (this.decouchageTruckSearch.value || '').toLowerCase().trim();
+
+          const selectedTrucks = trucks.filter(t => !truckFilter || t.name.toLowerCase().includes(truckFilter));
+          if (selectedTrucks.length === 0) {
+              this.allDecouchageLogs = [];
+              this.renderDecouchageList();
+              return;
+          }
+
+          const fetchRange = this.getNightWindowFetchRange(startNight, endNight);
+          this.allDecouchageLogs = await this.generateExactDecouchageDataset(
+              selectedTrucks.map(t => t.id),
+              fetchRange.start,
+              fetchRange.end,
+              ({ done, total, truckName }) => {
+                  this.decouchageHistoryContainer.innerHTML = `<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-moon fa-spin"></i> Analyse précise ${done}/${total}<br><span style="font-size:12px; color:#94a3b8;">${truckName}</span></div>`;
+              }
+          );
           this.renderDecouchageList();
       } catch (e) {
-          console.warn("Decouchage fetch error:", e);
+          console.warn('Decouchage exact fetch error:', e);
           this.decouchageHistoryContainer.innerHTML = `<div style="color:#888; text-align:center; padding:20px;">Connexion impossible.</div>`;
       }
   }
@@ -650,6 +669,7 @@ renderDecouchageList() {
         summaryMap.get(log.truckName).total++;
     });
     const summaryArray = Array.from(summaryMap.values()).sort((a, b) => b.total - a.total);
+    this.currentDecouchageSummary = summaryArray;
 
     // Render Table
     let tableHtml = `<div style="max-height: 350px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;"><table style="width:100%; border-collapse:collapse; font-size:13px; background:white;"><thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;"><tr style="color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;"><th style="padding:12px 15px;">Camion</th><th style="padding:12px; text-align:center;">Nuits Dehors</th></tr></thead><tbody>`;
@@ -670,7 +690,6 @@ renderDecouchageList() {
     let html = '<div style="display:grid; gap:10px;">';
     paginatedItems.forEach(log => {
         const distKm = (log.distanceFromSite / 1000).toFixed(1);
-        // 🔧 FIX: use server-provided locationName directly (no geo-lookup needed)
         const resolvedName = log.locationName || `${log.locationAtMidnight?.lat?.toFixed(4) || '?'}, ${log.locationAtMidnight?.lng?.toFixed(4) || '?'}`;
         const detectedTime = log.detectedAt ? new Date(log.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '00:00';
         const dateStr = new Date(log.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -840,10 +859,12 @@ exportDecouchageCSV() {
               </div>
               
               <div style="margin-bottom:10px; font-size:12px; color:#555; display:grid; grid-template-columns:1fr 1fr; gap:5px;">
-                  <div><i class="fa-solid fa-gas-pump"></i> ${rule.config.fuelTankCapacity}L</div>
+                  <div><i class="fa-solid fa-gas-pump"></i> ${Math.round(getConfiguredFuelEffectiveCapacity(rule.config) || rule.config.fuelTankCapacity || 0)}L</div>
                   <div><i class="fa-solid fa-fire"></i> ${rule.config.fuelConsumption} L/100</div>
                   <div><i class="fa-solid fa-bell"></i> Alerte ${rule.config.fuelAlertThreshold}%</div>
                   <div>${rule.config.calibration && rule.config.calibration.length > 0 ? '<i class="fa-solid fa-check-circle" style="color:green"></i> Calibré' : '<span style="color:#999">Non Calibré</span>'}</div>
+                  <div style="grid-column:1 / -1;"><i class="fa-solid fa-microchip"></i> IO Gasoil: ${getConfiguredFuelSensorLabel(rule.config)}</div>
+                  ${getConfiguredFuelSensorCapacitiesLabel(rule.config) ? `<div style="grid-column:1 / -1;"><i class="fa-solid fa-tank-water"></i> Capacités IO: ${getConfiguredFuelSensorCapacitiesLabel(rule.config)}</div>` : ''}
               </div>
 
               <div class="rule-trucks-list">
@@ -882,6 +903,7 @@ exportDecouchageCSV() {
       if(data.config.calibration && Array.isArray(data.config.calibration)) {
           calibText = data.config.calibration.map(c => `${c.x}=${c.y}`).join('\n');
       }
+      const fuelCapacityText = data.config.fuelSensorCapacitiesInput || getConfiguredFuelSensorCapacitiesLabel(data.config);
 
       // Generate Form HTML
       this.ruleEditorContent.innerHTML = `
@@ -896,6 +918,17 @@ exportDecouchageCSV() {
               
               <div class="form-group"><label>Seuil Alerte (%)</label><input type="number" id="ruleThreshold" value="${data.config.fuelAlertThreshold}"></div>
               <div class="form-group"><label>Niveau Critique (%)</label><input type="number" id="ruleCritical" value="${data.config.criticalFuelLevel}"></div>
+
+              <div class="form-group" style="grid-column: 1 / -1;">
+                  <label>IO Gasoil (ex: io87 ou io67+io82)</label>
+                  <input type="text" id="ruleFuelSensor" value="${data.config.fuelSensorInput || getConfiguredFuelSensorLabel(data.config)}" placeholder="io87 ou io67+io82">
+              </div>
+
+              <div class="form-group" style="grid-column: 1 / -1;">
+                  <label>Capacité par IO (ex: io67=400, io82=300)</label>
+                  <input type="text" id="ruleFuelSensorCaps" value="${fuelCapacityText}" placeholder="io67=400, io82=300">
+                  <div style="font-size:12px; color:#64748b; margin-top:6px;">Chaque IO peut avoir sa propre capacité. Le système additionne ensuite les réservoirs.</div>
+              </div>
 
               <div class="form-group" style="grid-column: 1 / -1;">
                   <label>Jalons Vidange (km) - Séparés par virgule</label>
@@ -923,6 +956,9 @@ exportDecouchageCSV() {
       if (!name) { alert("Le nom de la règle est obligatoire."); return; }
 
       // Parse Config
+      const fuelSensorInput = (document.getElementById('ruleFuelSensor').value || '').trim();
+      const fuelSensorCapacitiesInput = (document.getElementById('ruleFuelSensorCaps').value || '').trim();
+      const fuelSensorCapacityMap = parseFuelSensorCapacityMap(fuelSensorCapacitiesInput);
       const config = {
           fuelTankCapacity: parseInt(document.getElementById('ruleTank').value) || 600,
           fuelConsumption: parseFloat(document.getElementById('ruleConso').value) || 35,
@@ -932,6 +968,10 @@ exportDecouchageCSV() {
           fuelPricePerLiter: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter, // Inherit Global Price
           fuelSecurityMargin: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelSecurityMargin, // Inherit Global Margin
           vidangeAlertKm: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm, // Inherit Global Alert
+          fuelSensorInput: fuelSensorInput || getConfiguredFuelSensorLabel(FLEET_CONFIG.DEFAULT_TRUCK_CONFIG),
+          fuelSensorKeys: normalizeFuelSensorKeys(fuelSensorInput || getConfiguredFuelSensorLabel(FLEET_CONFIG.DEFAULT_TRUCK_CONFIG)),
+          fuelSensorCapacitiesInput: fuelSensorCapacitiesInput,
+          fuelSensorCapacityMap: fuelSensorCapacityMap,
           calibration: this.parseCalibrationText(document.getElementById('ruleCalibration').value)
       };
 
@@ -2729,86 +2769,27 @@ async generateGlobalAudit(selectedIds, startDate, endDate) {
     this._downloadCSV(csv, `AUDIT_GLOBAL_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
-// 2. DETAILED DECOUCHAGE (Fixed: Parallel Speed + Distance Calculation)
+// 2. DETAILED DECOUCHAGE (Unified with exact-location logic)
 async generateDetailedDecouchageReport(selectedIds, startDate, endDate) {
     const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
     const originalText = btn ? btn.innerHTML : 'Rapport';
     if (btn) btn.innerHTML = `<i class="fa-solid fa-moon fa-spin"></i> Analyse Nuits...`;
 
     let csv = "Date (Nuit du),Heure Detection,Camion,Statut,Lieu Exact,Coordonnées\n";
-    let eventsFound = 0;
-    
-    // Process one by one to avoid memory overload
-    for (const id of selectedIds) {
-        const truck = app.trucks.get(id);
-        if (!truck) continue; 
+    const logs = await this.generateExactDecouchageDataset(selectedIds, startDate, endDate, ({ done, total, truckName }) => {
+        if (btn) btn.innerHTML = `<i class="fa-solid fa-moon fa-spin"></i> Analyse ${done}/${total}<br><span style="font-size:11px;">${truckName}</span>`;
+    });
 
-        try {
-            const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
-            if (!res.ok) continue; 
-            const json = await res.json();
-            
-            // Parse points
-            let points = (Array.isArray(json) ? json : json.messages || []).map(p => ({
-                time: new Date(p[0]).getTime(),
-                lat: parseFloat(p[1]),
-                lng: parseFloat(p[2]),
-                dateObj: new Date(p[0])
-            }));
-
-            // Set of processed nights to avoid duplicates per night
-            const processedNights = new Set(); 
-
-            for (const p of points) {
-                const hour = p.dateObj.getHours();
-
-                // STRICT DEFINITION: Decouchage is between 00:00 and 05:00
-                if (hour >= 0 && hour < 5) {
-                    
-                    // Logic: 3 AM on Jan 25th belongs to the night of Jan 24th
-                    const nightOfDate = new Date(p.dateObj);
-                    nightOfDate.setDate(nightOfDate.getDate() - 1);
-                    const nightStr = nightOfDate.toISOString().split('T')[0];
-
-                    // If we haven't flagged this night yet
-                    if (!processedNights.has(nightStr)) {
-                        
-                        // Check Safe Zone (Douroub Site)
-                        let isSafe = false;
-                        if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
-                            for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
-                                // Check both 'douroub' (Official) and 'client' (Delivery) sites if needed
-                                // Assuming 'douroub' is the only safe haven for night
-                                if (loc.type === 'douroub' || loc.type === 'depot') {
-                                    const dist = this.getDistKm(p.lat, p.lng, loc.lat, loc.lng);
-                                    // 500m radius
-                                    if (dist <= (loc.radius ? loc.radius/1000 : 0.5)) { 
-                                        isSafe = true; break; 
-                                    }
-                                }
-                            }
-                        }
-
-                        if (!isSafe) {
-                            processedNights.add(nightStr); // Mark night as "Caught"
-                            // Async resolve address for report
-                            const address = await this.resolveLocationNameAsync(p.lat, p.lng);
-                            const timeStr = p.dateObj.toLocaleTimeString();
-                            
-                            csv += `"${nightStr}","${timeStr}","${truck.name}","DECOUCHEMENT","${address}","${p.lat},${p.lng}"\n`;
-                            eventsFound++;
-                        } else {
-                            // If found inside safe zone, mark night as Safe (processed) so we don't check again
-                            processedNights.add(nightStr);
-                        }
-                    }
-                }
-            }
-        } catch (e) { console.error(e); }
-    }
+    logs.forEach(log => {
+        const detectedAt = new Date(log.detectedAt);
+        const timeStr = detectedAt.toLocaleTimeString('fr-FR');
+        const lat = log.locationAtMidnight?.lat ?? '';
+        const lng = log.locationAtMidnight?.lng ?? '';
+        csv += `"${log.date}","${timeStr}","${log.truckName}","DECOUCHAGE","${log.locationName || ''}","${lat},${lng}"\n`;
+    });
 
     if (btn) btn.innerHTML = originalText;
-    if (eventsFound === 0) alert("Aucun découchage trouvé (Tous les camions étaient sur site).");
+    if (logs.length === 0) alert("Aucun découchage trouvé (Tous les camions étaient sur site).");
     else this._downloadCSV(csv, `RAPPORT_NUITS_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
@@ -2823,7 +2804,7 @@ async generateDetailedRefillReport(selectedIds, startDate, endDate) {
     for (const id of selectedIds) {
         const truck = app.trucks.get(id);
         if(!truck) continue;
-        const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
+        const truckConfig = getTruckConfig(truck.id);
 
         try {
             const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
@@ -2835,13 +2816,16 @@ async generateDetailedRefillReport(selectedIds, startDate, endDate) {
             else if (json && Array.isArray(json.messages)) rawPoints = json.messages;
 
             // Sort by time
-            let points = rawPoints.map(p => ({
-                time: new Date(p[0]).getTime(),
-                lat: parseFloat(p[1]),
-                lng: parseFloat(p[2]),
-                speed: parseInt(p[5]),
-                liters: p[6] && p[6].io87 ? Math.round((parseFloat(p[6].io87) / 100) * tankCap) : 0
-            })).sort((a,b) => a.time - b.time);
+            let points = rawPoints.map(p => {
+                const params = (p[6] && typeof p[6] === 'object') ? p[6] : ((p[7] && typeof p[7] === 'object') ? p[7] : {});
+                return {
+                    time: new Date(p[0]).getTime(),
+                    lat: parseFloat(p[1]),
+                    lng: parseFloat(p[2]),
+                    speed: parseInt(p[5]),
+                    liters: calculateFuelMetricsFromParams(params, truckConfig).liters
+                };
+            }).sort((a,b) => a.time - b.time);
 
             if (points.length === 0) continue;
 
@@ -2934,6 +2918,147 @@ getDistKm(lat1, lon1, lat2, lon2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 } 
   
+
+
+  normalizeHistoryMessages(rawHistory) {
+      return (rawHistory || []).map(p => {
+          if (Array.isArray(p)) {
+              const params = (p[6] && typeof p[6] === 'object')
+                  ? p[6]
+                  : ((p[7] && typeof p[7] === 'object') ? p[7] : ((p[8] && typeof p[8] === 'object') ? p[8] : {}));
+              return {
+                  time: new Date(p[0]).getTime(),
+                  dateObj: new Date(p[0]),
+                  lat: parseFloat(p[1]),
+                  lng: parseFloat(p[2]),
+                  speed: parseFloat((p[5] !== undefined ? p[5] : p[3]) || 0) || 0,
+                  params: params
+              };
+          }
+          const timeValue = p.time || p.timestamp || p.t;
+          return {
+              time: new Date(timeValue).getTime(),
+              dateObj: new Date(timeValue),
+              lat: parseFloat(p.lat),
+              lng: parseFloat(p.lng),
+              speed: parseFloat(p.speed || 0) || 0,
+              params: p.params || {}
+          };
+      }).filter(p => Number.isFinite(p.time) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && p.lat !== 0 && p.lng !== 0)
+        .sort((a, b) => a.time - b.time);
+  }
+
+  getDecouchageSafeZones() {
+      return (FLEET_CONFIG.CUSTOM_LOCATIONS || []).filter(loc => loc.type === 'douroub' || loc.type === 'depot');
+  }
+
+  getClosestDecouchageSafeZone(lat, lng) {
+      const safeZones = this.getDecouchageSafeZones();
+      if (!safeZones.length) return { isSafe: false, distanceKm: null, zone: null };
+
+      let closestZone = null;
+      let closestDistanceKm = Infinity;
+
+      for (const zone of safeZones) {
+          const distKm = this.getDistKm(lat, lng, zone.lat, zone.lng);
+          if (distKm < closestDistanceKm) {
+              closestDistanceKm = distKm;
+              closestZone = zone;
+          }
+          if (distKm <= (zone.radius ? zone.radius / 1000 : 0.5)) {
+              return { isSafe: true, distanceKm: distKm, zone };
+          }
+      }
+
+      return { isSafe: false, distanceKm: closestDistanceKm, zone: closestZone };
+  }
+
+  async buildExactDecouchageEventsFromPoints(points, truck) {
+      const events = [];
+      const processedNights = new Set();
+
+      for (const p of points) {
+          const hour = p.dateObj.getHours();
+          if (hour < 0 || hour >= 5) continue;
+
+          const nightOfDate = new Date(p.dateObj);
+          nightOfDate.setDate(nightOfDate.getDate() - 1);
+          const nightStr = nightOfDate.toISOString().split('T')[0];
+
+          if (processedNights.has(nightStr)) continue;
+          processedNights.add(nightStr);
+
+          const safeInfo = this.getClosestDecouchageSafeZone(p.lat, p.lng);
+          if (safeInfo.isSafe) continue;
+
+          const address = await this.resolveLocationNameAsync(p.lat, p.lng);
+          events.push({
+              date: nightStr,
+              detectedAt: p.dateObj.toISOString(),
+              snapshotTime: p.dateObj.toISOString(),
+              deviceId: truck.id,
+              truckName: truck.name,
+              locationAtMidnight: { lat: p.lat, lng: p.lng },
+              locationName: address,
+              distanceFromSite: safeInfo.distanceKm !== null ? Math.round(safeInfo.distanceKm * 1000) : 0,
+              isClosed: true,
+              durationStr: 'Nuit dehors',
+              startTime: p.dateObj.toISOString(),
+              detectedAtMs: p.time,
+              nightKey: `${truck.id}_${nightStr}`
+          });
+      }
+
+      return events;
+  }
+
+  async fetchHistoryMessagesForTruck(truckId, startDate, endDate) {
+      const response = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truckId}&start=${startDate}&end=${endDate}`);
+      if (!response.ok) throw new Error(`History API ${response.status}`);
+      const json = await response.json();
+      if (Array.isArray(json)) return json;
+      if (json && Array.isArray(json.messages)) return json.messages;
+      return [];
+  }
+
+  async generateExactDecouchageDataset(selectedIds, startDate, endDate, onProgress = null) {
+      const logs = [];
+
+      for (let index = 0; index < selectedIds.length; index++) {
+          const truckId = selectedIds[index];
+          const truck = (typeof app !== 'undefined' && app.trucks && app.trucks.get(truckId))
+              ? app.trucks.get(truckId)
+              : { id: truckId, name: truckId };
+
+          if (onProgress) onProgress({ done: index + 1, total: selectedIds.length, truckName: truck.name });
+
+          try {
+              const rawHistory = await this.fetchHistoryMessagesForTruck(truckId, startDate, endDate);
+              const points = this.normalizeHistoryMessages(rawHistory);
+              const truckLogs = await this.buildExactDecouchageEventsFromPoints(points, truck);
+              logs.push(...truckLogs);
+          } catch (e) {
+              console.warn(`Decouchage exact skipped for ${truck.name}:`, e);
+          }
+      }
+
+      logs.sort((a, b) => new Date(b.detectedAt) - new Date(a.detectedAt));
+      return logs;
+  }
+
+  getNightWindowFetchRange(startNightStr, endNightStr) {
+      const start = new Date(`${startNightStr}T00:00:00`);
+      start.setDate(start.getDate() + 1);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(`${endNightStr}T00:00:00`);
+      end.setDate(end.getDate() + 1);
+      end.setHours(5, 59, 59, 999);
+
+      const pad = (n) => String(n).padStart(2, '0');
+      const toApi = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      return { start: toApi(start), end: toApi(end) };
+  }
 // 🧮 ANALYZER V6: STRICT NIGHT (00-05h) + CUTOFF DÉCOUCHAGE
 // 🧮 ANALYZER V7: TIMEZONE FIX + CUTOFF LOGIC
   analyzeTruckPrecise(rawPoints, truck) {
@@ -2967,19 +3092,29 @@ getDistKm(lat1, lon1, lat2, lon2) {
       const endOdo = parseInt(points[points.length - 1].params.io192);
       const totalDist = (endOdo > startOdo) ? (endOdo - startOdo) / 1000 : 0;
 
-	      const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
+	      const truckConfig = getTruckConfig(truck.id);
+	      const effectiveTankCap = getConfiguredFuelEffectiveCapacity(truckConfig) || truckConfig.fuelTankCapacity || 600;
+	      const fuelSeries = points.map((pt) => ({
+	          time: pt.time,
+	          liters: calculateFuelMetricsFromParams(pt.params || {}, truckConfig).liters,
+	          speed: pt.speed,
+	          ign: parseInt((pt.params || {}).io1 ?? (pt.params || {}).acc ?? 0, 10) || 0,
+	          lat: pt.lat,
+	          lng: pt.lng
+	      }));
+	      const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
+	          ? detectRefillEventsFromSeries(fuelSeries, {
+	              minRefuelLiters: 50,
+	              maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
+	              dedupeMinutes: 5,
+	              dedupeLitersTolerance: 10,
+	              baselineDropToleranceLiters: 15,
+	              stopSpeedThreshold: 4
+	          })
+	          : [];
 
-	      // ✅ FUEL LOGIC (MUST MATCH MAPBOX HISTORY)
-	      // - Only consider valid (>0) fuel readings
-	      // - Detect refills only when the level jumps by > 50L
-	      // - Ignore minor refills of 50L or below
-	      let refillCount = 0, refillVolume = 0, consumedLiters = 0;
-	      let lastLiters = null;
-
-	      // Initialize baseline with the first valid value (prevents false huge refills when io87 starts at 0)
-	      if (points[0].params && points[0].params.io87 && parseInt(points[0].params.io87) > 0) {
-	          lastLiters = (parseFloat(points[0].params.io87) / 100) * tankCap;
-	      }
+	      let refillCount = refillEvents.length, refillVolume = refillEvents.reduce((sum, evt) => sum + (evt.addedLiters || 0), 0), consumedLiters = 0;
+	      let lastLiters = fuelSeries.find(f => f.liters > 0)?.liters ?? null;
 
 	      let movingMs = 0, nightMs = 0, stopMs = 0, maxSpeed = 0;
 
@@ -3004,25 +3139,17 @@ getDistKm(lat1, lon1, lat2, lon2) {
           const timeDiff = p.time - prev.time;
           const hour = new Date(p.time).getHours();
 
-	          // A. FUEL (Same logic as Mapbox history: simple & effective)
-	          if (p.params && p.params.io87 && parseInt(p.params.io87) > 0) {
-	              const currentLiters = (parseFloat(p.params.io87) / 100) * tankCap;
+	          // A. FUEL (anchor-based logic: accumulates split refills and keeps real second fills)
+	          const currentLiters = fuelSeries[i].liters;
 
+	          if (currentLiters > 0) {
 	              if (lastLiters !== null) {
 	                  const diff = currentLiters - lastLiters;
-
-	                  // ✅ Refuel detected only if > 50L
-	                  if (diff > 50) {
-	                      refillCount++;
-	                      refillVolume += diff;
-	                  }
-	                  // ✅ Consumption tracking (ignore extreme drops that are usually sensor glitches)
-	                  else if (diff < 0 && Math.abs(diff) < 80) {
+	                  if (diff < 0 && Math.abs(diff) < 80) {
 	                      consumedLiters += Math.abs(diff);
 	                  }
 	              }
 
-	              // Always move the baseline forward when we have a valid reading
 	              lastLiters = currentLiters;
 	          }
 
@@ -3092,16 +3219,33 @@ getDistKm(lat1, lon1, lat2, lon2) {
       });
 
       // --- 2. SENSOR CONFIG ---
-      const FUEL_KEY = 'io87'; // Fuel Level
+      const truckConfig = getTruckConfig(truck.id);
       
       let totalDist = 0;
-      let refillCount = 0;
-      let refillVolume = 0;
       let stopCount = 0;
-      let lastLat = null, lastLng = null, lastFuel = null;
+      const effectiveTankCap = getConfiguredFuelEffectiveCapacity(truckConfig) || truckConfig.fuelTankCapacity || 600;
+      const fuelSeries = points.map((pt) => ({
+          time: new Date(pt.time).getTime() || 0,
+          liters: calculateFuelMetricsFromParams(pt.params || {}, truckConfig).liters,
+          speed: pt.speed,
+          ign: parseInt((pt.params || {}).io1 ?? (pt.params || {}).acc ?? 0, 10) || 0,
+          lat: pt.lat,
+          lng: pt.lng
+      }));
+      const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
+          ? detectRefillEventsFromSeries(fuelSeries, {
+              minRefuelLiters: 50,
+              maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
+              dedupeMinutes: 5,
+              dedupeLitersTolerance: 10,
+              baselineDropToleranceLiters: 15,
+              stopSpeedThreshold: 4
+          })
+          : [];
+      let refillCount = refillEvents.length;
+      let refillVolume = refillEvents.reduce((sum, evt) => sum + (evt.addedLiters || 0), 0);
+      let lastLat = null, lastLng = null;
       
-      const tankCap = getTruckConfig(truck.id).fuelTankCapacity || 600;
-
       points.forEach(p => {
           // A. Distance
           if (p.lat && p.lng && p.lat !== 0) {
@@ -3117,26 +3261,7 @@ getDistKm(lat1, lon1, lat2, lon2) {
               lastLng = p.lng;
           }
 
-          // B. Refills
-          let currentFuel = 0;
-          if (p.params) {
-              let rawVal = 0;
-              // Handle params if it's nested or flat
-              const params = p.params; 
-              if (params[FUEL_KEY]) rawVal = parseFloat(params[FUEL_KEY]);
-              
-              // Calculate Liters
-              currentFuel = Math.round((rawVal / 100) * tankCap);
-          }
-
-	          // Detect Refills (same logic as Mapbox): ignore 50L and below
-	          if (lastFuel !== null && currentFuel > (lastFuel + 50)) {
-              refillCount++;
-              refillVolume += (currentFuel - lastFuel);
-          }
-          if (currentFuel > 0) lastFuel = currentFuel;
-
-          // C. Stops
+          // B. Stops
           if (p.speed === 0) stopCount++;
       });
 
@@ -3255,15 +3380,37 @@ getDistKm(lat1, lon1, lat2, lon2) {
           }).sort((a,b) => a.time - b.time);
 
           const coords = [];
-          const refills = [];
           const stops = [];
+          const truckConfig = getTruckConfig(imei);
+          const effectiveTankCap = getConfiguredFuelEffectiveCapacity(truckConfig) || truckConfig.fuelTankCapacity || 600;
+          const fuelSeries = points.map((pt) => ({
+              time: pt.time,
+              liters: calculateFuelMetricsFromParams(pt.params || {}, truckConfig).liters,
+              speed: pt.speed,
+              ign: parseInt((pt.params || {}).io1 ?? (pt.params || {}).acc ?? 0, 10) || 0,
+              lat: pt.lat,
+              lng: pt.lng
+          }));
+          const historyRefills = (typeof detectRefillEventsFromSeries === 'function')
+              ? detectRefillEventsFromSeries(fuelSeries, {
+                  minRefuelLiters: 50,
+                  maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
+                  dedupeMinutes: 5,
+                  dedupeLitersTolerance: 10,
+                  baselineDropToleranceLiters: 15,
+                  stopSpeedThreshold: 4
+              })
+              : [];
+          const refills = historyRefills.map((evt) => ({
+              lat: evt.lat,
+              lng: evt.lng,
+              volume: String(evt.addedLiters || 0),
+              time: evt.time
+          }));
           
-          let lastFuel = null;
-          const tankCap = getTruckConfig(imei).fuelTankCapacity || 600;
-
           // STATS ACCUMULATORS
           let totalDist = 0;
-          let totalFuelAdded = 0;
+          let totalFuelAdded = historyRefills.reduce((sum, evt) => sum + (evt.addedLiters || 0), 0);
           let lastLat = null;
 
           // STOP LOGIC
@@ -3288,24 +3435,7 @@ getDistKm(lat1, lon1, lat2, lon2) {
                   lastLat = { lat: p.lat, lng: p.lng };
               }
 
-              // B. Refills
-              let currentFuel = 0;
-              if (p.params && p.params.io87) {
-                  currentFuel = Math.round((parseFloat(p.params.io87) / 100) * tankCap);
-              }
-
-              if (lastFuel !== null && currentFuel > (lastFuel + 50)) { 
-                  const added = currentFuel - lastFuel;
-                  totalFuelAdded += added; 
-                  refills.push({ 
-                      lat: p.lat, lng: p.lng, 
-                      volume: added.toFixed(0), 
-                      time: p.time 
-                  });
-              }
-              if (currentFuel > 0) lastFuel = currentFuel;
-
-              // C. Stops
+              // B. Stops
               if (p.speed < 1) {
                   if (!isStopped) {
                       isStopped = true;
@@ -3333,22 +3463,38 @@ getDistKm(lat1, lon1, lat2, lon2) {
               }
           });
 
-// Inside ui.js -> loadVisualHistory
-if(window.AlgeriaMap && window.AlgeriaMap.drawRoute) {
-    window.AlgeriaMap.drawRoute(points, coords);
-    window.AlgeriaMap.addRefillMarkers(refills);
-    window.AlgeriaMap.addStopMarkers(stops);
-    
-    // Pass the correct structure to the map engine
-    window.AlgeriaMap.updateStats({
-        distance: totalDist.toFixed(1),
-        fuel: totalFuelAdded.toFixed(0),
-        stopCount: stops.length
-    });
+          const exactDecouchages = await this.buildExactDecouchageEventsFromPoints(
+              this.normalizeHistoryMessages(rawPoints),
+              {
+                  id: imei,
+                  name: (typeof app !== 'undefined' && app.trucks && app.trucks.get(imei))
+                      ? app.trucks.get(imei).name
+                      : imei
+              }
+          );
+
+          const filteredStops = stops.filter(stop => !exactDecouchages.some(dec => {
+              const decTime = dec.detectedAtMs || new Date(dec.detectedAt || dec.startTime || 0).getTime();
+              return Number.isFinite(decTime) && decTime >= stop.startTime && decTime <= stop.endTime;
+          }));
+
+          if(window.AlgeriaMap && window.AlgeriaMap.drawRoute) {
+              window.AlgeriaMap.drawRoute(points, coords);
+              window.AlgeriaMap.addRefillMarkers(refills);
+              window.AlgeriaMap.addStopMarkers(filteredStops);
+              exactDecouchages.forEach(dec => window.AlgeriaMap.addDecouchageMarker(dec));
+              
+              // Pass the correct structure to the map engine
+              window.AlgeriaMap.updateStats({
+                  distance: totalDist.toFixed(1),
+                  fuel: totalFuelAdded.toFixed(0),
+                  stopCount: filteredStops.length,
+                  decouchageCount: exactDecouchages.length
+              });
 
               const toast = document.createElement('div');
               toast.className = 'map-toast-msg';
-              toast.innerHTML = `✅ Chargé: ${points.length} points | ${totalDist.toFixed(1)} km`;
+              toast.innerHTML = `✅ Chargé: ${points.length} points | ${totalDist.toFixed(1)} km | 🌙 ${exactDecouchages.length}`;
               document.getElementById('map-wrapper').appendChild(toast);
               setTimeout(()=>toast.remove(), 3000);
           }

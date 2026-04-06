@@ -60,17 +60,10 @@ class FleetTrackerApp {
       // ----------------------------------------------------------
       // 3. FUEL & SENSORS
       // ----------------------------------------------------------
-      const sensorValue = truck.params ? (parseFloat(truck.params.io87) || 0) : 0;
-      let fuelLiters = 0, fuelPercentage = 0, hasCalibration = false;
-
-      if (config.calibration && config.calibration.length > 1) {
-        fuelLiters = this.calculateFuelFromSensor(sensorValue, config.calibration);
-        fuelPercentage = Math.round((fuelLiters / config.fuelTankCapacity) * 100);
-        hasCalibration = true;
-      } else {
-        fuelPercentage = Math.min(100, Math.max(0, parseInt(sensorValue) || 0));
-        fuelLiters = Math.round((fuelPercentage / 100) * config.fuelTankCapacity);
-      }
+      const fuelData = calculateFuelMetricsFromParams(truck.params || {}, config);
+      let fuelLiters = fuelData.liters || 0;
+      let fuelPercentage = fuelData.percent || 0;
+      let hasCalibration = !!fuelData.usedCalibration;
 
       const rangeKm = config.fuelConsumption > 0
         ? Math.round((fuelLiters / config.fuelConsumption) * 100)
@@ -165,7 +158,7 @@ class FleetTrackerApp {
         name: displayName,
         fuelPercentage,
         fuelLiters,
-        fuelTankCapacity: config.fuelTankCapacity,
+        fuelTankCapacity: fuelData.effectiveCapacity || getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity,
         fuelConsumption: config.fuelConsumption,
         rangeKm,
         isCriticalFuel: fuelPercentage <= config.criticalFuelLevel,

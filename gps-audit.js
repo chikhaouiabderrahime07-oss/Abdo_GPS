@@ -32,7 +32,7 @@ class GPSAuditor {
     else this.init();
   }
 
-  init() {
+  async init() {
     const now = new Date();
     const past = new Date();
     past.setDate(past.getDate() - 7);
@@ -49,8 +49,38 @@ class GPSAuditor {
       }
     }, 1500);
 
+    await this.loadRuntimeSettings();
     this.loadTrucks();
     document.addEventListener('mousemove', (e) => this.moveTooltip(e));
+  }
+
+  async loadRuntimeSettings() {
+    try {
+      const headers = {};
+      const code = localStorage.getItem('fleetAccessCode');
+      if (code) headers['x-access-code'] = code;
+      const res = await fetch(this.apiBase + '/api/settings', { headers });
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+
+      if (typeof FLEET_CONFIG !== 'undefined') {
+        if (data.defaultConfig) {
+          FLEET_CONFIG.DEFAULT_TRUCK_CONFIG = {
+            ...FLEET_CONFIG.DEFAULT_TRUCK_CONFIG,
+            ...data.defaultConfig
+          };
+        }
+        if (Array.isArray(data.fleetRules)) FLEET_CONFIG.FLEET_RULES = data.fleetRules;
+        if (Array.isArray(data.customLocations)) FLEET_CONFIG.CUSTOM_LOCATIONS = data.customLocations;
+        if (Array.isArray(data.apiKeys)) FLEET_CONFIG.GEOAPIFY_API_KEYS = data.apiKeys;
+        if (typeof geocodeService !== 'undefined' && geocodeService.updateKeys) {
+          const allKeys = [FLEET_CONFIG.GEOAPIFY_API_KEY].concat(FLEET_CONFIG.GEOAPIFY_API_KEYS || []).filter(Boolean);
+          geocodeService.updateKeys(allKeys);
+        }
+      }
+    } catch (e) {
+      console.warn('GPS auditor settings sync failed:', e);
+    }
   }
 
   // --- TOOLTIP ---
@@ -329,11 +359,11 @@ class GPSAuditor {
       capacity = FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelTankCapacity || 600;
     }
 
-    return this.analyze(points, toleranceMin, truckName, capacity);
+    return await this.analyze(points, toleranceMin, truckName, capacity, truckId);
   }
 
   // ============================================================
-  // 🔧 FIX #2: fetchChunk now extracts fuel sensor (io87)
+  // 🔧 FIX #2: fetchChunk now extracts fuel using fleet rule IO config
   // ============================================================
   async fetchChunk(id, s, e) {
     try {
@@ -345,46 +375,52 @@ class GPSAuditor {
       );
       const json = await res.json();
       const raw = json.messages || (Array.isArray(json) ? json : []);
+      const truckConfig = (typeof getTruckConfig === 'function') ? getTruckConfig(id) : ((typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.DEFAULT_TRUCK_CONFIG) ? FLEET_CONFIG.DEFAULT_TRUCK_CONFIG : {});
 
       return raw.map(p => {
-        // Time
-        const tStr = Array.isArray(p) ? p[0] : (p.timestamp || p.t);
-        // Position
+        const tStr = Array.isArray(p) ? p[0] : (p.timestamp || p.time || p.t);
         const lat = parseFloat(Array.isArray(p) ? p[1] : p.lat);
         const lng = parseFloat(Array.isArray(p) ? p[2] : p.lng);
-        // Speed
-        const spd = parseFloat(Array.isArray(p) ? p[3] : (p.speed || 0));
-        // 🔧 FIX: Extract fuel sensor io87 (percentage 0-100)
-        let fuel = 0;
+        const spd = parseFloat(Array.isArray(p) ? ((p[5] !== undefined ? p[5] : p[3]) || 0) : (p.speed || 0)) || 0;
+
+        let params = {};
         if (Array.isArray(p)) {
-          // Array format: params may be at index 7 or 8 as an object
-          if (p[7] && typeof p[7] === 'object') fuel = parseFloat(p[7].io87 || p[7].fuel || 0);
-          else if (p[8] && typeof p[8] === 'object') fuel = parseFloat(p[8].io87 || p[8].fuel || 0);
-          else fuel = parseFloat(p[7] || p[8] || 0); // fallback: raw value
+          params = (p[6] && typeof p[6] === 'object')
+            ? p[6]
+            : ((p[7] && typeof p[7] === 'object')
+              ? p[7]
+              : ((p[8] && typeof p[8] === 'object') ? p[8] : {}));
         } else {
-          // Object format: params sub-object or direct field
-          fuel = parseFloat(p.params?.io87 || p.io87 || p.fuel || p.params?.fuel || 0);
-        }
-        // Clamp fuel to 0-100 range
-        if (fuel > 100) fuel = 100;
-        if (fuel < 0) fuel = 0;
-        // Ignition
-        let ign = 0;
-        if (Array.isArray(p)) {
-          ign = parseInt(p[4] || 0);
-        } else {
-          ign = parseInt(p.params?.io1 ?? p.params?.acc ?? p.ign ?? 0);
+          params = p.params || {};
         }
 
-        return { t: new Date(tStr).getTime(), lat, lng, spd, fuel, ign };
-      });
+        let fuel = 0;
+        let fuelLiters = 0;
+        if (typeof calculateFuelMetricsFromParams === 'function') {
+          const fuelData = calculateFuelMetricsFromParams(params, truckConfig);
+          fuel = Number.isFinite(fuelData.percent) ? fuelData.percent : 0;
+          fuelLiters = Number.isFinite(fuelData.liters) ? fuelData.liters : 0;
+        } else {
+          fuel = parseFloat(params.io87 || params.fuel || 0) || 0;
+          fuelLiters = Math.round((fuel / 100) * (truckConfig.fuelTankCapacity || 600));
+        }
+
+        let ign = 0;
+        if (Array.isArray(p)) {
+          ign = parseInt(params.io1 ?? params.acc ?? p[4] ?? 0, 10) || 0;
+        } else {
+          ign = parseInt(params.io1 ?? params.acc ?? p.ign ?? 0, 10) || 0;
+        }
+
+        return { t: new Date(tStr).getTime(), lat, lng, spd, fuel, fuelLiters, ign, params };
+      }).filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lng));
     } catch (e) { return []; }
   }
 
   // ============================================================
   // 🔧 FIX #3: analyze() — now detects refills AND découchages
   // ============================================================
-  analyze(points, toleranceMin, truckName, capacity = 600) {
+  async analyze(points, toleranceMin, truckName, capacity = 600, truckId = null) {
     let sleepMs = 0, cutMs = 0;
     let incidents = [], parkings = [];
     const tolMs = toleranceMin * 60000;
@@ -427,7 +463,7 @@ class GPSAuditor {
     const refillLiters = refills.reduce((sum, r) => sum + r.addedLiters, 0);
 
     // --- 🔧 NEW: DÉCOUCHAGE DETECTION (same logic as server) ---
-    const decouchages = this.detectDecouchages(points, truckName);
+    const decouchages = await this.detectDecouchages(points, truckName, truckId);
 
     return { truckName, sleepMs, cutMs, refillLiters, incidents, parkings, refills, decouchages };
   }
@@ -437,63 +473,59 @@ class GPSAuditor {
   // Rules: ≥50L increase, engine off, dedup 5 min, any location
   // ============================================================
   detectRefills(points, truckName, capacity) {
-    const refills = [];
-    let lastRefillTime = 0;
     const locs = (typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : []);
 
-    // Need at least fuel data in points
-    const hasFuel = points.some(p => p.fuel > 0);
-    if (!hasFuel) return refills; // No fuel data in this GPS history → skip
+    const series = (points || []).map((p) => ({
+      time: p.t,
+      liters: Number.isFinite(p.fuelLiters) && p.fuelLiters > 0
+        ? Math.round(p.fuelLiters)
+        : Math.round(((p.fuel || 0) / 100) * capacity),
+      speed: p.spd,
+      ign: p.ign,
+      lat: p.lat,
+      lng: p.lng
+    }));
 
-    for (let i = 1; i < points.length; i++) {
-      const p1 = points[i - 1];
-      const p2 = points[i];
+    const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
+      ? detectRefillEventsFromSeries(series, {
+          minRefuelLiters: 50,
+          maxRealisticRefillLiters: Math.max(600, Math.round((capacity || 600) + 50)),
+          dedupeMinutes: 5,
+          dedupeLitersTolerance: 10,
+          baselineDropToleranceLiters: 15,
+          stopSpeedThreshold: 4
+        })
+      : [];
 
-      if (!p1.fuel || !p2.fuel) continue;
-
-      const liters1 = Math.round((p1.fuel / 100) * capacity);
-      const liters2 = Math.round((p2.fuel / 100) * capacity);
-      const diff = liters2 - liters1;
-
-      // Conditions: >50L added (ignore 50L & below), truck was stopped, not duplicate within 5 min
-      const truckWasStopped = p1.spd <= 2 && p1.ign !== 1;
-      const notDuplicate = (p2.t - lastRefillTime) > 5 * 60 * 1000;
-
-      if (diff > 50 && truckWasStopped && notDuplicate) {
-        // Detect location from GPS coords at refill time
-        let locName = 'Station Externe';
-        let isInternal = false;
-        for (const loc of locs) {
-          const d = this.getDist(p2.lat, p2.lng, loc.lat, loc.lng);
-          if (d <= (loc.radius / 1000 || 0.5)) {
-            locName = loc.name;
-            isInternal = true;
-            break;
-          }
+    return refillEvents.map((evt) => {
+      let locName = 'Station Externe';
+      let isInternal = false;
+      for (const loc of locs) {
+        const d = this.getDist(evt.lat, evt.lng, loc.lat, loc.lng);
+        if (d <= (loc.radius / 1000 || 0.5)) {
+          locName = loc.name;
+          isInternal = true;
+          break;
         }
-
-        refills.push({
-          truck: truckName,
-          startTime: new Date(p1.t).toLocaleString(),
-          endTime: new Date(p2.t).toLocaleString(),
-          addedLiters: Math.round(diff),
-          oldLevel: liters1,
-          newLevel: liters2,
-          location: locName,
-          isInternal,
-          lat: p2.lat,
-          lng: p2.lng,
-          dur: ((p2.t - p1.t) / 3600000).toFixed(2),
-          durh: ((p2.t - p1.t) / 60000).toFixed(0) + 'min',
-          reason: `+${Math.round(diff)}L @ ${locName}`,
-          t: p2.t
-        });
-
-        lastRefillTime = p2.t;
       }
-    }
 
-    return refills;
+      return {
+        truck: truckName,
+        startTime: new Date(evt.startTimeMs || evt.time).toLocaleString(),
+        endTime: new Date(evt.time).toLocaleString(),
+        addedLiters: Math.round(evt.addedLiters || 0),
+        oldLevel: evt.oldLevel,
+        newLevel: evt.newLevel,
+        location: locName,
+        isInternal,
+        lat: evt.lat,
+        lng: evt.lng,
+        dur: (((evt.time || 0) - (evt.startTimeMs || evt.time || 0)) / 3600000).toFixed(2),
+        durh: (((evt.time || 0) - (evt.startTimeMs || evt.time || 0)) / 60000).toFixed(0) + 'min',
+        reason: `+${Math.round(evt.addedLiters || 0)}L @ ${locName}`,
+        t: evt.time
+      };
+    });
   }
 
   // ============================================================
@@ -501,65 +533,39 @@ class GPSAuditor {
   // Rule: Outside douroub zone + engine off between 00:00–06:30
   // Date = previous day (same as server logic)
   // ============================================================
-  detectDecouchages(points, truckName) {
+  async detectDecouchages(points, truckName, truckId = null) {
     const decouchages = [];
-    const locs = (typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : []);
-    const safeZones = locs.filter(l => l.type === 'douroub');
-
-    if (safeZones.length === 0) return decouchages; // No safe zones defined → can't detect
-
+    const normalized = this.normalizePointsForDecouchage(points);
     const checkedDates = new Set();
 
-    for (const p of points) {
-      // Algeria time = UTC+1
-      const dzTime = new Date(p.t + 3600000);
-      const dzHour = dzTime.getUTCHours();
+    for (const p of normalized) {
+      const hour = p.dateObj.getHours();
+      if (hour < 0 || hour >= 5) continue;
 
-      // Only check during 00:00–06:30 window (same as server)
-      if (dzHour < 0 || dzHour >= 7) continue;
+      const nightOfDate = new Date(p.dateObj);
+      nightOfDate.setDate(nightOfDate.getDate() - 1);
+      const logicDateStr = nightOfDate.toISOString().split('T')[0];
+      if (checkedDates.has(logicDateStr)) continue;
+      checkedDates.add(logicDateStr);
 
-      // Date attribution = PREVIOUS DAY (e.g., 00:05 Jan 18 → Jan 17)
-      const logicDate = new Date(dzTime);
-      logicDate.setDate(logicDate.getDate() - 1);
-      const logicDateStr = logicDate.toISOString().split('T')[0];
+      const safeInfo = this.getClosestDecouchageSafeZone(p.lat, p.lng);
+      if (safeInfo.isSafe) continue;
 
-      if (checkedDates.has(logicDateStr)) continue; // Only one per day per truck
-
-      // Check if truck is outside all safe zones
-      let isSafe = false;
-      for (const zone of safeZones) {
-        const dist = this.getDist(p.lat, p.lng, zone.lat, zone.lng);
-        if (dist <= (zone.radius / 1000 || 0.5)) {
-          isSafe = true;
-          break;
-        }
-      }
-
-      if (!isSafe && p.spd <= 2) {
-        // Découchage confirmed — find location name
-        let locationName = null;
-        for (const loc of locs) {
-          const dist = this.getDist(p.lat, p.lng, loc.lat, loc.lng);
-          if (dist <= (loc.radius / 1000 || 0.5)) {
-            locationName = loc.name;
-            break;
-          }
-        }
-
-        decouchages.push({
-          truck: truckName,
-          date: logicDateStr,
-          startTime: new Date(p.t).toLocaleString(),
-          lat: p.lat,
-          lng: p.lng,
-          location: locationName || `Hors Site (${p.lat.toFixed(4)}, ${p.lng.toFixed(4)})`,
-          dur: '0.0',
-          durh: '—',
-          reason: `Découchage (${logicDateStr})`
-        });
-
-        checkedDates.add(logicDateStr);
-      }
+      const locationName = await this.resolveLocationNameAsync(p.lat, p.lng);
+      decouchages.push({
+        truck: truckName,
+        truckId: truckId || '',
+        date: logicDateStr,
+        startTime: new Date(p.t).toLocaleString(),
+        lat: p.lat,
+        lng: p.lng,
+        location: locationName,
+        distanceFromSite: safeInfo.distanceKm !== null ? Math.round(safeInfo.distanceKm * 1000) : 0,
+        dur: '0.0',
+        durh: '—',
+        reason: `Découchage (${logicDateStr})`,
+        t: p.t
+      });
     }
 
     return decouchages;
@@ -731,6 +737,68 @@ class GPSAuditor {
     if (document.getElementById('cntDecouchages')) document.getElementById('cntDecouchages').innerText = 0;
     document.getElementById('progressBar').style.width = '0%';
     this.log('Écran effacé.', 'n');
+  }
+
+
+  normalizePointsForDecouchage(points) {
+    return (points || []).map(p => ({
+      ...p,
+      t: p.t,
+      dateObj: new Date(p.t),
+      lat: parseFloat(p.lat),
+      lng: parseFloat(p.lng),
+      spd: parseFloat(p.spd || 0) || 0
+    })).filter(p => Number.isFinite(p.t) && Number.isFinite(p.lat) && Number.isFinite(p.lng) && p.lat !== 0 && p.lng !== 0)
+      .sort((a, b) => a.t - b.t);
+  }
+
+  getDecouchageSafeZones() {
+    return (typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : [])
+      .filter(loc => loc.type === 'douroub' || loc.type === 'depot');
+  }
+
+  getClosestDecouchageSafeZone(lat, lng) {
+    const safeZones = this.getDecouchageSafeZones();
+    if (!safeZones.length) return { isSafe: false, distanceKm: null, zone: null };
+
+    let closestZone = null;
+    let closestDistanceKm = Infinity;
+
+    for (const zone of safeZones) {
+      const distKm = this.getDist(lat, lng, zone.lat, zone.lng);
+      if (distKm < closestDistanceKm) {
+        closestDistanceKm = distKm;
+        closestZone = zone;
+      }
+      if (distKm <= (zone.radius ? zone.radius / 1000 : 0.5)) {
+        return { isSafe: true, distanceKm: distKm, zone };
+      }
+    }
+
+    return { isSafe: false, distanceKm: closestDistanceKm, zone: closestZone };
+  }
+
+  async resolveLocationNameAsync(lat, lng) {
+    if (!lat || !lng) return 'Inconnu';
+
+    const customLocs = (typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : []);
+    for (const loc of customLocs) {
+      const dist = this.getDist(lat, lng, loc.lat, loc.lng);
+      if (dist <= (loc.radius ? loc.radius / 1000 : 0.5)) return loc.name;
+    }
+
+    if (typeof geocodeService !== 'undefined') {
+      const cached = geocodeService.checkCacheInstant(lat, lng);
+      if (cached) return cached.formatted || `${cached.city}, ${cached.wilaya}`;
+      try {
+        const res = await geocodeService.reverseGeocode(lat, lng);
+        return res.formatted || res.city || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      } catch (e) {
+        // ignore and fallback below
+      }
+    }
+
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
   }
 
   getDist(lat1, lon1, lat2, lon2) {

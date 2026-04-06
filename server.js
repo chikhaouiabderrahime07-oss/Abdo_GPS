@@ -43,7 +43,9 @@ const RefuelSchema = new mongoose.Schema({
   addedLiters: Number, oldLevel: Number, newLevel: Number,
   timestamp: { type: Date, required: true, index: expireRule },
   locationRaw: String, isInternal: Boolean,
-  lat: Number, lng: Number
+  lat: Number, lng: Number,
+  source: { type: String, default: 'live-bot' },
+  meta: Object
 });
 
 const MaintenanceSchema = new mongoose.Schema({
@@ -79,17 +81,72 @@ const Maintenance = mongoose.model('Maintenance', MaintenanceSchema);
 const Decouchage = mongoose.model('Decouchage', DecouchageSchema);
 const Settings = mongoose.model('Settings', SettingsSchema);
 
+
+const TransportReportEntrySchema = new mongoose.Schema({
+  truckName: String,
+  deviceId: String,
+  startAt: Date,
+  endAt: Date,
+  requestedStartAt: Date,
+  requestedEndAt: Date,
+  actualStartAt: Date,
+  actualEndAt: Date,
+  kmStart: Number,
+  kmEnd: Number,
+  kmTotal: Number,
+  gpsDistanceKm: Number,
+  distanceSource: String,
+  fuelStart: Number,
+  fuelEnd: Number,
+  fuelAddedDuringTrip: Number,
+  fuelConsumedRaw: Number,
+  fuelConsumedTotal: Number,
+  refillCount: Number,
+  historyPoints: Number,
+  startLocation: String,
+  endLocation: String,
+  note: String,
+  warnings: [String],
+  refills: Array,
+  createdAt: { type: Date, default: Date.now }
+});
+const TransportReportEntry = mongoose.model('TransportReportEntry', TransportReportEntrySchema);
+
 // --- 3. SMART CACHE ---
 let SYSTEM_SETTINGS = {
   customLocations: [],
   maintenanceRules: { minDurationMinutes: 60, vidangeKmTolerance: 3000 },
-  defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35 },
+  defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35, fuelSensorKeys: ['io87'], fuelSensorCapacityMap: {} },
   fleetRules: [],
   // ✅ NEW: per-truck vidange acknowledgements (used to silence alerts after a confirmed vidange)
   // Structure: { [deviceId]: { skipUntilKm: number, confirmedAt: ISOString, odometerAtConfirm?: number, truckName?: string } }
   vidangeOverrides: {},
   lastDecouchageCheck: null
 };
+
+function getResolvedRefuelRules(overrides = {}) {
+  return {
+    minRefuelLiters: 50,
+    stopSpeedThreshold: 4,
+    minStopMinutes: 3,
+    minOffMinutes: 3,
+    dedupeMinutes: 12,
+    dedupeLitersTolerance: 12,
+    stableAfterIncreaseMinutes: 4,
+    settleToleranceLiters: 6,
+    sensorSmoothingWindow: 7,
+    baselineDropToleranceLiters: 20,
+    baselineWindowMinutes: 12,
+    plateauWindowMinutes: 10,
+    maxRiseMinutes: 75,
+    maxStationarySpreadMeters: 300,
+    maxRealisticRefillLiters: 600,
+    requireIgnOff: false,
+    requireEngineOff: false,
+    ...((SYSTEM_SETTINGS && SYSTEM_SETTINGS.refuelRules) || {}),
+    ...overrides
+  };
+}
 
 // --- 4. HELPERS ---
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -110,6 +167,594 @@ function getTruckConfig(deviceId) {
     if (matchedRule && matchedRule.config) specificConfig = matchedRule.config;
   }
   return { ...globalDefault, ...specificConfig };
+}
+
+
+function normalizeFuelSensorKeys(rawValue) {
+  let tokens = [];
+  if (Array.isArray(rawValue)) {
+    tokens = rawValue;
+  } else if (typeof rawValue === 'string') {
+    tokens = rawValue.split(/[\n,+;|/\\]+|\s+/g);
+  } else if (rawValue !== undefined && rawValue !== null) {
+    tokens = [rawValue];
+  }
+  const cleaned = Array.from(new Set(tokens.map(v => String(v || '').trim().toLowerCase()).filter(Boolean)));
+  return cleaned.length ? cleaned : ['io87'];
+}
+
+function getConfiguredFuelSensorKeys(config) {
+  if (config && Array.isArray(config.fuelSensorKeys) && config.fuelSensorKeys.length > 0) {
+    return normalizeFuelSensorKeys(config.fuelSensorKeys);
+  }
+  if (config && typeof config.fuelSensorInput === 'string' && config.fuelSensorInput.trim()) {
+    return normalizeFuelSensorKeys(config.fuelSensorInput);
+  }
+  if (config && typeof config.fuelSensorKey === 'string' && config.fuelSensorKey.trim()) {
+    return normalizeFuelSensorKeys(config.fuelSensorKey);
+  }
+  if (config && typeof config.fuelSensorIo === 'string' && config.fuelSensorIo.trim()) {
+    return normalizeFuelSensorKeys(config.fuelSensorIo);
+  }
+  const sensorType = SYSTEM_SETTINGS.refuelRules && SYSTEM_SETTINGS.refuelRules.sensorType;
+  if (sensorType) return normalizeFuelSensorKeys(sensorType);
+  return ['io87'];
+}
+
+function getConfiguredFuelSensorLabel(config) {
+  return getConfiguredFuelSensorKeys(config).join(' + ');
+}
+
+function parseFuelSensorCapacityMap(rawValue) {
+  const out = {};
+  const assign = (key, value) => {
+    const normalizedKey = String(key || '').trim().toLowerCase();
+    const liters = parseFloat(value);
+    if (!normalizedKey || !Number.isFinite(liters) || liters <= 0) return;
+    out[normalizedKey] = liters;
+  };
+
+  const parseStringChunk = (textValue) => {
+    String(textValue || '').split(/[\n,;+|]+/).forEach((chunk) => {
+      const trimmed = chunk.trim();
+      if (!trimmed) return;
+      let match = trimmed.match(/^([a-z0-9_]+)\s*(?:=|:)\s*([0-9]+(?:\.[0-9]+)?)$/i);
+      if (!match) match = trimmed.match(/^([a-z0-9_]+)\s+([0-9]+(?:\.[0-9]+)?)$/i);
+      if (match) assign(match[1], match[2]);
+    });
+  };
+
+  if (!rawValue) return out;
+
+  if (Array.isArray(rawValue)) {
+    rawValue.forEach((item) => {
+      if (!item) return;
+      if (typeof item === 'string') {
+        parseStringChunk(item);
+        return;
+      }
+      if (typeof item === 'object') {
+        assign(item.key || item.io || item.sensor, item.capacity || item.cap || item.value || item.liters);
+      }
+    });
+    return out;
+  }
+
+  if (typeof rawValue === 'object') {
+    Object.entries(rawValue).forEach(([key, value]) => assign(key, value));
+    return out;
+  }
+
+  if (typeof rawValue === 'string') {
+    parseStringChunk(rawValue);
+  }
+
+  return out;
+}
+
+function getConfiguredFuelSensorCapacityMap(config) {
+  if (!config) return {};
+
+  const candidates = [
+    config.fuelSensorCapacityMap,
+    config.fuelSensorCapacities,
+    config.fuelSensorCapacitiesInput,
+    config.fuelSensorCapacityInput,
+    config.fuelSensorTankCapacities
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseFuelSensorCapacityMap(candidate);
+    if (Object.keys(parsed).length > 0) return parsed;
+  }
+
+  return {};
+}
+
+function buildFuelSensorCapacityPlan(config, sensorKeys = null) {
+  const keys = normalizeFuelSensorKeys(sensorKeys && sensorKeys.length ? sensorKeys : getConfiguredFuelSensorKeys(config));
+  const explicitMap = getConfiguredFuelSensorCapacityMap(config);
+  const configuredTotal = parseFloat(config && config.fuelTankCapacity) || 0;
+
+  let explicitTotal = 0;
+  let explicitCount = 0;
+  const missingKeys = [];
+
+  keys.forEach((key) => {
+    const explicit = parseFloat(explicitMap[key]);
+    if (Number.isFinite(explicit) && explicit > 0) {
+      explicitTotal += explicit;
+      explicitCount += 1;
+    } else {
+      missingKeys.push(key);
+    }
+  });
+
+  let fallbackEach = 0;
+  if (missingKeys.length > 0) {
+    if (configuredTotal > explicitTotal) {
+      fallbackEach = (configuredTotal - explicitTotal) / missingKeys.length;
+    } else if (explicitCount > 0) {
+      fallbackEach = explicitTotal / explicitCount;
+    } else if (configuredTotal > 0 && keys.length > 0) {
+      fallbackEach = configuredTotal / keys.length;
+    }
+  }
+
+  const list = keys.map((key) => {
+    const explicit = parseFloat(explicitMap[key]);
+    const capacity = (Number.isFinite(explicit) && explicit > 0) ? explicit : fallbackEach;
+    return { key, capacity: capacity > 0 ? capacity : 0 };
+  });
+
+  let totalCapacity = list.reduce((sum, item) => sum + (item.capacity || 0), 0);
+  if (totalCapacity <= 0 && configuredTotal > 0) totalCapacity = configuredTotal;
+
+  const resolvedMap = {};
+  list.forEach((item) => {
+    if (item.capacity > 0) resolvedMap[item.key] = item.capacity;
+  });
+
+  return { keys, list, totalCapacity, explicitMap, resolvedMap, explicitTotal, configuredTotal };
+}
+
+function getConfiguredFuelSensorCapacitiesLabel(config) {
+  const keys = getConfiguredFuelSensorKeys(config);
+  const map = getConfiguredFuelSensorCapacityMap(config);
+  const parts = keys.map((key) => {
+    const liters = parseFloat(map[key]);
+    if (!Number.isFinite(liters) || liters <= 0) return null;
+    const rounded = Math.round(liters * 10) / 10;
+    const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+    return `${key}=${text}L`;
+  }).filter(Boolean);
+  return parts.join(' + ');
+}
+
+function getConfiguredFuelEffectiveCapacity(config) {
+  const plan = buildFuelSensorCapacityPlan(config);
+  return plan.totalCapacity || (parseFloat(config && config.fuelTankCapacity) || 0);
+}
+
+function interpolateFuelCalibration(sensorValue, calibrationTable) {
+  if (!Array.isArray(calibrationTable) || calibrationTable.length < 2) return 0;
+  if (sensorValue <= calibrationTable[0].x) return calibrationTable[0].y;
+  if (sensorValue >= calibrationTable[calibrationTable.length - 1].x) {
+    return calibrationTable[calibrationTable.length - 1].y;
+  }
+  for (let i = 0; i < calibrationTable.length - 1; i++) {
+    const p1 = calibrationTable[i];
+    const p2 = calibrationTable[i + 1];
+    if (sensorValue >= p1.x && sensorValue <= p2.x) {
+      const slope = (p2.y - p1.y) / (p2.x - p1.x);
+      return Math.round(p1.y + slope * (sensorValue - p1.x));
+    }
+  }
+  return 0;
+}
+
+function readConfiguredFuelSensorValues(params, config) {
+  const keys = getConfiguredFuelSensorKeys(config);
+  const values = [];
+  if (params && typeof params === 'object') {
+    keys.forEach((key) => {
+      const candidates = [key, key.toLowerCase(), key.toUpperCase()];
+      for (const candidate of candidates) {
+        if (params[candidate] === undefined || params[candidate] === null || params[candidate] === '') continue;
+        const raw = parseFloat(params[candidate]);
+        if (!isNaN(raw)) {
+          values.push({ key, raw });
+          break;
+        }
+      }
+    });
+
+    if (values.length === 0) {
+      for (const key of ['io87', 'fuel', 'io84']) {
+        if (params[key] === undefined || params[key] === null || params[key] === '') continue;
+        const raw = parseFloat(params[key]);
+        if (!isNaN(raw)) {
+          values.push({ key, raw });
+          break;
+        }
+      }
+    }
+  }
+  return { keys, values };
+}
+
+function calculateFuelMetricsFromParams(params, config) {
+    const defaultTotalCapacity = parseFloat(config && config.fuelTankCapacity) || 0;
+    const calibration = Array.isArray(config && config.calibration) ? config.calibration : [];
+    const { keys, values } = readConfiguredFuelSensorValues(params, config);
+    const rawEntries = values
+        .map(v => ({ key: String(v.key || '').trim().toLowerCase(), raw: parseFloat(v.raw) }))
+        .filter(v => !isNaN(v.raw));
+    const capacityPlan = buildFuelSensorCapacityPlan(config, rawEntries.map(v => v.key));
+    let effectiveCapacity = capacityPlan.totalCapacity || defaultTotalCapacity || 0;
+
+    if (rawEntries.length === 0) {
+        return {
+            liters: 0,
+            percent: 0,
+            usedCalibration: false,
+            keys,
+            rawValues: [],
+            mode: 'missing',
+            effectiveCapacity,
+            tankCapacities: capacityPlan.list,
+            capacityMap: capacityPlan.resolvedMap
+        };
+    }
+
+    let liters = 0;
+    let percent = 0;
+    let usedCalibration = false;
+    let mode = 'missing';
+
+    if (calibration.length > 1 && rawEntries.length === 1) {
+        liters = Math.max(0, interpolateFuelCalibration(rawEntries[0].raw, calibration));
+        usedCalibration = true;
+        mode = 'calibrated';
+    } else {
+        const capByKey = {};
+        capacityPlan.list.forEach((item) => { capByKey[item.key] = item.capacity; });
+        const fallbackEach = effectiveCapacity > 0 ? (effectiveCapacity / Math.max(rawEntries.length, 1)) : 0;
+
+        liters = rawEntries.reduce((sum, entry) => {
+            const raw = entry.raw;
+            if (!Number.isFinite(raw)) return sum;
+            if (raw > 100) return sum + Math.max(0, raw);
+            const tankCapacity = capByKey[entry.key] > 0 ? capByKey[entry.key] : fallbackEach;
+            const safePercent = Math.max(0, Math.min(100, raw));
+            return sum + ((safePercent / 100) * tankCapacity);
+        }, 0);
+
+        const hasLitersInput = rawEntries.some(entry => entry.raw > 100);
+        const hasPercentInput = rawEntries.some(entry => entry.raw <= 100);
+        if (hasLitersInput && hasPercentInput) mode = 'mixed';
+        else if (hasLitersInput) mode = rawEntries.length > 1 ? 'multi-liters' : 'single-liters';
+        else mode = rawEntries.length > 1 ? 'multi-percent' : 'single-percent';
+    }
+
+    liters = Math.round(liters);
+
+    if (!effectiveCapacity) {
+        if (capacityPlan.totalCapacity > 0) effectiveCapacity = capacityPlan.totalCapacity;
+        else if (defaultTotalCapacity > 0) effectiveCapacity = defaultTotalCapacity;
+        else if (liters > 0 && rawEntries.every(entry => entry.raw > 100)) effectiveCapacity = liters;
+    }
+
+    if (usedCalibration) {
+        percent = effectiveCapacity > 0
+            ? Math.round((liters / effectiveCapacity) * 100)
+            : Math.round(Math.max(0, rawEntries[0].raw));
+    } else if (effectiveCapacity > 0) {
+        percent = Math.round((liters / effectiveCapacity) * 100);
+    } else if (rawEntries.length === 1 && rawEntries[0].raw <= 100) {
+        percent = Math.round(Math.max(0, Math.min(100, rawEntries[0].raw)));
+    } else {
+        percent = 0;
+    }
+
+    if (!Number.isFinite(liters) || liters < 0) liters = 0;
+    if (!Number.isFinite(percent) || percent < 0) percent = 0;
+    if (effectiveCapacity > 0 && percent > 100) percent = 100;
+
+    return {
+        liters,
+        percent,
+        usedCalibration,
+        keys,
+        rawValues: rawEntries.map(v => v.raw),
+        mode,
+        effectiveCapacity,
+        tankCapacities: capacityPlan.list,
+        capacityMap: capacityPlan.resolvedMap
+    };
+}
+
+
+function medianForNumbers(values) {
+    const safe = (Array.isArray(values) ? values : [])
+        .map(v => parseFloat(v))
+        .filter(v => Number.isFinite(v))
+        .sort((a, b) => a - b);
+    if (!safe.length) return 0;
+    const mid = Math.floor(safe.length / 2);
+    return safe.length % 2 ? safe[mid] : (safe[mid - 1] + safe[mid]) / 2;
+}
+
+function smoothFuelSeriesPoints(points, windowSize = 3, maxFuelLevel = null) {
+    const safe = (Array.isArray(points) ? points : [])
+        .map((point, index) => {
+            const litersRaw = parseFloat(point && point.liters);
+            const timeRaw = point && point.time;
+            const time = Number.isFinite(timeRaw) ? timeRaw : parseFloat(timeRaw);
+            if (!Number.isFinite(time) || !Number.isFinite(litersRaw)) return null;
+            const liters = Math.max(0, litersRaw);
+            if (Number.isFinite(maxFuelLevel) && maxFuelLevel > 0 && liters > (maxFuelLevel * 1.35)) return null;
+            const speed = parseFloat((point && point.speed) || 0) || 0;
+            const ign = parseInt(point && (point.ign ?? 0), 10) || 0;
+            const lat = Number.isFinite(parseFloat(point && point.lat)) ? parseFloat(point.lat) : null;
+            const lng = Number.isFinite(parseFloat(point && point.lng)) ? parseFloat(point.lng) : null;
+            return { index, time, liters, speed, ign, lat, lng };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.time - b.time);
+
+    if (!safe.length) return [];
+
+    const size = Math.max(1, parseInt(windowSize, 10) || 1);
+    const radius = Math.max(0, Math.floor(size / 2));
+
+    return safe.map((point, idx) => {
+        const start = Math.max(0, idx - radius);
+        const end = Math.min(safe.length - 1, idx + radius);
+        const neighbors = [];
+        for (let i = start; i <= end; i += 1) neighbors.push(safe[i].liters);
+        return { ...point, litersSmooth: medianForNumbers(neighbors) };
+    });
+}
+
+function mergeRefillEvents(events, dedupeMs = 0, levelTolerance = 10) {
+    const sorted = (Array.isArray(events) ? events : [])
+        .filter(Boolean)
+        .sort((a, b) => (a.time || 0) - (b.time || 0));
+
+    if (!sorted.length) return [];
+
+    const merged = [sorted[0]];
+    for (let i = 1; i < sorted.length; i += 1) {
+        const prev = merged[merged.length - 1];
+        const cur = sorted[i];
+        const prevStart = prev.startTimeMs || prev.time || 0;
+        const prevEnd = prev.endTimeMs || prev.time || 0;
+        const curStart = cur.startTimeMs || cur.time || 0;
+        const curEnd = cur.endTimeMs || cur.time || 0;
+        const closeInTime = dedupeMs > 0 && (
+            Math.abs((cur.time || 0) - (prev.time || 0)) <= dedupeMs ||
+            curStart <= (prevEnd + dedupeMs)
+        );
+        const closeInLevel = Math.abs((cur.newLevel || 0) - (prev.newLevel || 0)) <= levelTolerance ||
+            Math.abs((cur.oldLevel || 0) - (prev.newLevel || 0)) <= levelTolerance;
+
+        if (closeInTime && closeInLevel) {
+            const oldLevel = Math.min(prev.oldLevel || prev.newLevel || 0, cur.oldLevel || cur.newLevel || 0);
+            const newLevel = Math.max(prev.newLevel || prev.oldLevel || 0, cur.newLevel || cur.oldLevel || 0);
+            merged[merged.length - 1] = {
+                ...prev,
+                ...cur,
+                startTimeMs: Math.min(prevStart, curStart),
+                endTimeMs: Math.max(prevEnd, curEnd),
+                time: Math.max(prev.time || 0, cur.time || 0),
+                oldLevel: Math.round(oldLevel),
+                newLevel: Math.round(newLevel),
+                addedLiters: Math.round(Math.max(newLevel - oldLevel, prev.addedLiters || 0, cur.addedLiters || 0)),
+                confidence: Math.max(parseFloat(prev.confidence) || 0, parseFloat(cur.confidence) || 0)
+            };
+        } else {
+            merged.push(cur);
+        }
+    }
+    return merged;
+}
+
+function calculateClusterSpreadMeters(points) {
+    const safe = (Array.isArray(points) ? points : []).filter((point) => Number.isFinite(point && point.lat) && Number.isFinite(point && point.lng));
+    if (safe.length < 2) return 0;
+    let maxMeters = 0;
+    for (let i = 0; i < safe.length; i += 1) {
+        for (let j = i + 1; j < safe.length; j += 1) {
+            const meters = calculateDistance(safe[i].lat, safe[i].lng, safe[j].lat, safe[j].lng);
+            if (Number.isFinite(meters) && meters > maxMeters) maxMeters = meters;
+        }
+    }
+    return maxMeters;
+}
+
+function detectRefillEventsFromSeries(points, options = {}) {
+    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 50) || 50;
+    const maxParsed = parseFloat(options.maxRealisticRefillLiters);
+    const maxRealisticRefillLiters = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
+    const stopSpeedThreshold = parseFloat(options.stopSpeedThreshold ?? 4) || 4;
+    const minStopMs = Math.max(60 * 1000, (parseFloat(options.minStopMinutes ?? options.minOffMinutes ?? 3) || 3) * 60 * 1000);
+    const stableAfterMs = Math.max(60 * 1000, (parseFloat(options.stableAfterIncreaseMinutes ?? 4) || 4) * 60 * 1000);
+    const dedupeMs = Math.max(0, (parseFloat(options.dedupeMinutes ?? 12) || 0) * 60 * 1000);
+    const dedupeLitersTolerance = parseFloat(options.dedupeLitersTolerance ?? 12) || 12;
+    const settleToleranceLiters = parseFloat(options.settleToleranceLiters ?? dedupeLitersTolerance ?? 6) || 6;
+    const sensorSmoothingWindow = Math.max(1, parseInt(options.sensorSmoothingWindow ?? 7, 10) || 7);
+    const requireIgnOff = options.requireIgnOff === true || options.requireEngineOff === true;
+    const baselineWindowMs = Math.max(2 * 60 * 1000, (parseFloat(options.baselineWindowMinutes ?? 12) || 12) * 60 * 1000);
+    const plateauWindowMs = Math.max(stableAfterMs, (parseFloat(options.plateauWindowMinutes ?? 10) || 10) * 60 * 1000);
+    const maxRiseMs = Math.max(5 * 60 * 1000, (parseFloat(options.maxRiseMinutes ?? 75) || 75) * 60 * 1000);
+    const maxStationarySpreadMeters = Math.max(100, parseFloat(options.maxStationarySpreadMeters ?? 300) || 300);
+
+    const prepared = smoothFuelSeriesPoints(points, sensorSmoothingWindow, maxRealisticRefillLiters);
+    if (prepared.length < 3) return [];
+
+    prepared.forEach((point) => {
+        point.isStopLike = point.speed <= stopSpeedThreshold && (!requireIgnOff || point.ign !== 1);
+    });
+
+    const events = [];
+    const stepTriggerLiters = Math.max(2, Math.min(8, minRefuelLiters * 0.08));
+    const riseThresholdLiters = Math.max(stepTriggerLiters * 2, Math.min(14, minRefuelLiters * 0.22));
+    const negativeNoiseTolerance = Math.max(2, Math.min(settleToleranceLiters, minRefuelLiters * 0.12));
+    const plateauSpreadMax = Math.max(4, settleToleranceLiters * 1.25);
+
+    let segStart = 0;
+    while (segStart < prepared.length) {
+        if (!prepared[segStart].isStopLike) {
+            segStart += 1;
+            continue;
+        }
+
+        let segEnd = segStart;
+        while (segEnd + 1 < prepared.length && prepared[segEnd + 1].isStopLike) segEnd += 1;
+
+        const segment = prepared.slice(segStart, segEnd + 1);
+        const durationMs = (segment[segment.length - 1].time || 0) - (segment[0].time || 0);
+
+        if (segment.length >= 3 && durationMs >= minStopMs) {
+            let i = 1;
+            while (i < segment.length) {
+                const firstDelta = (segment[i].litersSmooth || 0) - (segment[i - 1].litersSmooth || 0);
+                if (firstDelta < stepTriggerLiters) {
+                    i += 1;
+                    continue;
+                }
+
+                const startIdx = Math.max(0, i - 1);
+                let j = i;
+                let peakIdx = i;
+                let positiveSteps = 0;
+                let negativeSteps = 0;
+
+                while (j < segment.length) {
+                    const delta = (segment[j].litersSmooth || 0) - (segment[j - 1].litersSmooth || 0);
+                    const elapsed = (segment[j].time || 0) - (segment[startIdx].time || 0);
+                    if (elapsed > maxRiseMs) break;
+                    if (delta < -negativeNoiseTolerance) break;
+                    if (delta > 0.5) positiveSteps += 1;
+                    if (delta < -0.5) negativeSteps += 1;
+                    if ((segment[j].litersSmooth || 0) >= (segment[peakIdx].litersSmooth || 0)) peakIdx = j;
+                    j += 1;
+                }
+
+                const peakPoint = segment[peakIdx];
+                const baselineCandidates = segment.filter((point, idx) => idx <= startIdx && point.time >= ((segment[startIdx].time || 0) - baselineWindowMs));
+                const baselinePoints = baselineCandidates.length ? baselineCandidates : segment.slice(Math.max(0, startIdx - 2), startIdx + 1);
+                const baselineValues = baselinePoints.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
+                const baseline = baselineValues.length
+                    ? Math.min(medianForNumbers(baselineValues), ...baselineValues)
+                    : (segment[startIdx].litersSmooth || 0);
+
+                const riseAtPeak = (peakPoint.litersSmooth || 0) - baseline;
+                if (riseAtPeak < riseThresholdLiters) {
+                    i = Math.max(i + 1, peakIdx + 1);
+                    continue;
+                }
+
+                const plateauCandidates = segment.filter((point, idx) => idx >= peakIdx && point.time <= ((peakPoint.time || 0) + plateauWindowMs));
+                const plateauPoints = plateauCandidates.length >= 2
+                    ? plateauCandidates.slice(0, Math.min(4, plateauCandidates.length))
+                    : segment.slice(peakIdx, Math.min(segment.length, peakIdx + 3));
+                const plateauValues = plateauPoints.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
+                const plateau = plateauValues.length ? medianForNumbers(plateauValues) : (peakPoint.litersSmooth || 0);
+                const plateauSpread = plateauValues.length ? (Math.max(...plateauValues) - Math.min(...plateauValues)) : 0;
+                const rise = plateau - baseline;
+                const riseDurationMs = Math.max(0, (peakPoint.time || 0) - (segment[startIdx].time || 0));
+                const clusterPoints = segment.slice(startIdx, Math.min(segment.length, peakIdx + Math.max(plateauPoints.length, 2)));
+                const locationSpreadMeters = calculateClusterSpreadMeters(clusterPoints);
+                const maxSpeedDuringCluster = clusterPoints.reduce((max, point) => Math.max(max, point.speed || 0), 0);
+                const plateauStable = plateauSpread <= plateauSpreadMax;
+
+                const qualityChecks = [
+                    rise >= minRefuelLiters && rise <= maxRealisticRefillLiters,
+                    riseDurationMs >= 60 * 1000 && riseDurationMs <= maxRiseMs,
+                    plateauStable,
+                    locationSpreadMeters <= maxStationarySpreadMeters,
+                    maxSpeedDuringCluster <= (stopSpeedThreshold + 2),
+                    positiveSteps >= 2 && negativeSteps <= Math.max(2, positiveSteps)
+                ];
+                const confidence = qualityChecks.filter(Boolean).length / qualityChecks.length;
+
+                if (qualityChecks[0] && qualityChecks[1] && plateauStable && (confidence >= 0.66 || rise >= (minRefuelLiters * 1.5))) {
+                    events.push({
+                        index: peakPoint.index,
+                        time: peakPoint.time,
+                        startTimeMs: segment[startIdx].time,
+                        endTimeMs: plateauPoints.length ? plateauPoints[plateauPoints.length - 1].time : peakPoint.time,
+                        lat: peakPoint.lat,
+                        lng: peakPoint.lng,
+                        addedLiters: Math.round(rise),
+                        oldLevel: Math.round(baseline),
+                        newLevel: Math.round(plateau),
+                        speed: peakPoint.speed,
+                        ign: peakPoint.ign,
+                        confidence: Math.round(confidence * 100) / 100,
+                        detectionMode: 'stopped-ramp'
+                    });
+                }
+
+                i = Math.max(i + 1, peakIdx + 1);
+            }
+        }
+
+        segStart = segEnd + 1;
+    }
+
+    for (let i = 1; i < prepared.length - 1; i += 1) {
+        const prev = prepared[i - 1];
+        const cur = prepared[i];
+        const next = prepared[i + 1];
+        const stopishCount = [prev, cur, next].filter((point) => point.isStopLike).length;
+        const gapMs = (next.time || 0) - (prev.time || 0);
+        const afterValues = [cur.litersSmooth, next.litersSmooth];
+        if (prepared[i + 2]) afterValues.push(prepared[i + 2].litersSmooth);
+        const postStable = medianForNumbers(afterValues);
+        const plateauSpread = afterValues.length ? (Math.max(...afterValues) - Math.min(...afterValues)) : 0;
+        const netRise = postStable - prev.litersSmooth;
+        const locationSpreadMeters = calculateClusterSpreadMeters([prev, cur, next, prepared[i + 2]].filter(Boolean));
+        const maxSpeedDuringCluster = Math.max(prev.speed || 0, cur.speed || 0, next.speed || 0, (prepared[i + 2] && prepared[i + 2].speed) || 0);
+
+        if (
+            stopishCount >= 2 &&
+            gapMs >= 60 * 1000 &&
+            gapMs <= maxRiseMs &&
+            netRise >= minRefuelLiters &&
+            netRise <= maxRealisticRefillLiters &&
+            plateauSpread <= plateauSpreadMax &&
+            locationSpreadMeters <= maxStationarySpreadMeters &&
+            maxSpeedDuringCluster <= (stopSpeedThreshold + 2)
+        ) {
+            events.push({
+                index: cur.index,
+                time: cur.time,
+                startTimeMs: prev.time,
+                endTimeMs: next.time,
+                lat: cur.lat,
+                lng: cur.lng,
+                addedLiters: Math.round(netRise),
+                oldLevel: Math.round(prev.litersSmooth),
+                newLevel: Math.round(postStable),
+                speed: cur.speed,
+                ign: cur.ign,
+                confidence: 0.72,
+                detectionMode: 'sparse-window'
+            });
+        }
+    }
+
+    return mergeRefillEvents(events, dedupeMs, dedupeLitersTolerance).filter((event) => {
+        const added = parseFloat(event.addedLiters);
+        const confidence = parseFloat(event.confidence);
+        return Number.isFinite(added) &&
+            added >= minRefuelLiters &&
+            added <= maxRealisticRefillLiters &&
+            (!Number.isFinite(confidence) || confidence >= 0.66);
+    });
 }
 
 // ============================================================
@@ -267,6 +912,388 @@ async function saveSettings() {
   try {
     await Settings.findOneAndUpdate({ id: 'global' }, SYSTEM_SETTINGS, { upsert: true });
   } catch (e) { console.error("Settings Save Error:", e.message); }
+}
+
+
+function parseGpsDateTimeFlexible(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value < 1e12 ? value * 1000 : value;
+  const text = String(value || '').trim();
+  if (!text) return NaN;
+  if (/^\d{13}$/.test(text)) return parseInt(text, 10);
+  if (/^\d{10}$/.test(text)) return parseInt(text, 10) * 1000;
+
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (match) {
+    return new Date(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      Number(match[6] || 0)
+    ).getTime();
+  }
+
+  match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (match) {
+    return new Date(
+      Number(match[3]),
+      Number(match[2]) - 1,
+      Number(match[1]),
+      Number(match[4]),
+      Number(match[5]),
+      Number(match[6] || 0)
+    ).getTime();
+  }
+
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function formatGpsApiDateTime(value) {
+  const ms = parseGpsDateTimeFlexible(value);
+  if (!Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function encodeGpsHistoryBoundary(value) {
+  return formatGpsApiDateTime(value).replace(/ /g, '%20');
+}
+
+function extractHistoryParams(message) {
+  if (Array.isArray(message)) {
+    if (message[6] && typeof message[6] === 'object') return message[6];
+    if (message[7] && typeof message[7] === 'object') return message[7];
+    if (message[8] && typeof message[8] === 'object') return message[8];
+    return {};
+  }
+  return (message && message.params && typeof message.params === 'object') ? message.params : {};
+}
+
+function extractOdometerKmFromParams(params = {}) {
+  if (params.io192 !== undefined && params.io192 !== null && params.io192 !== '') {
+    const meters = parseFloat(params.io192);
+    if (Number.isFinite(meters)) return Math.round((meters / 1000) * 100) / 100;
+  }
+
+  const keys = ['odometer_km', 'mileage_km', 'odometer', 'mileage', 'distance', 'io210'];
+  for (const key of keys) {
+    if (params[key] === undefined || params[key] === null || params[key] === '') continue;
+    const raw = parseFloat(params[key]);
+    if (!Number.isFinite(raw)) continue;
+    return raw > 1000000 ? Math.round((raw / 1000) * 100) / 100 : Math.round(raw * 100) / 100;
+  }
+
+  return null;
+}
+
+function normalizeGpsHistoryMessages(rawMessages, deviceId, truckConfig) {
+  const rawList = Array.isArray(rawMessages)
+    ? rawMessages
+    : ((rawMessages && Array.isArray(rawMessages.messages)) ? rawMessages.messages : []);
+
+  return rawList.map((message) => {
+    const params = extractHistoryParams(message);
+    const timeRaw = Array.isArray(message)
+      ? (message[0] ?? message.timestamp ?? message.time)
+      : (message.timestamp ?? message.time ?? message.t);
+    const time = parseGpsDateTimeFlexible(timeRaw);
+    const lat = Array.isArray(message) ? parseFloat(message[1]) : parseFloat(message && message.lat);
+    const lng = Array.isArray(message) ? parseFloat(message[2]) : parseFloat(message && message.lng);
+    const speed = Array.isArray(message)
+      ? (parseFloat((message[5] !== undefined ? message[5] : message[3] ?? params.io24 ?? params.io80) || params.io24 || params.io80 || 0) || 0)
+      : (parseFloat((message && message.speed) ?? params.io24 ?? params.io80 ?? 0) || 0);
+    const ign = Array.isArray(message)
+      ? (parseInt(params.io1 ?? params.acc ?? params.io22 ?? params.io239 ?? params.io240 ?? message[4] ?? 0, 10) || 0)
+      : (parseInt(params.io1 ?? params.acc ?? params.io22 ?? params.io239 ?? params.io240 ?? (message && message.ign) ?? 0, 10) || 0);
+    const fuelData = calculateFuelMetricsFromParams(params || {}, truckConfig || getTruckConfig(deviceId));
+    const odometerKm = extractOdometerKmFromParams(params);
+    return {
+      time,
+      lat: Number.isFinite(lat) ? lat : null,
+      lng: Number.isFinite(lng) ? lng : null,
+      speed,
+      ign,
+      params,
+      fuelLiters: Number.isFinite(fuelData.liters) ? fuelData.liters : 0,
+      fuelPercent: Number.isFinite(fuelData.percent) ? fuelData.percent : 0,
+      odometerKm,
+      raw: message
+    };
+  }).filter((point) => Number.isFinite(point.time)).sort((a, b) => a.time - b.time);
+}
+
+async function fetchGpsHistoryWindow(deviceId, start, end) {
+  const safeStart = encodeGpsHistoryBoundary(start);
+  const safeEnd = encodeGpsHistoryBoundary(end);
+  if (!safeStart || !safeEnd) throw new Error('Période invalide pour l\'historique GPS');
+
+  const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${deviceId},${safeStart},${safeEnd}`;
+  const https = require('https');
+  const agent = new https.Agent({ rejectUnauthorized: false });
+  const response = await fetch(url, { agent });
+  const text = await response.text();
+  try {
+    const json = JSON.parse(text);
+    return json.messages || json.data || json;
+  } catch (error) {
+    throw new Error(`Provider Error: ${text}`);
+  }
+}
+
+function calculatePolylineDistanceKm(points = []) {
+  const safe = (Array.isArray(points) ? points : []).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+  let totalKm = 0;
+  for (let i = 1; i < safe.length; i += 1) {
+    totalKm += calculateDistance(safe[i - 1].lat, safe[i - 1].lng, safe[i].lat, safe[i].lng) / 1000;
+  }
+  return Math.round(totalKm * 100) / 100;
+}
+
+function pickBoundaryHistoryPoint(points, targetMs, boundary = 'start') {
+  const safe = Array.isArray(points) ? points : [];
+  if (!safe.length || !Number.isFinite(targetMs)) return null;
+  const before = safe.filter(point => point.time <= targetMs);
+  const after = safe.filter(point => point.time >= targetMs);
+  const beforePoint = before.length ? before[before.length - 1] : null;
+  const afterPoint = after.length ? after[0] : null;
+
+  let point = null;
+  if (!beforePoint) point = afterPoint;
+  else if (!afterPoint) point = beforePoint;
+  else {
+    const beforeGap = Math.abs(targetMs - beforePoint.time);
+    const afterGap = Math.abs(afterPoint.time - targetMs);
+    point = boundary === 'end'
+      ? (beforeGap <= (afterGap + (5 * 60 * 1000)) ? beforePoint : afterPoint)
+      : (afterGap <= (beforeGap + (5 * 60 * 1000)) ? afterPoint : beforePoint);
+  }
+
+  if (!point) return null;
+  return {
+    ...point,
+    gapMinutes: Math.round((Math.abs((point.time || 0) - targetMs) / 60000) * 10) / 10
+  };
+}
+
+function resolveLocationName(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return 'Position inconnue';
+  const locations = Array.isArray(SYSTEM_SETTINGS.customLocations) ? SYSTEM_SETTINGS.customLocations : [];
+  for (const loc of locations) {
+    if (!Number.isFinite(parseFloat(loc.lat)) || !Number.isFinite(parseFloat(loc.lng))) continue;
+    const dist = calculateDistance(lat, lng, parseFloat(loc.lat), parseFloat(loc.lng));
+    if (dist <= (parseFloat(loc.radius) || 500)) return loc.name;
+  }
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
+async function persistDetectedRefills(deviceId, truckName, refillEvents = [], persist = true) {
+  const created = [];
+  const skipped = [];
+  const rules = getResolvedRefuelRules();
+  const dedupeMs = Math.max(0, (parseFloat(rules.dedupeMinutes) || 8) * 60 * 1000);
+  const levelTolerance = parseFloat(rules.dedupeLitersTolerance ?? 10) || 10;
+
+  for (const event of (Array.isArray(refillEvents) ? refillEvents : [])) {
+    const timeMs = parseGpsDateTimeFlexible(event.time);
+    if (!Number.isFinite(timeMs)) continue;
+
+    const existing = await Refuel.findOne({
+      deviceId,
+      timestamp: {
+        $gte: new Date(timeMs - dedupeMs),
+        $lte: new Date(timeMs + dedupeMs)
+      }
+    }).sort({ timestamp: -1 });
+
+    if (existing && Math.abs((parseFloat(existing.newLevel) || 0) - (parseFloat(event.newLevel) || 0)) <= levelTolerance) {
+      skipped.push(existing);
+      continue;
+    }
+
+    const lat = Number.isFinite(parseFloat(event.lat)) ? parseFloat(event.lat) : null;
+    const lng = Number.isFinite(parseFloat(event.lng)) ? parseFloat(event.lng) : null;
+    const locationRaw = resolveLocationName(lat, lng);
+    const isInternal = (Array.isArray(SYSTEM_SETTINGS.customLocations) ? SYSTEM_SETTINGS.customLocations : []).some((loc) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+      if (!Number.isFinite(parseFloat(loc.lat)) || !Number.isFinite(parseFloat(loc.lng))) return false;
+      return calculateDistance(lat, lng, parseFloat(loc.lat), parseFloat(loc.lng)) <= (parseFloat(loc.radius) || 500);
+    });
+
+    if (!persist) {
+      created.push({
+        deviceId,
+        truckName,
+        addedLiters: Math.round(event.addedLiters || 0),
+        oldLevel: Math.round(event.oldLevel || 0),
+        newLevel: Math.round(event.newLevel || 0),
+        timestamp: new Date(timeMs),
+        locationRaw,
+        isInternal,
+        lat,
+        lng,
+        source: 'gps-history-verified',
+        meta: { detectionMode: event.detectionMode || 'history', confidence: parseFloat(event.confidence) || null, version: 2 }
+      });
+      continue;
+    }
+
+    const doc = await Refuel.create({
+      deviceId,
+      truckName,
+      addedLiters: Math.round(event.addedLiters || 0),
+      oldLevel: Math.round(event.oldLevel || 0),
+      newLevel: Math.round(event.newLevel || 0),
+      timestamp: new Date(timeMs),
+      locationRaw,
+      isInternal,
+      lat,
+      lng,
+      source: 'gps-history-verified',
+      meta: { detectionMode: event.detectionMode || 'history', confidence: parseFloat(event.confidence) || null, version: 2 }
+    });
+    created.push(doc.toObject ? doc.toObject() : doc);
+  }
+
+  return { created, skipped };
+}
+
+async function scanRefillsFromHistoryWindow({ deviceId, truckName, start, end, persist = true }) {
+  const config = getTruckConfig(deviceId);
+  const rawMessages = await fetchGpsHistoryWindow(deviceId, start, end);
+  const points = normalizeGpsHistoryMessages(rawMessages, deviceId, config);
+  const effectiveCapacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
+  const baseRules = getResolvedRefuelRules();
+  const rules = getResolvedRefuelRules({
+    minRefuelLiters: Math.max(50, parseFloat(baseRules.minRefuelLiters) || 0),
+    maxRealisticRefillLiters: Math.max(Math.round((effectiveCapacity || 600) + 50), parseFloat(baseRules.maxRealisticRefillLiters) || 0)
+  });
+  const refillEvents = detectRefillEventsFromSeries(points.map((point) => ({
+    time: point.time,
+    liters: point.fuelLiters,
+    speed: point.speed,
+    ign: point.ign,
+    lat: point.lat,
+    lng: point.lng
+  })), rules);
+
+  const persisted = await persistDetectedRefills(deviceId, truckName, refillEvents, persist);
+
+  return {
+    points,
+    refills: refillEvents,
+    createdCount: persisted.created.length,
+    skippedCount: persisted.skipped.length,
+    created: persisted.created
+  };
+}
+
+async function calculateTransportWindowStats({ deviceId, truckName, start, end, persist = false, note = '' }) {
+  const requestedStartMs = parseGpsDateTimeFlexible(start);
+  const requestedEndMs = parseGpsDateTimeFlexible(end);
+  if (!Number.isFinite(requestedStartMs) || !Number.isFinite(requestedEndMs) || requestedEndMs <= requestedStartMs) {
+    throw new Error('Période invalide');
+  }
+
+  const bufferMs = 60 * 60 * 1000;
+  const config = getTruckConfig(deviceId);
+  const rawMessages = await fetchGpsHistoryWindow(deviceId, requestedStartMs - bufferMs, requestedEndMs + bufferMs);
+  const points = normalizeGpsHistoryMessages(rawMessages, deviceId, config);
+  if (points.length < 2) throw new Error('Historique insuffisant pour cette période');
+
+  const startPoint = pickBoundaryHistoryPoint(points, requestedStartMs, 'start');
+  const endPoint = pickBoundaryHistoryPoint(points, requestedEndMs, 'end');
+  if (!startPoint || !endPoint) throw new Error('Impossible de déterminer les points A et B');
+  if ((endPoint.time || 0) <= (startPoint.time || 0)) throw new Error('Les points GPS trouvés sont incohérents');
+
+  const windowPoints = points.filter(point => point.time >= (startPoint.time || requestedStartMs) && point.time <= (endPoint.time || requestedEndMs));
+  const effectiveCapacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
+  const baseRules = getResolvedRefuelRules();
+  const rules = getResolvedRefuelRules({
+    minRefuelLiters: Math.max(50, parseFloat(baseRules.minRefuelLiters) || 0),
+    maxRealisticRefillLiters: Math.max(Math.round((effectiveCapacity || 600) + 50), parseFloat(baseRules.maxRealisticRefillLiters) || 0)
+  });
+  const refillEventsAll = detectRefillEventsFromSeries(windowPoints.map((point) => ({
+    time: point.time,
+    liters: point.fuelLiters,
+    speed: point.speed,
+    ign: point.ign,
+    lat: point.lat,
+    lng: point.lng
+  })), rules);
+  const refillEvents = refillEventsAll.filter((event) => event.time >= requestedStartMs && event.time <= requestedEndMs);
+
+  const fuelAddedDuringTrip = Math.round(refillEvents.reduce((sum, event) => sum + (parseFloat(event.addedLiters) || 0), 0) * 100) / 100;
+  const fuelStart = Math.round((parseFloat(startPoint.fuelLiters) || 0) * 100) / 100;
+  const fuelEnd = Math.round((parseFloat(endPoint.fuelLiters) || 0) * 100) / 100;
+  const fuelConsumedRaw = Math.max(0, Math.round((fuelStart - fuelEnd) * 100) / 100);
+  const fuelConsumedTotal = Math.max(0, Math.round((fuelStart + fuelAddedDuringTrip - fuelEnd) * 100) / 100);
+
+  const gpsDistanceKm = calculatePolylineDistanceKm(windowPoints);
+  const startOdo = Number.isFinite(parseFloat(startPoint.odometerKm)) ? parseFloat(startPoint.odometerKm) : null;
+  const endOdo = Number.isFinite(parseFloat(endPoint.odometerKm)) ? parseFloat(endPoint.odometerKm) : null;
+  let kmTotal = gpsDistanceKm;
+  let distanceSource = 'gps-distance';
+  if (Number.isFinite(startOdo) && Number.isFinite(endOdo) && endOdo >= startOdo && (endOdo - startOdo) <= 5000) {
+    kmTotal = Math.round((endOdo - startOdo) * 100) / 100;
+    distanceSource = 'odometer';
+  }
+
+  const warnings = [];
+  if ((startPoint.gapMinutes || 0) > 20) warnings.push(`Point A éloigné de ${startPoint.gapMinutes} min`);
+  if ((endPoint.gapMinutes || 0) > 20) warnings.push(`Point B éloigné de ${endPoint.gapMinutes} min`);
+  if (distanceSource !== 'odometer') warnings.push('Kilométrage calculé par trace GPS (odomètre indisponible)');
+  if (!fuelStart && !fuelEnd) warnings.push('Capteur carburant absent ou non lu sur cette période');
+  const lowConfidenceRefills = refillEvents.filter((event) => Number.isFinite(parseFloat(event.confidence)) && parseFloat(event.confidence) < 0.8);
+  if (lowConfidenceRefills.length) warnings.push(`${lowConfidenceRefills.length} plein(s) détecté(s) sur signal bruité: vérifiez la carte`);
+  if (refillEvents.some((event) => (event.detectionMode || '').includes('sparse'))) warnings.push("Historique GPS clairsemé autour d'au moins un plein");
+
+  const summary = {
+    truckName,
+    deviceId,
+    startAt: new Date(startPoint.time),
+    endAt: new Date(endPoint.time),
+    requestedStartAt: new Date(requestedStartMs),
+    requestedEndAt: new Date(requestedEndMs),
+    actualStartAt: new Date(startPoint.time),
+    actualEndAt: new Date(endPoint.time),
+    kmStart: startOdo,
+    kmEnd: endOdo,
+    kmTotal,
+    gpsDistanceKm,
+    distanceSource,
+    fuelStart,
+    fuelEnd,
+    fuelAddedDuringTrip,
+    fuelConsumedRaw,
+    fuelConsumedTotal,
+    refillCount: refillEvents.length,
+    historyPoints: windowPoints.length,
+    startLocation: resolveLocationName(startPoint.lat, startPoint.lng),
+    endLocation: resolveLocationName(endPoint.lat, endPoint.lng),
+    note,
+    warnings,
+    refills: refillEvents.map((event) => ({
+      time: new Date(event.time),
+      addedLiters: Math.round(event.addedLiters || 0),
+      oldLevel: Math.round(event.oldLevel || 0),
+      newLevel: Math.round(event.newLevel || 0),
+      lat: event.lat,
+      lng: event.lng,
+      detectionMode: event.detectionMode || 'history',
+      confidence: Number.isFinite(parseFloat(event.confidence)) ? Math.round(parseFloat(event.confidence) * 100) / 100 : null,
+      locationRaw: resolveLocationName(event.lat, event.lng)
+    }))
+  };
+
+  if (persist && refillEvents.length) {
+    await persistDetectedRefills(deviceId, truckName, refillEvents, true);
+  }
+
+  return summary;
 }
 
 // ============================================================
@@ -523,17 +1550,11 @@ async function runFleetBot() {
 
     const truckName = truck.name;
     const config = getTruckConfig(deviceId);
-    const capacity = config.fuelTankCapacity || 600;
 
     // --- FUEL CALCULATION ---
-    // Dynamic sensor key from config
-    const sensorKey = (SYSTEM_SETTINGS.refuelRules && SYSTEM_SETTINGS.refuelRules.sensorType) || 'io87';
-    let rawVal = parseFloat(truck.params[sensorKey] || truck.params.io87 || truck.params.fuel || truck.params.io84 || 0);
-
-    // Clamp to valid range (Chinese GPS protection)
-    if (rawVal > 100) rawVal = 100;
-    if (rawVal < 0) rawVal = 0;
-    const currentLiters = Math.round((rawVal / 100) * capacity);
+    const fuelData = calculateFuelMetricsFromParams(truck.params || {}, config);
+    const currentLiters = fuelData.liters || 0;
+    const effectiveFuelCapacity = fuelData.effectiveCapacity || getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
 
     // --- ENGINE + MOVEMENT STATE ---
     // io1 = ignition key, acc = accessory power
@@ -548,7 +1569,12 @@ async function runFleetBot() {
     // When no ignition sensor (io1/acc) exists, fall back to SPEED-BASED detection.
     // Old code: engineIsOff = hasIgn ? (!ignOn && speed === 0) : false  ← ALWAYS false without io1!
     // New code: if no ignition sensor, treat speed === 0 as "engine off"
-    const refuelRulesLocal = { ...{ minRefuelLiters: 50, minOffMinutes: 2, postOnMinSeconds: 60, postOnMaxMinutes: 10, movingSpeedThreshold: 1, dedupeMinutes: 5, baselineDropToleranceLiters: 15, stopSpeedThreshold: 4, maxRealisticRefillLiters: 600 }, ...SYSTEM_SETTINGS.refuelRules };
+    const refuelRulesLocal = getResolvedRefuelRules({
+      maxRealisticRefillLiters: Math.max(
+        parseFloat((SYSTEM_SETTINGS.refuelRules || {}).maxRealisticRefillLiters) || 0,
+        Math.round((effectiveFuelCapacity || 600) + 50)
+      )
+    });
     const STOP_SPEED = parseInt(refuelRulesLocal.stopSpeedThreshold, 10) || 4;
     const engineIsOff = hasIgn ? (!ignOn && speed === 0) : (speed < STOP_SPEED);
     const engineIsOn = !engineIsOff;
@@ -559,87 +1585,163 @@ async function runFleetBot() {
     let dbTruck = await Truck.findOne({ deviceId });
 
     if (!dbTruck) {
-      // First time seeing this truck — save initial fuel reading
+      const initialEngineState = {
+        refuelAnchorLiters: currentLiters,
+        lastAcceptedRefuelTime: 0,
+        lastAcceptedRefuelLevel: currentLiters,
+        fuelSamples: [{ time: now, liters: currentLiters, speed, ign: hasIgn ? ignVal : (speed < STOP_SPEED ? 0 : 1), lat: truckLat, lng: truckLng }]
+      };
+
       await Truck.findOneAndUpdate({ deviceId }, {
         truckName, lastUpdate: now, lastFuelLiters: currentLiters,
-        lastFuelPercent: rawVal,
+        lastFuelPercent: fuelData.percent || 0,
         lat: truckLat, lng: truckLng, speed, params: truck.params,
-        engineState: { lastRefuelTime: 0 }
+        engineState: initialEngineState
       }, { upsert: true });
       continue;
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // ⛽ REFUEL DETECTION V6 — SIMPLE CONSECUTIVE COMPARISON
-    // ═══════════════════════════════════════════════════════════════
-    // WHY: V4 sliding window with stability checks missed 50% of refills
-    //   because Chinese GPS sensors bounce ±10-15L and the stability
-    //   counter kept resetting. The baseline tracking also drifted.
-    //
-    // V6 LOGIC (same as the working Mapbox/algeria-map history):
-    //   previousFuel = last saved reading in MongoDB (30 seconds ago)
-    //   currentFuel  = current GPS reading right now
-    //   if (currentFuel - previousFuel >= 50L) → IT'S A REFILL
-    //
-    // That's it. No state machine. No baseline. No stability check.
-    // The bot reads every 30 seconds. Between two readings, if fuel
-    // jumps by 50+L, something was poured in. Sensor noise is ±10L
-    // max and NEVER reaches 50L. So zero false positives.
-    //
-    // PROTECTIONS:
-    //   - Min threshold: 50L (configurable via REFUEL_RULES)
-    //   - Max realistic: 600L (rejects sensor glitches)
-    //   - Dedupe: 5 minutes (no double-counting)
-    //   - Sensor clamping: 0-100% range enforced above
-    // ═══════════════════════════════════════════════════════════════
+    const MIN_REFUEL_L = Math.max(50, parseFloat(refuelRulesLocal.minRefuelLiters) || 0);
+    const DEDUPE_MS = (parseFloat(refuelRulesLocal.dedupeMinutes) || 8) * 60 * 1000;
+    const DEDUPE_LEVEL_TOL = parseFloat(refuelRulesLocal.dedupeLitersTolerance ?? 10) || 10;
+    const BASELINE_DROP_TOL = parseFloat(refuelRulesLocal.baselineDropToleranceLiters ?? 15) || 15;
 
-    const MIN_REFUEL_L = parseInt(refuelRulesLocal.minRefuelLiters, 10) || 50;
-    const DEDUPE_MS = (parseFloat(refuelRulesLocal.dedupeMinutes) || 5) * 60 * 1000;
-    const MAX_REALISTIC = parseInt(refuelRulesLocal.maxRealisticRefillLiters, 10) || 600;
+    const engineStatePrev = (dbTruck.engineState && typeof dbTruck.engineState === 'object') ? dbTruck.engineState : {};
+    let refuelAnchorLiters = Number.isFinite(parseFloat(engineStatePrev.refuelAnchorLiters))
+      ? parseFloat(engineStatePrev.refuelAnchorLiters)
+      : (Number.isFinite(parseFloat(dbTruck.lastFuelLiters)) ? parseFloat(dbTruck.lastFuelLiters) : currentLiters);
+    let lastAcceptedRefuelTime = Number.isFinite(parseFloat(engineStatePrev.lastAcceptedRefuelTime))
+      ? parseFloat(engineStatePrev.lastAcceptedRefuelTime)
+      : 0;
+    let lastAcceptedRefuelLevel = Number.isFinite(parseFloat(engineStatePrev.lastAcceptedRefuelLevel))
+      ? parseFloat(engineStatePrev.lastAcceptedRefuelLevel)
+      : refuelAnchorLiters;
+    let fuelSamples = Array.isArray(engineStatePrev.fuelSamples) ? engineStatePrev.fuelSamples : [];
 
-    // Previous fuel reading from MongoDB (saved ~30 seconds ago)
-    const previousFuel = dbTruck.lastFuelLiters || 0;
+    if (!Number.isFinite(refuelAnchorLiters) || refuelAnchorLiters <= 0) refuelAnchorLiters = currentLiters;
+    if (!Number.isFinite(lastAcceptedRefuelLevel) || lastAcceptedRefuelLevel <= 0) lastAcceptedRefuelLevel = refuelAnchorLiters;
 
-    // The magic comparison — same as your Mapbox history
-    const fuelJump = currentLiters - previousFuel;
+    const normalizedSamples = fuelSamples
+      .map((sample) => {
+        const sampleTime = parseGpsDateTimeFlexible(sample && sample.time);
+        const liters = parseFloat(sample && sample.liters);
+        if (!Number.isFinite(sampleTime) || !Number.isFinite(liters)) return null;
+        return {
+          time: sampleTime,
+          liters,
+          speed: parseFloat(sample && sample.speed) || 0,
+          ign: parseInt(sample && (sample.ign ?? 0), 10) || 0,
+          lat: Number.isFinite(parseFloat(sample && sample.lat)) ? parseFloat(sample.lat) : truckLat,
+          lng: Number.isFinite(parseFloat(sample && sample.lng)) ? parseFloat(sample.lng) : truckLng
+        };
+      })
+      .filter(Boolean)
+      .filter((sample) => (now - sample.time) <= (6 * 60 * 60 * 1000))
+      .slice(-240);
 
-    if (fuelJump >= MIN_REFUEL_L && fuelJump <= MAX_REALISTIC) {
-      // Dedupe check — don't log same refill twice
-      const dedupeSince = new Date(now - DEDUPE_MS);
-      const recentRefill = await Refuel.findOne({ deviceId, timestamp: { $gte: dedupeSince } });
+    const liveIgnValue = hasIgn ? ignVal : (engineIsOff ? 0 : 1);
+    const currentSample = { time: now, liters: currentLiters, speed, ign: liveIgnValue, lat: truckLat, lng: truckLng };
+    const lastSample = normalizedSamples[normalizedSamples.length - 1];
+    if (
+      !lastSample ||
+      (now - lastSample.time) >= 15000 ||
+      Math.abs((lastSample.liters || 0) - currentLiters) >= 4 ||
+      Math.abs((lastSample.speed || 0) - speed) >= 2
+    ) {
+      normalizedSamples.push(currentSample);
+    } else {
+      normalizedSamples[normalizedSamples.length - 1] = currentSample;
+    }
 
-      if (!recentRefill) {
-        // Determine location
-        let refillLat = truckLat, refillLng = truckLng;
-        let locName = 'Station Externe'; let isInternal = false;
+    fuelSamples = normalizedSamples.slice(-240);
+
+    const liveRefillEvents = detectRefillEventsFromSeries(fuelSamples, {
+      ...refuelRulesLocal,
+      minRefuelLiters: MIN_REFUEL_L,
+      requireStopped: true,
+      requireIgnOff: refuelRulesLocal.requireIgnOff === true || refuelRulesLocal.requireEngineOff === true,
+      maxRealisticRefillLiters: Math.max(
+        parseFloat(refuelRulesLocal.maxRealisticRefillLiters) || 0,
+        Math.round((effectiveFuelCapacity || 600) + 50),
+        MIN_REFUEL_L
+      )
+    });
+
+    const latestLiveRefill = liveRefillEvents.length ? liveRefillEvents[liveRefillEvents.length - 1] : null;
+    if (latestLiveRefill && latestLiveRefill.time > (lastAcceptedRefuelTime + 30000)) {
+      const recentRefill = await Refuel.findOne({
+        deviceId,
+        timestamp: { $gte: new Date(latestLiveRefill.time - DEDUPE_MS) }
+      }).sort({ timestamp: -1 });
+      const sameLevelDuplicate = !!(
+        recentRefill &&
+        Number.isFinite(parseFloat(recentRefill.newLevel)) &&
+        Math.abs((parseFloat(recentRefill.newLevel) || 0) - (parseFloat(latestLiveRefill.newLevel) || 0)) <= DEDUPE_LEVEL_TOL
+      );
+
+      if (!sameLevelDuplicate) {
+        const refillLat = Number.isFinite(parseFloat(latestLiveRefill.lat)) ? parseFloat(latestLiveRefill.lat) : truckLat;
+        const refillLng = Number.isFinite(parseFloat(latestLiveRefill.lng)) ? parseFloat(latestLiveRefill.lng) : truckLng;
+        let locName = 'Station Externe';
+        let isInternal = false;
         for (const loc of SYSTEM_SETTINGS.customLocations) {
           const d = calculateDistance(refillLat, refillLng, loc.lat, loc.lng);
-          if (d <= (loc.radius || 500)) { locName = loc.name; isInternal = true; break; }
+          if (d <= (loc.radius || 500)) {
+            locName = loc.name;
+            isInternal = true;
+            break;
+          }
         }
 
-        const addedLiters = Math.round(fuelJump);
-        const oldLevel = Math.round(previousFuel);
-        const newLevel = Math.round(currentLiters);
-
-        // Save with Algeria timezone (UTC+1)
-        const algeriaTime = new Date(now + 3600000);
+        const addedLiters = Math.round(latestLiveRefill.addedLiters || 0);
+        const oldLevel = Math.round(latestLiveRefill.oldLevel || refuelAnchorLiters || currentLiters);
+        const newLevel = Math.round(latestLiveRefill.newLevel || currentLiters);
 
         await Refuel.create({
-          deviceId, truckName, addedLiters,
-          oldLevel, newLevel,
-          timestamp: algeriaTime, locationRaw: locName,
-          lat: refillLat, lng: refillLng, isInternal
+          deviceId,
+          truckName,
+          addedLiters,
+          oldLevel,
+          newLevel,
+          timestamp: new Date(latestLiveRefill.time),
+          locationRaw: locName,
+          lat: refillLat,
+          lng: refillLng,
+          isInternal,
+          source: 'live-verified',
+          meta: { detectionMode: latestLiveRefill.detectionMode || 'rolling-buffer', confidence: parseFloat(latestLiveRefill.confidence) || null, version: 2 }
         });
-        console.log(`✅ REFILL ${truckName} +${addedLiters}L (${oldLevel}→${newLevel}L) @ ${locName}`);
+
+        refuelAnchorLiters = newLevel;
+        lastAcceptedRefuelTime = latestLiveRefill.time;
+        lastAcceptedRefuelLevel = newLevel;
+
+        console.log(`✅ REFILL ${truckName} +${addedLiters}L (${oldLevel}→${newLevel}L) @ ${locName} [${latestLiveRefill.detectionMode || 'rolling-buffer'}]`);
       } else {
-        console.log(`⏭️ ${truckName} Dedupe: skipped +${Math.round(fuelJump)}L (recent refill exists)`);
+        console.log(`⏭️ ${truckName} Dedupe: skipped near-duplicate live refill @ ${Math.round(latestLiveRefill.newLevel || currentLiters)}L`);
       }
     }
 
+    if (currentLiters < refuelAnchorLiters) {
+      const drop = refuelAnchorLiters - currentLiters;
+      if (isMoving || drop > BASELINE_DROP_TOL) {
+        refuelAnchorLiters = currentLiters;
+      }
+    }
+
+    const nextEngineState = {
+      ...(dbTruck.engineState || {}),
+      refuelAnchorLiters,
+      lastAcceptedRefuelTime,
+      lastAcceptedRefuelLevel,
+      fuelSamples
+    };
+
     let payload = { 
       truckName, lastUpdate: now, lastFuelLiters: currentLiters,
+      lastFuelPercent: fuelData.percent || 0,
       lat: truckLat, lng: truckLng, speed, params: truck.params,
-      engineState: { lastRefuelTime: 0 }  // V6: no complex state needed
+      engineState: nextEngineState
     };
 
     // Run vidange/maintenance zone detection
@@ -810,7 +1912,8 @@ app.get('/api/backup/download', checkAccess, async (req, res) => {
       settings: await Settings.find(),
       refuels: await Refuel.find(),
       maintenance: await Maintenance.find(),
-      decouchages: await Decouchage.find()
+      decouchages: await Decouchage.find(),
+      transportReports: await TransportReportEntry.find()
     };
     res.json(dbData);
   } catch (e) { res.status(500).send(e.message); }
@@ -841,6 +1944,100 @@ app.delete('/api/audit/:id', checkAccess, async (req, res) => {
     await AuditReport.findByIdAndDelete(req.params.id);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+app.post('/api/refuels/rebuild', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, truckName, start, end, persist, purgeExistingAuto } = req.body || {};
+    if (!deviceId || !start || !end) return res.status(400).json({ error: 'deviceId, start et end sont requis' });
+
+    let deletedCount = 0;
+    if (purgeExistingAuto === true) {
+      const startMs = parseGpsDateTimeFlexible(start);
+      const endMs = parseGpsDateTimeFlexible(end);
+      if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+        const cleanup = await Refuel.deleteMany({
+          deviceId: String(deviceId),
+          timestamp: { $gte: new Date(startMs), $lte: new Date(endMs) },
+          source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified'] }
+        });
+        deletedCount = cleanup.deletedCount || 0;
+      }
+    }
+
+    const result = await scanRefillsFromHistoryWindow({
+      deviceId: String(deviceId),
+      truckName: truckName || String(deviceId),
+      start,
+      end,
+      persist: persist !== false
+    });
+    res.json({
+      success: true,
+      deletedCount,
+      detected: result.refills.length,
+      createdCount: result.createdCount,
+      skippedCount: result.skippedCount,
+      refills: result.refills.map((event) => ({
+        ...event,
+        confidence: Number.isFinite(parseFloat(event.confidence)) ? Math.round(parseFloat(event.confidence) * 100) / 100 : null,
+        locationRaw: resolveLocationName(event.lat, event.lng),
+        timestamp: new Date(event.time)
+      }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/transport-report/rows', checkAccess, async (req, res) => {
+  try {
+    const rows = await TransportReportEntry.find().sort({ startAt: -1, createdAt: -1 }).limit(5000);
+    res.json(fmt(rows));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/transport-report/calculate', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, truckName, start, end, persist, note } = req.body || {};
+    if (!deviceId || !start || !end) return res.status(400).json({ error: 'deviceId, start et end sont requis' });
+
+    const summary = await calculateTransportWindowStats({
+      deviceId: String(deviceId),
+      truckName: truckName || String(deviceId),
+      start,
+      end,
+      persist: persist === true,
+      note: note || ''
+    });
+
+    let savedRow = null;
+    if (persist) {
+      savedRow = await TransportReportEntry.create(summary);
+    }
+
+    res.json({
+      success: true,
+      summary,
+      savedRow: savedRow ? (savedRow.toObject ? savedRow.toObject() : savedRow) : null
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/transport-report/delete', checkAccess, async (req, res) => {
+  try {
+    const { id } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    await TransportReportEntry.findByIdAndDelete(id);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ADMIN TOOLS
