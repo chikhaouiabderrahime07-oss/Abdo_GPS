@@ -1500,130 +1500,136 @@
       }
     }
 
-    async importParsedRows() {
-      if (this.importInFlight) return;
-      if (!this.importSummary) {
-        this.showToast('Analysez d’abord le fichier puis vérifiez les lignes.', 'error');
-        return;
-      }
+async importParsedRows() {
+  if (this.importInFlight) return;
+  if (!this.importSummary) {
+    this.showToast('Analysez d’abord le fichier puis vérifiez les lignes.', 'error');
+    return;
+  }
 
-      const batchSizeRaw = Number(this.importBatchInput ? this.importBatchInput.value : 1000);
-      const batchSize = Math.min(this.maxImportBatch, Number.isFinite(batchSizeRaw) && batchSizeRaw > 0 ? Math.round(batchSizeRaw) : 1000);
-      if (this.importBatchInput) this.importBatchInput.value = String(batchSize);
-      const inWindowRows = this.importRows.filter((row) => this.rowMatchesImportWindow(row));
-      const issueCandidates = inWindowRows.filter((row) => !row.duplicateDb && !row.duplicateFile && (!row.valid || !row.matchedTruck));
-      const readyRows = inWindowRows.filter((row) => row.valid && row.matchedTruck && !row.duplicateDb && !row.duplicateFile);
-      const targetRows = readyRows.slice(0, batchSize);
-      if (!targetRows.length && !issueCandidates.length) {
-        this.showToast('Aucune ligne à importer avec les filtres actuels.', 'error');
-        return;
-      }
+  const batchSizeRaw = Number(this.importBatchInput ? this.importBatchInput.value : 1000);
+  const batchSize = Math.min(this.maxImportBatch, Number.isFinite(batchSizeRaw) && batchSizeRaw > 0 ? Math.round(batchSizeRaw) : 1000);
+  if (this.importBatchInput) this.importBatchInput.value = String(batchSize);
+  const inWindowRows = this.importRows.filter((row) => this.rowMatchesImportWindow(row));
+  const issueCandidates = inWindowRows.filter((row) => !row.duplicateDb && !row.duplicateFile && (!row.valid || !row.matchedTruck));
+  const readyRows = inWindowRows.filter((row) => row.valid && row.matchedTruck && !row.duplicateDb && !row.duplicateFile);
+  const targetRows = readyRows.slice(0, batchSize);
+  if (!targetRows.length && !issueCandidates.length) {
+    this.showToast('Aucune ligne à importer avec les filtres actuels.', 'error');
+    return;
+  }
 
-      this.importInFlight = true;
-      this.importCancelled = false;
-      this.updateImportControls();
-      this.resetImportProgress();
-      this.updateImportProgress(0, Math.max(targetRows.length, 1), 'Import démarré');
-      this.appendImportLog(`📥 ${targetRows.length} ligne(s) sélectionnée(s) pour import.`);
-      const errors = [];
-      let imported = 0;
-      let skipped = 0;
-      let issueSaved = 0;
-      let completed = 0;
-      const knownFingerprints = this.getExistingFingerprintSet();
+  this.importInFlight = true;
+  this.importCancelled = false;
+  this.updateImportControls();
+  this.resetImportProgress();
+  this.updateImportProgress(0, Math.max(targetRows.length, 1), 'Import démarré');
+  this.appendImportLog(`📥 ${targetRows.length} ligne(s) sélectionnée(s) pour import.`);
+  const errors = [];
+  let imported = 0;
+  let skipped = 0;
+  let issueSaved = 0;
+  let completed = 0;
+  const knownFingerprints = this.getExistingFingerprintSet();
 
-      for (const row of issueCandidates) {
-        try {
-          await this.persistImportIssueRow(row, row.issueReason || 'Ligne non importable automatiquement');
-          issueSaved += 1;
-          this.appendImportLog(`⚠ Ligne ${row.sourceRow} mise en revue: ${row.truckInput || '-'} • ${row.issueReason || 'À corriger manuellement'}`);
-        } catch (error) {
-          this.appendImportLog(`✗ Ligne ${row.sourceRow} non historisée: ${error.message || 'erreur'}`);
-        }
-      }
-
-      const queue = targetRows.slice();
-      const workerCount = Math.min(8, Math.max(1, queue.length));
-      const workers = Array.from({ length: workerCount }, () => (async () => {
-        while (queue.length && !this.importCancelled) {
-          const row = queue.shift();
-          if (!row) break;
-
-          const fingerprint = row.fingerprint;
-          if (fingerprint && knownFingerprints.has(fingerprint)) {
-            skipped += 1;
-            completed += 1;
-            this.updateImportProgress(completed, targetRows.length, 'Doublon ignoré');
-            this.appendImportLog(`↷ Ligne ${row.sourceRow} ignorée: déjà présente (${row.matchedTruck.name}).`);
-            continue;
-          }
-
-          try {
-            const payload = {
-              deviceId: row.matchedTruck.id,
-              truckName: row.matchedTruck.name,
-              start: this.toGpsDatetimeFromDate(row.startDate),
-              end: this.toGpsDatetimeFromDate(row.endDate),
-              persist: true,
-              note: row.note || '',
-              sourceFileName: row.sourceFileName || '',
-              sourceRow: row.sourceRow,
-              sourceType: 'import'
-            };
-
-            const res = await fetch(this.api('/api/transport-report/calculate'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            const json = await res.json();
-            if (!res.ok) throw new Error(json.error || 'Erreur calcul import');
-            imported += 1;
-            knownFingerprints.add(fingerprint);
-            if (json.savedRow) this.rows.unshift(json.savedRow);
-            else if (json.summary) this.rows.unshift(json.summary);
-            row.duplicateDb = true;
-            completed += 1;
-            this.updateImportProgress(completed, targetRows.length, `Import mission ${row.matchedTruck.name}`);
-            this.appendImportLog(`✓ Ligne ${row.sourceRow} importée: ${row.matchedTruck.name} • ${this.formatDateTime(row.startDate)} → ${this.formatDateTime(row.endDate)}`);
-          } catch (error) {
-            const reason = error.message || 'erreur';
-            errors.push(`L${row.sourceRow} ${row.truckInput}: ${reason}`);
-            completed += 1;
-            this.updateImportProgress(completed, targetRows.length, 'Erreur sur une ligne');
-            this.appendImportLog(`✗ Ligne ${row.sourceRow} échouée: ${row.truckInput} • ${reason}`);
-            try {
-              await this.persistImportIssueRow(row, reason);
-              issueSaved += 1;
-            } catch (persistError) {
-              this.appendImportLog(`✗ Ligne ${row.sourceRow} non historisée: ${persistError.message || 'erreur'}`);
-            }
-          }
-        }
-      })());
-
-      await Promise.all(workers);
-
-      this.importInFlight = false;
-      this.updateImportControls();
-
-      const statusMessage = this.importCancelled
-        ? `Import arrêté • ${imported} importée(s), ${errors.length} erreur(s), ${issueSaved} en revue`
-        : (errors.length
-          ? `Import terminé • ${imported} importée(s), ${errors.length} erreur(s), ${issueSaved} en revue`
-          : `Import terminé • ${imported} ligne(s) ajoutée(s), ${issueSaved} en revue`);
-      this.showToast(statusMessage, errors.length ? 'info' : 'success');
-
-      if (skipped) this.appendImportLog(`ℹ ${skipped} doublon(s) ignoré(s).`);
-      if (errors.length) this.appendImportLog(`⚠ ${errors.length} erreur(s) au total.`);
-      if (issueSaved) this.appendImportLog(`🧾 ${issueSaved} ligne(s) enregistrée(s) dans l'historique à revoir.`);
-      if (readyRows.length > targetRows.length) this.appendImportLog(`ℹ ${readyRows.length - targetRows.length} ligne(s) restante(s) hors lot actuel.`);
-
-      this.importSummary = this.summarizeImportRows(this.importRows);
-      this.renderImportSummary();
-      await this.loadRows();
+  for (const row of issueCandidates) {
+    try {
+      await this.persistImportIssueRow(row, row.issueReason || 'Ligne non importable automatiquement');
+      issueSaved += 1;
+      this.appendImportLog(`⚠ Ligne ${row.sourceRow} mise en revue: ${row.truckInput || '-'} • ${row.issueReason || 'À corriger manuellement'}`);
+    } catch (error) {
+      this.appendImportLog(`✗ Ligne ${row.sourceRow} non historisée: ${error.message || 'erreur'}`);
     }
+  }
 
+  const queue = targetRows.slice();
+  const workerCount = Math.min(8, Math.max(1, queue.length));
+  const workers = Array.from({ length: workerCount }, () => (async () => {
+    while (queue.length && !this.importCancelled) {
+      const row = queue.shift();
+      if (!row) break;
+
+      const fingerprint = row.fingerprint;
+      if (fingerprint && knownFingerprints.has(fingerprint)) {
+        skipped += 1;
+        completed += 1;
+        this.updateImportProgress(completed, targetRows.length, 'Doublon ignoré');
+        this.appendImportLog(`↷ Ligne ${row.sourceRow} ignorée: déjà présente (${row.matchedTruck.name}).`);
+        continue;
+      }
+
+      try {
+        // === CORRECTION DU DÉCALAGE HORAIRE (+1h) ===
+        let adjustedStart = new Date(row.startDate);
+        let adjustedEnd = new Date(row.endDate);
+        adjustedStart.setHours(adjustedStart.getHours() - 1);
+        adjustedEnd.setHours(adjustedEnd.getHours() - 1);
+        // ===========================================
+
+        const payload = {
+          deviceId: row.matchedTruck.id,
+          truckName: row.matchedTruck.name,
+          start: this.toGpsDatetimeFromDate(adjustedStart),
+          end: this.toGpsDatetimeFromDate(adjustedEnd),
+          persist: true,
+          note: row.note || '',
+          sourceFileName: row.sourceFileName || '',
+          sourceRow: row.sourceRow,
+          sourceType: 'import'
+        };
+
+        const res = await fetch(this.api('/api/transport-report/calculate'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Erreur calcul import');
+        imported += 1;
+        knownFingerprints.add(fingerprint);
+        if (json.savedRow) this.rows.unshift(json.savedRow);
+        else if (json.summary) this.rows.unshift(json.summary);
+        row.duplicateDb = true;
+        completed += 1;
+        this.updateImportProgress(completed, targetRows.length, `Import mission ${row.matchedTruck.name}`);
+        this.appendImportLog(`✓ Ligne ${row.sourceRow} importée: ${row.matchedTruck.name} • ${this.formatDateTime(adjustedStart)} → ${this.formatDateTime(adjustedEnd)}`);
+      } catch (error) {
+        const reason = error.message || 'erreur';
+        errors.push(`L${row.sourceRow} ${row.truckInput}: ${reason}`);
+        completed += 1;
+        this.updateImportProgress(completed, targetRows.length, 'Erreur sur une ligne');
+        this.appendImportLog(`✗ Ligne ${row.sourceRow} échouée: ${row.truckInput} • ${reason}`);
+        try {
+          await this.persistImportIssueRow(row, reason);
+          issueSaved += 1;
+        } catch (persistError) {
+          this.appendImportLog(`✗ Ligne ${row.sourceRow} non historisée: ${persistError.message || 'erreur'}`);
+        }
+      }
+    }
+  })());
+
+  await Promise.all(workers);
+
+  this.importInFlight = false;
+  this.updateImportControls();
+
+  const statusMessage = this.importCancelled
+    ? `Import arrêté • ${imported} importée(s), ${errors.length} erreur(s), ${issueSaved} en revue`
+    : (errors.length
+      ? `Import terminé • ${imported} importée(s), ${errors.length} erreur(s), ${issueSaved} en revue`
+      : `Import terminé • ${imported} ligne(s) ajoutée(s), ${issueSaved} en revue`);
+  this.showToast(statusMessage, errors.length ? 'info' : 'success');
+
+  if (skipped) this.appendImportLog(`ℹ ${skipped} doublon(s) ignoré(s).`);
+  if (errors.length) this.appendImportLog(`⚠ ${errors.length} erreur(s) au total.`);
+  if (issueSaved) this.appendImportLog(`🧾 ${issueSaved} ligne(s) enregistrée(s) dans l'historique à revoir.`);
+  if (readyRows.length > targetRows.length) this.appendImportLog(`ℹ ${readyRows.length - targetRows.length} ligne(s) restante(s) hors lot actuel.`);
+
+  this.importSummary = this.summarizeImportRows(this.importRows);
+  this.renderImportSummary();
+  await this.loadRows();
+}
     setDefaultDates() {
       if (!this.fromInput || !this.toInput) return;
       const now = new Date();
