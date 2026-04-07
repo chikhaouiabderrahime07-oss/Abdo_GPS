@@ -1229,8 +1229,7 @@
 
     parseSpreadsheetDate(value) {
       if (value instanceof Date && !Number.isNaN(value.getTime())) {
-        // SheetJS returns Excel dates as UTC, but Excel stores local time.
-        // Compensate for timezone offset so "10:00" in Excel stays "10:00" here.
+        // SheetJS returns Excel dates as UTC, but Excel stores local time — correct the offset
         const tzOffset = value.getTimezoneOffset() * 60000;
         return new Date(value.getTime() + tzOffset);
       }
@@ -1657,7 +1656,14 @@
 
     formatDateTime(value) {
       if (!value) return '-';
-      const date = value instanceof Date ? value : new Date(value);
+      let date;
+      if (value instanceof Date) {
+        date = value;
+      } else {
+        // "2026-04-07 13:02:00" with a space is parsed as UTC by browsers.
+        // Replace space with T so it becomes "2026-04-07T13:02:00" = LOCAL time.
+        date = new Date(String(value).trim().replace(' ', 'T'));
+      }
       if (Number.isNaN(date.getTime())) return String(value);
       return date.toLocaleString('fr-FR');
     }
@@ -1684,7 +1690,7 @@
 
     splitDateTime(value) {
       if (!value) return { date: '-', time: '' };
-      const date = value instanceof Date ? value : new Date(value);
+      const date = value instanceof Date ? value : new Date(String(value).trim().replace(' ', 'T'));
       if (Number.isNaN(date.getTime())) return { date: String(value), time: '' };
       return {
         date: date.toLocaleDateString('fr-FR'),
