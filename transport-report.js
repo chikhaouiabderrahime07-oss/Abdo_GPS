@@ -1228,11 +1228,7 @@
     }
 
     parseSpreadsheetDate(value) {
-      if (value instanceof Date && !Number.isNaN(value.getTime())) {
-        // SheetJS returns Excel dates as UTC, but Excel stores local time — correct the offset
-        const tzOffset = value.getTimezoneOffset() * 60000;
-        return new Date(value.getTime() + tzOffset);
-      }
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return new Date(value.getTime());
 
       if (typeof value === 'number' && window.XLSX && window.XLSX.SSF && typeof window.XLSX.SSF.parse_date_code === 'function') {
         const parsed = window.XLSX.SSF.parse_date_code(value);
@@ -1275,12 +1271,12 @@
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     }
 
-    toMinuteKey(date) {
-      const d = date instanceof Date ? date : new Date(date);
-      if (Number.isNaN(d.getTime())) return '';
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    }
+toMinuteKey(value) {
+  const d = this.parseAppDateTime(value);
+  if (!d) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
     buildRowFingerprint(truckName, startValue, endValue) {
       const truckKey = this.normalizeTruckName(truckName);
@@ -1636,11 +1632,64 @@
       this.toInput.value = this.toDatetimeLocal(now);
     }
 
-    toDatetimeLocal(value) {
-      const date = value instanceof Date ? value : new Date(value);
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    }
+parseAppDateTime(value) {
+  if (value === null || value === undefined || value === '') return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (typeof value === 'number') {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  // IMPORTANT:
+  // We parse the clock values manually and IGNORE timezone conversion,
+  // so 10:00 always stays 10:00.
+  let match = text.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?)?(?:Z|[+\-]\d{2}:?\d{2})?$/
+  );
+  if (match) {
+    const [, yyyy, mm, dd, hh = '0', mi = '0', ss = '0', ms = '0'] = match;
+    return new Date(
+      Number(yyyy),
+      Number(mm) - 1,
+      Number(dd),
+      Number(hh),
+      Number(mi),
+      Number(ss),
+      Number(String(ms).padEnd(3, '0'))
+    );
+  }
+
+  match = text.match(
+    /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:[ T](\d{1,2})[:h](\d{2})(?::(\d{2}))?)?$/
+  );
+  if (match) {
+    const [, dd, mm, yyyy, hh = '0', mi = '0', ss = '0'] = match;
+    return new Date(
+      Number(yyyy),
+      Number(mm) - 1,
+      Number(dd),
+      Number(hh),
+      Number(mi),
+      Number(ss)
+    );
+  }
+
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+toGpsDatetimeFromDate(date) {
+  const d = this.parseAppDateTime(date);
+  if (!d) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
 
     toGpsDatetime(value) {
       if (!value) return '';
@@ -1654,19 +1703,19 @@
       return Number.isNaN(date.getTime()) ? null : date;
     }
 
-    formatDateTime(value) {
-      if (!value) return '-';
-      let date;
-      if (value instanceof Date) {
-        date = value;
-      } else {
-        // "2026-04-07 13:02:00" with a space is parsed as UTC by browsers.
-        // Replace space with T so it becomes "2026-04-07T13:02:00" = LOCAL time.
-        date = new Date(String(value).trim().replace(' ', 'T'));
-      }
-      if (Number.isNaN(date.getTime())) return String(value);
-      return date.toLocaleString('fr-FR');
-    }
+formatDateTime(value) {
+  if (!value) return '-';
+  const date = this.parseAppDateTime(value);
+  if (!date) return String(value);
+  return date.toLocaleString('fr-FR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
 
     formatNumber(value, digits = 2) {
       const num = Number(value || 0);
@@ -1688,15 +1737,19 @@
       return `"${text.replace(/"/g, '""')}"`;
     }
 
-    splitDateTime(value) {
-      if (!value) return { date: '-', time: '' };
-      const date = value instanceof Date ? value : new Date(String(value).trim().replace(' ', 'T'));
-      if (Number.isNaN(date.getTime())) return { date: String(value), time: '' };
-      return {
-        date: date.toLocaleDateString('fr-FR'),
-        time: date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-      };
-    }
+splitDateTime(value) {
+  if (!value) return { date: '-', time: '' };
+  const date = this.parseAppDateTime(value);
+  if (!date) return { date: String(value), time: '' };
+
+  return {
+    date: date.toLocaleDateString('fr-FR'),
+    time: date.toLocaleTimeString('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  };
+}
 
     extractCoordsFromLocation(value) {
       const text = String(value || '').trim();
@@ -2503,10 +2556,11 @@
         truckName: row.matchedTruck ? row.matchedTruck.name : (row.truckInput || ''),
         inputTruckName: row.truckInput || '',
         deviceId: row.matchedTruck ? row.matchedTruck.id : '',
-        requestedStartAt: row.startDate,
-        requestedEndAt: row.endDate,
-        startAt: row.startDate,
-        endAt: row.endDate,
+requestedStartAt: this.toGpsDatetimeFromDate(row.startDate),
+requestedEndAt: this.toGpsDatetimeFromDate(row.endDate),
+startAt: this.toGpsDatetimeFromDate(row.startDate),
+endAt: this.toGpsDatetimeFromDate(row.endDate),
+
         note: row.note || '',
         warnings: [],
         status: 'issue',
@@ -2609,8 +2663,8 @@
         inputTruckName: truckName || this.editingRow.inputTruckName || this.editingRow.truckName || '',
         start: this.editStart ? this.toGpsDatetime(this.editStart.value) : '',
         end: this.editEnd ? this.toGpsDatetime(this.editEnd.value) : '',
-        requestedStartAt: this.editStart ? this.editStart.value : null,
-        requestedEndAt: this.editEnd ? this.editEnd.value : null,
+requestedStartAt: this.editStart && this.editStart.value ? this.toGpsDatetime(this.editStart.value) : null,
+requestedEndAt: this.editEnd && this.editEnd.value ? this.toGpsDatetime(this.editEnd.value) : null,
         kmTotal: this.editKm ? this.editKm.value : 0,
         fuelStart: this.editFuelStart ? this.editFuelStart.value : 0,
         fuelEnd: this.editFuelEnd ? this.editFuelEnd.value : 0,
