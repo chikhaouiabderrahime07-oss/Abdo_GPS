@@ -102,30 +102,25 @@ const FLEETCONFIG = {
     //
     // -------------------------------------------------------
     REFUEL_RULES: {
-        minRefuelLiters: 50,
+        minRefuelLiters: 60,
         stopSpeedThreshold: 4,
-        minStopMinutes: 3,
+        minStopMinutes: 2,
         requireIgnOff: false,
-        dedupeMinutes: 12,
+        dedupeMinutes: 20,
         dedupeLitersTolerance: 12,
         stableAfterIncreaseMinutes: 4,
-        settleToleranceLiters: 6,
         // --- Advanced (Chinese GPS) ---
-        minOffMinutes: 3,
-        postOnMaxMinutes: 12,
-        postOnMinSeconds: 90,
+        minOffMinutes: 2,
+        postOnMaxMinutes: 10,
+        postOnMinSeconds: 60,
         movingSpeedThreshold: 1,
-        baselineDropToleranceLiters: 20,
-        sensorSmoothingWindow: 7,
+        baselineDropToleranceLiters: 25,
+        sensorSmoothingWindow: 5,
         ignorePercentBelow: 1,
         ignorePercentAbove: 100,
         maxRealisticRefillLiters: 600,
-        requireEngineOff: false,
-        sensorType: 'io87',
-        baselineWindowMinutes: 12,
-        plateauWindowMinutes: 10,
-        maxRiseMinutes: 75,
-        maxStationarySpreadMeters: 300
+        requireEngineOff: false,  // ★ Set true ONLY if your GPS has io1 ignition sensor. false = speed-based detection (works for ALL Chinese GPS)
+        sensorType: 'io87'
     },
 
     // --- GLOBAL DEFAULT CONFIG ---
@@ -493,7 +488,6 @@ function calculateFuelMetricsFromParams(params, config) {
     };
 }
 
-
 function medianForNumbers(values) {
     const safe = (Array.isArray(values) ? values : [])
         .map(v => parseFloat(v))
@@ -592,22 +586,23 @@ function calculateClusterSpreadMeters(points) {
     return maxMeters;
 }
 
+
 function detectRefillEventsFromSeries(points, options = {}) {
-    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 50) || 50;
+    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 60) || 60;
     const maxParsed = parseFloat(options.maxRealisticRefillLiters);
     const maxRealisticRefillLiters = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
     const stopSpeedThreshold = parseFloat(options.stopSpeedThreshold ?? 4) || 4;
-    const minStopMs = Math.max(60 * 1000, (parseFloat(options.minStopMinutes ?? options.minOffMinutes ?? 3) || 3) * 60 * 1000);
-    const stableAfterMs = Math.max(60 * 1000, (parseFloat(options.stableAfterIncreaseMinutes ?? 4) || 4) * 60 * 1000);
-    const dedupeMs = Math.max(0, (parseFloat(options.dedupeMinutes ?? 12) || 0) * 60 * 1000);
+    const minStopMs = Math.max(60 * 1000, (parseFloat(options.minStopMinutes ?? options.minOffMinutes ?? 2) || 2) * 60 * 1000);
+    const stableAfterMs = Math.max(60 * 1000, (parseFloat(options.stableAfterIncreaseMinutes ?? 3) || 3) * 60 * 1000);
+    const dedupeMs = Math.max(0, (parseFloat(options.dedupeMinutes ?? 20) || 0) * 60 * 1000);
     const dedupeLitersTolerance = parseFloat(options.dedupeLitersTolerance ?? 12) || 12;
     const settleToleranceLiters = parseFloat(options.settleToleranceLiters ?? dedupeLitersTolerance ?? 6) || 6;
-    const sensorSmoothingWindow = Math.max(1, parseInt(options.sensorSmoothingWindow ?? 7, 10) || 7);
+    const sensorSmoothingWindow = Math.max(1, parseInt(options.sensorSmoothingWindow ?? 5, 10) || 5);
     const requireIgnOff = options.requireIgnOff === true || options.requireEngineOff === true;
-    const baselineWindowMs = Math.max(2 * 60 * 1000, (parseFloat(options.baselineWindowMinutes ?? 12) || 12) * 60 * 1000);
-    const plateauWindowMs = Math.max(stableAfterMs, (parseFloat(options.plateauWindowMinutes ?? 10) || 10) * 60 * 1000);
-    const maxRiseMs = Math.max(5 * 60 * 1000, (parseFloat(options.maxRiseMinutes ?? 75) || 75) * 60 * 1000);
-    const maxStationarySpreadMeters = Math.max(100, parseFloat(options.maxStationarySpreadMeters ?? 300) || 300);
+    const baselineWindowMs = Math.max(2 * 60 * 1000, (parseFloat(options.baselineWindowMinutes ?? 20) || 20) * 60 * 1000);
+    const plateauWindowMs = Math.max(stableAfterMs, (parseFloat(options.plateauWindowMinutes ?? 15) || 15) * 60 * 1000);
+    const maxRiseMs = Math.max(5 * 60 * 1000, (parseFloat(options.maxRiseMinutes ?? 180) || 180) * 60 * 1000);
+    const maxStationarySpreadMeters = Math.max(100, parseFloat(options.maxStationarySpreadMeters ?? 650) || 650);
 
     const prepared = smoothFuelSeriesPoints(points, sensorSmoothingWindow, maxRealisticRefillLiters);
     if (prepared.length < 3) return [];
@@ -617,8 +612,9 @@ function detectRefillEventsFromSeries(points, options = {}) {
     });
 
     const events = [];
+    const softMinRefuelLiters = Math.max(20, Math.round(minRefuelLiters * 0.75));
     const stepTriggerLiters = Math.max(2, Math.min(8, minRefuelLiters * 0.08));
-    const riseThresholdLiters = Math.max(stepTriggerLiters * 2, Math.min(14, minRefuelLiters * 0.22));
+    const riseThresholdLiters = Math.max(stepTriggerLiters * 2, Math.min(12, Math.max(8, minRefuelLiters * 0.2)));
     const negativeNoiseTolerance = Math.max(2, Math.min(settleToleranceLiters, minRefuelLiters * 0.12));
     const plateauSpreadMax = Math.max(4, settleToleranceLiters * 1.25);
 
@@ -694,12 +690,12 @@ function detectRefillEventsFromSeries(points, options = {}) {
                     riseDurationMs >= 60 * 1000 && riseDurationMs <= maxRiseMs,
                     plateauStable,
                     locationSpreadMeters <= maxStationarySpreadMeters,
-                    maxSpeedDuringCluster <= (stopSpeedThreshold + 2),
+                    maxSpeedDuringCluster <= (stopSpeedThreshold + 3),
                     positiveSteps >= 2 && negativeSteps <= Math.max(2, positiveSteps)
                 ];
                 const confidence = qualityChecks.filter(Boolean).length / qualityChecks.length;
 
-                if (qualityChecks[0] && qualityChecks[1] && plateauStable && (confidence >= 0.66 || rise >= (minRefuelLiters * 1.5))) {
+                if (qualityChecks[0] && qualityChecks[1] && plateauStable && (confidence >= 0.66 || rise >= (minRefuelLiters * 1.35))) {
                     events.push({
                         index: peakPoint.index,
                         time: peakPoint.time,
@@ -739,14 +735,14 @@ function detectRefillEventsFromSeries(points, options = {}) {
         const maxSpeedDuringCluster = Math.max(prev.speed || 0, cur.speed || 0, next.speed || 0, (prepared[i + 2] && prepared[i + 2].speed) || 0);
 
         if (
-            stopishCount >= 2 &&
+            stopishCount >= 1 &&
             gapMs >= 60 * 1000 &&
             gapMs <= maxRiseMs &&
             netRise >= minRefuelLiters &&
             netRise <= maxRealisticRefillLiters &&
-            plateauSpread <= plateauSpreadMax &&
-            locationSpreadMeters <= maxStationarySpreadMeters &&
-            maxSpeedDuringCluster <= (stopSpeedThreshold + 2)
+            plateauSpread <= (plateauSpreadMax + 2) &&
+            locationSpreadMeters <= (maxStationarySpreadMeters * 1.35) &&
+            maxSpeedDuringCluster <= (stopSpeedThreshold + 8)
         ) {
             events.push({
                 index: cur.index,
@@ -760,8 +756,60 @@ function detectRefillEventsFromSeries(points, options = {}) {
                 newLevel: Math.round(postStable),
                 speed: cur.speed,
                 ign: cur.ign,
-                confidence: 0.72,
-                detectionMode: 'sparse-window'
+                confidence: stopishCount >= 2 ? 0.76 : 0.68,
+                detectionMode: stopishCount >= 2 ? 'sparse-window' : 'sparse-jump'
+            });
+        }
+    }
+
+    for (let i = 1; i < prepared.length - 2; i += 1) {
+        const beforeWindow = prepared.slice(Math.max(0, i - 2), i + 1);
+        const afterWindow = prepared.slice(i + 1, Math.min(prepared.length, i + 5));
+        if (afterWindow.length < 2) continue;
+        const baselineValues = beforeWindow.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
+        const afterValues = afterWindow.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
+        if (!baselineValues.length || !afterValues.length) continue;
+
+        const baseline = Math.min(medianForNumbers(baselineValues), ...baselineValues);
+        const postStable = medianForNumbers(afterValues);
+        const rise = postStable - baseline;
+        const postSpread = Math.max(...afterValues) - Math.min(...afterValues);
+        const clusterPoints = beforeWindow.concat(afterWindow);
+        const stopishCount = clusterPoints.filter((point) => point.isStopLike).length;
+        const speedMax = clusterPoints.reduce((max, point) => Math.max(max, point.speed || 0), 0);
+        const locationSpreadMeters = calculateClusterSpreadMeters(clusterPoints);
+        const durationMs = (afterWindow[afterWindow.length - 1].time || 0) - (beforeWindow[0].time || 0);
+        const sustainedCount = afterWindow.filter((point) => Math.abs((point.litersSmooth || 0) - postStable) <= Math.max(plateauSpreadMax + 2, settleToleranceLiters + 2)).length;
+        const candidatePoint = afterWindow.reduce((best, point) => ((point.litersSmooth || 0) > (best.litersSmooth || 0) ? point : best), afterWindow[0]);
+
+        if (
+            durationMs >= 60 * 1000 &&
+            durationMs <= (maxRiseMs * 1.25) &&
+            rise >= Math.max(minRefuelLiters, softMinRefuelLiters) &&
+            rise <= maxRealisticRefillLiters &&
+            postSpread <= (plateauSpreadMax + 3) &&
+            sustainedCount >= 2 &&
+            locationSpreadMeters <= (maxStationarySpreadMeters * 1.5) &&
+            speedMax <= (stopSpeedThreshold + 10)
+        ) {
+            let confidence = 0.62;
+            if (stopishCount >= 2) confidence += 0.1;
+            if (postSpread <= plateauSpreadMax) confidence += 0.06;
+            if (speedMax <= (stopSpeedThreshold + 2)) confidence += 0.06;
+            events.push({
+                index: candidatePoint.index,
+                time: candidatePoint.time,
+                startTimeMs: beforeWindow[0].time,
+                endTimeMs: afterWindow[afterWindow.length - 1].time,
+                lat: candidatePoint.lat,
+                lng: candidatePoint.lng,
+                addedLiters: Math.round(rise),
+                oldLevel: Math.round(baseline),
+                newLevel: Math.round(postStable),
+                speed: candidatePoint.speed,
+                ign: candidatePoint.ign,
+                confidence: Math.round(Math.min(0.86, confidence) * 100) / 100,
+                detectionMode: 'jump-hold'
             });
         }
     }
@@ -772,9 +820,11 @@ function detectRefillEventsFromSeries(points, options = {}) {
         return Number.isFinite(added) &&
             added >= minRefuelLiters &&
             added <= maxRealisticRefillLiters &&
-            (!Number.isFinite(confidence) || confidence >= 0.66);
+            (!Number.isFinite(confidence) || confidence >= 0.56 || added >= Math.round(minRefuelLiters * 1.15));
     });
 }
+
+// ============================================================
 
 // =====================================================
 // AUTO-RESOLVE BACKEND URL

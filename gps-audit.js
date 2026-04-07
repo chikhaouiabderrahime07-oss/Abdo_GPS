@@ -488,7 +488,7 @@ class GPSAuditor {
 
     const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
       ? detectRefillEventsFromSeries(series, {
-          minRefuelLiters: 50,
+          minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
           maxRealisticRefillLiters: Math.max(600, Math.round((capacity || 600) + 50)),
           dedupeMinutes: 5,
           dedupeLitersTolerance: 10,

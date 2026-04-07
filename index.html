@@ -169,46 +169,23 @@
     /* =========================================
        2. NAVIGATION BAR
        ========================================= */
-/* =========================================
-       2. NAVIGATION BAR
-       ========================================= */
+        /* ── V3.0 NAVBAR ── */
     .tabs {
         background: #ffffff;
-        padding: 8px 16px;
-        min-height: 62px;
+        padding: 0 24px;
+        height: 62px;
         box-shadow: 0 2px 12px rgba(0,0,0,0.08);
         border-bottom: 1px solid #e2e8f0;
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 4px;
         position: relative;
         z-index: 100;
-        overflow: hidden;
-    }
-
-    .tabs-nav-scroll {
-        display: flex;
-        align-items: center;
-        gap: 10px;
         overflow-x: auto;
         overflow-y: hidden;
-        flex: 1 1 auto;
-        min-width: 0;
-        padding-bottom: 2px;
-        scrollbar-width: thin;
-        scrollbar-color: #cbd5e1 transparent;
     }
-    .tabs-nav-scroll::-webkit-scrollbar { height: 4px; }
-    .tabs-nav-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
-
-    .tabs-side-tools {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex: 0 0 auto;
-        padding-left: 12px;
-        border-left: 1px solid #e2e8f0;
-    }
+    .tabs::-webkit-scrollbar { height: 3px; }
+    .tabs::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 
     .nav-group {
         display: flex;
@@ -219,9 +196,13 @@
         border-radius: 12px;
         border: 1px solid #e2e8f0;
         background: #ffffff;
+        margin-right: 10px;
         flex-shrink: 0;
     }
+    /* Old separator line not needed anymore (we use color-coded groups) */
     .nav-group:not(:last-child)::after { display: none; }
+
+    /* ✅ Clear visual grouping (as requested) */
     .nav-group.group-supervision { background: #f8fafc; }
     .nav-group.group-fuel { background: #eff6ff; border-color: #bfdbfe; }
     .nav-group.group-maintenance { background: #fff7ed; border-color: #fed7aa; }
@@ -253,6 +234,7 @@
         background: #1e293b !important;
         color: #ffffff !important;
         box-shadow: 0 2px 8px rgba(30,41,59,0.25);
+        margin-right: 10px;
         padding: 8px 16px;
     }
     .btn-dashboard i { color: #38bdf8 !important; }
@@ -272,31 +254,8 @@
     .btn-audit:hover { background: #dcfce7 !important; color: #166534 !important; }
     .btn-audit.active { background: #dcfce7; color: #166534; }
 
-    .quick-jump-container {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        min-width: 180px;
-        padding: 7px 12px;
-        background: #f8fafc;
-        border: 1.5px solid #e2e8f0;
-        border-radius: 50px;
-        color: #64748b;
-    }
-    .quick-jump-container i { color: #64748b; font-size: 13px; flex-shrink: 0; }
-    .quick-jump-container select {
-        border: none;
-        background: transparent;
-        outline: none;
-        width: 100%;
-        font-size: 12px;
-        font-weight: 700;
-        color: #0f172a;
-        cursor: pointer;
-    }
-
     .global-search-container {
-        margin-left: 0;
+        margin-left: auto;
         flex-shrink: 0;
         background: #f8fafc;
         border: 1.5px solid #e2e8f0;
@@ -304,8 +263,7 @@
         padding: 7px 15px;
         display: flex;
         align-items: center;
-        width: 260px;
-        min-width: 260px;
+        width: 240px;
         gap: 8px;
         transition: all 0.2s;
     }
@@ -313,38 +271,6 @@
     .global-search-container i { color: #94a3b8; font-size: 13px; flex-shrink: 0; }
     .global-search-container input { border: none; background: transparent; outline: none; width: 100%; font-size: 13px; font-weight: 600; color: #0f172a; }
     .global-search-container input::placeholder { font-weight: 500; color: #94a3b8; }
-
-    @media (max-width: 1320px) {
-        .tabs {
-            flex-wrap: wrap;
-            align-items: stretch;
-        }
-        .tabs-side-tools {
-            width: 100%;
-            padding-left: 0;
-            padding-top: 8px;
-            border-left: none;
-            border-top: 1px solid #e2e8f0;
-            justify-content: space-between;
-        }
-        .global-search-container {
-            width: auto;
-            min-width: 260px;
-            flex: 1 1 280px;
-        }
-    }
-
-    @media (max-width: 860px) {
-        .tabs-side-tools {
-            flex-direction: column;
-            align-items: stretch;
-        }
-        .quick-jump-container,
-        .global-search-container {
-            width: 100%;
-            min-width: 0;
-        }
-    }
 
     /* =========================================
        3. CONTENT & UTILITIES
@@ -549,77 +475,65 @@
       </div>
     </div>
   </header>
+
   <div class="tabs">
-      <div class="tabs-nav-scroll">
-          <button class="tab-button btn-dashboard active" data-tab="dashboard" onclick="switchTab('dashboard')">
-              <i class="fa-solid fa-chart-pie"></i> DASHBOARD
+
+      <!-- Dashboard -->
+      <button class="tab-button btn-dashboard active" data-tab="dashboard" onclick="switchTab('dashboard')">
+          <i class="fa-solid fa-chart-pie"></i> DASHBOARD
+      </button>
+
+      <!-- Supervision -->
+      <div class="nav-group group-supervision">
+          <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')">
+              <i class="fa-solid fa-map"></i> Mapping & Zones
           </button>
-
-          <div class="nav-group group-supervision">
-              <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')">
-                  <i class="fa-solid fa-map"></i> Mapping & Zones
-              </button>
-          </div>
-
-          <div class="nav-group group-fuel">
-              <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')">
-                  <i class="fa-solid fa-gas-pump"></i> Carburant
-              </button>
-              <button class="tab-button btn-calc" data-tab="routing" onclick="switchTab('routing')">
-                  <i class="fa-solid fa-calculator"></i> Calc. Trajet
-              </button>
-          </div>
-
-          <div class="nav-group group-maintenance">
-              <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')">
-                  <i class="fa-solid fa-wrench"></i> Vidanges
-              </button>
-              <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')">
-                  <i class="fa-solid fa-clipboard-check"></i> Historique
-              </button>
-          </div>
-
-          <div class="nav-group group-reports">
-              <button class="tab-button" data-tab="transportReport" onclick="switchTab('transportReport'); window.transportReportSection && window.transportReportSection.onTabOpen();">
-                  <i class="fa-solid fa-table"></i> Rapport Transport
-              </button>
-              <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')">
-                  <i class="fa-solid fa-file-contract"></i> Rapport
-              </button>
-          </div>
-
-          <div class="nav-group group-audit">
-              <button class="tab-button btn-audit" onclick="window.open('gps-checker.html', '_blank')">
-                  <i class="fa-solid fa-user-secret"></i> GPS AUDIT
-              </button>
-              <button class="tab-button btn-settings-danger" data-tab="settings" onclick="switchTab('settings')" title="⚠️ Configuration Système - Zone Réservée">
-                  <i class="fa-solid fa-skull-crossbones"></i> PARAMÈTRES
-              </button>
-          </div>
       </div>
 
-      <div class="tabs-side-tools">
-          <div class="quick-jump-container" title="Accès rapide">
-              <i class="fa-solid fa-bolt"></i>
-              <select id="quickJumpSelect">
-                  <option value="">Accès rapide</option>
-                  <option value="dashboard">Dashboard</option>
-                  <option value="byWilaya">Mapping & Zones</option>
-                  <option value="fuelSection">Carburant</option>
-                  <option value="routing">Calc. Trajet</option>
-                  <option value="vidangeSection">Vidanges</option>
-                  <option value="maintenanceHistory">Historique maintenance</option>
-                  <option value="transportReport">Rapport Transport</option>
-                  <option value="reports">Centre Rapport</option>
-                  <option value="settings">Paramètres</option>
-                  <option value="__gps_audit__">GPS Audit</option>
-              </select>
-          </div>
+      <!-- Carburant -->
+      <div class="nav-group group-fuel">
+          <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')">
+              <i class="fa-solid fa-gas-pump"></i> Carburant
+          </button>
+          <button class="tab-button btn-calc" data-tab="routing" onclick="switchTab('routing')">
+              <i class="fa-solid fa-calculator"></i> Calc. Trajet
+          </button>
+      </div>
 
-          <div class="global-search-container">
-              <i class="fa-solid fa-magnifying-glass"></i>
-              <input type="text" id="globalSearchInput" placeholder="Rechercher un camion...  /" autocomplete="off">
-          </div>
+      <!-- Vidange & Maintenance -->
+      <div class="nav-group group-maintenance">
+          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')">
+              <i class="fa-solid fa-wrench"></i> Vidanges
+          </button>
+          <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')">
+              <i class="fa-solid fa-clipboard-check"></i> Historique
+          </button>
+      </div>
+
+      <!-- Rapport (alone) -->
+      <div class="nav-group group-reports">
+          <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')">
+              <i class="fa-solid fa-file-contract"></i> Rapport
+          </button>
+          <button class="tab-button" data-tab="transportReport" onclick="switchTab('transportReport')">
+              <i class="fa-solid fa-truck-ramp-box"></i> Rapport Transport
+          </button>
+      </div>
+
+      <!-- Audit GPS (alone) -->
+      <div class="nav-group group-audit">
+          <button class="tab-button btn-audit" onclick="window.open('gps-checker.html', '_blank')">
+              <i class="fa-solid fa-user-secret"></i> GPS AUDIT
+          </button>
+            <button class="tab-button btn-settings-danger" data-tab="settings" onclick="switchTab('settings')" title="⚠️ Configuration Système - Zone Réservée">
+                <i class="fa-solid fa-skull-crossbones"></i> PARAMÈTRES
+            </button>
+      </div>
+
+      <!-- Search -->
+      <div class="global-search-container">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input type="text" id="globalSearchInput" placeholder="Rechercher un camion..." autocomplete="off">
       </div>
   </div>
 
@@ -826,9 +740,6 @@
         <div id="maintenanceListContainer" style="margin-top: 20px;"></div>
       </div>
     </div>
-    <div id="transportReport" class="tab-content">
-      <div id="transportReportApp"></div>
-    </div>
 
     <div id="reports" class="tab-content">
       
@@ -889,10 +800,14 @@
                       <option value="qty_desc">💧 Quantité (Grand)</option>
                   </select>
               </div>
-              <div style="margin-left: auto; display:flex; gap:8px;">
+              <div style="margin-left: auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
                   <button class="btn-secondary" id="applyRefuelFiltersBtn">Filtrer</button>
-                  <button class="btn-secondary" id="rebuildFuelLogsBtn" onclick="window.transportReportSection && window.transportReportSection.rebuildFromReportFilters()"><i class="fa-solid fa-arrows-rotate"></i> Re-scan GPS</button>
-                  <button class="btn-secondary" id="cleanupFuelLogsBtn" onclick="window.transportReportSection && window.transportReportSection.cleanupFromReportFilters()" style="border-color:#fdba74; color:#b45309; background:#fff7ed;"><i class="fa-solid fa-filter-circle-xmark"></i> Nettoyer auto + re-scan</button>
+                  <button class="btn-secondary" id="refuelRescanBtn" title="Relance une analyse complète du carburant sur toute la période sélectionnée.">
+                      <i class="fa-solid fa-rotate"></i> Re-scan période
+                  </button>
+                  <button class="btn-secondary" id="refuelCleanRescanBtn" style="background:#fff7ed; border-color:#fdba74; color:#c2410c;" title="Supprime les remplissages auto de la période puis reconstruit l'historique complet.">
+                      <i class="fa-solid fa-broom"></i> Nettoyer auto + re-scan
+                  </button>
                   <button class="btn-primary" id="exportRefuelsBtn">Exporter</button>
               </div>
           </div>
@@ -933,6 +848,17 @@
           <div id="decouchageDetailView" style="display:none;"><div id="decouchageHistoryContainer"></div></div>
       </div>
 	  
+    </div>
+
+
+    <div id="transportReport" class="tab-content">
+      <div class="controls-section" style="border-left: 5px solid #0284c7;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom: 10px;">
+              <h2 style="color: #0284c7; font-size: 1.1rem; text-transform:uppercase; margin:0;"><i class="fa-solid fa-truck-ramp-box"></i> Rapport Transport</h2>
+              <div style="font-size:12px; color:#64748b; font-weight:700;">Section séparée • import Excel principal • édition possible • export filtré</div>
+          </div>
+          <div id="transportReportApp"></div>
+      </div>
     </div>
 
     <div id="settings" class="tab-content">
@@ -1125,43 +1051,6 @@
 
   <script>
     function switchTab(tab) { if(ui) ui.switchTab(tab); }
-
-    function initTopbarShortcuts() {
-        const quickJump = document.getElementById('quickJumpSelect');
-        if (quickJump && !quickJump.dataset.bound) {
-            quickJump.addEventListener('change', () => {
-                const value = quickJump.value;
-                if (!value) return;
-                if (value === '__gps_audit__') {
-                    window.open('gps-checker.html', '_blank');
-                    quickJump.value = '';
-                    return;
-                }
-                switchTab(value);
-                if (value === 'transportReport' && window.transportReportSection) {
-                    window.transportReportSection.onTabOpen();
-                }
-                quickJump.value = '';
-            });
-            quickJump.dataset.bound = '1';
-        }
-
-        document.addEventListener('keydown', (event) => {
-            const activeTag = document.activeElement && document.activeElement.tagName;
-            const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(activeTag);
-            if (event.key === '/' && !isTyping) {
-                event.preventDefault();
-                const search = document.getElementById('globalSearchInput');
-                if (search) {
-                    search.focus();
-                    if (typeof search.select === 'function') search.select();
-                }
-            }
-        });
-    }
-
-    initTopbarShortcuts();
-
     setInterval(() => {
         const now = new Date();
         const el = document.getElementById('clockDisplay');

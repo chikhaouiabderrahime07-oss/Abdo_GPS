@@ -263,6 +263,8 @@ initElements() {
     this.refuelLocationSearch = document.getElementById('refuelLocationSearch');
     this.refuelSortSelect = document.getElementById('refuelSortSelect');
     this.applyRefuelFiltersBtn = document.getElementById('applyRefuelFiltersBtn');
+    this.refuelRescanBtn = document.getElementById('refuelRescanBtn');
+    this.refuelCleanRescanBtn = document.getElementById('refuelCleanRescanBtn');
     this.exportRefuelsBtn = document.getElementById('exportRefuelsBtn');
     
     // ---------------------------------------------------------
@@ -489,11 +491,17 @@ initElements() {
     if (this.applyRefuelFiltersBtn) {
         this.applyRefuelFiltersBtn.addEventListener('click', () => {
             this.refuelCurrentPage = 1; 
-            this.renderFilteredRefuels();
+            this.fetchAndRenderRefuels();
         });
     }
     if (this.exportRefuelsBtn) {
         this.exportRefuelsBtn.addEventListener('click', () => this.exportRefuelsCSV());
+    }
+    if (this.refuelRescanBtn) {
+        this.refuelRescanBtn.addEventListener('click', () => this.rebuildRefuelHistory(false));
+    }
+    if (this.refuelCleanRescanBtn) {
+        this.refuelCleanRescanBtn.addEventListener('click', () => this.rebuildRefuelHistory(true));
     }
     if (this.refuelSortSelect) {
         this.refuelSortSelect.addEventListener('change', (e) => {
@@ -707,7 +715,7 @@ renderDecouchageList() {
     if(endDate) endDate.setHours(23, 59, 59, 999);
     const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
 
-    const minRefuelExport = parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50);
+    const minRefuelExport = Math.max(60, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60));
     const processedLogs = this.allRefuelLogs.map(log => {
         const truckConfig = getTruckConfig(log.deviceId);
         const capacity = truckConfig.fuelTankCapacity || 600;
@@ -1125,6 +1133,9 @@ if (tabName === 'byWilaya') {
     }
     if (tabName === 'reports') { 
         this.toggleReportView('fuel'); 
+    }
+    if (tabName === 'transportReport' && window.transportReportSection && typeof window.transportReportSection.onTabOpen === 'function') {
+        window.transportReportSection.onTabOpen();
     }
   }
 
@@ -1815,7 +1826,12 @@ if (tabName === 'byWilaya') {
     this.refuelHistoryContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Chargement...</div>';
     
     try {
-        const response = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/refuels`);
+        const params = new URLSearchParams();
+        if (this.refuelDateStart && this.refuelDateStart.value) params.set('start', `${this.refuelDateStart.value} 00:00:00`);
+        if (this.refuelDateEnd && this.refuelDateEnd.value) params.set('end', `${this.refuelDateEnd.value} 23:59:59`);
+        params.set('limit', '20000');
+        const url = `${FLEET_CONFIG.API.baseUrl}/api/refuels${params.toString() ? '?' + params.toString() : ''}`;
+        const response = await fetch(url);
         if (!response.ok) {
             console.warn(`Refuels API returned ${response.status}. Displaying empty state.`);
             this.refuelHistoryContainer.innerHTML = `<div style="color:#666; padding:20px; text-align:center;">Pas de données (Serveur en veille). Réessayez plus tard.</div>`;
@@ -1828,6 +1844,113 @@ if (tabName === 'byWilaya') {
         console.warn("Refuel fetch connection error:", e);
         this.refuelHistoryContainer.innerHTML = `<div style="color:#888; text-align:center; padding:20px;">Connexion impossible pour l'instant.</div>`;
     }
+  }
+
+  async parseJsonResponseSafe(response) {
+      const raw = await response.text();
+      let json = null;
+      try { json = raw ? JSON.parse(raw) : {}; } catch (e) {}
+      if (!response.ok) {
+          const message = (json && (json.error || json.message)) || raw || `Erreur ${response.status}`;
+          throw new Error(message);
+      }
+      return json || {};
+  }
+
+  async resolveRefuelRescanTargets() {
+      let trucks = [];
+      try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks`);
+          const data = await this.parseJsonResponseSafe(res);
+          trucks = Object.entries(data || {}).map(([deviceId, truck]) => ({
+              deviceId: String(deviceId),
+              name: String((truck && truck.name) || deviceId)
+          }));
+      } catch (error) {
+          if (window.app && typeof window.app.getAllTrucks === 'function') {
+              trucks = (window.app.getAllTrucks() || []).map((truck) => ({
+                  deviceId: String(truck.id),
+                  name: String(truck.name || truck.id)
+              }));
+          } else {
+              throw error;
+          }
+      }
+
+      const search = (this.refuelTruckSearch && this.refuelTruckSearch.value || '').toLowerCase().trim();
+      if (!search) return trucks;
+
+      const filtered = trucks.filter((truck) => truck.name.toLowerCase().includes(search) || truck.deviceId.toLowerCase().includes(search));
+      if (filtered.length) return filtered;
+
+      throw new Error(`Aucun camion ne correspond à "${search}" pour le re-scan.`);
+  }
+
+  async rebuildRefuelHistory(purgeExistingAuto = false) {
+      const start = this.refuelDateStart && this.refuelDateStart.value;
+      const end = this.refuelDateEnd && this.refuelDateEnd.value;
+      if (!start || !end) {
+          alert('Choisissez la période dans Historique des Remplissages avant de lancer le re-scan.');
+          return;
+      }
+
+      const targets = await this.resolveRefuelRescanTargets();
+      if (!targets.length) {
+          alert('Aucun camion disponible pour le re-scan.');
+          return;
+      }
+
+      const truckLabel = targets.length === 1 ? targets[0].name : `${targets.length} camion(s)`;
+      const message = purgeExistingAuto
+          ? `Supprimer les remplissages auto puis relancer une analyse complète sur ${truckLabel} pour ${start} → ${end} ?`
+          : `Relancer une analyse complète des remplissages sur ${truckLabel} pour ${start} → ${end} ?`;
+      if (!window.confirm(message)) return;
+
+      const button = purgeExistingAuto ? this.refuelCleanRescanBtn : this.refuelRescanBtn;
+      const otherButton = purgeExistingAuto ? this.refuelRescanBtn : this.refuelCleanRescanBtn;
+      const original = button ? button.innerHTML : '';
+      try {
+          if (button) {
+              button.disabled = true;
+              button.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyse...';
+          }
+          if (otherButton) otherButton.disabled = true;
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/refuels/rebuild-bulk`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  start: `${start} 00:00:00`,
+                  end: `${end} 23:59:59`,
+                  deviceIds: targets.map((truck) => String(truck.deviceId)),
+                  purgeExistingAuto: purgeExistingAuto === true,
+                  persist: true
+              })
+          });
+          const json = await this.parseJsonResponseSafe(res);
+          const summary = json.summary || {};
+          const failedCount = Array.isArray(summary.failed) ? summary.failed.length : 0;
+          alert(
+              `✅ Re-scan terminé.\n` +
+              `Camions traités: ${summary.successCount || 0}/${summary.targetCount || targets.length}\n` +
+              `Créés: ${summary.createdCount || 0}\n` +
+              `Mis à jour: ${summary.updatedCount || 0}\n` +
+              `Ignorés: ${summary.skippedCount || 0}\n` +
+              `Auto supprimés: ${summary.deletedCount || 0}\n` +
+              `Doublons supprimés: ${summary.duplicateDeletedCount || 0}` +
+              (failedCount ? `\nÉchecs: ${failedCount}` : '')
+          );
+          this.refuelCurrentPage = 1;
+          await this.fetchAndRenderRefuels();
+      } catch (error) {
+          console.error('Refuel rebuild failed:', error);
+          alert(`❌ ${error.message || 'Erreur re-scan carburant.'}`);
+      } finally {
+          if (button) {
+              button.disabled = false;
+              button.innerHTML = original;
+          }
+          if (otherButton) otherButton.disabled = false;
+      }
   }
 
 renderFilteredRefuels() {
@@ -1843,6 +1966,7 @@ renderFilteredRefuels() {
     
     const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
     const locationSearch = this.refuelLocationSearch ? this.refuelLocationSearch.value.toLowerCase().trim() : '';
+    const locationType = this.refuelLocationTypeFilter ? this.refuelLocationTypeFilter.value : 'all';
 
     // 2. Process and Normalize Data
     let processedLogs = this.allRefuelLogs.map(log => {
@@ -1907,18 +2031,20 @@ renderFilteredRefuels() {
     processedLogs = processedLogs.filter(log => {
         const logDate = new Date(log.timestamp);
         // Safety filter: ignore tiny refills (server already filters >50L)
-        const minRefuelDisplay = parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50);
+        const minRefuelDisplay = Math.max(60, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60));
         if (Number(log.realAdded) < minRefuelDisplay) return false;
         if (startDate && logDate < startDate) return false;
         if (endDate && logDate > endDate) return false;
         if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
+        if (locationType === 'internal' && !log.isInternal) return false;
+        if (locationType === 'external' && log.isInternal) return false;
         // Search inside location name even if it's currently "Recherche..."
-        if (locationSearch && !log.locationDisplay.toLowerCase().includes(locationSearch)) return false;
+        if (locationSearch && !String(log.locationDisplay || '').toLowerCase().includes(locationSearch)) return false;
         return true;
     });
 
     // 4. Sort based on user selection
-    if (this.refuelSortOrder === 'qtydesc') {
+    if (this.refuelSortOrder === 'qtydesc' || this.refuelSortOrder === 'qty_desc') {
         processedLogs.sort((a, b) => (Number(b.realAdded) || 0) - (Number(a.realAdded) || 0));
     } else {
         // Default: newest first
@@ -3104,7 +3230,7 @@ getDistKm(lat1, lon1, lat2, lon2) {
 	      }));
 	      const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
 	          ? detectRefillEventsFromSeries(fuelSeries, {
-	              minRefuelLiters: 50,
+	              minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
 	              maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
 	              dedupeMinutes: 5,
 	              dedupeLitersTolerance: 10,
@@ -3234,7 +3360,7 @@ getDistKm(lat1, lon1, lat2, lon2) {
       }));
       const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
           ? detectRefillEventsFromSeries(fuelSeries, {
-              minRefuelLiters: 50,
+              minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
               maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
               dedupeMinutes: 5,
               dedupeLitersTolerance: 10,
@@ -3393,7 +3519,7 @@ getDistKm(lat1, lon1, lat2, lon2) {
           }));
           const historyRefills = (typeof detectRefillEventsFromSeries === 'function')
               ? detectRefillEventsFromSeries(fuelSeries, {
-                  minRefuelLiters: 50,
+                  minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
                   maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
                   dedupeMinutes: 5,
                   dedupeLitersTolerance: 10,

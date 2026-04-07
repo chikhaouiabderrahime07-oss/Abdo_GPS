@@ -84,6 +84,7 @@ const Settings = mongoose.model('Settings', SettingsSchema);
 
 const TransportReportEntrySchema = new mongoose.Schema({
   truckName: String,
+  inputTruckName: String,
   deviceId: String,
   startAt: Date,
   endAt: Date,
@@ -108,6 +109,19 @@ const TransportReportEntrySchema = new mongoose.Schema({
   note: String,
   warnings: [String],
   refills: Array,
+  status: { type: String, default: 'ok' },
+  issueReason: String,
+  issueCategory: String,
+  issueDetails: Object,
+  sourceType: { type: String, default: 'manual' },
+  sourceFileName: String,
+  sourceRow: Number,
+  importFingerprint: String,
+  importIssueKey: String,
+  lastRetryAt: Date,
+  lastRetriedBy: String,
+  resolvedAt: Date,
+  editedAt: Date,
   createdAt: { type: Date, default: Date.now }
 });
 const TransportReportEntry = mongoose.model('TransportReportEntry', TransportReportEntrySchema);
@@ -124,23 +138,25 @@ let SYSTEM_SETTINGS = {
   lastDecouchageCheck: null
 };
 
+let REFUEL_RECONCILE_STATE = { running: false, lastRunYmd: null, lastSummary: null };
+
 function getResolvedRefuelRules(overrides = {}) {
   return {
-    minRefuelLiters: 50,
+    minRefuelLiters: 60,
     stopSpeedThreshold: 4,
-    minStopMinutes: 3,
-    minOffMinutes: 3,
-    dedupeMinutes: 12,
+    minStopMinutes: 2,
+    minOffMinutes: 2,
+    dedupeMinutes: 20,
     dedupeLitersTolerance: 12,
     stableAfterIncreaseMinutes: 4,
     settleToleranceLiters: 6,
-    sensorSmoothingWindow: 7,
-    baselineDropToleranceLiters: 20,
-    baselineWindowMinutes: 12,
-    plateauWindowMinutes: 10,
-    maxRiseMinutes: 75,
-    maxStationarySpreadMeters: 300,
-    maxRealisticRefillLiters: 600,
+    sensorSmoothingWindow: 5,
+    baselineDropToleranceLiters: 25,
+    baselineWindowMinutes: 20,
+    plateauWindowMinutes: 15,
+    maxRiseMinutes: 180,
+    maxStationarySpreadMeters: 650,
+    maxRealisticRefillLiters: 700,
     requireIgnOff: false,
     requireEngineOff: false,
     ...((SYSTEM_SETTINGS && SYSTEM_SETTINGS.refuelRules) || {}),
@@ -574,21 +590,21 @@ function calculateClusterSpreadMeters(points) {
 }
 
 function detectRefillEventsFromSeries(points, options = {}) {
-    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 50) || 50;
+    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 60) || 60;
     const maxParsed = parseFloat(options.maxRealisticRefillLiters);
     const maxRealisticRefillLiters = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
     const stopSpeedThreshold = parseFloat(options.stopSpeedThreshold ?? 4) || 4;
-    const minStopMs = Math.max(60 * 1000, (parseFloat(options.minStopMinutes ?? options.minOffMinutes ?? 3) || 3) * 60 * 1000);
-    const stableAfterMs = Math.max(60 * 1000, (parseFloat(options.stableAfterIncreaseMinutes ?? 4) || 4) * 60 * 1000);
-    const dedupeMs = Math.max(0, (parseFloat(options.dedupeMinutes ?? 12) || 0) * 60 * 1000);
+    const minStopMs = Math.max(60 * 1000, (parseFloat(options.minStopMinutes ?? options.minOffMinutes ?? 2) || 2) * 60 * 1000);
+    const stableAfterMs = Math.max(60 * 1000, (parseFloat(options.stableAfterIncreaseMinutes ?? 3) || 3) * 60 * 1000);
+    const dedupeMs = Math.max(0, (parseFloat(options.dedupeMinutes ?? 20) || 0) * 60 * 1000);
     const dedupeLitersTolerance = parseFloat(options.dedupeLitersTolerance ?? 12) || 12;
     const settleToleranceLiters = parseFloat(options.settleToleranceLiters ?? dedupeLitersTolerance ?? 6) || 6;
-    const sensorSmoothingWindow = Math.max(1, parseInt(options.sensorSmoothingWindow ?? 7, 10) || 7);
+    const sensorSmoothingWindow = Math.max(1, parseInt(options.sensorSmoothingWindow ?? 5, 10) || 5);
     const requireIgnOff = options.requireIgnOff === true || options.requireEngineOff === true;
-    const baselineWindowMs = Math.max(2 * 60 * 1000, (parseFloat(options.baselineWindowMinutes ?? 12) || 12) * 60 * 1000);
-    const plateauWindowMs = Math.max(stableAfterMs, (parseFloat(options.plateauWindowMinutes ?? 10) || 10) * 60 * 1000);
-    const maxRiseMs = Math.max(5 * 60 * 1000, (parseFloat(options.maxRiseMinutes ?? 75) || 75) * 60 * 1000);
-    const maxStationarySpreadMeters = Math.max(100, parseFloat(options.maxStationarySpreadMeters ?? 300) || 300);
+    const baselineWindowMs = Math.max(2 * 60 * 1000, (parseFloat(options.baselineWindowMinutes ?? 20) || 20) * 60 * 1000);
+    const plateauWindowMs = Math.max(stableAfterMs, (parseFloat(options.plateauWindowMinutes ?? 15) || 15) * 60 * 1000);
+    const maxRiseMs = Math.max(5 * 60 * 1000, (parseFloat(options.maxRiseMinutes ?? 180) || 180) * 60 * 1000);
+    const maxStationarySpreadMeters = Math.max(100, parseFloat(options.maxStationarySpreadMeters ?? 650) || 650);
 
     const prepared = smoothFuelSeriesPoints(points, sensorSmoothingWindow, maxRealisticRefillLiters);
     if (prepared.length < 3) return [];
@@ -598,8 +614,9 @@ function detectRefillEventsFromSeries(points, options = {}) {
     });
 
     const events = [];
+    const softMinRefuelLiters = Math.max(20, Math.round(minRefuelLiters * 0.75));
     const stepTriggerLiters = Math.max(2, Math.min(8, minRefuelLiters * 0.08));
-    const riseThresholdLiters = Math.max(stepTriggerLiters * 2, Math.min(14, minRefuelLiters * 0.22));
+    const riseThresholdLiters = Math.max(stepTriggerLiters * 2, Math.min(12, Math.max(8, minRefuelLiters * 0.2)));
     const negativeNoiseTolerance = Math.max(2, Math.min(settleToleranceLiters, minRefuelLiters * 0.12));
     const plateauSpreadMax = Math.max(4, settleToleranceLiters * 1.25);
 
@@ -675,12 +692,12 @@ function detectRefillEventsFromSeries(points, options = {}) {
                     riseDurationMs >= 60 * 1000 && riseDurationMs <= maxRiseMs,
                     plateauStable,
                     locationSpreadMeters <= maxStationarySpreadMeters,
-                    maxSpeedDuringCluster <= (stopSpeedThreshold + 2),
+                    maxSpeedDuringCluster <= (stopSpeedThreshold + 3),
                     positiveSteps >= 2 && negativeSteps <= Math.max(2, positiveSteps)
                 ];
                 const confidence = qualityChecks.filter(Boolean).length / qualityChecks.length;
 
-                if (qualityChecks[0] && qualityChecks[1] && plateauStable && (confidence >= 0.66 || rise >= (minRefuelLiters * 1.5))) {
+                if (qualityChecks[0] && qualityChecks[1] && plateauStable && (confidence >= 0.66 || rise >= (minRefuelLiters * 1.35))) {
                     events.push({
                         index: peakPoint.index,
                         time: peakPoint.time,
@@ -720,14 +737,14 @@ function detectRefillEventsFromSeries(points, options = {}) {
         const maxSpeedDuringCluster = Math.max(prev.speed || 0, cur.speed || 0, next.speed || 0, (prepared[i + 2] && prepared[i + 2].speed) || 0);
 
         if (
-            stopishCount >= 2 &&
+            stopishCount >= 1 &&
             gapMs >= 60 * 1000 &&
             gapMs <= maxRiseMs &&
             netRise >= minRefuelLiters &&
             netRise <= maxRealisticRefillLiters &&
-            plateauSpread <= plateauSpreadMax &&
-            locationSpreadMeters <= maxStationarySpreadMeters &&
-            maxSpeedDuringCluster <= (stopSpeedThreshold + 2)
+            plateauSpread <= (plateauSpreadMax + 2) &&
+            locationSpreadMeters <= (maxStationarySpreadMeters * 1.35) &&
+            maxSpeedDuringCluster <= (stopSpeedThreshold + 8)
         ) {
             events.push({
                 index: cur.index,
@@ -741,8 +758,60 @@ function detectRefillEventsFromSeries(points, options = {}) {
                 newLevel: Math.round(postStable),
                 speed: cur.speed,
                 ign: cur.ign,
-                confidence: 0.72,
-                detectionMode: 'sparse-window'
+                confidence: stopishCount >= 2 ? 0.76 : 0.68,
+                detectionMode: stopishCount >= 2 ? 'sparse-window' : 'sparse-jump'
+            });
+        }
+    }
+
+    for (let i = 1; i < prepared.length - 2; i += 1) {
+        const beforeWindow = prepared.slice(Math.max(0, i - 2), i + 1);
+        const afterWindow = prepared.slice(i + 1, Math.min(prepared.length, i + 5));
+        if (afterWindow.length < 2) continue;
+        const baselineValues = beforeWindow.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
+        const afterValues = afterWindow.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
+        if (!baselineValues.length || !afterValues.length) continue;
+
+        const baseline = Math.min(medianForNumbers(baselineValues), ...baselineValues);
+        const postStable = medianForNumbers(afterValues);
+        const rise = postStable - baseline;
+        const postSpread = Math.max(...afterValues) - Math.min(...afterValues);
+        const clusterPoints = beforeWindow.concat(afterWindow);
+        const stopishCount = clusterPoints.filter((point) => point.isStopLike).length;
+        const speedMax = clusterPoints.reduce((max, point) => Math.max(max, point.speed || 0), 0);
+        const locationSpreadMeters = calculateClusterSpreadMeters(clusterPoints);
+        const durationMs = (afterWindow[afterWindow.length - 1].time || 0) - (beforeWindow[0].time || 0);
+        const sustainedCount = afterWindow.filter((point) => Math.abs((point.litersSmooth || 0) - postStable) <= Math.max(plateauSpreadMax + 2, settleToleranceLiters + 2)).length;
+        const candidatePoint = afterWindow.reduce((best, point) => ((point.litersSmooth || 0) > (best.litersSmooth || 0) ? point : best), afterWindow[0]);
+
+        if (
+            durationMs >= 60 * 1000 &&
+            durationMs <= (maxRiseMs * 1.25) &&
+            rise >= Math.max(minRefuelLiters, softMinRefuelLiters) &&
+            rise <= maxRealisticRefillLiters &&
+            postSpread <= (plateauSpreadMax + 3) &&
+            sustainedCount >= 2 &&
+            locationSpreadMeters <= (maxStationarySpreadMeters * 1.5) &&
+            speedMax <= (stopSpeedThreshold + 10)
+        ) {
+            let confidence = 0.62;
+            if (stopishCount >= 2) confidence += 0.1;
+            if (postSpread <= plateauSpreadMax) confidence += 0.06;
+            if (speedMax <= (stopSpeedThreshold + 2)) confidence += 0.06;
+            events.push({
+                index: candidatePoint.index,
+                time: candidatePoint.time,
+                startTimeMs: beforeWindow[0].time,
+                endTimeMs: afterWindow[afterWindow.length - 1].time,
+                lat: candidatePoint.lat,
+                lng: candidatePoint.lng,
+                addedLiters: Math.round(rise),
+                oldLevel: Math.round(baseline),
+                newLevel: Math.round(postStable),
+                speed: candidatePoint.speed,
+                ign: candidatePoint.ign,
+                confidence: Math.round(Math.min(0.86, confidence) * 100) / 100,
+                detectionMode: 'jump-hold'
             });
         }
     }
@@ -753,9 +822,10 @@ function detectRefillEventsFromSeries(points, options = {}) {
         return Number.isFinite(added) &&
             added >= minRefuelLiters &&
             added <= maxRealisticRefillLiters &&
-            (!Number.isFinite(confidence) || confidence >= 0.66);
+            (!Number.isFinite(confidence) || confidence >= 0.56 || added >= Math.round(minRefuelLiters * 1.15));
     });
 }
+
 
 // ============================================================
 // 🔧 Vidange helpers (server-side)
@@ -898,6 +968,76 @@ const fmt = (list) => list.map(d => {
   delete o._id;
   return o;
 });
+
+function toDateOrNull(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function buildTransportFingerprint({ truckName = '', start = null, end = null } = {}) {
+  const normalizeTruck = String(truckName || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '');
+  const minuteKey = (value) => {
+    const ms = parseGpsDateTimeFlexible(value);
+    if (!Number.isFinite(ms)) return '';
+    return new Date(Math.round(ms / 60000) * 60000).toISOString().slice(0, 16);
+  };
+  return `${normalizeTruck}|${minuteKey(start)}|${minuteKey(end)}`;
+}
+
+function buildTransportIssueKey({ sourceFileName = '', sourceRow = '', truckName = '', start = '', end = '' } = {}) {
+  return [sourceFileName, sourceRow, truckName, start, end].map((item) => String(item || '').trim()).join('|');
+}
+
+async function createOrUpdateTransportIssue(payload = {}) {
+  const importIssueKey = buildTransportIssueKey(payload);
+  const importFingerprint = payload.importFingerprint || buildTransportFingerprint({
+    truckName: payload.truckName || payload.inputTruckName || '',
+    start: payload.requestedStartAt || payload.startAt,
+    end: payload.requestedEndAt || payload.endAt
+  });
+
+  const requestedStartAt = toDateOrNull(payload.requestedStartAt || payload.startAt);
+  const requestedEndAt = toDateOrNull(payload.requestedEndAt || payload.endAt);
+  const baseDoc = {
+    truckName: payload.truckName || payload.inputTruckName || '',
+    inputTruckName: payload.inputTruckName || payload.truckName || '',
+    deviceId: payload.deviceId || '',
+    startAt: requestedStartAt,
+    endAt: requestedEndAt,
+    requestedStartAt,
+    requestedEndAt,
+    startLocation: payload.startLocation || '',
+    endLocation: payload.endLocation || '',
+    note: payload.note || '',
+    warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+    status: payload.status || 'issue',
+    issueReason: payload.issueReason || 'Ligne non calculée',
+    issueCategory: payload.issueCategory || 'import-error',
+    issueDetails: payload.issueDetails || {},
+    sourceType: payload.sourceType || 'import-exception',
+    sourceFileName: payload.sourceFileName || '',
+    sourceRow: Number(payload.sourceRow) || null,
+    importFingerprint,
+    importIssueKey,
+    editedAt: new Date()
+  };
+
+  const selector = importIssueKey
+    ? { importIssueKey }
+    : (importFingerprint ? { importFingerprint, status: { $ne: 'ok' } } : null);
+
+  if (!selector) return TransportReportEntry.create(baseDoc);
+  return TransportReportEntry.findOneAndUpdate(
+    selector,
+    { $set: baseDoc, $setOnInsert: { createdAt: new Date() } },
+    { upsert: true, new: true }
+  );
+}
 
 // --- 5. SETTINGS LOAD/SAVE ---
 async function loadSettings() {
@@ -1090,29 +1230,259 @@ function resolveLocationName(lat, lng) {
   return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
-async function persistDetectedRefills(deviceId, truckName, refillEvents = [], persist = true) {
+
+function getRefuelSourcePriority(source = '') {
+  const normalized = String(source || '').trim().toLowerCase();
+  const priorities = {
+    'manual': 100,
+    'manual-entry': 100,
+    'gps-history-nightly': 80,
+    'gps-history-reconciled': 80,
+    'gps-history-rebuild': 70,
+    'gps-history-verified': 65,
+    'live-verified': 40,
+    'live-replay': 30,
+    'live-bot': 20,
+    'legacy': 10
+  };
+  return priorities[normalized] || 10;
+}
+
+function isAutoRefuelSource(source = '') {
+  const normalized = String(source || '').trim().toLowerCase();
+  return !normalized || normalized === 'legacy' || normalized.startsWith('live-') || normalized.startsWith('gps-history-');
+}
+
+function getRefuelConfidenceValue(value) {
+  const num = parseFloat(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function roundLevel(value) {
+  const num = parseFloat(value);
+  return Number.isFinite(num) ? Math.round(num) : null;
+}
+
+function areRefuelRecordsEquivalent(a, b, options = {}) {
+  const timeA = parseGpsDateTimeFlexible(a && (a.time || a.timestamp));
+  const timeB = parseGpsDateTimeFlexible(b && (b.time || b.timestamp));
+  const timeToleranceMs = Math.max(5 * 60 * 1000, parseFloat(options.timeToleranceMs) || 0);
+  if (Number.isFinite(timeA) && Number.isFinite(timeB) && Math.abs(timeA - timeB) > timeToleranceMs) return false;
+
+  const levelTolerance = Math.max(6, parseFloat(options.levelTolerance) || 10);
+  const addedTolerance = Math.max(10, parseFloat(options.addedTolerance) || 20);
+
+  const oldA = roundLevel(a && a.oldLevel);
+  const newA = roundLevel(a && a.newLevel);
+  const oldB = roundLevel(b && b.oldLevel);
+  const newB = roundLevel(b && b.newLevel);
+  const addedA = roundLevel(a && a.addedLiters);
+  const addedB = roundLevel(b && b.addedLiters);
+
+  let signals = 0;
+  if (oldA !== null && oldB !== null && Math.abs(oldA - oldB) <= levelTolerance) signals += 1;
+  if (newA !== null && newB !== null && Math.abs(newA - newB) <= levelTolerance) signals += 1;
+  if (addedA !== null && addedB !== null && Math.abs(addedA - addedB) <= addedTolerance) signals += 1;
+  if (newA !== null && oldB !== null && Math.abs(newA - oldB) <= levelTolerance) signals += 0.5;
+  if (newB !== null && oldA !== null && Math.abs(newB - oldA) <= levelTolerance) signals += 0.5;
+  return signals >= 2;
+}
+
+function choosePreferredRefuelRecord(records = []) {
+  return (Array.isArray(records) ? records : []).filter(Boolean).sort((a, b) => {
+    const priorityDiff = getRefuelSourcePriority(b.source) - getRefuelSourcePriority(a.source);
+    if (priorityDiff !== 0) return priorityDiff;
+    const confidenceDiff = getRefuelConfidenceValue(b && b.meta && b.meta.confidence) - getRefuelConfidenceValue(a && a.meta && a.meta.confidence);
+    if (confidenceDiff !== 0) return confidenceDiff;
+    const addedDiff = (parseFloat(b && b.addedLiters) || 0) - (parseFloat(a && a.addedLiters) || 0);
+    if (addedDiff !== 0) return addedDiff;
+    const timeA = parseGpsDateTimeFlexible(a && (a.timestamp || a.time)) || 0;
+    const timeB = parseGpsDateTimeFlexible(b && (b.timestamp || b.time)) || 0;
+    return timeB - timeA;
+  })[0] || null;
+}
+
+async function dedupeRefuelsForWindow({ deviceId, startMs, endMs, dryRun = false } = {}) {
+  if (!deviceId || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return { scanned: 0, duplicateGroups: 0, deletedCount: 0, keptCount: 0, keptIds: [], deletedIds: [] };
+  }
+
+  const rules = getResolvedRefuelRules();
+  const timeToleranceMs = Math.max((parseFloat(rules.dedupeMinutes) || 12) * 60 * 1000, 20 * 60 * 1000);
+  const levelTolerance = Math.max(8, parseFloat(rules.dedupeLitersTolerance) || 12);
+  const rows = await Refuel.find({
+    deviceId: String(deviceId),
+    timestamp: { $gte: new Date(startMs - timeToleranceMs), $lte: new Date(endMs + timeToleranceMs) }
+  }).sort({ timestamp: 1 });
+
+  const groups = [];
+  for (const row of rows) {
+    const current = row.toObject ? row.toObject() : row;
+    const lastGroup = groups[groups.length - 1];
+    if (lastGroup && areRefuelRecordsEquivalent(lastGroup[lastGroup.length - 1], current, { timeToleranceMs, levelTolerance })) {
+      lastGroup.push(current);
+    } else {
+      groups.push([current]);
+    }
+  }
+
+  let duplicateGroups = 0;
+  const deleteIds = [];
+  const keepIds = [];
+  for (const group of groups) {
+    if (group.length <= 1) {
+      if (group[0] && group[0]._id) keepIds.push(String(group[0]._id));
+      continue;
+    }
+    duplicateGroups += 1;
+    const winner = choosePreferredRefuelRecord(group);
+    if (winner && winner._id) keepIds.push(String(winner._id));
+    for (const item of group) {
+      if (!winner || String(item._id) !== String(winner._id)) deleteIds.push(String(item._id));
+    }
+  }
+
+  if (!dryRun && deleteIds.length) {
+    await Refuel.deleteMany({ _id: { $in: deleteIds } });
+  }
+
+  return {
+    scanned: rows.length,
+    duplicateGroups,
+    deletedCount: deleteIds.length,
+    keptCount: keepIds.length,
+    keptIds: keepIds,
+    deletedIds: deleteIds
+  };
+}
+
+async function deleteAutoRefuelsForWindow({ deviceId, startMs, endMs } = {}) {
+  if (!deviceId || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  const cleanup = await Refuel.deleteMany({
+    deviceId: String(deviceId),
+    timestamp: { $gte: new Date(startMs), $lte: new Date(endMs) },
+    source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified', 'gps-history-reconciled', 'gps-history-nightly'] }
+  });
+  return cleanup.deletedCount || 0;
+}
+
+async function deleteLowVolumeAutoRefuelsForWindow({ deviceId, startMs, endMs, minLiters } = {}) {
+  if (!deviceId || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  const cleanup = await Refuel.deleteMany({
+    deviceId: String(deviceId),
+    timestamp: { $gte: new Date(startMs), $lte: new Date(endMs) },
+    addedLiters: { $lt: Math.max(60, parseFloat(minLiters) || 60) },
+    source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified', 'gps-history-reconciled', 'gps-history-nightly'] }
+  });
+  return cleanup.deletedCount || 0;
+}
+
+async function reconcileRefuelsForWindow({ deviceId, truckName, startMs, endMs, persist = true, purgeExistingAuto = true, source = 'gps-history-reconciled' } = {}) {
+  if (!deviceId || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) throw new Error('Période invalide pour la réconciliation carburant');
+
+  const rules = getResolvedRefuelRules();
+  let deletedCount = 0;
+  if (purgeExistingAuto) {
+    deletedCount += await deleteAutoRefuelsForWindow({ deviceId, startMs, endMs });
+  }
+  deletedCount += await deleteLowVolumeAutoRefuelsForWindow({ deviceId, startMs, endMs, minLiters: rules.minRefuelLiters });
+
+  const scan = await scanRefillsFromHistoryWindow({
+    deviceId: String(deviceId),
+    truckName: truckName || String(deviceId),
+    start: startMs,
+    end: endMs,
+    persist,
+    source
+  });
+  const dedupe = await dedupeRefuelsForWindow({ deviceId: String(deviceId), startMs, endMs, dryRun: !persist });
+  return {
+    ...scan,
+    deletedCount,
+    dedupe
+  };
+}
+
+async function runNightlyRefuelReconciliation(force = false) {
+  if (REFUEL_RECONCILE_STATE.running) return REFUEL_RECONCILE_STATE.lastSummary || { skipped: true, reason: 'running' };
+
+  const localNow = new Date(Date.now() + 60 * 60 * 1000);
+  const localHour = localNow.getUTCHours();
+  const targetDates = [];
+  for (let daysAgo = 0; daysAgo <= 13; daysAgo += 1) {
+    const d = new Date(localNow);
+    d.setUTCDate(d.getUTCDate() - daysAgo);
+    targetDates.push(d.toISOString().slice(0, 10));
+  }
+  const dailyKey = targetDates.join(',');
+
+  if (!force && localHour < 23) {
+    return { skipped: true, reason: 'too-early', hour: localHour, targetDates };
+  }
+  if (!force && REFUEL_RECONCILE_STATE.lastRunYmd === dailyKey) {
+    return REFUEL_RECONCILE_STATE.lastSummary || { skipped: true, reason: 'already-ran', targetDates };
+  }
+
+  REFUEL_RECONCILE_STATE.running = true;
+  try {
+    const trucks = await Truck.find({}, 'deviceId truckName').sort({ truckName: 1 });
+    const summary = { targetDates, truckCount: trucks.length, windows: [], totalDeleted: 0, totalCreated: 0, totalDuplicatesDeleted: 0, totalErrors: 0 };
+
+    for (const ymd of targetDates) {
+      const windowStartMs = parseGpsDateTimeFlexible(`${ymd} 00:00:00`);
+      const windowEndMs = parseGpsDateTimeFlexible(`${ymd} 23:59:59`);
+      const windowSummary = { ymd, trucks: 0, deleted: 0, created: 0, duplicatesDeleted: 0, errors: [] };
+
+      for (const truck of trucks) {
+        if (!truck || !truck.deviceId) continue;
+        try {
+          const result = await reconcileRefuelsForWindow({
+            deviceId: String(truck.deviceId),
+            truckName: truck.truckName || String(truck.deviceId),
+            startMs: windowStartMs,
+            endMs: windowEndMs,
+            persist: true,
+            purgeExistingAuto: true,
+            source: 'gps-history-nightly'
+          });
+          windowSummary.trucks += 1;
+          windowSummary.deleted += result.deletedCount || 0;
+          windowSummary.created += result.createdCount || 0;
+          windowSummary.duplicatesDeleted += (result.dedupe && result.dedupe.deletedCount) || 0;
+        } catch (error) {
+          windowSummary.errors.push({ deviceId: String(truck.deviceId), truckName: truck.truckName || String(truck.deviceId), error: error.message });
+        }
+      }
+
+      summary.totalDeleted += windowSummary.deleted;
+      summary.totalCreated += windowSummary.created;
+      summary.totalDuplicatesDeleted += windowSummary.duplicatesDeleted;
+      summary.totalErrors += windowSummary.errors.length;
+      summary.windows.push(windowSummary);
+    }
+
+    REFUEL_RECONCILE_STATE.lastRunYmd = dailyKey;
+    REFUEL_RECONCILE_STATE.lastSummary = { success: true, ...summary, finishedAt: new Date().toISOString() };
+    console.log(`⛽ Nightly refuel reconcile done: +${summary.totalCreated} created, ${summary.totalDeleted} auto-rows reset, ${summary.totalDuplicatesDeleted} duplicates removed.`);
+    return REFUEL_RECONCILE_STATE.lastSummary;
+  } finally {
+    REFUEL_RECONCILE_STATE.running = false;
+  }
+}
+
+
+async function persistDetectedRefills(deviceId, truckName, refillEvents = [], persist = true, options = {}) {
   const created = [];
   const skipped = [];
+  const updated = [];
   const rules = getResolvedRefuelRules();
   const dedupeMs = Math.max(0, (parseFloat(rules.dedupeMinutes) || 8) * 60 * 1000);
   const levelTolerance = parseFloat(rules.dedupeLitersTolerance ?? 10) || 10;
+  const source = options.source || 'gps-history-verified';
 
   for (const event of (Array.isArray(refillEvents) ? refillEvents : [])) {
     const timeMs = parseGpsDateTimeFlexible(event.time);
     if (!Number.isFinite(timeMs)) continue;
-
-    const existing = await Refuel.findOne({
-      deviceId,
-      timestamp: {
-        $gte: new Date(timeMs - dedupeMs),
-        $lte: new Date(timeMs + dedupeMs)
-      }
-    }).sort({ timestamp: -1 });
-
-    if (existing && Math.abs((parseFloat(existing.newLevel) || 0) - (parseFloat(event.newLevel) || 0)) <= levelTolerance) {
-      skipped.push(existing);
-      continue;
-    }
 
     const lat = Number.isFinite(parseFloat(event.lat)) ? parseFloat(event.lat) : null;
     const lng = Number.isFinite(parseFloat(event.lng)) ? parseFloat(event.lng) : null;
@@ -1123,25 +1493,11 @@ async function persistDetectedRefills(deviceId, truckName, refillEvents = [], pe
       return calculateDistance(lat, lng, parseFloat(loc.lat), parseFloat(loc.lng)) <= (parseFloat(loc.radius) || 500);
     });
 
-    if (!persist) {
-      created.push({
-        deviceId,
-        truckName,
-        addedLiters: Math.round(event.addedLiters || 0),
-        oldLevel: Math.round(event.oldLevel || 0),
-        newLevel: Math.round(event.newLevel || 0),
-        timestamp: new Date(timeMs),
-        locationRaw,
-        isInternal,
-        lat,
-        lng,
-        source: 'gps-history-verified',
-        meta: { detectionMode: event.detectionMode || 'history', confidence: parseFloat(event.confidence) || null, version: 2 }
-      });
+    if (Math.round(event.addedLiters || 0) < Math.max(60, parseFloat(rules.minRefuelLiters) || 60)) {
       continue;
     }
 
-    const doc = await Refuel.create({
+    const candidate = {
       deviceId,
       truckName,
       addedLiters: Math.round(event.addedLiters || 0),
@@ -1152,23 +1508,73 @@ async function persistDetectedRefills(deviceId, truckName, refillEvents = [], pe
       isInternal,
       lat,
       lng,
-      source: 'gps-history-verified',
-      meta: { detectionMode: event.detectionMode || 'history', confidence: parseFloat(event.confidence) || null, version: 2 }
-    });
+      source,
+      meta: {
+        detectionMode: event.detectionMode || 'history',
+        confidence: parseFloat(event.confidence) || null,
+        version: 3,
+        reconciledAt: new Date().toISOString()
+      }
+    };
+
+    const nearby = await Refuel.find({
+      deviceId,
+      timestamp: {
+        $gte: new Date(timeMs - Math.max(dedupeMs, 20 * 60 * 1000)),
+        $lte: new Date(timeMs + Math.max(dedupeMs, 20 * 60 * 1000))
+      }
+    }).sort({ timestamp: -1 });
+
+    const duplicate = nearby.find((row) => areRefuelRecordsEquivalent(row, candidate, {
+      timeToleranceMs: Math.max(dedupeMs, 20 * 60 * 1000),
+      levelTolerance,
+      addedTolerance: Math.max(15, levelTolerance * 1.5)
+    }));
+
+    if (duplicate) {
+      const existingPriority = getRefuelSourcePriority(duplicate.source);
+      const incomingPriority = getRefuelSourcePriority(candidate.source);
+      const existingConfidence = getRefuelConfidenceValue(duplicate.meta && duplicate.meta.confidence);
+      const incomingConfidence = getRefuelConfidenceValue(candidate.meta && candidate.meta.confidence);
+      const shouldUpgrade = incomingPriority > existingPriority || (incomingPriority === existingPriority && incomingConfidence > existingConfidence);
+
+      if (!persist) {
+        skipped.push(duplicate.toObject ? duplicate.toObject() : duplicate);
+        continue;
+      }
+
+      if (shouldUpgrade) {
+        await Refuel.findByIdAndUpdate(duplicate._id, { $set: candidate });
+        updated.push({ ...(duplicate.toObject ? duplicate.toObject() : duplicate), ...candidate, _id: duplicate._id });
+      } else {
+        skipped.push(duplicate.toObject ? duplicate.toObject() : duplicate);
+      }
+      continue;
+    }
+
+    if (!persist) {
+      created.push(candidate);
+      continue;
+    }
+
+    const doc = await Refuel.create(candidate);
     created.push(doc.toObject ? doc.toObject() : doc);
   }
 
-  return { created, skipped };
+  return { created, skipped, updated };
 }
 
-async function scanRefillsFromHistoryWindow({ deviceId, truckName, start, end, persist = true }) {
+async function scanRefillsFromHistoryWindow({ deviceId, truckName, start, end, persist = true, source = 'gps-history-verified' }) {
   const config = getTruckConfig(deviceId);
-  const rawMessages = await fetchGpsHistoryWindow(deviceId, start, end);
+  const requestedStartMs = parseGpsDateTimeFlexible(start);
+  const requestedEndMs = parseGpsDateTimeFlexible(end);
+  const scanBufferMs = 6 * 60 * 60 * 1000;
+  const rawMessages = await fetchGpsHistoryWindow(deviceId, requestedStartMs - scanBufferMs, requestedEndMs + scanBufferMs);
   const points = normalizeGpsHistoryMessages(rawMessages, deviceId, config);
   const effectiveCapacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
   const baseRules = getResolvedRefuelRules();
   const rules = getResolvedRefuelRules({
-    minRefuelLiters: Math.max(50, parseFloat(baseRules.minRefuelLiters) || 0),
+    minRefuelLiters: Math.max(60, parseFloat(baseRules.minRefuelLiters) || 60),
     maxRealisticRefillLiters: Math.max(Math.round((effectiveCapacity || 600) + 50), parseFloat(baseRules.maxRealisticRefillLiters) || 0)
   });
   const refillEvents = detectRefillEventsFromSeries(points.map((point) => ({
@@ -1178,15 +1584,16 @@ async function scanRefillsFromHistoryWindow({ deviceId, truckName, start, end, p
     ign: point.ign,
     lat: point.lat,
     lng: point.lng
-  })), rules);
+  })), rules).filter((event) => event.time >= requestedStartMs && event.time <= requestedEndMs);
 
-  const persisted = await persistDetectedRefills(deviceId, truckName, refillEvents, persist);
+  const persisted = await persistDetectedRefills(deviceId, truckName, refillEvents, persist, { source });
 
   return {
     points,
     refills: refillEvents,
     createdCount: persisted.created.length,
     skippedCount: persisted.skipped.length,
+    updatedCount: persisted.updated.length,
     created: persisted.created
   };
 }
@@ -1213,7 +1620,7 @@ async function calculateTransportWindowStats({ deviceId, truckName, start, end, 
   const effectiveCapacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
   const baseRules = getResolvedRefuelRules();
   const rules = getResolvedRefuelRules({
-    minRefuelLiters: Math.max(50, parseFloat(baseRules.minRefuelLiters) || 0),
+    minRefuelLiters: Math.max(60, parseFloat(baseRules.minRefuelLiters) || 60),
     maxRealisticRefillLiters: Math.max(Math.round((effectiveCapacity || 600) + 50), parseFloat(baseRules.maxRealisticRefillLiters) || 0)
   });
   const refillEventsAll = detectRefillEventsFromSeries(windowPoints.map((point) => ({
@@ -1601,7 +2008,7 @@ async function runFleetBot() {
       continue;
     }
 
-    const MIN_REFUEL_L = Math.max(50, parseFloat(refuelRulesLocal.minRefuelLiters) || 0);
+    const MIN_REFUEL_L = Math.max(60, parseFloat(refuelRulesLocal.minRefuelLiters) || 60);
     const DEDUPE_MS = (parseFloat(refuelRulesLocal.dedupeMinutes) || 8) * 60 * 1000;
     const DEDUPE_LEVEL_TOL = parseFloat(refuelRulesLocal.dedupeLitersTolerance ?? 10) || 10;
     const BASELINE_DROP_TOL = parseFloat(refuelRulesLocal.baselineDropToleranceLiters ?? 15) || 15;
@@ -1697,26 +2104,24 @@ async function runFleetBot() {
         const oldLevel = Math.round(latestLiveRefill.oldLevel || refuelAnchorLiters || currentLiters);
         const newLevel = Math.round(latestLiveRefill.newLevel || currentLiters);
 
-        await Refuel.create({
-          deviceId,
-          truckName,
-          addedLiters,
-          oldLevel,
-          newLevel,
-          timestamp: new Date(latestLiveRefill.time),
-          locationRaw: locName,
-          lat: refillLat,
-          lng: refillLng,
-          isInternal,
-          source: 'live-verified',
-          meta: { detectionMode: latestLiveRefill.detectionMode || 'rolling-buffer', confidence: parseFloat(latestLiveRefill.confidence) || null, version: 2 }
-        });
+const persistedLive = await persistDetectedRefills(deviceId, truckName, [{
+  ...latestLiveRefill,
+  time: latestLiveRefill.time,
+  lat: refillLat,
+  lng: refillLng,
+  addedLiters,
+  oldLevel,
+  newLevel,
+  detectionMode: latestLiveRefill.detectionMode || 'rolling-buffer',
+  confidence: parseFloat(latestLiveRefill.confidence) || null
+}], true, { source: 'live-verified' });
 
-        refuelAnchorLiters = newLevel;
-        lastAcceptedRefuelTime = latestLiveRefill.time;
-        lastAcceptedRefuelLevel = newLevel;
+refuelAnchorLiters = newLevel;
+lastAcceptedRefuelTime = latestLiveRefill.time;
+lastAcceptedRefuelLevel = newLevel;
 
-        console.log(`✅ REFILL ${truckName} +${addedLiters}L (${oldLevel}→${newLevel}L) @ ${locName} [${latestLiveRefill.detectionMode || 'rolling-buffer'}]`);
+const verb = persistedLive.created.length ? 'REFILL' : (persistedLive.updated.length ? 'REFILL-UPGRADE' : 'REFILL-SKIP');
+console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel}L) @ ${locName} [${latestLiveRefill.detectionMode || 'rolling-buffer'}]`);
       } else {
         console.log(`⏭️ ${truckName} Dedupe: skipped near-duplicate live refill @ ${Math.round(latestLiveRefill.newLevel || currentLiters)}L`);
       }
@@ -1754,6 +2159,12 @@ async function runFleetBot() {
     if (true) {
       await Truck.findOneAndUpdate({ deviceId }, payload, { upsert: true });
     }
+  }
+
+  try {
+    await runNightlyRefuelReconciliation(false);
+  } catch (nightlyError) {
+    console.error('Nightly refuel reconcile error:', nightlyError.message);
   }
 
   setTimeout(runFleetBot, 30000);
@@ -1871,8 +2282,25 @@ app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
 });
 
 app.get('/api/refuels', checkAccess, async (req, res) => {
-  const data = await Refuel.find().sort({ timestamp: -1 }).limit(200);
-  res.json(fmt(data));
+  try {
+    const { start, end, deviceId, truckName, limit } = req.query || {};
+    const query = {};
+    const startMs = start ? parseGpsDateTimeFlexible(String(start)) : NaN;
+    const endMs = end ? parseGpsDateTimeFlexible(String(end)) : NaN;
+    if (Number.isFinite(startMs) || Number.isFinite(endMs)) {
+      query.timestamp = {};
+      if (Number.isFinite(startMs)) query.timestamp.$gte = new Date(startMs);
+      if (Number.isFinite(endMs)) query.timestamp.$lte = new Date(endMs);
+    }
+    if (deviceId) query.deviceId = String(deviceId);
+    if (truckName) query.truckName = new RegExp(String(truckName).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+
+    const parsedLimit = Math.max(1, Math.min(parseInt(limit, 10) || (query.timestamp ? 20000 : 1000), 50000));
+    const data = await Refuel.find(query).sort({ timestamp: -1 }).limit(parsedLimit);
+    res.json(fmt(data));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // 🔧 FIX: Découchage route returns clean data without status complexity
@@ -1919,6 +2347,27 @@ app.get('/api/backup/download', checkAccess, async (req, res) => {
   } catch (e) { res.status(500).send(e.message); }
 });
 
+
+async function resolveTruckForTransportRow({ deviceId, truckName } = {}) {
+  if (deviceId) {
+    const direct = await Truck.findOne({ deviceId: String(deviceId) }).lean();
+    if (direct) return { id: String(direct.deviceId), name: direct.truckName || String(direct.deviceId) };
+  }
+  const wanted = String(truckName || '').trim();
+  if (!wanted) return null;
+  const rows = await Truck.find({}, 'deviceId truckName').lean();
+  const normalize = (value) => String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '');
+  const target = normalize(wanted);
+  const match = rows.find((row) => normalize(row.truckName) === target)
+    || rows.find((row) => normalize(row.truckName).startsWith(target))
+    || rows.find((row) => normalize(row.truckName).includes(target));
+  return match ? { id: String(match.deviceId), name: match.truckName || String(match.deviceId) } : null;
+}
+
 // AUDIT ROUTES
 app.post('/api/audit/save', checkAccess, async (req, res) => {
   try {
@@ -1947,38 +2396,34 @@ app.delete('/api/audit/:id', checkAccess, async (req, res) => {
 });
 
 
+
 app.post('/api/refuels/rebuild', checkAccess, async (req, res) => {
   try {
     const { deviceId, truckName, start, end, persist, purgeExistingAuto } = req.body || {};
     if (!deviceId || !start || !end) return res.status(400).json({ error: 'deviceId, start et end sont requis' });
 
-    let deletedCount = 0;
-    if (purgeExistingAuto === true) {
-      const startMs = parseGpsDateTimeFlexible(start);
-      const endMs = parseGpsDateTimeFlexible(end);
-      if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
-        const cleanup = await Refuel.deleteMany({
-          deviceId: String(deviceId),
-          timestamp: { $gte: new Date(startMs), $lte: new Date(endMs) },
-          source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified'] }
-        });
-        deletedCount = cleanup.deletedCount || 0;
-      }
-    }
+    const startMs = parseGpsDateTimeFlexible(start);
+    const endMs = parseGpsDateTimeFlexible(end);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return res.status(400).json({ error: 'Période invalide' });
 
-    const result = await scanRefillsFromHistoryWindow({
+    const result = await reconcileRefuelsForWindow({
       deviceId: String(deviceId),
       truckName: truckName || String(deviceId),
-      start,
-      end,
-      persist: persist !== false
+      startMs,
+      endMs,
+      persist: persist !== false,
+      purgeExistingAuto: purgeExistingAuto === true,
+      source: 'gps-history-reconciled'
     });
     res.json({
       success: true,
-      deletedCount,
+      deletedCount: result.deletedCount || 0,
+      duplicateDeletedCount: (result.dedupe && result.dedupe.deletedCount) || 0,
+      duplicateGroups: (result.dedupe && result.dedupe.duplicateGroups) || 0,
       detected: result.refills.length,
       createdCount: result.createdCount,
       skippedCount: result.skippedCount,
+      updatedCount: result.updatedCount || 0,
       refills: result.refills.map((event) => ({
         ...event,
         confidence: Number.isFinite(parseFloat(event.confidence)) ? Math.round(parseFloat(event.confidence) * 100) / 100 : null,
@@ -1991,9 +2436,77 @@ app.post('/api/refuels/rebuild', checkAccess, async (req, res) => {
   }
 });
 
+app.post('/api/refuels/rebuild-bulk', checkAccess, async (req, res) => {
+  try {
+    const { start, end, deviceIds, purgeExistingAuto, persist } = req.body || {};
+    if (!start || !end) return res.status(400).json({ error: 'start et end sont requis' });
+    const startMs = parseGpsDateTimeFlexible(start);
+    const endMs = parseGpsDateTimeFlexible(end);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return res.status(400).json({ error: 'Période invalide' });
+
+    let trucks = [];
+    if (Array.isArray(deviceIds) && deviceIds.length) {
+      trucks = await Truck.find({ deviceId: { $in: deviceIds.map((id) => String(id)) } }, 'deviceId truckName').sort({ truckName: 1 }).lean();
+    } else {
+      trucks = await Truck.find({}, 'deviceId truckName').sort({ truckName: 1 }).lean();
+    }
+    if (!trucks.length) return res.status(404).json({ error: 'Aucun camion trouvé pour ce re-scan' });
+
+    const summary = {
+      targetCount: trucks.length,
+      successCount: 0,
+      deletedCount: 0,
+      duplicateDeletedCount: 0,
+      detected: 0,
+      createdCount: 0,
+      skippedCount: 0,
+      updatedCount: 0,
+      failed: []
+    };
+
+    for (const truck of trucks) {
+      try {
+        const result = await reconcileRefuelsForWindow({
+          deviceId: String(truck.deviceId),
+          truckName: truck.truckName || String(truck.deviceId),
+          startMs,
+          endMs,
+          persist: persist !== false,
+          purgeExistingAuto: purgeExistingAuto === true,
+          source: 'gps-history-reconciled'
+        });
+        summary.successCount += 1;
+        summary.deletedCount += result.deletedCount || 0;
+        summary.duplicateDeletedCount += (result.dedupe && result.dedupe.deletedCount) || 0;
+        summary.detected += Array.isArray(result.refills) ? result.refills.length : 0;
+        summary.createdCount += result.createdCount || 0;
+        summary.skippedCount += result.skippedCount || 0;
+        summary.updatedCount += result.updatedCount || 0;
+      } catch (error) {
+        summary.failed.push({ deviceId: String(truck.deviceId), truckName: truck.truckName || String(truck.deviceId), error: error.message });
+      }
+    }
+
+    res.json({ success: true, summary });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/refuels/nightly-reconcile', checkAccess, async (req, res) => {
+  try {
+    const summary = await runNightlyRefuelReconciliation(true);
+    res.json({ success: true, summary });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/transport-report/rows', checkAccess, async (req, res) => {
   try {
-    const rows = await TransportReportEntry.find().sort({ startAt: -1, createdAt: -1 }).limit(5000);
+    const limitRaw = Number(req.query && req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.min(20000, Math.max(100, Math.round(limitRaw))) : 20000;
+    const rows = await TransportReportEntry.find().sort({ requestedStartAt: -1, startAt: -1, createdAt: -1 }).limit(limit);
     res.json(fmt(rows));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2002,12 +2515,13 @@ app.get('/api/transport-report/rows', checkAccess, async (req, res) => {
 
 app.post('/api/transport-report/calculate', checkAccess, async (req, res) => {
   try {
-    const { deviceId, truckName, start, end, persist, note } = req.body || {};
+    const { deviceId, truckName, start, end, persist, note, existingRowId, sourceFileName, sourceRow, sourceType } = req.body || {};
     if (!deviceId || !start || !end) return res.status(400).json({ error: 'deviceId, start et end sont requis' });
 
+    const resolvedTruckName = truckName || String(deviceId);
     const summary = await calculateTransportWindowStats({
       deviceId: String(deviceId),
-      truckName: truckName || String(deviceId),
+      truckName: resolvedTruckName,
       start,
       end,
       persist: persist === true,
@@ -2016,7 +2530,28 @@ app.post('/api/transport-report/calculate', checkAccess, async (req, res) => {
 
     let savedRow = null;
     if (persist) {
-      savedRow = await TransportReportEntry.create(summary);
+      const importFingerprint = buildTransportFingerprint({ truckName: resolvedTruckName, start, end });
+      const selector = existingRowId
+        ? { _id: existingRowId }
+        : { importFingerprint, status: { $ne: 'deleted' } };
+      const payload = {
+        ...summary,
+        status: 'ok',
+        issueReason: '',
+        issueCategory: '',
+        issueDetails: {},
+        sourceType: sourceType || 'import',
+        sourceFileName: sourceFileName || '',
+        sourceRow: Number(sourceRow) || null,
+        importFingerprint,
+        resolvedAt: new Date(),
+        editedAt: new Date()
+      };
+      savedRow = await TransportReportEntry.findOneAndUpdate(
+        selector,
+        { $set: payload, $setOnInsert: { createdAt: new Date() } },
+        { upsert: true, new: true }
+      );
     }
 
     res.json({
@@ -2029,12 +2564,141 @@ app.post('/api/transport-report/calculate', checkAccess, async (req, res) => {
   }
 });
 
+
+app.post('/api/transport-report/import-issue', checkAccess, async (req, res) => {
+  try {
+    const row = await createOrUpdateTransportIssue(req.body || {});
+    res.json({ success: true, row: fmt([row])[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/transport-report/retry-issues', checkAccess, async (req, res) => {
+  try {
+    const { ids, onlyStatus } = req.body || {};
+    const query = {};
+    if (Array.isArray(ids) && ids.length) query._id = { $in: ids };
+    if (onlyStatus) query.status = onlyStatus;
+    else query.status = { $ne: 'ok' };
+    const rows = await TransportReportEntry.find(query).sort({ sourceRow: 1, createdAt: 1 }).limit(10000);
+    const summary = { targetCount: rows.length, successCount: 0, failedCount: 0, failed: [] };
+    for (const row of rows) {
+      try {
+        const resolvedTruck = await resolveTruckForTransportRow({ deviceId: row.deviceId, truckName: row.inputTruckName || row.truckName });
+        if (!resolvedTruck) throw new Error('Camion introuvable');
+        const start = row.requestedStartAt || row.startAt;
+        const end = row.requestedEndAt || row.endAt;
+        if (!start || !end) throw new Error('Dates manquantes');
+        const summaryRow = await calculateTransportWindowStats({
+          deviceId: resolvedTruck.id,
+          truckName: resolvedTruck.name,
+          start,
+          end,
+          persist: true,
+          note: row.note || ''
+        });
+        await TransportReportEntry.findByIdAndUpdate(row._id, {
+          $set: {
+            ...summaryRow,
+            inputTruckName: row.inputTruckName || row.truckName,
+            status: 'ok',
+            issueReason: '',
+            issueCategory: '',
+            issueDetails: {},
+            deviceId: resolvedTruck.id,
+            truckName: resolvedTruck.name,
+            resolvedAt: new Date(),
+            lastRetryAt: new Date(),
+            editedAt: new Date()
+          }
+        });
+        summary.successCount += 1;
+      } catch (error) {
+        summary.failedCount += 1;
+        summary.failed.push({ id: String(row._id), truckName: row.inputTruckName || row.truckName || '', error: error.message });
+        await TransportReportEntry.findByIdAndUpdate(row._id, {
+          $set: {
+            status: 'issue',
+            issueReason: error.message,
+            lastRetryAt: new Date(),
+            editedAt: new Date()
+          }
+        });
+      }
+    }
+    res.json({ success: true, summary });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/transport-report/update', checkAccess, async (req, res) => {
+  try {
+    const { id, action } = req.body || {};
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const row = await TransportReportEntry.findById(id);
+    if (!row) return res.status(404).json({ error: 'Ligne introuvable' });
+
+    if (action === 'recalculate') {
+      const resolvedTruck = await resolveTruckForTransportRow({ deviceId: req.body.deviceId || row.deviceId, truckName: req.body.truckName || row.inputTruckName || row.truckName });
+      if (!resolvedTruck) return res.status(400).json({ error: 'Camion introuvable' });
+      const start = req.body.start || row.requestedStartAt || row.startAt;
+      const end = req.body.end || row.requestedEndAt || row.endAt;
+      const summary = await calculateTransportWindowStats({
+        deviceId: resolvedTruck.id,
+        truckName: resolvedTruck.name,
+        start,
+        end,
+        persist: true,
+        note: req.body.note ?? row.note ?? ''
+      });
+      const updated = await TransportReportEntry.findByIdAndUpdate(id, {
+        $set: {
+          ...summary,
+          inputTruckName: req.body.inputTruckName || row.inputTruckName || row.truckName,
+          deviceId: resolvedTruck.id,
+          truckName: resolvedTruck.name,
+          status: 'ok',
+          issueReason: '',
+          issueCategory: '',
+          issueDetails: {},
+          resolvedAt: new Date(),
+          editedAt: new Date()
+        }
+      }, { new: true });
+      return res.json({ success: true, row: fmt([updated])[0] });
+    }
+
+    const allowed = ['truckName','inputTruckName','deviceId','startLocation','endLocation','note','distanceSource','status','issueReason'];
+    const numericFields = ['kmTotal','gpsDistanceKm','fuelStart','fuelEnd','fuelAddedDuringTrip','fuelConsumedRaw','fuelConsumedTotal','refillCount','historyPoints','kmStart','kmEnd'];
+    const dateFields = ['startAt','endAt','requestedStartAt','requestedEndAt','actualStartAt','actualEndAt'];
+    const update = { editedAt: new Date() };
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body, key)) update[key] = req.body[key];
+    }
+    for (const key of numericFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, key)) update[key] = Number(req.body[key]) || 0;
+    }
+    for (const key of dateFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, key)) update[key] = toDateOrNull(req.body[key]);
+    }
+    if (Array.isArray(req.body.warnings)) update.warnings = req.body.warnings;
+    if (Array.isArray(req.body.refills)) update.refills = req.body.refills;
+    const updated = await TransportReportEntry.findByIdAndUpdate(id, { $set: update }, { new: true });
+    res.json({ success: true, row: fmt([updated])[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/transport-report/delete', checkAccess, async (req, res) => {
   try {
-    const { id } = req.body || {};
-    if (!id) return res.status(400).json({ error: 'id requis' });
-    await TransportReportEntry.findByIdAndDelete(id);
-    res.json({ success: true });
+    const { id, ids } = req.body || {};
+    const targetIds = Array.isArray(ids) && ids.length ? ids.filter(Boolean).map(String) : (id ? [String(id)] : []);
+    if (!targetIds.length) return res.status(400).json({ error: 'id ou ids requis' });
+    const result = await TransportReportEntry.deleteMany({ _id: { $in: targetIds } });
+    res.json({ success: true, deletedCount: Number(result.deletedCount || 0) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
