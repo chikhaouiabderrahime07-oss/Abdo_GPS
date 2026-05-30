@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const mongoose = require('mongoose');
@@ -25,6 +25,10 @@ const AccessCode = mongoose.model('AccessCode', AccessCodeSchema);
 const TruckSchema = new mongoose.Schema({
   deviceId: { type: String, unique: true },
   truckName: String,
+  // ✅ NEW: Per-truck identification fields
+  chassisNumber: String,       // Numéro de châssis
+  immatriculation: String,     // Plaque d'immatriculation
+  carteNaftal: String,         // Carte Naftal (fuel card number)
   lastUpdate: Number,
   lastFuelLiters: Number,
   lastFuelPercent: Number,
@@ -52,7 +56,34 @@ const MaintenanceSchema = new mongoose.Schema({
   truckName: String, deviceId: String, type: String,
   location: String, odometer: Number,
   date: { type: Date, required: true, index: expireRule },
-  exitDate: Date, note: String, isAuto: Boolean
+  exitDate: Date, note: String, isAuto: Boolean,
+  // ✅ NEW: Enhanced maintenance tracking fields
+  status: { type: String, default: 'en_cours' },   // en_cours, termine, annule
+  priority: { type: String, default: 'normal' },    // urgent, normal, bas
+  description: String,                               // Description détaillée du travail
+  cost: Number,                                      // Coût total de la réparation
+  technician: String,                                // Technicien responsable
+  parts: [{ name: String, quantity: Number, cost: Number }],  // Pièces utilisées
+  scheme: String,                                    // Type de véhicule (ex: 4x2, 6x4, remorque)
+  tires: String,                                     // Pneus cochés
+  forfaitName: String,                               // Nom du pack/forfait choisi
+  chassisNumber: String,                             // Châssis du camion au moment de l'ordre
+  immatriculation: String,                           // Immatriculation au moment de l'ordre
+  // ✅ V4.0: GPS Geofence Confirmation
+  gpsConfirmed: { type: Boolean, default: false },   // Confirmed via GPS proximity
+  gpsConfirmedAt: Date,                              // When GPS confirmation happened
+  gpsRejected: { type: Boolean, default: false },     // User rejected the confirmation
+  gpsRejectedReason: String,                         // Why they rejected
+  geofenceTriggered: { type: Boolean, default: false }, // Truck entered 500m zone
+  geofenceTriggeredAt: Date,                         // When geofence was triggered
+  geofenceExitAt: Date,                              // When truck left the zone
+  maintenanceLocationLat: Number,                    // Maintenance site latitude
+  maintenanceLocationLng: Number,                    // Maintenance site longitude
+  geofenceRadiusMeters: { type: Number, default: 500 }, // Configurable geofence radius
+  // ✅ V4.0: Verification
+  verified: { type: Boolean, default: false },
+  verifiedBy: String,
+  verifiedAt: Date
 });
 
 // 🔧 FIX: Added locationName field; removed mandatory status (simplified)
@@ -75,11 +106,57 @@ const SettingsSchema = new mongoose.Schema({
   lastDecouchageCheck: String
 }, { strict: false });
 
+
+// ✅ NEW: Speed Violation Schema (24/7 background tracking)
+const SpeedViolationSchema = new mongoose.Schema({
+  deviceId: { type: String, required: true, index: true },
+  truckName: String,
+  timestamp: { type: Date, required: true },
+  speed: Number,
+  limit: Number,
+  lat: Number,
+  lng: Number,
+  locationName: String,
+  durationMinutes: { type: Number, default: 0 },
+  isRescanned: { type: Boolean, default: false }
+});
+const SpeedViolation = mongoose.model('SpeedViolation', SpeedViolationSchema);
+
 const Truck = mongoose.model('Truck', TruckSchema);
 const Refuel = mongoose.model('Refuel', RefuelSchema);
 const Maintenance = mongoose.model('Maintenance', MaintenanceSchema);
 const Decouchage = mongoose.model('Decouchage', DecouchageSchema);
 const Settings = mongoose.model('Settings', SettingsSchema);
+
+// ✅ NEW: Maintenance Articles Catalog (configurable repair templates)
+const MaintenanceArticleSchema = new mongoose.Schema({
+  code: { type: String, unique: true, required: true },
+  name: { type: String, required: true },
+  category: { type: String, default: 'general' },
+  description: String,
+  defaultPrice: { type: Number, default: 0 },
+  components: [{ name: String, quantity: { type: Number, default: 1 }, unitCost: { type: Number, default: 0 } }],
+  laborCost: { type: Number, default: 0 },
+  estimatedDuration: String,
+  isActive: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+const MaintenanceArticle = mongoose.model('MaintenanceArticle', MaintenanceArticleSchema);
+
+// ✅ NEW: Vehicle References / Documents (Vignette, Contrôle Technique, Assurance, etc.)
+const VehicleReferenceSchema = new mongoose.Schema({
+  deviceId: { type: String, required: true, index: true },
+  truckName: String,
+  refName: { type: String, required: true },       // e.g. "Vignette", "Contrôle Technique"
+  refNumber: String,                                // reference/certificate number
+  issueDate: { type: Date, default: Date.now },     // date obtained
+  expiryDate: { type: Date, required: true },       // when it expires
+  reminderDays: { type: Number, default: 30 },      // alert N days before expiry
+  notes: String,
+  createdAt: { type: Date, default: Date.now }
+});
+const VehicleReference = mongoose.model('VehicleReference', VehicleReferenceSchema);
 
 
 const TransportReportEntrySchema = new mongoose.Schema({
@@ -533,6 +610,9 @@ function smoothFuelSeriesPoints(points, windowSize = 3, maxFuelLevel = null) {
     });
 }
 
+// ✅ FIX: Stricter merge to prevent duplication
+// Old code merged too aggressively (overlapping time windows + loose level tolerance)
+// New code: requires BOTH time AND level proximity, and uses tighter overlap check
 function mergeRefillEvents(events, dedupeMs = 0, levelTolerance = 10) {
     const sorted = (Array.isArray(events) ? events : [])
         .filter(Boolean)
@@ -544,30 +624,33 @@ function mergeRefillEvents(events, dedupeMs = 0, levelTolerance = 10) {
     for (let i = 1; i < sorted.length; i += 1) {
         const prev = merged[merged.length - 1];
         const cur = sorted[i];
-        const prevStart = prev.startTimeMs || prev.time || 0;
-        const prevEnd = prev.endTimeMs || prev.time || 0;
-        const curStart = cur.startTimeMs || cur.time || 0;
-        const curEnd = cur.endTimeMs || cur.time || 0;
-        const closeInTime = dedupeMs > 0 && (
-            Math.abs((cur.time || 0) - (prev.time || 0)) <= dedupeMs ||
-            curStart <= (prevEnd + dedupeMs)
-        );
-        const closeInLevel = Math.abs((cur.newLevel || 0) - (prev.newLevel || 0)) <= levelTolerance ||
-            Math.abs((cur.oldLevel || 0) - (prev.newLevel || 0)) <= levelTolerance;
+        const timeDiff = Math.abs((cur.time || 0) - (prev.time || 0));
+
+        // ✅ FIX: Only merge if STRICTLY close in time (direct time comparison, not window overlap)
+        const closeInTime = dedupeMs > 0 && timeDiff <= dedupeMs;
+
+        // ✅ FIX: Tighter level check — both old AND new levels must be similar
+        const newLevelClose = Math.abs((cur.newLevel || 0) - (prev.newLevel || 0)) <= levelTolerance;
+        const oldLevelClose = Math.abs((cur.oldLevel || 0) - (prev.oldLevel || 0)) <= levelTolerance;
+        const crossLevelClose = Math.abs((cur.oldLevel || 0) - (prev.newLevel || 0)) <= (levelTolerance * 0.6);
+        const closeInLevel = (newLevelClose && oldLevelClose) || crossLevelClose;
 
         if (closeInTime && closeInLevel) {
-            const oldLevel = Math.min(prev.oldLevel || prev.newLevel || 0, cur.oldLevel || cur.newLevel || 0);
-            const newLevel = Math.max(prev.newLevel || prev.oldLevel || 0, cur.newLevel || cur.oldLevel || 0);
+            // Merge: keep the one with higher confidence
+            const prevConf = parseFloat(prev.confidence) || 0;
+            const curConf = parseFloat(cur.confidence) || 0;
+            const oldLevel = Math.min(prev.oldLevel || 0, cur.oldLevel || 0);
+            const newLevel = Math.max(prev.newLevel || 0, cur.newLevel || 0);
+            const winner = curConf > prevConf ? cur : prev;
             merged[merged.length - 1] = {
-                ...prev,
-                ...cur,
-                startTimeMs: Math.min(prevStart, curStart),
-                endTimeMs: Math.max(prevEnd, curEnd),
-                time: Math.max(prev.time || 0, cur.time || 0),
+                ...winner,
+                startTimeMs: Math.min(prev.startTimeMs || prev.time || 0, cur.startTimeMs || cur.time || 0),
+                endTimeMs: Math.max(prev.endTimeMs || prev.time || 0, cur.endTimeMs || cur.time || 0),
+                time: winner.time,
                 oldLevel: Math.round(oldLevel),
                 newLevel: Math.round(newLevel),
-                addedLiters: Math.round(Math.max(newLevel - oldLevel, prev.addedLiters || 0, cur.addedLiters || 0)),
-                confidence: Math.max(parseFloat(prev.confidence) || 0, parseFloat(cur.confidence) || 0)
+                addedLiters: Math.round(newLevel - oldLevel),
+                confidence: Math.max(prevConf, curConf)
             };
         } else {
             merged.push(cur);
@@ -2134,6 +2217,67 @@ console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel
       }
     }
 
+    
+    // ✅ BACKGROUND SPEED TRACKING LOGIC
+    const speedLimit = parseFloat(SYSTEM_SETTINGS.speedLimit) || parseFloat(config.speedLimit) || 80;
+    if (speed > speedLimit) {
+      // Check if we are already tracking an active speed violation
+      const activeViolation = (dbTruck.engineState && dbTruck.engineState.activeSpeedViolation) ? dbTruck.engineState.activeSpeedViolation : null;
+      if (!activeViolation) {
+         // Start a new violation
+         dbTruck.engineState = dbTruck.engineState || {};
+         dbTruck.engineState.activeSpeedViolation = {
+            startMs: now,
+            maxSpeed: speed,
+            limit: speedLimit,
+            lat: truckLat,
+            lng: truckLng
+         };
+      } else {
+         // Update max speed
+         if (speed > activeViolation.maxSpeed) activeViolation.maxSpeed = speed;
+         const durMins = Math.round((now - activeViolation.startMs) / 60000);
+         if (durMins >= 5) {
+            SpeedViolation.create({
+              deviceId,
+              truckName,
+              timestamp: new Date(activeViolation.startMs),
+              speed: activeViolation.maxSpeed,
+              limit: activeViolation.limit,
+              lat: activeViolation.lat,
+              lng: activeViolation.lng,
+              locationName: 'Inconnue',
+              durationMinutes: durMins
+            }).catch(e => console.error("Error saving SpeedViolation:", e.message));
+            activeViolation.startMs = now;
+            activeViolation.maxSpeed = speed;
+         }
+      }
+    } else {
+      // Speed is under limit. If we were tracking a violation, close it and save to DB
+      if (dbTruck.engineState && dbTruck.engineState.activeSpeedViolation) {
+         const v = dbTruck.engineState.activeSpeedViolation;
+         const durMins = Math.round((now - v.startMs) / 60000);
+         // Only log if it lasted at least 1 minute or was extremely high speed (10+ over limit)
+         if (durMins >= 1 || v.maxSpeed >= (v.limit + 10)) {
+            let locName = 'Inconnue';
+            // Optional: resolve location name quickly if needed
+            SpeedViolation.create({
+              deviceId,
+              truckName,
+              timestamp: new Date(v.startMs),
+              speed: v.maxSpeed,
+              limit: v.limit,
+              lat: v.lat,
+              lng: v.lng,
+              locationName: locName,
+              durationMinutes: durMins
+            }).catch(e => console.error("Error saving SpeedViolation:", e.message));
+         }
+         dbTruck.engineState.activeSpeedViolation = null; // reset
+      }
+    }
+
     const nextEngineState = {
       ...(dbTruck.engineState || {}),
       refuelAnchorLiters,
@@ -2226,6 +2370,181 @@ app.get('/api/trucks', checkAccess, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+
+// ✅ GET Timeline Alerts
+app.delete('/api/alerts/timeline', checkAccess, async (req, res) => {
+    try {
+      await SpeedViolation.deleteMany({});
+      res.json({ success: true, message: 'Timeline effacée' });
+    } catch (e) {
+      res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.get('/api/alerts/timeline', checkAccess, async (req, res) => {
+  try {
+    const violations = await SpeedViolation.find().sort({ timestamp: -1 }).limit(100);
+    // You could also fetch Refuels, Maintenances here and merge them
+    res.json({ success: true, timeline: violations.map(v => ({
+      id: v._id,
+      type: 'speeding',
+      title: '🚨 Excès de Vitesse',
+      message: `${v.truckName} a roulé à ${v.speed} km/h (Limite: ${v.limit}) pendant ${v.durationMinutes} min.`,
+      timestamp: v.timestamp,
+      severity: (v.speed >= v.limit + 20) ? 'critical' : 'warning',
+      data: v
+    }))});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ✅ POST Rescan Speeding — fetches GPS history and finds all speed violations in a period
+app.post('/api/speeding/rescan', checkAccess, async (req, res) => {
+  try {
+    const { deviceIds, truckNames, start, end } = req.body;
+    if (!start || !end) return res.status(400).json({ error: 'start and end dates required' });
+    
+    const startMs = parseGpsDateTimeFlexible(start);
+    const endMs = parseGpsDateTimeFlexible(end);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      return res.status(400).json({ error: 'Invalid date format' });
+    }
+
+    // If specific deviceIds provided, use those; otherwise scan all trucks
+    let trucksToScan = [];
+    if (deviceIds && deviceIds.length > 0) {
+      for (let i = 0; i < deviceIds.length; i++) {
+        const dbTruck = await Truck.findOne({ deviceId: String(deviceIds[i]) });
+        if (dbTruck) trucksToScan.push({ deviceId: String(deviceIds[i]), truckName: dbTruck.truckName || truckNames?.[i] || deviceIds[i] });
+      }
+    } else {
+      const allTrucks = await Truck.find({}, 'deviceId truckName');
+      trucksToScan = allTrucks.map(t => ({ deviceId: t.deviceId, truckName: t.truckName }));
+    }
+
+    let totalViolations = 0;
+    const results = [];
+
+    for (const t of trucksToScan) {
+      try {
+        const config = getTruckConfig(t.deviceId);
+        const speedLimit = parseFloat(SYSTEM_SETTINGS.speedLimit) || parseFloat(config.speedLimit) || 80;
+        const rawMessages = await fetchGpsHistoryWindow(t.deviceId, startMs, endMs);
+        const points = normalizeGpsHistoryMessages(rawMessages, t.deviceId, config);
+        
+        // Find consecutive speeding segments
+        let inViolation = false;
+        let violationStart = null;
+        let maxSpeed = 0;
+        let violationLat = 0, violationLng = 0;
+
+        for (let i = 0; i < points.length; i++) {
+          const p = points[i];
+          const speed = parseFloat(p.speed) || 0;
+          
+          if (speed > speedLimit) {
+            if (!inViolation) {
+              inViolation = true;
+              violationStart = p.time;
+              maxSpeed = speed;
+              violationLat = p.lat;
+              violationLng = p.lng;
+            } else {
+              if (speed > maxSpeed) maxSpeed = speed;
+            }
+          } else {
+            if (inViolation) {
+              // Close the violation
+              const durMins = Math.round((p.time - violationStart) / 60000);
+              if (durMins >= 1 || maxSpeed >= speedLimit + 10) {
+                // Check for duplicate
+                const existing = await SpeedViolation.findOne({
+                  deviceId: t.deviceId,
+                  timestamp: { $gte: new Date(violationStart - 60000), $lte: new Date(violationStart + 60000) }
+                });
+                if (!existing) {
+                  await SpeedViolation.create({
+                    deviceId: t.deviceId,
+                    truckName: t.truckName,
+                    timestamp: new Date(violationStart),
+                    speed: maxSpeed,
+                    limit: speedLimit,
+                    lat: violationLat,
+                    lng: violationLng,
+                    locationName: resolveLocationName(violationLat, violationLng) || 'Inconnue',
+                    durationMinutes: durMins,
+                    isRescanned: true
+                  });
+                  totalViolations++;
+                }
+              }
+              inViolation = false;
+              maxSpeed = 0;
+            }
+          }
+        }
+
+        // Close any trailing violation
+        if (inViolation && points.length > 0) {
+          const lastP = points[points.length - 1];
+          const durMins = Math.round((lastP.time - violationStart) / 60000);
+          if (durMins >= 1 || maxSpeed >= speedLimit + 10) {
+            const existing = await SpeedViolation.findOne({
+              deviceId: t.deviceId,
+              timestamp: { $gte: new Date(violationStart - 60000), $lte: new Date(violationStart + 60000) }
+            });
+            if (!existing) {
+              await SpeedViolation.create({
+                deviceId: t.deviceId,
+                truckName: t.truckName,
+                timestamp: new Date(violationStart),
+                speed: maxSpeed,
+                limit: speedLimit,
+                lat: violationLat,
+                lng: violationLng,
+                locationName: resolveLocationName(violationLat, violationLng) || 'Inconnue',
+                durationMinutes: durMins,
+                isRescanned: true
+              });
+              totalViolations++;
+            }
+          }
+        }
+
+        results.push({ truckName: t.truckName, pointsScanned: points.length, status: 'ok' });
+      } catch (truckErr) {
+        results.push({ truckName: t.truckName, pointsScanned: 0, status: 'error', error: truckErr.message });
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Rescan terminé: ' + totalViolations + ' infractions trouvées sur ' + trucksToScan.length + ' camions.',
+      totalViolations,
+      trucksScanned: trucksToScan.length,
+      results
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ✅ GET Speeding History for a specific truck
+app.get('/api/speeding/history', checkAccess, async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.deviceId) filter.deviceId = req.query.deviceId;
+    if (req.query.start && req.query.end) {
+      filter.timestamp = { $gte: new Date(req.query.start), $lte: new Date(req.query.end) };
+    }
+    const violations = await SpeedViolation.find(filter).sort({ timestamp: -1 }).limit(500);
+    res.json({ success: true, violations });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/settings', checkAccess, (req, res) => res.json(SYSTEM_SETTINGS));
 app.post('/api/settings', checkAccess, async (req, res) => {
   SYSTEM_SETTINGS = { ...SYSTEM_SETTINGS, ...req.body };
@@ -2253,7 +2572,7 @@ app.post('/api/maintenance/add', checkAccess, async (req, res) => {
 });
 app.post('/api/maintenance/update', checkAccess, async (req, res) => {
   try {
-    const { id, type, note, odometer, isAuto } = req.body;
+    const { id, type, note, odometer, isAuto, location, priority, description, technician, cost, parts, scheme, tires, forfaitName, chassisNumber, immatriculation } = req.body;
     const doc = await Maintenance.findById(id);
     if (!doc) return res.status(404).json({ error: "Introuvable" });
 
@@ -2262,6 +2581,18 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     doc.note = note !== undefined ? note : doc.note;
     doc.odometer = odometer || doc.odometer;
     if (isAuto !== undefined) doc.isAuto = isAuto;
+    // ✅ FIX: Save all enhanced fields
+    if (location !== undefined) doc.location = location;
+    if (priority !== undefined) doc.priority = priority;
+    if (description !== undefined) doc.description = description;
+    if (technician !== undefined) doc.technician = technician;
+    if (cost !== undefined) doc.cost = cost;
+    if (Array.isArray(parts)) doc.parts = parts;
+    if (scheme !== undefined) doc.scheme = scheme;
+    if (tires !== undefined) doc.tires = tires;
+    if (forfaitName !== undefined) doc.forfaitName = forfaitName;
+    if (chassisNumber !== undefined) doc.chassisNumber = chassisNumber;
+    if (immatriculation !== undefined) doc.immatriculation = immatriculation;
     await doc.save();
 
     // ✅ If user changed the entry to Vidange, acknowledge
@@ -2279,6 +2610,181 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
 app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
   await Maintenance.findByIdAndDelete(req.body.id);
   res.json({ success: true });
+});
+
+// ✅ NEW: Get all trucks from DB with their metadata (chassis, imm, carte naftal)
+app.get('/api/trucks/db', checkAccess, async (req, res) => {
+  try {
+    const trucks = await Truck.find({}, 'deviceId truckName chassisNumber immatriculation carteNaftal lastFuelLiters lastFuelPercent lat lng speed lastUpdate').sort({ truckName: 1 });
+    res.json(fmt(trucks));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ FIX: Update truck metadata — now uses upsert so it works even if truck isn't in DB yet
+app.post('/api/trucks/update-info', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, truckName, chassisNumber, immatriculation, carteNaftal } = req.body;
+    if (!deviceId && !truckName) return res.status(400).json({ error: 'deviceId ou truckName requis' });
+    const filter = deviceId ? { deviceId: String(deviceId) } : { truckName: String(truckName) };
+    const update = {};
+    if (chassisNumber !== undefined) update.chassisNumber = chassisNumber;
+    if (immatriculation !== undefined) update.immatriculation = immatriculation;
+    if (carteNaftal !== undefined) update.carteNaftal = carteNaftal;
+    if (truckName) update.truckName = truckName;
+    if (deviceId) update.deviceId = String(deviceId);
+    const truck = await Truck.findOneAndUpdate(filter, { $set: update }, { new: true, upsert: true });
+    res.json({ success: true, truck: fmt([truck])[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ NEW: Add a manual (non-GPS) truck that persists for future maintenance orders
+app.post('/api/trucks/manual', checkAccess, async (req, res) => {
+  try {
+    const { truckName, chassisNumber, immatriculation, carteNaftal } = req.body;
+    if (!truckName) return res.status(400).json({ error: 'truckName requis' });
+    const deviceId = 'manual_' + truckName.replace(/\s+/g, '_').toLowerCase();
+    const truck = await Truck.findOneAndUpdate(
+      { $or: [{ deviceId }, { truckName }] },
+      { $set: { deviceId, truckName, chassisNumber, immatriculation, carteNaftal } },
+      { new: true, upsert: true }
+    );
+    res.json({ success: true, truck: fmt([truck])[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ NEW: Get active (in-progress) maintenance orders only
+app.get('/api/maintenance/active', checkAccess, async (req, res) => {
+  try {
+    const data = await Maintenance.find({
+      $or: [
+        { status: 'en_cours' },
+        { exitDate: { $exists: false } },
+        { exitDate: null }
+      ]
+    }).sort({ date: -1 });
+    res.json(fmt(data));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ NEW: Close/complete a maintenance order
+app.post('/api/maintenance/close', checkAccess, async (req, res) => {
+  try {
+    const { id, note, cost, technician, parts } = req.body;
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const doc = await Maintenance.findById(id);
+    if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
+    doc.exitDate = new Date();
+    doc.status = 'termine';
+    if (note !== undefined) doc.note = note;
+    if (cost !== undefined) doc.cost = cost;
+    if (technician !== undefined) doc.technician = technician;
+    if (Array.isArray(parts)) doc.parts = parts;
+    await doc.save();
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ V4.0: GPS Geofence Confirmation — Confirm or reject a maintenance via GPS proximity
+app.post('/api/maintenance/gps-confirm', checkAccess, async (req, res) => {
+  try {
+    const { id, confirmed, rejectedReason } = req.body;
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const doc = await Maintenance.findById(id);
+    if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
+    
+    if (confirmed) {
+      doc.gpsConfirmed = true;
+      doc.gpsConfirmedAt = new Date();
+      doc.status = 'termine';
+      doc.exitDate = new Date();
+    } else {
+      doc.gpsRejected = true;
+      doc.gpsRejectedReason = rejectedReason || 'Non confirmé par utilisateur';
+    }
+    await doc.save();
+    res.json({ success: true, order: doc });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ V4.0: Get maintenance orders pending GPS confirmation
+app.get('/api/maintenance/pending-gps', checkAccess, async (req, res) => {
+  try {
+    const orders = await Maintenance.find({
+      status: 'en_cours',
+      gpsConfirmed: { $ne: true },
+      gpsRejected: { $ne: true }
+    }).sort({ date: -1 });
+    res.json(orders);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ V4.0: Get ALL maintenance history entries (for predictive engine)
+app.get('/api/maintenance-entries', checkAccess, async (req, res) => {
+  try {
+    const entries = await Maintenance.find({}).sort({ date: -1 }).limit(10000);
+    res.json(entries);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ✅ V4.0: Geofence check — check if any truck with active maintenance is near a maintenance site
+app.post('/api/maintenance/geofence-check', checkAccess, async (req, res) => {
+  try {
+    // Get active maintenance orders
+    const activeOrders = await Maintenance.find({ 
+      status: 'en_cours', 
+      gpsConfirmed: { $ne: true },
+      maintenanceLocationLat: { $exists: true, $ne: null },
+      maintenanceLocationLng: { $exists: true, $ne: null }
+    });
+    
+    if (activeOrders.length === 0) return res.json({ triggered: [] });
+    
+    // Get current truck positions from cache
+    const trucks = await Truck.find({});
+    const triggered = [];
+    
+    for (const order of activeOrders) {
+      const truck = trucks.find(t => t.truckName === order.truckName || t.deviceId === order.deviceId);
+      if (!truck || !truck.lat || !truck.lng) continue;
+      
+      const distance = calculateDistance(
+        truck.lat, truck.lng,
+        order.maintenanceLocationLat, order.maintenanceLocationLng
+      );
+      
+      const radius = order.geofenceRadiusMeters || 500;
+      
+      // Check if truck was in zone and now left (>500m)
+      if (distance > radius && order.geofenceTriggered && !order.geofenceExitAt) {
+        order.geofenceExitAt = new Date();
+        await order.save();
+        triggered.push({
+          orderId: order._id,
+          truckName: order.truckName,
+          type: order.type,
+          distance: Math.round(distance),
+          status: 'exited_zone',
+          message: `${order.truckName} a quitté la zone de maintenance (${Math.round(distance)}m)`
+        });
+      }
+      // Check if truck entered zone (<500m)
+      else if (distance <= radius && !order.geofenceTriggered) {
+        order.geofenceTriggered = true;
+        order.geofenceTriggeredAt = new Date();
+        await order.save();
+        triggered.push({
+          orderId: order._id,
+          truckName: order.truckName,
+          type: order.type,
+          distance: Math.round(distance),
+          status: 'entered_zone',
+          message: `${order.truckName} est dans la zone de maintenance (${Math.round(distance)}m)`
+        });
+      }
+    }
+    
+    res.json({ triggered });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/refuels', checkAccess, async (req, res) => {
@@ -2396,6 +2902,22 @@ app.delete('/api/audit/:id', checkAccess, async (req, res) => {
 });
 
 
+// ✅ V4.0: Refuel Verification — Confirm or reject a detected refuel
+app.post('/api/refuels/verify', checkAccess, async (req, res) => {
+  try {
+    const { id, verified, rejectedReason } = req.body;
+    if (!id) return res.status(400).json({ error: 'id requis' });
+    const doc = await Refuel.findById(id);
+    if (!doc) return res.status(404).json({ error: 'Remplissage introuvable' });
+    
+    doc.set('verified', !!verified);
+    doc.set('verifiedAt', new Date());
+    if (!verified && rejectedReason) doc.set('rejectedReason', rejectedReason);
+    
+    await doc.save();
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.post('/api/refuels/rebuild', checkAccess, async (req, res) => {
   try {
@@ -2887,7 +3409,259 @@ app.get('/api/admin/reset-overdue-vidanges', async (req, res) => {
   }
 });
 
-// --- 8. INITIALIZATION ---
+// --- 8. ITINERARY TRACKING API ---
+
+// Schema: one document per unique route key, accumulates truck observations per month
+const ItinerarySegmentSchema = new mongoose.Schema({
+  key: { type: String, unique: true, index: true },   // e.g. "36.74,3.05|34.85,5.72"
+  waypoints: [{ lat: Number, lng: Number, count: Number }],
+  nameStart: String,    // resolved place name for first waypoint
+  nameEnd: String,      // resolved place name for last waypoint
+  // monthly: { "2026-05": { trucks: ["id:name", ...], count: N } }
+  monthly: { type: Map, of: { trucks: [String], count: Number } },
+  totalObservations: { type: Number, default: 0 },
+  allTrucks: [String],  // all unique "id:name" ever seen
+  firstSeen: Date,
+  lastSeen: Date
+}, { strict: false });
+
+const ItinerarySegment = mongoose.model('ItinerarySegment', ItinerarySegmentSchema);
+
+// POST /api/itinerary/upsert-batch — called by UI after analyzing GPS history
+// Body: { segments: [ { key, waypoints, truckId, truckName, monthKey } ] }
+const itinRoute = require('express').Router();
+
+itinRoute.post('/upsert-batch', async (req, res) => {
+  try {
+    const { segments } = req.body;
+    if (!Array.isArray(segments) || segments.length === 0) return res.json({ ok: true, updated: 0 });
+
+    let updated = 0;
+    for (const seg of segments) {
+      const { key, waypoints, truckId, truckName, monthKey } = seg;
+      if (!key || !monthKey) continue;
+      const truckTag = `${truckId}:${truckName}`;
+      const monthPath = `monthly.${monthKey}`;
+
+      const existing = await ItinerarySegment.findOne({ key });
+      if (!existing) {
+        const monthMap = new Map();
+        monthMap.set(monthKey, { trucks: [truckTag], count: 1 });
+        await ItinerarySegment.create({
+          key, waypoints: waypoints || [],
+          monthly: monthMap,
+          totalObservations: 1,
+          allTrucks: [truckTag],
+          firstSeen: new Date(),
+          lastSeen: new Date()
+        });
+      } else {
+        // Update monthly entry
+        const monthData = existing.monthly.get(monthKey) || { trucks: [], count: 0 };
+        if (!monthData.trucks.includes(truckTag)) {
+          monthData.trucks.push(truckTag);
+          monthData.count = monthData.trucks.length;
+        }
+        existing.monthly.set(monthKey, monthData);
+        if (!existing.allTrucks.includes(truckTag)) existing.allTrucks.push(truckTag);
+        existing.totalObservations = (existing.totalObservations || 0) + 1;
+        existing.lastSeen = new Date();
+        if (!existing.firstSeen) existing.firstSeen = new Date();
+        await existing.save();
+      }
+      updated++;
+    }
+    res.json({ ok: true, updated });
+  } catch (e) {
+    console.error('Itinerary upsert error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/itinerary/set-names — update resolved place names
+itinRoute.patch('/set-names', async (req, res) => {
+  try {
+    const { key, nameStart, nameEnd } = req.body;
+    if (!key) return res.status(400).json({ error: 'key required' });
+    await ItinerarySegment.updateOne({ key }, { $set: { nameStart, nameEnd } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/itinerary/all — return all stored itinerary segments
+itinRoute.get('/all', async (req, res) => {
+  try {
+    const docs = await ItinerarySegment.find({}).lean();
+    res.json(docs);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/itinerary/delete-one — remove a single route
+itinRoute.delete('/delete-one', async (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key) return res.status(400).json({ error: 'key required' });
+    await ItinerarySegment.deleteOne({ key });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE /api/itinerary/clear — wipe all (admin)
+itinRoute.delete('/clear', async (req, res) => {
+  try {
+    await ItinerarySegment.deleteMany({});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.use('/api/itinerary', itinRoute);
+
+// ============================================================
+// ✅ MAINTENANCE ARTICLES CATALOG API
+// ============================================================
+
+// GET all articles
+app.get('/api/maintenance-articles', checkAccess, async (req, res) => {
+  try {
+    const articles = await MaintenanceArticle.find({ isActive: true }).sort({ category: 1, name: 1 });
+    res.json(fmt(articles));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST create/update article
+app.post('/api/maintenance-articles', checkAccess, async (req, res) => {
+  try {
+    const { code, name, category, description, defaultPrice, components, laborCost, estimatedDuration } = req.body;
+    if (!code || !name) return res.status(400).json({ error: 'code et name requis' });
+    const article = await MaintenanceArticle.findOneAndUpdate(
+      { code },
+      { $set: { code, name, category: category || 'general', description, defaultPrice: defaultPrice || 0, components: components || [], laborCost: laborCost || 0, estimatedDuration, updatedAt: new Date() } },
+      { new: true, upsert: true }
+    );
+    res.json({ success: true, article: fmt([article])[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE article (soft delete)
+app.delete('/api/maintenance-articles/:id', checkAccess, async (req, res) => {
+  try {
+    await MaintenanceArticle.findByIdAndUpdate(req.params.id, { $set: { isActive: false } });
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH cancel maintenance order
+app.patch('/api/maintenance/:id/cancel', checkAccess, async (req, res) => {
+  try {
+    const doc = await Maintenance.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
+    doc.status = 'annule';
+    doc.note = (doc.note || '') + '\n[ANNULÉ le ' + new Date().toLocaleString('fr-FR') + ']';
+    doc.exitDate = new Date();
+    await doc.save();
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PATCH complete maintenance order
+app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
+  try {
+    const doc = await Maintenance.findById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
+    const { cost, technician, note, parts } = req.body;
+    doc.status = 'termine';
+    doc.exitDate = new Date();
+    if (cost !== undefined) doc.cost = cost;
+    if (technician !== undefined) doc.technician = technician;
+    if (note !== undefined) doc.note = note;
+    if (Array.isArray(parts)) doc.parts = parts;
+    await doc.save();
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST seed default maintenance articles (one-time setup)
+app.post('/api/maintenance-articles/seed-defaults', checkAccess, async (req, res) => {
+  try {
+    const defaults = [
+      { code: 'VID-001', name: 'Vidange Moteur', category: 'Entretien Préventif', description: 'Vidange huile moteur complète avec remplacement filtre', defaultPrice: 20000, laborCost: 3000, estimatedDuration: '2h', components: [{ name: 'Huile Moteur 15W40 (10L)', quantity: 1, unitCost: 8000 }, { name: 'Filtre à Huile', quantity: 1, unitCost: 2500 }, { name: 'Joint de Bouchon', quantity: 1, unitCost: 500 }, { name: 'Filtre à Gasoil', quantity: 1, unitCost: 3000 }] },
+      { code: 'FRN-001', name: 'Remplacement Plaquettes de Frein', category: 'Freinage', description: 'Remplacement plaquettes de frein avant et arrière', defaultPrice: 35000, laborCost: 5000, estimatedDuration: '3h', components: [{ name: 'Plaquettes Avant (jeu)', quantity: 1, unitCost: 12000 }, { name: 'Plaquettes Arrière (jeu)', quantity: 1, unitCost: 10000 }] },
+      { code: 'PNU-001', name: 'Remplacement Pneumatiques', category: 'Pneumatiques', description: 'Changement de pneus usés', defaultPrice: 45000, laborCost: 4000, estimatedDuration: '2h', components: [{ name: 'Pneu 315/80 R22.5', quantity: 2, unitCost: 18000 }] },
+      { code: 'FLT-001', name: 'Remplacement Filtres', category: 'Entretien Préventif', description: 'Remplacement de tous les filtres', defaultPrice: 15000, laborCost: 2000, estimatedDuration: '1h30', components: [{ name: 'Filtre à Air', quantity: 1, unitCost: 4000 }, { name: 'Filtre à Huile', quantity: 1, unitCost: 2500 }, { name: 'Filtre à Gasoil', quantity: 1, unitCost: 3000 }, { name: 'Filtre Séparateur Eau', quantity: 1, unitCost: 2500 }] },
+      { code: 'BAT-001', name: 'Remplacement Batterie', category: 'Électrique', description: 'Remplacement batterie véhicule', defaultPrice: 25000, laborCost: 1000, estimatedDuration: '30min', components: [{ name: 'Batterie 12V 180Ah', quantity: 2, unitCost: 11000 }] },
+      { code: 'EMB-001', name: 'Remplacement Embrayage', category: 'Transmission', description: 'Remplacement kit embrayage complet', defaultPrice: 85000, laborCost: 15000, estimatedDuration: '8h', components: [{ name: 'Kit Embrayage Complet', quantity: 1, unitCost: 55000 }, { name: 'Butée Embrayage', quantity: 1, unitCost: 8000 }] },
+      { code: 'CRG-001', name: 'Réparation Climatisation', category: 'Confort', description: 'Recharge et réparation système climatisation', defaultPrice: 18000, laborCost: 5000, estimatedDuration: '3h', components: [{ name: 'Gaz Réfrigérant R134a', quantity: 1, unitCost: 6000 }, { name: 'Filtre Déshydrateur', quantity: 1, unitCost: 4000 }] },
+      { code: 'SUS-001', name: 'Réparation Suspension', category: 'Suspension', description: 'Remplacement amortisseurs et ressorts', defaultPrice: 55000, laborCost: 8000, estimatedDuration: '5h', components: [{ name: 'Amortisseur Avant', quantity: 2, unitCost: 9000 }, { name: 'Amortisseur Arrière', quantity: 2, unitCost: 8000 }] },
+      { code: 'DIV-001', name: 'Réparation Diverse', category: 'Divers', description: 'Travaux de maintenance non catégorisés', defaultPrice: 0, laborCost: 0, estimatedDuration: 'Variable', components: [] }
+    ];
+    for (const art of defaults) {
+      await MaintenanceArticle.findOneAndUpdate({ code: art.code }, { $set: { ...art, updatedAt: new Date() } }, { upsert: true });
+    }
+    res.json({ success: true, count: defaults.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+// --- VEHICLE REFERENCES API ---
+
+// GET all references
+app.get('/api/vehicle-references', checkAccess, async (req, res) => {
+  try {
+    const refs = await VehicleReference.find().sort({ expiryDate: 1 });
+    res.json(refs);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET references for a specific truck
+app.get('/api/vehicle-references/:deviceId', checkAccess, async (req, res) => {
+  try {
+    const refs = await VehicleReference.find({ deviceId: req.params.deviceId }).sort({ expiryDate: 1 });
+    res.json(refs);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET references expiring within N days (default 30)
+app.get('/api/vehicle-references-expiring', checkAccess, async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + days);
+    const refs = await VehicleReference.find({ expiryDate: { $lte: cutoff } }).sort({ expiryDate: 1 });
+    res.json(refs);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST add a reference
+app.post('/api/vehicle-references', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, truckName, refName, refNumber, issueDate, expiryDate, reminderDays, notes } = req.body;
+    if (!deviceId || !refName || !expiryDate) return res.status(400).json({ error: 'deviceId, refName et expiryDate sont requis' });
+    const ref = new VehicleReference({ deviceId, truckName, refName, refNumber, issueDate: issueDate || new Date(), expiryDate, reminderDays: reminderDays || 30, notes });
+    await ref.save();
+    res.json({ success: true, ref });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT update a reference
+app.put('/api/vehicle-references/:id', checkAccess, async (req, res) => {
+  try {
+    const updates = req.body;
+    const ref = await VehicleReference.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true });
+    if (!ref) return res.status(404).json({ error: 'Référence introuvable' });
+    res.json({ success: true, ref });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// DELETE a reference
+app.delete('/api/vehicle-references/:id', checkAccess, async (req, res) => {
+  try {
+    await VehicleReference.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- 9. INITIALIZATION ---
+
 if (DB_URI) {
   mongoose.connect(DB_URI)
     .then(() => {
@@ -2900,3 +3674,7 @@ if (DB_URI) {
   console.error("❌ FATAL: Missing DB_URI");
   app.listen(PORT, () => console.log(`🚀 Server running (No DB Mode) on port ${PORT}`));
 }
+
+
+
+

@@ -849,29 +849,44 @@ updateMarkers: function(trucks) {
         if(truck.isGpsCut) { statusColor = '#333'; statusText = '⚠️ COUPURE GPS'; }
         const fuelColor = truck.isCriticalFuel ? '#d32f2f' : (truck.isLowFuel ? '#f57c00' : '#2e7d32');
         return `
-            <div class="popup-header-box" style="background:${statusColor}">
-                <span>${truck.name}</span>
-                <span style="font-size:10px; background:rgba(0,0,0,0.2); padding:2px 6px; border-radius:10px;">${statusText}</span>
-            </div>
-            <div class="popup-body-box">
-                <div class="popup-stat-row">
-                    <span><span class="popup-stat-icon"><i class="fa-solid fa-map-pin"></i></span> Lieu</span>
-                    <span class="popup-stat-value" style="font-weight:400; font-size:11px;">
-                        ${truck.location.city || ''} <span style="color:#d97706; font-weight:bold;">(${truck.location.wilaya || 'Algérie'})</span>
-                    </span>
+            <div style="font-family:'Segoe UI',system-ui,sans-serif;">
+              <div style="background:${statusColor}; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <div style="width:32px; height:32px; border-radius:8px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center;">
+                    <i class="fa-solid fa-truck" style="color:white; font-size:14px;"></i>
+                  </div>
+                  <div>
+                    <div style="font-weight:800; font-size:14px; color:white; letter-spacing:0.5px;">${truck.name}</div>
+                    <div style="font-size:10px; color:rgba(255,255,255,0.8); font-weight:500;">${truck.location.city || ''}, ${truck.location.wilaya || 'Algérie'}</div>
+                  </div>
                 </div>
-                <div class="popup-stat-row">
-                    <span><span class="popup-stat-icon"><i class="fa-solid fa-gas-pump"></i></span> Carburant</span>
-                    <span class="popup-stat-value" style="color:${fuelColor}">${truck.fuelLiters}L (${truck.fuelPercentage}%)</span>
+                <span style="font-size:9px; background:rgba(255,255,255,0.25); padding:3px 8px; border-radius:10px; color:white; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${statusText}</span>
+              </div>
+              <div style="padding:12px 14px; background:white;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+                  <div style="background:#f8fafc; border-radius:8px; padding:8px 10px; text-align:center; border:1px solid #e2e8f0;">
+                    <div style="font-size:9px; text-transform:uppercase; color:#94a3b8; font-weight:700; letter-spacing:0.5px;">Vitesse</div>
+                    <div style="font-size:18px; font-weight:800; color:${truck.speed > 0 ? '#0284c7' : '#94a3b8'};">${truck.speed}<span style="font-size:10px; font-weight:500;"> km/h</span></div>
+                  </div>
+                  <div style="background:#f8fafc; border-radius:8px; padding:8px 10px; text-align:center; border:1px solid #e2e8f0;">
+                    <div style="font-size:9px; text-transform:uppercase; color:#94a3b8; font-weight:700; letter-spacing:0.5px;">Carburant</div>
+                    <div style="font-size:18px; font-weight:800; color:${fuelColor};">${truck.fuelPercentage}<span style="font-size:10px; font-weight:500;">%</span></div>
+                  </div>
                 </div>
-                 <div class="popup-stat-row">
-                    <span><span class="popup-stat-icon"><i class="fa-solid fa-location-arrow"></i></span> Vitesse</span>
-                    <span class="popup-stat-value">${truck.speed} km/h</span>
+                <div style="background:#f8fafc; border-radius:6px; padding:6px 10px; margin-bottom:10px; border:1px solid #e2e8f0;">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:10px; color:#64748b;"><i class="fa-solid fa-gas-pump" style="width:14px;"></i> Niveau</span>
+                    <span style="font-size:11px; font-weight:700; color:${fuelColor};">${truck.fuelLiters}L</span>
+                  </div>
+                  <div style="margin-top:4px; height:4px; background:#e2e8f0; border-radius:2px; overflow:hidden;">
+                    <div style="height:100%; width:${Math.min(truck.fuelPercentage, 100)}%; background:${fuelColor}; border-radius:2px; transition:width 0.3s;"></div>
+                  </div>
                 </div>
-                <div style="display:flex; gap:5px; margin-top:8px;">
-                    <button class="popup-action-btn" style="flex:1;" onclick="AlgeriaMap.selectTruckById('${truck.id}')"><i class="fa-solid fa-crosshairs"></i> Suivre</button>
-<button class="popup-action-btn" style="flex:1; background:#4f46e5; border-color:#3730a3; color: white;" onclick="window.ui.openHistoryModal('${truck.id}', '${truck.name}')"><i class="fa-solid fa-clock-rotate-left"></i> Historique</button>
+                <div style="display:flex; gap:6px;">
+                  <button class="popup-action-btn" style="flex:1; background:#f0f9ff; color:#0284c7; border:1px solid #bae6fd; font-weight:700; border-radius:6px; padding:7px; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;" onclick="AlgeriaMap.selectTruckById('${truck.id}')"><i class="fa-solid fa-crosshairs"></i> Suivre</button>
+                  <button class="popup-action-btn" style="flex:1; background:#4f46e5; color:white; border:none; font-weight:700; border-radius:6px; padding:7px; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;" onclick="window.ui.openHistoryModal('${truck.id}', '${truck.name}')"><i class="fa-solid fa-clock-rotate-left"></i> Historique</button>
                 </div>
+              </div>
             </div>`;
     },
 

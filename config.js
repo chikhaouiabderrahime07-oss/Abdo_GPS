@@ -914,16 +914,29 @@ function getTruckConfig(deviceId) {
 function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
     const alertKm = config && config.vidangeAlertKm ? config.vidangeAlertKm : 5000;
     if (!config || !config.vidangeMilestones) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
-    let milestones;
+    
+    let milestones = [];
     if (typeof config.vidangeMilestones === 'string') {
         milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a, b) => a - b);
     } else if (Array.isArray(config.vidangeMilestones)) {
         milestones = config.vidangeMilestones;
     }
+
+    if (milestones.length === 0) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
+
     const safeSkip = (skipUntilKm !== null && skipUntilKm !== undefined) ? parseInt(skipUntilKm, 10) : null;
     const base = (!isNaN(safeSkip) && safeSkip > 0) ? safeSkip : 0;
-    const nextMilestone = milestones.find(m => m > base);
+
+    const GHOST_KM_THRESHOLD = 10000;
+    const activeMilestones = milestones.filter(m => {
+        if (m <= base) return false; // already explicitly acknowledged
+        if ((currentOdometer - m) > GHOST_KM_THRESHOLD) return false; // silently treat as done
+        return true;
+    });
+
+    const nextMilestone = activeMilestones.length > 0 ? activeMilestones[0] : null;
     if (!nextMilestone) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
+
     const kmUntilNext = nextMilestone - currentOdometer;
     const isAlert = kmUntilNext <= alertKm;
     return { alert: isAlert, nextKm: nextMilestone, kmUntilNext: kmUntilNext, alertKm };
