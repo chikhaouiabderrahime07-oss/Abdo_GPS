@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const mongoose = require('mongoose');
@@ -203,6 +203,18 @@ const TransportReportEntrySchema = new mongoose.Schema({
 });
 const TransportReportEntry = mongoose.model('TransportReportEntry', TransportReportEntrySchema);
 
+// ✅ SELF-HEALING: Tracks GPS data collection gaps so server can auto-recover after downtime/quota events
+const MissedWindowSchema = new mongoose.Schema({
+  startMs: { type: Number, required: true, index: true },  // gap start timestamp
+  endMs:   { type: Number, required: true },                // gap end timestamp
+  reason:  { type: String, default: 'bot-failure' },        // 'bot-failure', 'bandwidth', 'quota', 'startup-gap'
+  recoveredAt: { type: Date, default: null },               // null = not yet recovered
+  truckCount: Number,                                        // how many trucks were processed in recovery
+  createdAt: { type: Date, default: Date.now }
+});
+const MissedWindow = mongoose.model('MissedWindow', MissedWindowSchema);
+
+
 // --- 3. SMART CACHE ---
 let SYSTEM_SETTINGS = {
   customLocations: [],
@@ -216,6 +228,7 @@ let SYSTEM_SETTINGS = {
 };
 
 let REFUEL_RECONCILE_STATE = { running: false, lastRunYmd: null, lastSummary: null };
+let BOT_LAST_SUCCESS_MS = 0; // tracks last successful GPS fetch for missed-window detection
 
 function getResolvedRefuelRules(overrides = {}) {
   return {
@@ -1491,8 +1504,10 @@ async function runNightlyRefuelReconciliation(force = false) {
 
   const localNow = new Date(Date.now() + 60 * 60 * 1000);
   const localHour = localNow.getUTCHours();
+  // ⚡ BANDWIDTH FIX: Only reconcile yesterday + today (was 13 days!)
+  // 13 days × all trucks × 36h of GPS history = massive bandwidth consumption
   const targetDates = [];
-  for (let daysAgo = 0; daysAgo <= 13; daysAgo += 1) {
+  for (let daysAgo = 0; daysAgo <= 1; daysAgo += 1) {
     const d = new Date(localNow);
     d.setUTCDate(d.getUTCDate() - daysAgo);
     targetDates.push(d.toISOString().slice(0, 10));
@@ -1553,6 +1568,91 @@ async function runNightlyRefuelReconciliation(force = false) {
   }
 }
 
+
+// ============================================================
+// 🛡️ SELF-HEALING ENGINE — Auto-recovery from GPS data gaps
+// ============================================================
+let RECOVERY_STATE = { running: false, lastRecoveryAt: null, lastError: null, recoveredCount: 0 };
+
+async function recordMissedWindow(startMs, endMs, reason = 'bot-failure') {
+  try {
+    if ((endMs - startMs) < 3 * 60 * 1000) return;
+    const overlap = await MissedWindow.findOne({ startMs: { $lte: endMs }, endMs: { $gte: startMs }, recoveredAt: null });
+    if (!overlap) {
+      await MissedWindow.create({ startMs, endMs, reason });
+      console.log(`\uD83D\uDD73\uFE0F Missed window recorded: ${new Date(startMs).toISOString()} \u2192 ${new Date(endMs).toISOString()} [${reason}]`);
+    }
+  } catch (e) { console.error('recordMissedWindow error:', e.message); }
+}
+
+async function recoverMissedWindows({ maxWindows = 3, delayBetweenMs = 8000 } = {}) {
+  if (RECOVERY_STATE.running) return { skipped: true, reason: 'already-running' };
+  RECOVERY_STATE.running = true;
+  const results = [];
+  try {
+    const pending = await MissedWindow.find({ recoveredAt: null }).sort({ startMs: 1 }).limit(maxWindows).lean();
+    if (!pending.length) return { recovered: 0, message: 'No missed windows pending' };
+
+    console.log(`\uD83D\uDD04 Self-Healing: processing ${pending.length} missed window(s)...`);
+    const trucks = await Truck.find({}, 'deviceId truckName').sort({ truckName: 1 }).lean();
+    if (!trucks.length) return { recovered: 0, message: 'No trucks in DB' };
+
+    for (const win of pending) {
+      const winResult = { id: win._id, start: new Date(win.startMs).toISOString(), end: new Date(win.endMs).toISOString(), reason: win.reason, totalCreated: 0, totalSkipped: 0, errors: [] };
+      for (const truck of trucks) {
+        try {
+          // \u2705 SAFE: purgeExistingAuto only removes GPS-auto-detected refuels.
+          // source='manual' / source='manual-entry' refuels are NEVER touched.
+          // Maintenance entries with isAuto=false are NEVER touched (different collection).
+          const result = await reconcileRefuelsForWindow({
+            deviceId: String(truck.deviceId),
+            truckName: truck.truckName || String(truck.deviceId),
+            startMs: win.startMs, endMs: win.endMs,
+            persist: true, purgeExistingAuto: true, source: 'gps-history-recovery'
+          });
+          winResult.totalCreated += result.createdCount || 0;
+          winResult.totalSkipped += result.skippedCount || 0;
+        } catch (e) {
+          winResult.errors.push({ truck: truck.truckName, error: e.message });
+          console.error(`  \u26A0\uFE0F Recovery error ${truck.truckName}:`, e.message);
+        }
+      }
+      await MissedWindow.findByIdAndUpdate(win._id, { recoveredAt: new Date(), truckCount: trucks.length });
+      RECOVERY_STATE.recoveredCount++;
+      RECOVERY_STATE.lastRecoveryAt = new Date().toISOString();
+      console.log(`\u2705 Recovered window ${new Date(win.startMs).toISOString().slice(0,10)}: +${winResult.totalCreated} refuels`);
+      results.push(winResult);
+      if (pending.length > 1 && delayBetweenMs > 0) await new Promise(r => setTimeout(r, delayBetweenMs));
+    }
+    return { recovered: results.length, results };
+  } catch (e) {
+    RECOVERY_STATE.lastError = e.message;
+    console.error('recoverMissedWindows fatal:', e.message);
+    return { error: e.message };
+  } finally {
+    RECOVERY_STATE.running = false;
+  }
+}
+
+async function runStartupBackfill(daysBack = 3) {
+  try {
+    console.log(`\uD83D\uDE80 Startup Backfill: scanning last ${daysBack} days for missing data...`);
+    const now = Date.now();
+    const startMs = now - (daysBack * 24 * 60 * 60 * 1000);
+    const existing = await MissedWindow.findOne({ startMs: { $gte: startMs - 60 * 60 * 1000 }, reason: 'startup-gap', recoveredAt: null });
+    if (!existing) {
+      await MissedWindow.create({ startMs, endMs: now, reason: 'startup-gap' });
+      console.log(`\uD83D\uDCCB Startup backfill window queued (last ${daysBack} days)`);
+    }
+    // Process with 15s delay between trucks to be bandwidth-friendly
+    const result = await recoverMissedWindows({ maxWindows: 2, delayBetweenMs: 15000 });
+    console.log(`\u2705 Startup Backfill done:`, JSON.stringify({ recovered: result.recovered, error: result.error }));
+    return result;
+  } catch (e) {
+    console.error('runStartupBackfill error:', e.message);
+    return { error: e.message };
+  }
+}
 
 async function persistDetectedRefills(deviceId, truckName, refillEvents = [], persist = true, options = {}) {
   const created = [];
@@ -1651,7 +1751,10 @@ async function scanRefillsFromHistoryWindow({ deviceId, truckName, start, end, p
   const config = getTruckConfig(deviceId);
   const requestedStartMs = parseGpsDateTimeFlexible(start);
   const requestedEndMs = parseGpsDateTimeFlexible(end);
-  const scanBufferMs = 6 * 60 * 60 * 1000;
+  // ⚡ BANDWIDTH FIX: Reduced buffer from ±6h to ±1h
+  // Old: 6h buffer on each side = 36h of data fetched per day-window per truck
+  // New: 1h buffer = 26h fetched — covers overlap without wasting 10h extra per truck
+  const scanBufferMs = 1 * 60 * 60 * 1000;
   const rawMessages = await fetchGpsHistoryWindow(deviceId, requestedStartMs - scanBufferMs, requestedEndMs + scanBufferMs);
   const points = normalizeGpsHistoryMessages(rawMessages, deviceId, config);
   const effectiveCapacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
@@ -2016,12 +2119,18 @@ async function runFleetBot() {
   await loadSettings();
 
   let rawData = {};
+  const botStartMs = Date.now();
   try {
     const response = await fetch(GPS_API_URL);
     const json = await response.json();
     rawData = json.data || json;
+    BOT_LAST_SUCCESS_MS = botStartMs; // ✅ Track successful fetch time
   } catch (e) {
     console.error("⚠️ Bot Fetch Error:", e.message);
+    // 🛡️ Record missed window so self-healing can recover later
+    if (BOT_LAST_SUCCESS_MS > 0) {
+      recordMissedWindow(BOT_LAST_SUCCESS_MS, botStartMs, 'bot-fetch-failure').catch(() => {});
+    }
     setTimeout(runFleetBot, 30000);
     return;
   }
@@ -2143,7 +2252,7 @@ async function runFleetBot() {
       normalizedSamples[normalizedSamples.length - 1] = currentSample;
     }
 
-    fuelSamples = normalizedSamples.slice(-240);
+    fuelSamples = normalizedSamples.slice(-120);
 
     const liveRefillEvents = detectRefillEventsFromSeries(fuelSamples, {
       ...refuelRulesLocal,
@@ -2297,11 +2406,15 @@ console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel
     const freshDbTruck = { ...dbTruck.toObject(), ...payload };
     await runVidangeDetection(truck, freshDbTruck, config);
 
-    // Save to DB if changed or position moved significantly
-    const distMoved = calculateDistance(truckLat, truckLng, dbTruck.lat || 0, dbTruck.lng || 0);
     // V6: Always save — fuel reading must persist for next comparison
-    if (true) {
+    try {
       await Truck.findOneAndUpdate({ deviceId }, payload, { upsert: true });
+      DB_STATS.lastWriteAt = new Date().toISOString();
+      DB_STATS.totalWrites++;
+    } catch (saveErr) {
+      DB_STATS.lastWriteError = saveErr.message;
+      DB_STATS.totalErrors++;
+      console.error(`❌ Bot save error for ${truckName}:`, saveErr.message);
     }
   }
 
@@ -2311,7 +2424,19 @@ console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel
     console.error('Nightly refuel reconcile error:', nightlyError.message);
   }
 
-  setTimeout(runFleetBot, 30000);
+  // 🛡️ Self-healing: process one pending missed window per bot cycle (bandwidth-safe)
+  try {
+    const pendingCount = await MissedWindow.countDocuments({ recoveredAt: null });
+    if (pendingCount > 0) {
+      console.log(`🔄 ${pendingCount} missed window(s) pending — running recovery (1 window)...`);
+      await recoverMissedWindows({ maxWindows: 1, delayBetweenMs: 0 });
+    }
+  } catch (healErr) {
+    console.error('Self-healing error:', healErr.message);
+  }
+
+  // ⚡ BANDWIDTH FIX: 2 minute interval
+  setTimeout(runFleetBot, 120000);
 }
 
 async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
@@ -2351,7 +2476,64 @@ const AuditSchema = new mongoose.Schema({
 const AuditReport = mongoose.model('AuditReport', AuditSchema);
 
 // --- 6. API ROUTES ---
+
+// ✅ ENHANCED HEALTH / DIAGNOSTIC ENDPOINT
+let DB_STATS = { connected: false, lastWriteAt: null, lastWriteError: null, totalWrites: 0, totalErrors: 0 };
+
 app.get('/health', (req, res) => res.send('System Operational'));
+
+app.get('/api/health', async (req, res) => {
+  const dbState = mongoose.connection.readyState;
+  const dbStateMap = { 0: 'disconnected', 1: 'connected', 2: 'connecting', 3: 'disconnecting' };
+  let dbPing = false;
+  let dbPingMs = null;
+  let dbCounts = {};
+  let dbError = null;
+  try {
+    const pingStart = Date.now();
+    await mongoose.connection.db.admin().ping();
+    dbPing = true;
+    dbPingMs = Date.now() - pingStart;
+    dbCounts.trucks = await Truck.countDocuments();
+    dbCounts.maintenance = await Maintenance.countDocuments();
+    dbCounts.refuels = await Refuel.countDocuments();
+    dbCounts.decouchage = await Decouchage.countDocuments();
+    dbCounts.speedViolations = await SpeedViolation.countDocuments();
+  } catch(e) {
+    dbError = e.message;
+  }
+  res.json({
+    status: dbPing ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    uptime_seconds: Math.round(process.uptime()),
+    db: {
+      state: dbStateMap[dbState] || 'unknown',
+      ping: dbPing,
+      pingMs: dbPingMs,
+      error: dbError,
+      counts: dbCounts,
+      lastWriteAt: DB_STATS.lastWriteAt,
+      lastWriteError: DB_STATS.lastWriteError,
+      totalWritesSession: DB_STATS.totalWrites,
+      totalErrorsSession: DB_STATS.totalErrors
+    },
+    env: {
+      NODE_ENV: process.env.NODE_ENV || 'development',
+      port: PORT,
+      mongoConfigured: !!process.env.MONGO_URI
+    },
+    bot: {
+      lastReconcileRun: REFUEL_RECONCILE_STATE.lastRunYmd || 'not yet',
+      reconcileRunning: REFUEL_RECONCILE_STATE.running,
+      intervalSeconds: 120,
+      reconcileDaysWindow: 2,
+      scanBufferHours: 1,
+      note: 'Bandwidth optimized: 30s->120s interval, 13->2 days reconcile, 6h->1h scan buffer'
+    }
+  });
+});
+
+
 
 app.get('/api/admin/add-code/:code', async (req, res) => {
   const MASTER_SECRET = "Douroub_2025_Admin_Secure";
@@ -2557,18 +2739,27 @@ app.get('/api/maintenance', checkAccess, async (req, res) => {
   res.json(fmt(data));
 });
 app.post('/api/maintenance/add', checkAccess, async (req, res) => {
-  await Maintenance.create(req.body);
-
-  // ✅ If a Vidange was manually added, acknowledge it to silence the current milestone alert
   try {
-    if (req.body && req.body.type === 'Vidange' && req.body.deviceId && req.body.odometer) {
-      await acknowledgeVidange(req.body.deviceId, req.body.truckName, parseInt(req.body.odometer, 10));
-    }
-  } catch (e) {
-    console.warn('Vidange acknowledge (manual) failed:', e.message);
-  }
+    const newDoc = await Maintenance.create(req.body);
+    DB_STATS.lastWriteAt = new Date().toISOString();
+    DB_STATS.totalWrites++;
 
-  res.json({ success: true });
+    // ✅ If a Vidange was manually added, acknowledge it to silence the current milestone alert
+    try {
+      if (req.body && req.body.type === 'Vidange' && req.body.deviceId && req.body.odometer) {
+        await acknowledgeVidange(req.body.deviceId, req.body.truckName, parseInt(req.body.odometer, 10));
+      }
+    } catch (e) {
+      console.warn('Vidange acknowledge (manual) failed:', e.message);
+    }
+
+    res.json({ success: true, id: newDoc._id });
+  } catch (e) {
+    DB_STATS.lastWriteError = e.message;
+    DB_STATS.totalErrors++;
+    console.error('❌ /api/maintenance/add error:', e.message);
+    res.status(500).json({ error: e.message, detail: 'La base de données est peut-être inaccessible. Vérifiez /api/health.' });
+  }
 });
 app.post('/api/maintenance/update', checkAccess, async (req, res) => {
   try {
@@ -2608,8 +2799,17 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
-  await Maintenance.findByIdAndDelete(req.body.id);
-  res.json({ success: true });
+  try {
+    await Maintenance.findByIdAndDelete(req.body.id);
+    DB_STATS.lastWriteAt = new Date().toISOString();
+    DB_STATS.totalWrites++;
+    res.json({ success: true });
+  } catch (e) {
+    DB_STATS.lastWriteError = e.message;
+    DB_STATS.totalErrors++;
+    console.error('❌ /api/maintenance/delete error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ✅ NEW: Get all trucks from DB with their metadata (chassis, imm, carte naftal)
@@ -3024,6 +3224,90 @@ app.post('/api/refuels/nightly-reconcile', checkAccess, async (req, res) => {
   }
 });
 
+
+// ✅ SELF-HEALING: Manually backfill the last N days of refuel data
+// SAFE: Only rebuilds GPS-auto-detected refuels. Manual maintenance & manual refuels are NEVER touched.
+app.post('/api/refuels/backfill-recovery', checkAccess, async (req, res) => {
+  try {
+    const { daysBack = 3, force = false } = req.body || {};
+    // ✅ No arbitrary cap — supports 1 to 365 days
+    const days = Math.max(1, Math.min(365, parseInt(daysBack, 10) || 3));
+    const now = Date.now();
+
+    // For large periods: split into individual day windows so they are processed
+    // gradually (1 per bot cycle = 1 per 2 min) — avoids bandwidth spikes
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    let windowsQueued = 0;
+
+    for (let d = 0; d < days; d++) {
+      const windowEnd = now - (d * MS_PER_DAY);
+      const windowStart = windowEnd - MS_PER_DAY;
+
+      if (force) {
+        await MissedWindow.deleteMany({
+          startMs: { $gte: windowStart - 3600000, $lte: windowStart + 3600000 },
+          reason: { $in: ['startup-gap', 'manual-backfill'] }
+        });
+      }
+
+      const existing = await MissedWindow.findOne({
+        startMs: { $gte: windowStart - 3600000 },
+        endMs:   { $lte: windowEnd + 3600000 },
+        recoveredAt: null
+      });
+
+      if (!existing) {
+        await MissedWindow.create({ startMs: windowStart, endMs: windowEnd, reason: 'manual-backfill' });
+        windowsQueued++;
+      }
+    }
+
+    // Process the first 3 windows immediately — rest will be handled by bot cycles
+    const immediateResult = await recoverMissedWindows({ maxWindows: 3, delayBetweenMs: 5000 });
+
+    const stillPending = await MissedWindow.countDocuments({ recoveredAt: null });
+
+    res.json({
+      success: true,
+      daysBack: days,
+      windowsQueued,
+      immediatelyProcessed: immediateResult.recovered || 0,
+      stillPending,
+      message: `${days} day(s) queued. ${immediateResult.recovered || 0} processed now, ${stillPending} remain and will auto-process every 2 minutes.`,
+      result: immediateResult
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ✅ SELF-HEALING: Get recovery status and pending missed windows
+app.get('/api/recovery/status', checkAccess, async (req, res) => {
+  try {
+    const pending = await MissedWindow.find({ recoveredAt: null }).sort({ startMs: 1 }).lean();
+    const recovered = await MissedWindow.find({ recoveredAt: { $ne: null } }).sort({ recoveredAt: -1 }).limit(10).lean();
+    res.json({
+      success: true,
+      recovery: { running: RECOVERY_STATE.running, lastRecoveryAt: RECOVERY_STATE.lastRecoveryAt, lastError: RECOVERY_STATE.lastError, totalRecoveredThisSession: RECOVERY_STATE.recoveredCount },
+      pending: pending.map(w => ({ id: w._id, start: new Date(w.startMs).toISOString(), end: new Date(w.endMs).toISOString(), reason: w.reason, ageHours: Math.round((Date.now() - w.startMs) / 3600000) })),
+      recentlyRecovered: recovered.map(w => ({ id: w._id, start: new Date(w.startMs).toISOString(), end: new Date(w.endMs).toISOString(), reason: w.reason, recoveredAt: w.recoveredAt, truckCount: w.truckCount }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ✅ SELF-HEALING: Trigger immediate recovery run
+app.post('/api/recovery/run', checkAccess, async (req, res) => {
+  try {
+    const { maxWindows = 2 } = req.body || {};
+    const result = await recoverMissedWindows({ maxWindows: Math.min(5, parseInt(maxWindows, 10) || 2), delayBetweenMs: 5000 });
+    res.json({ success: true, result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get('/api/transport-report/rows', checkAccess, async (req, res) => {
   try {
     const limitRaw = Number(req.query && req.query.limit);
@@ -3662,14 +3946,42 @@ app.delete('/api/vehicle-references/:id', checkAccess, async (req, res) => {
 
 // --- 9. INITIALIZATION ---
 
+// ✅ Mongoose reconnection handlers for resilience
+mongoose.connection.on('connected', () => {
+  DB_STATS.connected = true;
+  console.log('✅ MongoDB connection established');
+});
+mongoose.connection.on('disconnected', () => {
+  DB_STATS.connected = false;
+  DB_STATS.lastWriteError = 'MongoDB disconnected at ' + new Date().toISOString();
+  console.warn('⚠️ MongoDB disconnected. Will auto-reconnect...');
+});
+mongoose.connection.on('error', (err) => {
+  DB_STATS.lastWriteError = err.message;
+  DB_STATS.totalErrors++;
+  console.error('❌ MongoDB error:', err.message);
+});
+
 if (DB_URI) {
-  mongoose.connect(DB_URI)
+  mongoose.connect(DB_URI, {
+    serverSelectionTimeoutMS: 10000,
+    socketTimeoutMS: 45000,
+    maxPoolSize: 5
+  })
     .then(() => {
+      DB_STATS.connected = true;
       console.log("✅ MongoDB Connected! Starting App...");
       app.listen(PORT, () => console.log(`🚀 Fleet Analytics Engine running on port ${PORT}`));
       runFleetBot();
+      // ud83dudee1ufe0f Self-healing: on every server start, scan last 3 days and recover any missed refuel data
+      // Runs 30s after startup to let the first bot cycle complete first
+      setTimeout(() => runStartupBackfill(3).catch(e => console.error('Startup backfill error:', e.message)), 30000);
     })
-    .catch(err => { console.error("❌ Mongo Connection Failed:", err); });
+    .catch(err => {
+      console.error("❌ Mongo Connection Failed:", err.message);
+      // Still start the server so health endpoint is reachable
+      app.listen(PORT, () => console.log(`🚀 Server running (DB FAILED) on port ${PORT}`));
+    });
 } else {
   console.error("❌ FATAL: Missing DB_URI");
   app.listen(PORT, () => console.log(`🚀 Server running (No DB Mode) on port ${PORT}`));
