@@ -3227,7 +3227,20 @@ app.post('/api/refuels/nightly-reconcile', checkAccess, async (req, res) => {
 
 // ✅ SELF-HEALING: Manually backfill the last N days of refuel data
 // SAFE: Only rebuilds GPS-auto-detected refuels. Manual maintenance & manual refuels are NEVER touched.
-app.post('/api/refuels/backfill-recovery', checkAccess, async (req, res) => {
+// GET version: open in browser → https://dedgps.site/api/refuels/backfill-recovery?days=100&code=YOUR_CODE&force=true
+app.get('/api/refuels/backfill-recovery', async (req, res) => {
+  const code = req.query.code || req.headers['x-access-code'];
+  if (!code) return res.status(401).send('❌ Missing code. Add ?code=YOUR_ACCESS_CODE to the URL.');
+  const isValid = await AccessCode.findOne({ code }).catch(() => null);
+  if (!isValid) return res.status(403).send('❌ Invalid access code.');
+  req.body = { daysBack: parseInt(req.query.days || req.query.daysBack || 3, 10), force: req.query.force === 'true' };
+  // Fall through to POST handler logic (same code below)
+  return handleBackfillRecovery(req, res);
+});
+
+app.post('/api/refuels/backfill-recovery', checkAccess, (req, res) => handleBackfillRecovery(req, res));
+
+async function handleBackfillRecovery(req, res) {
   try {
     const { daysBack = 3, force = false } = req.body || {};
     // ✅ No arbitrary cap — supports 1 to 365 days
@@ -3279,7 +3292,7 @@ app.post('/api/refuels/backfill-recovery', checkAccess, async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
-});
+}
 
 
 // ✅ SELF-HEALING: Get recovery status and pending missed windows
