@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centre de Restauration | Douroub El Djazair</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --bg-page: #f8f9fa;
+            --card-surface: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+        }
+
+        body {
+            background-color: var(--bg-page);
+            color: var(--text-main);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .recovery-container {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .header-section {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        .header-icon {
+            font-size: 3rem;
+            color: var(--primary-color);
+            margin-bottom: 15px;
+            display: inline-block;
+            background: #eff6ff;
+            width: 80px;
+            height: 80px;
+            line-height: 80px;
+            border-radius: 50%;
+        }
+
+        .backup-list {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        /* Elegant Card Style */
+        .backup-card {
+            background: var(--card-surface);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .backup-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+            border-color: #cbd5e1;
+        }
+
+        /* Green accent line on the left */
+        .backup-card::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background: #22c55e; /* Green for "Safe" */
+        }
+
+        .backup-info h5 {
+            margin: 0;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #0f172a;
+        }
+        .backup-info p {
+            margin: 5px 0 0;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .btn-restore {
+            background-color: white;
+            color: #dc2626; /* Red text */
+            border: 1px solid #fecaca;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-restore:hover {
+            background-color: #dc2626;
+            color: white;
+            border-color: #dc2626;
+            box-shadow: 0 4px 12px rgba(220, 38, 38, 0.2);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+            background: white;
+            border-radius: 12px;
+            border: 1px dashed #e2e8f0;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="recovery-container">
+        <div class="header-section">
+            <div class="header-icon">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+            </div>
+            <h2 class="fw-bold">Historique des Sauvegardes</h2>
+            <p class="text-muted">Sélectionnez un point de restauration pour remettre vos données à cet état exact.<br>
+            <span class="text-danger fw-bold"><i class="fa fa-triangle-exclamation me-1"></i> Attention : Les données actuelles seront remplacées.</span></p>
+        </div>
+
+        <div id="backupList" class="backup-list">
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status">
+                    <span class="visually-hidden">Chargement...</span>
+                </div>
+                <p class="mt-2 text-muted small">Recherche de sauvegardes...</p>
+            </div>
+        </div>
+        
+        <div class="text-center mt-5">
+            <a href="/" class="btn btn-light text-muted border">
+                <i class="fa fa-arrow-left me-2"></i>Retour à l'application
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // 1. Format Date Nicely
+        function formatDate(dateString) {
+            const options = { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            };
+            // Capitalize first letter
+            let s = new Date(dateString).toLocaleDateString('fr-FR', options);
+            return s.charAt(0).toUpperCase() + s.slice(1);
+        }
+
+        // 2. Load Backups
+        async function loadBackups() {
+            try {
+                const res = await fetch('/api/backups');
+                const backups = await res.json();
+                
+                const container = document.getElementById('backupList');
+                container.innerHTML = '';
+
+                if(backups.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <i class="fa fa-database fa-2x mb-3 text-muted"></i>
+                            <h5>Aucune sauvegarde trouvée</h5>
+                            <p class="small">Le système effectue une sauvegarde automatique chaque nuit à minuit.</p>
+                        </div>`;
+                    return;
+                }
+
+                backups.forEach(bk => {
+                    const div = document.createElement('div');
+                    div.className = 'backup-card';
+                    div.innerHTML = `
+                        <div class="backup-info">
+                            <h5>${formatDate(bk.date)}</h5>
+                            <p><i class="fa fa-fingerprint me-1"></i>ID: ${bk._id}</p>
+                        </div>
+                        <button class="btn-restore" onclick="restoreBackup('${bk._id}')">
+                            <i class="fa fa-undo"></i> RESTAURER
+                        </button>
+                    `;
+                    container.appendChild(div);
+                });
+            } catch(e) {
+                document.getElementById('backupList').innerHTML = `
+                    <div class="alert alert-danger text-center">
+                        Impossible de charger les sauvegardes. Vérifiez votre connexion.
+                    </div>`;
+            }
+        }
+
+        // 3. Trigger Restore
+        async function restoreBackup(id) {
+            if(!confirm("⚠️ ATTENTION CRITIQUE\n\nVous êtes sur le point d'écraser toutes vos données actuelles avec cette ancienne version.\n\nÊtes-vous absolument sûr de vouloir continuer ?")) return;
+            
+            try {
+                // Find the button to show loading state
+                const btn = event.target.closest('button');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Traitement...';
+                btn.disabled = true;
+
+                const res = await fetch('/api/restore/' + id, { method: 'POST' });
+                const result = await res.json();
+
+                if(result.success) {
+                    alert("✅ Succès !\n\nLe système a été restauré à la date du : " + formatDate(result.date) + "\n\nVous allez être redirigé vers l'accueil.");
+                    window.location.href = '/'; 
+                } else {
+                    alert("❌ Erreur: " + result.error);
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+            } catch(e) {
+                alert("❌ Erreur de connexion au serveur.");
+            }
+        }
+
+        // Initialize
+        loadBackups();
+    </script>
+</body>
+</html>

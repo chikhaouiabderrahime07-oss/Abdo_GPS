@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DED – CHIKHAOUI ABDERRAHIME</title>
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome for icons -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <!-- Your main stylesheet -->
+  <link href="style.css" rel="stylesheet">
+
+  <style>
+    /* Professional Invoice Status Cards */
+    .invoice-status-cards {
+      padding: 10px 0;
+    }
+    .status-item-pro {
+      background: linear-gradient(145deg, #ffffff, #f8f9fa);
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 15px;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .status-item-pro:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .status-icon-wrapper {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .paid-bg      { background: linear-gradient(135deg, #27ae60, #2ecc71); }
+    .warning-bg   { background: linear-gradient(135deg, #f39c12, #e67e22); }
+    .danger-bg    { background: linear-gradient(135deg, #e74c3c, #c0392b); }
+    .pending-bg   { background: linear-gradient(135deg, #95a5a6, #7f8c8d); }
+    .status-badge .badge {
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 50%;
+      min-width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .paid-card   .status-item-pro { border-left: 4px solid #27ae60; }
+    .warning-card.status-item-pro  { border-left: 4px solid #f39c12; }
+    .danger-card  .status-item-pro { border-left: 4px solid #e74c3c; }
+    .pending-card .status-item-pro { border-left: 4px solid #95a5a6; }
+    .legend-container { display: none; }
+
+    /* Elegant Client Picker Styles */
+    .elegant-client-picker {
+      position: relative;
+      border: 1px solid #e0e6ed;
+      border-radius: 8px;
+      background: #fff;
+      min-height: 120px;
+      padding: 12px;
+    }
+    .selected-clients-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-height: 80px;
+      align-items: flex-start;
+      align-content: flex-start;
+    }
+    .client-chip {
+      display: inline-flex;
+      align-items: center;
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 20px;
+      padding: 6px 12px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #495057;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      max-width: 200px;
+    }
+    .client-chip:hover {
+      background: #e9ecef;
+      border-color: #adb5bd;
+    }
+    .client-chip.active {
+      background: #007bff;
+      border-color: #007bff;
+      color: #fff;
+    }
+    .client-chip.all-clients.active {
+      background: #28a745;
+      border-color: #28a745;
+    }
+    .chip-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 150px;
+    }
+    .chip-remove {
+      margin-left: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      opacity: 0.7;
+      transition: opacity 0.2s ease;
+    }
+    .chip-remove:hover { opacity: 1; }
+    .client-picker-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: transparent;
+      border: 2px dashed #dee2e6;
+      border-radius: 20px;
+      padding: 6px 12px;
+      font-size: 14px;
+      color: #6c757d;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .client-picker-trigger:hover {
+      border-color: #007bff;
+      color: #007bff;
+      background: #f8f9fa;
+    }
+    .client-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: var(--bg-surface);
+      border: var(--border-light);
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      display: none;
+      max-height: 300px;
+      overflow: hidden;
+    }
+    .client-dropdown-header {
+      padding: 10px 12px;
+      border-bottom: var(--border-light);
+      background: var(--bg-app);
+    }
+    .client-search-input-wrapper { position: relative; }
+    .client-search {
+      width: 100%;
+      padding: 8px 12px 8px 32px;
+      border: var(--border-light);
+      border-radius: 20px;
+      font-size: 14px;
+      background: var(--bg-surface);
+      color: var(--text-main);
+    }
+    .client-search:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+    }
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+    .client-list {
+      max-height: 240px;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    .client-option {
+    .client-option:hover {
+      background: #f8f9fa;
+    }
+    .client-option:last-child {
+      border-bottom: none;
+    }
+    .client-option.selected {
+      background: #e3f2fd;
+      color: #1976d2;
+    }
+    .client-info { flex: 1; }
+    .client-name {
+      font-weight: 500;
+      color: #212529;
+      margin-bottom: 2px;
+    }
+    .client-details {
+      font-size: 12px;
+      color: #6c757d;
+    }
+    .option-check {
+      color: #28a745;
+      font-size: 16px;
+    }
+    @media (max-width: 768px) {
+      .selected-clients-container { min-height: 60px; }
+      .client-chip { font-size: 13px; padding: 5px 10px; }
+      .client-picker-trigger { font-size: 13px; padding: 5px 10px; }
+    }
+
+    /* Status filter button group */
+    .status-filter-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .status-btn {
+      padding: 6px 12px;
+      border: 1px solid #dee2e6;
+      border-radius: 20px;
+      background: #f8f9fa;
+      color: #495057;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .status-btn:hover { background: #e9ecef; }
+    .status-btn.active { color: #fff; }
+    .status-btn.all.active     { background: #6c757d; border-color: #6c757d; }
+    .status-btn.paid.active    { background: #28a745; border-color: #28a745; }
+    .status-btn.due.active     { background: #ffc107; border-color: #ffc107; }
+    .status-btn.overdue.active { background: #dc3545; border-color: #dc3545; }
+    .status-btn.pending.active { background: #17a2b8; border-color: #17a2b8; }
+	.dashboard-label {
+  font-weight: bold;
+  font-size: 1.1rem;
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.08);
+  text-transform: uppercase;
+}
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+.sort-icon {
+  font-size: 0.9em;
+  margin-left: 4px;
+  color: #888;
+}
+th.sortable.sorted-asc .sort-icon::after {
+  content: "▲";
+}
+th.sortable.sorted-desc .sort-icon::after {
+  content: "▼";
+}
+
+  </style>
+</head>
+
+
+<body>
+<div id="loginGate" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#000; z-index:99999; display:flex; justify-content:center; align-items:center; color:white;">
+    <div style="background:#1a1a1a; padding:40px; border-radius:10px; text-align:center; max-width:400px; width:90%;">
+        <h2 style="color:#2563eb; margin-bottom:20px;">DOUROUB EL DJAZAIR</h2>
+        <p style="color:#aaa; margin-bottom:20px;">Accès sécurisé à la facturation</p>
+        <input type="password" id="accessKeyInput" class="form-control mb-3" placeholder="Clé d'accès..." style="text-align:center; font-size:1.2rem; background:#333; border:none; color:white;">
+        <button onclick="attemptLogin()" class="btn btn-primary w-100 py-2 fw-bold">CONNEXION</button>
+        <p id="loginError" style="color:#ff4444; margin-top:15px; display:none;"></p>
+    </div>
+</div>
+<div class="d-flex" style="min-height:100vh;">
+    <!-- SIDEBAR -->
+    <aside class="sidebar p-3 border-end" style="width:250px;">
+<div class="sidebar-header mb-4">
+    <h4 class="text-primary fw-bold">SPA DOUROUB EL DJAZAIR</h4>
+    <p class="text-muted small mb-0" style="font-size: 0.7rem;">DEVELOPED BY : CHIKHAOUI ABDERRAHIME</p>
+    
+    <div class="license-card">
+        <div class="license-header">
+            <i class="fa-solid fa-certificate"></i>
+            <span>Licence Validée</span>
+        </div>
+        <div class="license-name">Mr. Guettafi Younes</div>
+        <div class="license-role">Chef de section facturation et recouvrement</div>
+    </div>
+</div>
+        <nav class="nav flex-column gap-2" id="mainNav">
+    <a class="nav-link active d-flex align-items-center gap-2" data-view="dashboard" href="#">
+        <i class="fa-solid fa-gauge"></i> 
+        <span>Dashboard</span>
+    </a>
+    <a class="nav-link d-flex align-items-center gap-2" data-view="clients" href="#">
+        <i class="fa-solid fa-user-group"></i> 
+        <span>Clients</span>
+    </a>
+    <a class="nav-link d-flex align-items-center gap-2" data-view="invoices" href="#">
+        <i class="fa-solid fa-file-invoice"></i> 
+        <span>Factures</span>
+    </a>
+    <a class="nav-link d-flex align-items-center gap-2" data-view="reports" href="#">
+        <i class="fa-solid fa-chart-column"></i> 
+        <span>Rapports</span>
+    </a>
+    <a class="nav-link d-flex align-items-center gap-2" data-view="wilaya-prices" href="#">
+        <i class="fa-solid fa-coins"></i> 
+        <span>Prix par Wilaya</span>
+    </a>
+    <a class="nav-link d-flex align-items-center gap-2" data-view="settings" href="#">
+        <i class="fa-solid fa-gear"></i> 
+        <span>Paramètres</span>
+    </a>
+	<a class="nav-link d-flex align-items-center gap-2 text-danger" href="recovery.html" target="_blank">
+        <i class="fa-solid fa-clock-rotate-left"></i> 
+        <span>Restauration</span>
+    </a>
+    
+    <div class="mt-4 pt-3 border-top">
+        <button id="theme-toggle" class="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-center gap-2">
+            <i class="fa-solid fa-moon"></i>
+            <span>Mode Sombre</span>
+        </button>
+    </div>
+</nav>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-grow-1 p-4 overflow-auto" id="viewContainer">
+        <!-- DASHBOARD VIEW -->
+<section id="view-dashboard" class="app-view">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="mb-0 fw-bold" style="color:var(--text-main);">Tableau de Bord</h2>
+            <div class="text-muted small" id="currentDate"></div>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <select id="dashboardYearSelect" class="form-select form-select-sm shadow-sm" style="width:140px; font-weight:bold; border: 2px solid var(--color-primary);">
+                <option value="">Toutes années</option>
+                <option value="2024">2024</option>
+                <option value="2025" selected>2025</option>
+                <option value="2026">2026</option>
+            </select>
+            <button class="btn btn--primary btn--sm shadow-sm" onclick="updateDashboard()">
+                <i class="fa fa-sync-alt me-1"></i> Actualiser
+            </button>
+        </div>
+    </div>
+    
+    <div class="row g-3 mb-4" id="kpiContainer"></div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-8">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card__header border-0 pt-3 px-4 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0"><i class="fa fa-chart-line me-2 text-primary"></i>Évolution C.A.</h6>
+                    <div class="btn-group btn-group-sm">
+                        <input type="radio" class="btn-check" name="modeRevenue" id="revHT" autocomplete="off" onchange="updateDashboard('revenue', 'HT')">
+                        <label class="btn btn-outline-secondary" for="revHT">HT</label>
+                        <input type="radio" class="btn-check" name="modeRevenue" id="revTTC" autocomplete="off" checked onchange="updateDashboard('revenue', 'TTC')">
+                        <label class="btn btn-outline-primary" for="revTTC">TTC</label>
+                    </div>
+                </div>
+                <div class="card__body">
+                    <div style="height: 300px;">
+                        <canvas id="chartRevenueMonth"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-lg-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card__header border-0 pt-3 px-4">
+                    <h6 class="fw-bold mb-0"><i class="fa fa-wallet me-2 text-success"></i>Modes de Paiement</h6>
+                </div>
+                <div class="card__body d-flex justify-content-center align-items-center">
+                    <div style="height: 250px; width: 100%;">
+                        <canvas id="chartPaymentMethods"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-5">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card__header border-0 pt-3 px-4 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0"><i class="fa fa-users me-2 text-info"></i>Répartition Clients</h6>
+                    <div class="btn-group btn-group-sm">
+                        <input type="radio" class="btn-check" name="modeClients" id="cliHT" autocomplete="off" onchange="updateDashboard('clients', 'HT')">
+                        <label class="btn btn-outline-secondary" for="cliHT">HT</label>
+                        <input type="radio" class="btn-check" name="modeClients" id="cliTTC" autocomplete="off" checked onchange="updateDashboard('clients', 'TTC')">
+                        <label class="btn btn-outline-primary" for="cliTTC">TTC</label>
+                    </div>
+                </div>
+                <div class="card__body d-flex justify-content-center align-items-center">
+                    <div style="height: 280px; width: 100%;">
+                        <canvas id="chartTopClients"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-7">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card__header border-0 pt-3 px-4 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0"><i class="fa fa-route me-2 text-purple"></i>Analyse des Trajets</h6>
+                    <select id="chartTrajetClientSelect" class="form-select form-select-sm" style="width: 180px;" onchange="updateTrajetChart()">
+                        <option value="">Choisir un client...</option>
+                    </select>
+                </div>
+                <div class="card__body">
+                    <div style="height: 280px;">
+                        <canvas id="chartTrajets"></canvas>
+                    </div>
+                    <div id="trajetEmptyState" class="text-center text-muted mt-5 d-none">
+                        <small>Sélectionnez un client pour voir ses trajets.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card__header border-0 pt-3 px-4 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0"><i class="fa fa-balance-scale me-2 text-warning"></i>État des Paiements</h6>
+                    <div class="btn-group btn-group-sm">
+                        <input type="radio" class="btn-check" name="modeDebt" id="debtHT" autocomplete="off" onchange="updateDashboard('debt', 'HT')">
+                        <label class="btn btn-outline-secondary" for="debtHT">HT</label>
+                        <input type="radio" class="btn-check" name="modeDebt" id="debtTTC" autocomplete="off" checked onchange="updateDashboard('debt', 'TTC')">
+                        <label class="btn btn-outline-primary" for="debtTTC">TTC</label>
+                    </div>
+                </div>
+                <div class="card__body">
+                    <div style="height: 250px;">
+                        <canvas id="chartDebtStatus"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+             <div class="card h-100 shadow-sm border-0">
+                <div class="card__header border-0 pt-3 px-4 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0"><i class="fa fa-hourglass-half me-2 text-danger"></i>Prévisions</h6>
+                    <div class="btn-group btn-group-sm">
+                        <input type="radio" class="btn-check" name="modeForecast" id="fcHT" autocomplete="off" onchange="updateDashboard('forecast', 'HT')">
+                        <label class="btn btn-outline-secondary" for="fcHT">HT</label>
+                        <input type="radio" class="btn-check" name="modeForecast" id="fcTTC" autocomplete="off" checked onchange="updateDashboard('forecast', 'TTC')">
+                        <label class="btn btn-outline-primary" for="fcTTC">TTC</label>
+                    </div>
+                </div>
+                <div class="card__body">
+                    <div style="height: 250px;">
+                        <canvas id="chartForecast"></canvas>
+                    </div>
+                    <div class="text-center mt-2">
+                        <small class="text-muted" style="font-size: 0.8rem;">
+                            <i class="fa fa-info-circle me-1"></i>Basé sur le délai défini dans chaque facture
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="card shadow-sm border-0">
+        <div class="card__header border-0 pt-3 px-4 d-flex justify-content-between">
+            <h6 class="fw-bold mb-0"><i class="fa fa-history me-2 text-secondary"></i>Dernières Factures</h6>
+            <button class="btn btn-sm btn-link text-decoration-none" onclick="showView('invoices')">Voir tout →</button>
+        </div>
+        <div class="card__body">
+            <div class="table-responsive">
+                <table class="table align-middle table-hover mb-0">
+                    <thead class="bg-light text-muted small text-uppercase">
+                        <tr>
+                            <th>N°</th>
+                            <th>Client</th>
+                            <th>Montant TTC</th>
+                            <th>Statut</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentInvoicesTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+        <!-- CLIENTS VIEW -->
+        <section id="view-clients" class="app-view d-none">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2 class="mb-0">Gestion des clients</h2>
+                <button class="btn btn--primary" id="btnAddClient">
+                    <i class="fa fa-plus me-2"></i>Ajouter client
+                </button>
+            </div>
+            
+            <div class="card">
+                <div class="card__body">
+                    <div class="table-responsive">
+                        <table class="table" id="tableClients">
+                            <thead>
+                                <tr>
+                                    <th>Nom</th>
+                                    <th>NIF</th>
+                                    <th>NIS</th>
+                                    <th>RC</th>
+                                    <th>Adresse</th>
+                                    <th>Wilaya</th>
+                                    <th>Téléphone</th>
+                                    <th>Destinations</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+<section id="view-invoices" class="app-view d-none">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2 class="mb-0">Gestion des factures</h2>
+                
+                <div class="global-search-wrapper mx-3 flex-grow-1">
+                    <i class="fa fa-search global-search-icon"></i>
+                    <input type="text" id="globalSearchInput" class="form-control global-search-input" placeholder="Recherche globale (Client, N°, Montant, Destination...)">
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button class="btn btn--primary" id="btnNewInvoice">
+                        <i class="fa fa-plus me-2"></i>Nouvelle
+                    </button>
+					<button class="btn btn-success text-white shadow-sm" onclick="openBatchPaymentModal()">
+    <i class="fa fa-check-double me-2"></i>Payer sélection
+</button>
+
+                    <button class="btn btn--outline" id="btnExportPDF">
+                        <i class="fa fa-file-pdf me-2"></i>PDF
+                    </button>
+                </div>
+            </div>
+            
+            <div class="card mb-3">
+                <div class="card__body py-3">
+<div class="row g-2 align-items-center">
+    <div class="col-md-3">
+        <select class="form-control form-select-sm" id="filterClient">
+            <option value="">Tous les clients</option>
+        </select>
+    </div>
+
+<div class="col-md-2">
+        <input class="form-control form-control-sm" list="destOptions" id="filterDestination" placeholder="Chercher dest...">
+        <datalist id="destOptions"></datalist>
+    </div>
+
+    <div class="col-md-2">
+        <select class="form-select form-select-sm" id="filterYear">
+            </select>
+    </div>
+
+    <div class="col-md-3">
+        <select class="form-select form-select-sm" id="filterMonth">
+            <option value="">Tous les mois</option>
+        </select>
+    </div>
+
+    <div class="col-md-2">
+        <select id="filterStatus" class="form-control form-select-sm">
+            <option value="">Tous statuts</option>
+            <option value="paid">Payée</option>
+            <option value="due">À échéance</option>
+            <option value="overdue">En retard</option>
+            <option value="pending">En attente</option>
+        </select>
+    </div>
+</div>
+                </div>
+            </div>
+            
+<div class="row g-0 h-100">
+    <div class="col-12"> <div class="card h-100">                        <div class="card__body p-0">
+                            <div class="table-responsive" style="max-height: calc(100vh - 250px); overflow-y: auto;">
+<table class="table table-hover mb-0 table-vertical-lines" id="tableInvoices">
+								<colgroup>
+    <col style="width: 40px;">  <col style="width: 100px;"> <col style="width: 100px;"> <col style="width: 25%;">   <col style="width: 15%;">   <col style="width: 15%;">   <col style="width: 120px;"> <col style="width: 120px;"> </colgroup>
+                                    <thead class="sticky-top shadow-sm">
+                                        <tr>
+                                            <th width="40"><input type="checkbox" id="chkAllInvoices"></th>
+                                            <th data-sort="number" class="sortable">N° <span class="sort-icon"></span></th>
+                                            <th data-sort="date" class="sortable">Date <span class="sort-icon"></span></th>
+                                            <th data-sort="client" class="sortable">Client <span class="sort-icon"></span></th>
+                                            <th data-sort="destination" class="sortable">Dest. <span class="sort-icon"></span></th>
+                                            <th data-sort="amount" class="sortable">TTC <span class="sort-icon"></span></th>
+                                            <th data-sort="status" class="sortable">Statut <span class="sort-icon"></span></th>
+                                            <th width="100">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-5 d-none" id="invoicePreviewPanel">
+                    <div class="card h-100 ms-3 shadow-lg border-0">
+                        <div class="preview-pane-container rounded">
+                            <div class="preview-toolbar">
+                                <div class="d-flex align-items-center gap-2">
+                                    <strong>Aperçu</strong>
+                                    <div class="btn-group btn-group-sm">
+                                        <button class="btn btn-light border" onclick="zoomPreview(-0.1)"><i class="fa fa-minus"></i></button>
+                                        <button class="btn btn-light border" onclick="resetZoom()">100%</button>
+                                        <button class="btn btn-light border" onclick="zoomPreview(0.1)"><i class="fa fa-plus"></i></button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="exportOpenedInvoicePDF()">
+                                        <i class="fa fa-download"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" onclick="closeSidePreview()">
+                                        <i class="fa fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="preview-scroll-area">
+                                <div id="sidePreviewContent">
+                                    </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+<!-- REPORTS VIEW -->
+<section id="view-reports" class="app-view d-none">
+  <header class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="mb-0">Rapports</h2>
+  </header>
+
+  <div class="card mb-4">
+    <div class="card__header">
+      <h5 class="mb-0">Générer un rapport</h5>
+    </div>
+    <div class="card__body">
+<form class="row g-3 align-items-end p-2" style="background: #f8f9fa; border-radius: 8px; border: 1px solid #e9ecef;">
+        
+        <div class="col-md-8">
+          <label class="form-label fw-bold text-uppercase small text-muted">1. Filtrer par Client</label>
+          <div class="elegant-client-picker shadow-sm border-0">
+            <div id="selectedClientsContainer" class="selected-clients-container" style="min-height: 45px;"></div>
+            <div id="clientDropdown" class="client-dropdown">
+              <div class="dropdown-header">
+                <input id="clientSearch" type="text" class="client-search" placeholder="Chercher un client...">
+              </div>
+              <div id="clientOptions" class="dropdown-options"></div>
+            </div>
+            <button id="clientPickerTrigger" type="button" class="client-picker-trigger border-0 bg-light text-primary fw-bold">
+              <i class="fas fa-plus-circle"></i> Sélectionner des clients
+            </button>
+          </div>
+        </div>
+
+        <div class="col-md-4">
+           <label class="form-label fw-bold text-uppercase small text-muted">2. Statut</label>
+           <div id="reportStatus" class="d-flex flex-wrap gap-2">
+            <button type="button" class="status-btn all active flex-grow-1" data-value="all">Tout</button>
+            <button type="button" class="status-btn paid flex-grow-1" data-value="paid">Payée</button>
+            <button type="button" class="status-btn overdue flex-grow-1" data-value="overdue">Retard</button>
+          </div>
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label fw-bold text-uppercase small text-muted">Date Début (J/M/A)</label>
+            <input id="reportStartDate" type="date" class="form-control shadow-sm">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-bold text-uppercase small text-muted">Date Fin (J/M/A)</label>
+            <input id="reportEndDate" type="date" class="form-control shadow-sm">
+        </div>
+        
+        <div class="col-md-3">
+             <label class="form-label fw-bold text-uppercase small text-muted">
+                 <i class="fa fa-university me-1"></i>Filtrer par Banque
+             </label>
+             <select id="reportBankFilter" class="form-select form-select-sm">
+                 <option value="">Toutes les banques</option>
+                 <!-- Options injectées dynamiquement par JS (populateBankSelect) -->
+             </select>
+        </div>
+
+        <div class="col-md-3">
+          <button id="btnLoadReport" type="button" class="btn btn--primary btn-lg w-100 btn-pulse shadow">
+            <i class="fa fa-search me-2"></i>CHARGER RAPPORT
+          </button>
+        </div>
+      </form>
+<!-- Hidden container for PDF export -->
+<div id="reportPDFContainer" style="position: absolute; top: -9999px; left: -9999px; width: 800px;">
+  <div id="reportPDFContent"></div>
+</div>
+
+<!-- Report Table: place it here, right after the form -->
+<div id="reportWrapper" class="mt-3 d-none">
+<div class="row g-3 mb-4" id="reportSummaryCards">
+      </div>
+  <div class="card">
+    <div class="card__header d-flex justify-content-between align-items-center">
+      <h5 class="mb-0">Résultats du rapport</h5>
+      <div class="d-flex gap-2">
+        <button onclick="exportReportXLS()" class="btn btn--primary">
+          <i class="fa fa-file-csv me-2"></i>Export Excel
+        </button>
+
+      </div>
+    </div>
+<div class="card__body">
+      <div class="table-responsive" style="max-height: 60vh; overflow: auto; border-bottom: 1px solid #dee2e6;">
+        <table id="tableReport" class="table table-hover align-middle mb-0" style="border-collapse: separate; border-spacing: 0;">
+<thead class="table-light">
+                <tr class="text-uppercase small fw-bold text-center align-middle" style="font-size: 0.75rem; border-bottom: 2px solid #333;">
+                    <th class="sortable" data-sort="status" style="width: 80px; border-right: 1px solid #dee2e6;">État</th>
+                    
+                    <th class="sortable" data-sort="ref" style="border-right: 1px solid #dee2e6; min-width: 120px;">Ref. Paiement</th>
+                    
+                    <th class="sortable" data-sort="month" style="border-right: 1px solid #dee2e6;">Mois</th>
+                    
+                    <th class="sortable" data-sort="bl" style="border-right: 1px solid #dee2e6;">BL (Qté)</th>
+                    
+                    <th class="sortable" data-sort="date" style="border-right: 1px solid #dee2e6;">Date</th>
+                    
+                    <th class="sortable" data-sort="number" style="border-right: 1px solid #dee2e6;">N° Facture</th>
+                    
+                    <th class="sortable" data-sort="client" style="text-align:left; border-right: 1px solid #dee2e6; min-width: 150px;">Client</th>
+
+                    <th class="sortable" data-sort="ht" style="background-color: #e9ecef; border-left: 2px solid #adb5bd; border-right: 2px solid #adb5bd;">Montant<br>HT</th>
+                    
+                    <th class="sortable" data-sort="ttc" style="background-color: #e9ecef; border-right: 2px solid #adb5bd;">Total<br>TTC</th>
+
+                    <th class="sortable" data-sort="paid" style="background-color: #d1e7dd; color: #0f5132; border-right: 2px solid #adb5bd;">Encaissé<br>TTC</th>
+
+                    <th class="sortable" data-sort="debtHT" style="background-color: #f8d7da; color: #842029; border-right: 1px solid #f5c2c7;">Créance<br>HT</th>
+                    
+                    <th class="sortable" data-sort="debtTTC" style="background-color: #f8d7da; color: #842029; border-right: 2px solid #adb5bd;">Créance<br>TTC</th>
+
+                    <th style="width: 60px;">Voir</th>
+                </tr>
+            </thead>
+			
+            <tbody>
+                </tbody>
+            <tfoot>
+                </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- End reportWrapper -->
+
+    </div>
+  </div>
+</section>
+
+<!-- WILAYA PRICES VIEW -->
+<section id="view-wilaya-prices" class="app-view d-none">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Prix par Wilaya</h2>
+        <button class="btn btn--primary" onclick="saveWilayaPairPrices()">
+            <i class="fa fa-save me-2"></i> Sauvegarder les prix
+        </button>
+    </div>
+    <div class="card">
+        <div class="card__header">
+            <h5 class="mb-0">Définir le prix pour chaque trajet</h5>
+        </div>
+        <div class="card__body">
+            <div class="row mb-4">
+<div class="col-md-3">
+  <label class="form-label">Client</label>
+  <select id="prixClient" class="form-control"></select>
+</div>
+<div class="col-md-3">
+  <label class="form-label">Type Tarification</label>
+  <select id="prixType" class="form-control" onchange="renderWilayaPairTable()"></select>
+</div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Départ</label>
+                    <select id="prixWilayaDepart" class="form-control" onchange="renderWilayaPairTable()">
+                        <option value="">Toutes</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Destination</label>
+                    <select id="prixWilayaDestination" class="form-control" onchange="renderWilayaPairTable()">
+                        <option value="">Toutes</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Recherche</label>
+                    <input type="text" id="prixWilayaSearch" class="form-control" placeholder="Rechercher..." oninput="renderWilayaPairTable()">
+                </div>
+            </div>
+			<!-- QUICK-ACTIONS ROW : paste directly below the filter row -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <label class="form-label">Actions rapides</label>
+        <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn--primary btn--sm" onclick="saveWilayaPairPrices()">
+                <i class="fa fa-save me-1"></i>Sauvegarder tout (Valider les brouillons)
+            </button>
+            <button class="btn btn--outline btn--sm" onclick="location.reload()">
+                <i class="fa fa-refresh me-1"></i>Annuler les modifications
+            </button>
+        </div>
+    </div>
+</div>
+
+            <div id="wilayaPairPricesTable" class="table-responsive"></div>
+        </div>
+    </div>
+</section>
+
+<!-- SETTINGS VIEW -->
+<section id="view-settings" class="app-view d-none">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Paramètres</h2>
+    </div>
+    <!-- Theme toggle placed here -->
+    <div class="mb-4">
+
+    </div>
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card__header">
+                    <h5 class="mb-0">Informations de l'entreprise</h5>
+                </div>
+                <div class="card__body">
+                    <form id="formSettings">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="companyName" class="form-label">Nom de l'entreprise</label>
+                                <input type="text" id="companyName" class="form-control" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="companyCapital" class="form-label">Capital</label>
+                                <input type="text" id="companyCapital" class="form-control">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="companyNIF" class="form-label">NIF</label>
+                                <input type="text" id="companyNIF" class="form-control">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="companyNIS" class="form-label">NIS (10–15 chiffres)</label>
+                                <input type="text" id="companyNIS" class="form-control" name="nis"
+                                       minlength="10" maxlength="15" pattern="\\d{10,15}"
+                                       title="Entre 10 et 15 chiffres uniquement">
+                            </div>
+<div class="col-md-4">
+    <label for="companyArtImp" class="form-label">Art. Imp</label>
+    <input type="text" id="companyArtImp" class="form-control" name="artimp">
+</div>
+<div class="col-md-12">
+    <label for="companyRIB" class="form-label">RIB (Compte Bancaire)</label>
+    <input type="text" id="companyRIB" class="form-control" placeholder="Ex: 003 00000 ...">
+</div>
+
+                            <div class="col-md-6">
+                                <label for="companyRC" class="form-label">RC</label>
+                                <input type="text" id="companyRC" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="companyPhone" class="form-label">Téléphone</label>
+                                <input type="text" id="companyPhone" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="companyFax" class="form-label">Fax</label>
+                                <input type="text" id="companyFax" class="form-control">
+                            </div>
+<div class="col-12">
+                                <label for="companyAddress" class="form-label">Adresse</label>
+                                <textarea id="companyAddress" class="form-control" rows="2"></textarea>
+                            </div>
+                            <div class="col-12 mt-3">
+                                <label for="companyPricingTypes" class="form-label text-primary fw-bold">Types de Tarification (séparés par une virgule)</label>
+                                <input type="text" id="companyPricingTypes" class="form-control" placeholder="Ex: Transport, Transfert, Manutention">
+                            </div>
+                            
+                            <!-- ✅ LEFT LOGO SECTION -->
+                            <div class="col-md-6">
+                                <label for="logoLeftInput" class="form-label">Logo Gauche (Left)</label>
+                                <input type="file" id="logoLeftInput" class="form-control" accept="image/*">
+                            </div>
+                            
+                            <!-- ✅ RIGHT LOGO SECTION -->
+                            <div class="col-md-6">
+                                <label for="logoRightInput" class="form-label">Logo Droite (Right)</label>
+                                <input type="file" id="logoRightInput" class="form-control" accept="image/*">
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <button type="button" onclick="saveSettings()" class="btn btn--primary">
+                                <i class="fa fa-save me-2"></i>Enregistrer les paramètres
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <!-- ✅ LEFT LOGO PREVIEW -->
+            <div class="card">
+                <div class="card__header">
+                    <h5 class="mb-0">Aperçu Logo Gauche</h5>
+                </div>
+                <div class="card__body">
+                    <div id="logoLeftPreview" style="text-align: center; padding: 16px; border: 1px dashed var(--color-border); border-radius: var(--radius-base); min-height: 120px; display: flex; align-items: center; justify-content: center;">
+                        <div id="logoLeftDisplay" style="color: var(--color-text-secondary);">Le logo gauche apparaîtra ici</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- ✅ RIGHT LOGO PREVIEW -->
+            <div class="card mt-3">
+                <div class="card__header">
+                    <h5 class="mb-0">Aperçu Logo Droite</h5>
+                </div>
+                <div class="card__body">
+                    <div id="logoRightPreview" style="text-align: center; padding: 16px; border: 1px dashed var(--color-border); border-radius: var(--radius-base); min-height: 120px; display: flex; align-items: center; justify-content: center;">
+                        <div id="logoRightDisplay" style="color: var(--color-text-secondary);">Le logo droite apparaîtra ici</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- DATA BACKUP SECTION -->
+            <div class="card mt-3">
+                <div class="card__header">
+                    <h5 class="mb-0">Sauvegarde des données</h5>
+                </div>
+                <div class="card__body">
+                    <div class="d-grid gap-2">
+                        <button class="btn btn--outline" id="btnDownloadData">
+                            <i class="fa fa-download me-2"></i>Exporter données (JSON)
+                        </button>
+                        <label class="btn btn--outline mb-0" for="inputImportJSON">
+                            <i class="fa fa-upload me-2"></i>Importer données (JSON)
+                        </label>
+                        <input type="file" id="inputImportJSON" accept="application/json" class="d-none">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+
+<!-- CLIENT MODAL -->
+<div class="modal fade" id="modalClient" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalClientTitle">Ajouter un client</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formClient">
+          <input type="hidden" id="clientId">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Nom de l'entreprise *</label>
+              <input type="text" id="clientNom" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Téléphone</label>
+              <input type="text" id="clientPhone" class="form-control">
+            </div>
+<div class="col-md-4">
+              <label class="form-label">NIF (10–20 chiffres) *</label>
+              <input type="text" id="clientNIF" class="form-control" name="nif"
+                     minlength="10" maxlength="20" required
+                     pattern="\d{10,20}" title="Entre 10 et 20 chiffres uniquement">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">NIS (10–20 chiffres)</label>
+              <input type="text" id="clientNIS" class="form-control" name="nis"
+                     minlength="10" maxlength="20"
+                     pattern="\d{10,20}" title="Entre 10 et 20 chiffres uniquement">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Art. Imp</label>
+              <input type="text" id="clientArtImp" class="form-control" name="artimp">
+            </div>
+<div class="col-md-4">
+              <label class="form-label">RC *</label>
+              <input type="text" id="clientRC" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Activité</label>
+              <input type="text" id="clientActivite" class="form-control" placeholder="Ex: Transport routier">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Adresse *</label>
+              <input type="text" id="clientAdresse" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Wilaya *</label>
+              <select id="clientWilaya" class="form-control" required>
+                <option value="">Sélectionner wilaya</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Destinations</label>
+              <div id="clientDestinations">
+                <!-- Destination fields will be added here -->
+              </div>
+              <button type="button" class="btn btn--sm btn--secondary mt-2" onclick="addDestination()">
+                <i class="fa fa-plus me-1"></i>Ajouter destination
+              </button>
+            </div>
+          </div>
+          <div class="mt-4 text-end">
+            <button type="button" class="btn btn--secondary me-2" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn--primary">Enregistrer le client</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+                                
+<!-- INVOICE WIZARD MODAL -->
+<div class="modal fade" id="modalInvoice" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Assistant de création de facture</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="btnCloseInvoiceWizard"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-lg-6">
+                        <div class="card">
+                            <div class="card__header">
+                                <h6 class="mb-0">Étapes de création</h6>
+                            </div>
+                            <div class="card__body" id="wizardForms">
+                                <!-- Step content inserted via JS -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card">
+                            <div class="card__header">
+                                <h6 class="mb-0">Aperçu de la facture</h6>
+                            </div>
+                            <div class="card__body">
+                                <div id="wizardPreview" class="invoice-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer justify-content-between">
+                <button class="btn btn--outline" id="btnPrevStep">
+                    <i class="fa fa-arrow-left me-2"></i>Précédent
+                </button>
+                <div>
+                    <button class="btn btn--secondary me-2" data-bs-dismiss="modal">Annuler</button>
+                    <button class="btn btn--primary" id="btnNextStep">
+                        Suivant<i class="fa fa-arrow-right ms-2"></i>
+                    </button>
+                    <button class="btn btn--primary d-none" id="btnSaveInvoice">
+                        <i class="fa fa-save me-2"></i>Enregistrer la facture
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- html2canvas + jsPDF for PDF export -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Main application script -->
+<script src="app.js"></script>
+
+<script>
+// Set current date on dashboard
+document.addEventListener('DOMContentLoaded', function() {
+    const currentDateElement = document.getElementById('currentDate');
+    if (currentDateElement) {
+        const today = new Date();
+        const options = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        };
+        currentDateElement.textContent = today.toLocaleDateString('fr-FR', options);
+    }
+});
+</script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const html = document.documentElement;
+    const toggle = document.getElementById('theme-toggle');
+    if (!toggle) return;
+
+    // Initialize from localStorage or default to light
+    const saved = localStorage.getItem('theme');
+    const initial = saved === 'dark' ? 'dark' : 'light';
+    html.setAttribute('data-color-scheme', initial);
+    
+    const updateToggleButton = (theme) => {
+        if (theme === 'dark') {
+            toggle.innerHTML = '<i class="fa-solid fa-sun text-warning"></i><span>Mode Clair</span>';
+            toggle.classList.remove('btn-outline-secondary');
+            toggle.classList.add('btn-outline-light');
+        } else {
+            toggle.innerHTML = '<i class="fa-solid fa-moon"></i><span>Mode Sombre</span>';
+            toggle.classList.remove('btn-outline-light');
+            toggle.classList.add('btn-outline-secondary');
+        }
+    };
+    
+    updateToggleButton(initial);
+
+    // Toggle on button click
+    toggle.addEventListener('click', () => {
+      const current = html.getAttribute('data-color-scheme');
+      const next = current === 'light' ? 'dark' : 'light';
+      html.setAttribute('data-color-scheme', next);
+      localStorage.setItem('theme', next);
+      updateToggleButton(next);
+    });
+  });
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- PDF Libraries -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+<!-- Back to Top Button -->
+
+<div class="modal fade" id="modalExportOptions" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa fa-file-pdf me-2"></i>Options d'exportation PDF</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-4">
+                    <label class="form-label fw-bold">En-tête (Logo & Entreprise)</label>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="exportShowHeaderAll" checked>
+                        <label class="form-check-label" for="exportShowHeaderAll">Afficher sur toutes les pages</label>
+                    </div>
+                    <div class="form-text text-muted small">Si décoché, l'en-tête apparaîtra uniquement sur la 1ère page.</div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Qualité du fichier</label>
+                    <select id="exportQuality" class="form-select">
+                        <option value="2">Standard (Rapide, Web)</option>
+                        <option value="3">Haute (Impression bureau)</option>
+                        <option value="4" selected>Ultra (Qualité Maximale)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn--secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn--primary" id="btnConfirmExport">
+                    <i class="fa fa-download me-2"></i>Télécharger le PDF
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="modalViewInvoice" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-fullscreen">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white py-2">
+        <h5 class="modal-title fs-6"><i class="fa fa-eye me-2"></i>Aperçu Facture</h5>
+        <div class="ms-auto d-flex gap-2">
+            <button class="btn btn-sm btn-light" onclick="exportOpenedInvoicePDF()">
+                <i class="fa fa-download me-1"></i> PDF
+            </button>
+            <button type="button" class="btn-close btn-close-red" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div id="fullScreenPreviewContent" class="invoice-container-modal">
+            </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+<div class="modal fade" id="modalPayment" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header text-white py-2" style="background: linear-gradient(135deg, #1e3a8a, #2563eb);">
+        <h5 class="modal-title"><i class="fa fa-university me-2"></i>Enregistrer un paiement</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-4">
+        <input type="hidden" id="payInvoiceId">
+        <div class="alert alert-light border d-flex align-items-center mb-4">
+            <i class="fa fa-info-circle fs-4 me-3 text-primary"></i>
+            <div>
+                <small class="text-uppercase fw-bold text-muted">Montant à encaisser</small>
+                <div class="fs-4 fw-bold text-primary" id="payAmountDisplay">0,00 DA</div>
+            </div>
+        </div>
+        <form id="formPayment">
+            <!-- 🏦 BANQUE (remplie dynamiquement par populateBankSelect()) -->
+            <div class="mb-3">
+                <label class="form-label fw-bold small text-uppercase">
+                    <i class="fa fa-building-columns me-1 text-primary"></i>Banque *
+                </label>
+                <select id="payBank" class="form-select" required size="1">
+                    <option value="">— Choisir une banque —</option>
+                    <!-- Options injectées dynamiquement par populateBankSelect() -->
+                </select>
+                <div class="form-text text-muted">
+                    <i class="fa fa-circle-info me-1"></i>
+                    21 banques agréées par la Banque d'Algérie (Jan 2026)
+                </div>
+            </div>
+            <div class="row g-3 mb-3">
+                <div class="col-6">
+                    <label class="form-label fw-bold small text-uppercase">Mode *</label>
+                    <select id="payMethod" class="form-select" required>
+                        <option value="Virement">Virement bancaire</option>
+                        <option value="Chèque">Chèque bancaire</option>
+                        <option value="Versement">Versement Espèces</option>
+                        <option value="Prélèvement">Prélèvement automatique</option>
+                    </select>
+                </div>
+                <div class="col-6">
+                    <label class="form-label fw-bold small text-uppercase">Date *</label>
+                    <input type="date" id="payDate" class="form-control" required>
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="form-label">Référence Transaction *</label>
+                <input type="text" id="payRef" class="form-control" list="datalistPayRef" placeholder="Ex: CH789456 / VIR-2026-001" required>
+            </div>
+            <div class="d-grid">
+                <button type="button" class="btn btn-success btn-lg fw-bold shadow-sm" onclick="confirmPayment()">
+                    <i class="fa fa-check-circle me-2"></i>Confirmer le paiement
+                </button>
+            </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<datalist id="datalistBL"></datalist>
+<datalist id="datalistContrat"></datalist>
+<datalist id="datalistBDC"></datalist>
+<datalist id="datalistFeuilleRoute"></datalist>
+<datalist id="datalistBonTransfert"></datalist>
+<datalist id="datalistPayRef"></datalist>
+
+</body>
+</html>
