@@ -80,13 +80,13 @@ const MaintenanceSchema = new mongoose.Schema({
   maintenanceLocationLat: Number,                    // Maintenance site latitude
   maintenanceLocationLng: Number,                    // Maintenance site longitude
   geofenceRadiusMeters: { type: Number, default: 500 }, // Configurable geofence radius
-  // ✅ V4.0: Verification
+  // V4.0: Verification
   verified: { type: Boolean, default: false },
   verifiedBy: String,
   verifiedAt: Date
 });
 
-// 🔧 FIX: Added locationName field; removed mandatory status (simplified)
+// Added locationName field; removed mandatory status (simplified)
 const DecouchageSchema = new mongoose.Schema({
   date: String,
   snapshotTime: { type: Date, required: true, index: expireRule },
@@ -100,22 +100,39 @@ const DecouchageSchema = new mongoose.Schema({
 const SettingsSchema = new mongoose.Schema({
   id: { type: String, unique: true },
   customLocations: Array,
+  clients: [{
+    id: String,
+    name: String,
+    color: { type: String, default: '#3b82f6' },
+    icon: { type: String, default: 'fa-user-tie' },
+    iconEmoji: { type: String, default: '' },
+    logoText: { type: String, default: '' },
+    industry: { type: String, default: '' },
+    phone: { type: String, default: '' },
+    email: { type: String, default: '' },
+    address: { type: String, default: '' },
+    notes: { type: String, default: '' },
+    finalClients: [{
+      id: String,
+      name: String,
+      color: { type: String, default: '' },
+      icon: { type: String, default: '' },
+      iconEmoji: { type: String, default: '' },
+      phone: { type: String, default: '' },
+      notes: { type: String, default: '' }
+    }]
+  }],
   maintenanceRules: Object,
   defaultConfig: Object,
   fleetRules: Array,
   lastDecouchageCheck: String
 }, { strict: false });
 
-
-// ✅ NEW: Speed Violation Schema (24/7 background tracking)
 const SpeedViolationSchema = new mongoose.Schema({
   deviceId: { type: String, required: true, index: true },
   truckName: String,
   timestamp: { type: Date, required: true },
-  speed: Number,
-  limit: Number,
-  lat: Number,
-  lng: Number,
+  speed: Number, limit: Number, lat: Number, lng: Number,
   locationName: String,
   durationMinutes: { type: Number, default: 0 },
   isRescanned: { type: Boolean, default: false }
@@ -128,7 +145,6 @@ const Maintenance = mongoose.model('Maintenance', MaintenanceSchema);
 const Decouchage = mongoose.model('Decouchage', DecouchageSchema);
 const Settings = mongoose.model('Settings', SettingsSchema);
 
-// ✅ NEW: Maintenance Articles Catalog (configurable repair templates)
 const MaintenanceArticleSchema = new mongoose.Schema({
   code: { type: String, unique: true, required: true },
   name: { type: String, required: true },
@@ -144,90 +160,258 @@ const MaintenanceArticleSchema = new mongoose.Schema({
 });
 const MaintenanceArticle = mongoose.model('MaintenanceArticle', MaintenanceArticleSchema);
 
-// ✅ NEW: Vehicle References / Documents (Vignette, Contrôle Technique, Assurance, etc.)
 const VehicleReferenceSchema = new mongoose.Schema({
   deviceId: { type: String, required: true, index: true },
   truckName: String,
-  refName: { type: String, required: true },       // e.g. "Vignette", "Contrôle Technique"
-  refNumber: String,                                // reference/certificate number
-  issueDate: { type: Date, default: Date.now },     // date obtained
-  expiryDate: { type: Date, required: true },       // when it expires
-  reminderDays: { type: Number, default: 30 },      // alert N days before expiry
+  refName: { type: String, required: true },
+  refNumber: String,
+  issueDate: { type: Date, default: Date.now },
+  expiryDate: { type: Date, required: true },
+  reminderDays: { type: Number, default: 30 },
   notes: String,
   createdAt: { type: Date, default: Date.now }
 });
 const VehicleReference = mongoose.model('VehicleReference', VehicleReferenceSchema);
 
-
 const TransportReportEntrySchema = new mongoose.Schema({
-  truckName: String,
-  inputTruckName: String,
-  deviceId: String,
-  startAt: Date,
-  endAt: Date,
-  requestedStartAt: Date,
-  requestedEndAt: Date,
-  actualStartAt: Date,
-  actualEndAt: Date,
-  kmStart: Number,
-  kmEnd: Number,
-  kmTotal: Number,
-  gpsDistanceKm: Number,
-  distanceSource: String,
-  fuelStart: Number,
-  fuelEnd: Number,
-  fuelAddedDuringTrip: Number,
-  fuelConsumedRaw: Number,
-  fuelConsumedTotal: Number,
-  refillCount: Number,
-  historyPoints: Number,
-  startLocation: String,
-  endLocation: String,
-  note: String,
-  warnings: [String],
-  refills: Array,
+  truckName: String, inputTruckName: String, deviceId: String,
+  startAt: Date, endAt: Date, requestedStartAt: Date, requestedEndAt: Date,
+  actualStartAt: Date, actualEndAt: Date,
+  kmStart: Number, kmEnd: Number, kmTotal: Number,
+  gpsDistanceKm: Number, distanceSource: String,
+  fuelStart: Number, fuelEnd: Number, fuelAddedDuringTrip: Number,
+  fuelConsumedRaw: Number, fuelConsumedTotal: Number,
+  refillCount: Number, historyPoints: Number,
+  startLocation: String, endLocation: String,
+  note: String, warnings: [String], refills: Array,
   status: { type: String, default: 'ok' },
-  issueReason: String,
-  issueCategory: String,
-  issueDetails: Object,
+  issueReason: String, issueCategory: String, issueDetails: Object,
   sourceType: { type: String, default: 'manual' },
-  sourceFileName: String,
-  sourceRow: Number,
-  importFingerprint: String,
-  importIssueKey: String,
-  lastRetryAt: Date,
-  lastRetriedBy: String,
-  resolvedAt: Date,
-  editedAt: Date,
+  sourceFileName: String, sourceRow: Number,
+  importFingerprint: String, importIssueKey: String,
+  lastRetryAt: Date, lastRetriedBy: String,
+  resolvedAt: Date, editedAt: Date,
   createdAt: { type: Date, default: Date.now }
 });
 const TransportReportEntry = mongoose.model('TransportReportEntry', TransportReportEntrySchema);
 
-// ✅ SELF-HEALING: Tracks GPS data collection gaps so server can auto-recover after downtime/quota events
 const MissedWindowSchema = new mongoose.Schema({
-  startMs: { type: Number, required: true, index: true },  // gap start timestamp
-  endMs:   { type: Number, required: true },                // gap end timestamp
-  reason:  { type: String, default: 'bot-failure' },        // 'bot-failure', 'bandwidth', 'quota', 'startup-gap'
-  recoveredAt: { type: Date, default: null },               // null = not yet recovered
-  truckCount: Number,                                        // how many trucks were processed in recovery
+  startMs: { type: Number, required: true, index: true },
+  endMs:   { type: Number, required: true },
+  reason:  { type: String, default: 'bot-failure' },
+  recoveredAt: { type: Date, default: null },
+  truckCount: Number,
   createdAt: { type: Date, default: Date.now }
 });
 const MissedWindow = mongoose.model('MissedWindow', MissedWindowSchema);
 
+const ZoneEventSchema = new mongoose.Schema({
+  deviceId:        { type: String, required: true, index: true },
+  truckName:       { type: String, required: true },
+  zoneName:        { type: String, required: true, index: true },
+  zoneType:        { type: String, default: 'unknown' },
+  entryTime:       { type: Number, required: true, index: true },
+  exitTime:        { type: Number, default: null },
+  durationMinutes: { type: Number, default: null },
+  entryLat: Number, entryLng: Number, exitLat: Number, exitLng: Number,
+  source:          { type: String, default: 'live-bot' },
+  createdAt:       { type: Date, default: Date.now },
+  operationId:     { type: String, default: null },
+  operationName:   { type: String, default: null },
+  operationSource: { type: String, default: null },
+  plannedArrival:  { type: Number, default: null },
+  plannedDeparture:{ type: Number, default: null },
+  engagementMinutes: { type: Number, default: null },
+  // Client context (stamped at entry time from zone config)
+  clientId:         { type: String, default: null },
+  clientName:       { type: String, default: null },
+  finalClientId:    { type: String, default: null },
+  finalClientName:  { type: String, default: null },
+  zoneRadius:       { type: Number, default: null }
+});
+ZoneEventSchema.index({ deviceId: 1, exitTime: 1 });
+ZoneEventSchema.index({ zoneName: 1, entryTime: -1 });
+const ZoneEvent = mongoose.model('ZoneEvent', ZoneEventSchema);
+
+const ZoneOperationSchema = new mongoose.Schema({
+  operationName:  { type: String, required: true },
+  truckName:      { type: String, required: true },
+  deviceId:       { type: String, required: true, index: true },
+  route: [{
+    zoneName: { type: String, required: true },
+    expectedArrival: { type: Number, default: null },
+    expectedDeparture: { type: Number, default: null },
+    errorMarginMinutes: { type: Number, default: 30 },
+    actualArrival: { type: Number, default: null },
+    actualDeparture: { type: Number, default: null },
+    waitingTimeMinutes: { type: Number, default: null },
+    status: { type: String, default: 'pending', enum: ['pending','arrived','departed','late','skipped'] }
+  }],
+  planStart: { type: Number, default: null },
+  planEnd: { type: Number, default: null },
+  status: { type: String, default: 'pending', enum: ['pending','active','completed','cancelled'] },
+  source: { type: String, default: 'manual', enum: ['manual','auto'] },
+  notes: { type: String, default: '' },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+ZoneOperationSchema.index({ status: 1, deviceId: 1 });
+const ZoneOperation = mongoose.model('ZoneOperation', ZoneOperationSchema);
+
+const POWERBI_TOKEN = process.env.POWERBI_TOKEN || 'fleet_powerbi_2025';
+const POWERBI_PUSH_URL = process.env.POWERBI_PUSH_URL || null;
+
+async function pushToPowerBI(row) {
+  if (!POWERBI_PUSH_URL) return;
+  try { await fetch(POWERBI_PUSH_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify([row]) }); }
+  catch(e) { console.warn('PowerBI push failed:', e.message); }
+}
+
+function getZoneClientMeta(zoneName) {
+  const meta = { Client_Name: '', Sous_Client_Name: '', Secteur: '', Client_Color: '', Zone_Color: '' };
+  if (!SYSTEM_SETTINGS || !SYSTEM_SETTINGS.customLocations) return meta;
+  const loc = SYSTEM_SETTINGS.customLocations.find(l => l.name.toLowerCase() === zoneName.toLowerCase());
+  if (!loc) return meta;
+  meta.Zone_Color = loc.color || '';
+  if (loc.clientId && SYSTEM_SETTINGS.clients) {
+    const cl = SYSTEM_SETTINGS.clients.find(c => c.id === loc.clientId);
+    if (cl) {
+      meta.Client_Name = cl.name || '';
+      meta.Client_Color = cl.color || '';
+      meta.Secteur = cl.industry || '';
+      if (loc.finalClientId && cl.finalClients) {
+        const fc = cl.finalClients.find(f => f.id === loc.finalClientId);
+        if (fc) {
+          meta.Sous_Client_Name = fc.name || '';
+          if (fc.color) meta.Client_Color = fc.color;
+        }
+      }
+    }
+  }
+  return meta;
+}
+
+function formatZoneEventForPowerBI(e, nowMs) {
+  const now = nowMs || Date.now();
+  const durMins = e.exitTime ? (e.durationMinutes || 0) : Math.round((now - e.entryTime) / 60000);
+  const h = Math.floor(durMins / 60); const m = durMins % 60;
+  const entryDt = new Date(e.entryTime);
+  const exitDt = e.exitTime ? new Date(e.exitTime) : null;
+  const meta = getZoneClientMeta(e.zoneName);
+  return {
+    ...meta,
+    Camion: e.truckName, Zone: e.zoneName, Type_Zone: e.zoneType || 'unknown',
+    Date: entryDt.toISOString().slice(0,10),
+    Heure_Entree: entryDt.toTimeString().slice(0,8),
+    Heure_Sortie: exitDt ? exitDt.toTimeString().slice(0,8) : 'En cours',
+    Date_Sortie: exitDt ? exitDt.toISOString().slice(0,10) : null,
+    Duree_Minutes: durMins, Duree_Heures: Math.round(durMins/60*100)/100,
+    Duree_Formatee: h > 0 ? h+'h '+m+'min' : m+'min',
+    Statut: e.exitTime ? 'Termin\u00e9' : 'En cours',
+    Timestamp_Entree: entryDt.toISOString(),
+    Timestamp_Sortie: exitDt ? exitDt.toISOString() : null,
+    Source: e.source || 'live-bot',
+    _lastUpdated: new Date().toISOString(),
+    _Exported_From: 'Website dedsite.online \u2014 dev by Chikhaoui Abderrahime',
+    _Dev: 'Chikhaoui Abderrahime', _Version: 'Fleet Analytics v2.0',
+    _Export_Timestamp: new Date().toISOString(),
+    _Server_Time: new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Algiers' }),
+    Date_Page: entryDt.toISOString().slice(0,10),
+    Arrivee_Planifiee: e.plannedArrival ? new Date(e.plannedArrival).toISOString() : null,
+    Depart_Planifie: e.plannedDeparture ? new Date(e.plannedDeparture).toISOString() : null,
+    Arrivee_Reelle: entryDt.toISOString(),
+    Depart_Reel: exitDt ? exitDt.toISOString() : null,
+    Diff_Arrivee_Min: (e.plannedArrival && e.entryTime) ? Math.round((e.entryTime - e.plannedArrival)/60000) : null,
+    Recap_Immobilisation_Min: (!e.plannedArrival || e.operationSource === 'auto') ? (e.durationMinutes || null) : (e.engagementMinutes || e.durationMinutes || null),
+    Detection: e.source === 'auto' || !e.source ? 'Automatique (GPS)' : 'Manuel (utilisateur)',
+    Operation_ID: e.operationId || null,
+    Operation_Nom: e.operationName || null,
+    // ── CLIENT CONTEXT ──────────────────────────────────────────────
+    Client_ID:           e.clientId       || null,
+    Client_Nom:          e.clientName     || null,
+    Client_Final_ID:     e.finalClientId  || null,
+    Client_Final_Nom:    e.finalClientName|| null,
+    Zone_Rayon_m:        e.zoneRadius     || null,
+    // Runtime enrichment: fallback lookup if not stamped at entry time
+    ...(() => {
+      if (e.clientName) return {};
+      const ctx = resolveZoneClientContext(e.zoneName);
+      return {
+        Client_ID:       ctx.clientId       || null,
+        Client_Nom:      ctx.clientName     || null,
+        Client_Final_ID: ctx.finalClientId  || null,
+        Client_Final_Nom:ctx.finalClientName|| null,
+        Zone_Rayon_m:    ctx.zoneRadius     || null
+      };
+    })(),
+    _DO_NOT_DELETE: 'Colonnes protegees — dedsite.online'
+  };
+}
 
 // --- 3. SMART CACHE ---
 let SYSTEM_SETTINGS = {
   customLocations: [],
+  clients: [],
   maintenanceRules: { minDurationMinutes: 60, vidangeKmTolerance: 3000 },
   defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35, fuelSensorKeys: ['io87'], fuelSensorCapacityMap: {} },
   fleetRules: [],
-  // ✅ NEW: per-truck vidange acknowledgements (used to silence alerts after a confirmed vidange)
-  // Structure: { [deviceId]: { skipUntilKm: number, confirmedAt: ISOString, odometerAtConfirm?: number, truckName?: string } }
   vidangeOverrides: {},
   lastDecouchageCheck: null
 };
 
 let REFUEL_RECONCILE_STATE = { running: false, lastRunYmd: null, lastSummary: null };
+// ============================================================
+// CLIENT CONTEXT RESOLVER
+// Looks up a zone by name in SYSTEM_SETTINGS.customLocations
+// Returns { clientId, clientName, finalClientId, finalClientName }
+// ============================================================
+function resolveZoneClientContext(zoneName) {
+  const zone = (SYSTEM_SETTINGS.customLocations || []).find(z => z.name === zoneName);
+  if (!zone) return { clientId: null, clientName: null, finalClientId: null, finalClientName: null, zoneRadius: null };
+  const clients = SYSTEM_SETTINGS.clients || [];
+  let clientName = null, finalClientName = null, finalClientId = null;
+  if (zone.clientId) {
+    const client = clients.find(c => c.id === zone.clientId);
+    if (client) {
+      clientName = client.name;
+      // Resolve final client if specified on zone
+      if (zone.finalClientId) {
+        const fc = (client.finalClients || []).find(f => f.id === zone.finalClientId);
+        if (fc) { finalClientId = fc.id; finalClientName = fc.name; }
+      }
+    }
+  }
+  return {
+    clientId: zone.clientId || null,
+    clientName,
+    finalClientId: zone.finalClientId || null,
+    finalClientName,
+    zoneRadius: zone.radius || 500
+  };
+}
+
+// Per-truck delivery context: tracks which client a truck is currently serving
+// Updated as truck moves between zones
+const TRUCK_DELIVERY_CONTEXT = {}; // deviceId → { clientId, clientName, finalClientId, finalClientName, startedAt }
+
+function updateTruckDeliveryContext(deviceId, truckName, zoneCtx, zoneName) {
+  const prev = TRUCK_DELIVERY_CONTEXT[deviceId] || {};
+  if (zoneCtx.clientId) {
+    // Truck entered a client zone → update context
+    TRUCK_DELIVERY_CONTEXT[deviceId] = {
+      clientId: zoneCtx.clientId,
+      clientName: zoneCtx.clientName,
+      // finalClient: inherit previous if same client, or use zone's finalClient
+      finalClientId: zoneCtx.finalClientId || (prev.clientId === zoneCtx.clientId ? prev.finalClientId : null),
+      finalClientName: zoneCtx.finalClientName || (prev.clientId === zoneCtx.clientId ? prev.finalClientName : null),
+      lastZone: zoneName,
+      startedAt: prev.clientId === zoneCtx.clientId ? (prev.startedAt || Date.now()) : Date.now()
+    };
+  }
+  // If no client on this zone, keep previous context (truck is passing through)
+  return TRUCK_DELIVERY_CONTEXT[deviceId] || {};
+}
+
 let BOT_LAST_SUCCESS_MS = 0; // tracks last successful GPS fetch for missed-window detection
 
 function getResolvedRefuelRules(overrides = {}) {
@@ -2360,28 +2544,7 @@ console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel
             }).catch(e => console.error("Error saving SpeedViolation:", e.message));
             activeViolation.startMs = now;
             activeViolation.maxSpeed = speed;
-         }
-      }
-    } else {
-      // Speed is under limit. If we were tracking a violation, close it and save to DB
-      if (dbTruck.engineState && dbTruck.engineState.activeSpeedViolation) {
-         const v = dbTruck.engineState.activeSpeedViolation;
-         const durMins = Math.round((now - v.startMs) / 60000);
-         // Only log if it lasted at least 1 minute or was extremely high speed (10+ over limit)
-         if (durMins >= 1 || v.maxSpeed >= (v.limit + 10)) {
-            let locName = 'Inconnue';
-            // Optional: resolve location name quickly if needed
-            SpeedViolation.create({
-              deviceId,
-              truckName,
-              timestamp: new Date(v.startMs),
-              speed: v.maxSpeed,
-              limit: v.limit,
-              lat: v.lat,
-              lng: v.lng,
-              locationName: locName,
-              durationMinutes: durMins
-            }).catch(e => console.error("Error saving SpeedViolation:", e.message));
+
          }
          dbTruck.engineState.activeSpeedViolation = null; // reset
       }
@@ -2395,7 +2558,7 @@ console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel
       fuelSamples
     };
 
-    let payload = { 
+    let payload = {
       truckName, lastUpdate: now, lastFuelLiters: currentLiters,
       lastFuelPercent: fuelData.percent || 0,
       lat: truckLat, lng: truckLng, speed, params: truck.params,
@@ -2406,7 +2569,10 @@ console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel
     const freshDbTruck = { ...dbTruck.toObject(), ...payload };
     await runVidangeDetection(truck, freshDbTruck, config);
 
-    // V6: Always save — fuel reading must persist for next comparison
+    // ZONE ENTRY/EXIT tracking
+    await runZoneEntryExitTracking(truck, freshDbTruck).catch(e => console.error('ZoneTracking error:', e.message));
+
+    // V6: Always save
     try {
       await Truck.findOneAndUpdate({ deviceId }, payload, { upsert: true });
       DB_STATS.lastWriteAt = new Date().toISOString();
@@ -2414,10 +2580,9 @@ console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel
     } catch (saveErr) {
       DB_STATS.lastWriteError = saveErr.message;
       DB_STATS.totalErrors++;
-      console.error(`❌ Bot save error for ${truckName}:`, saveErr.message);
+      console.error(`Bot save error for ${truckName}:`, saveErr.message);
     }
   }
-
   try {
     await runNightlyRefuelReconciliation(false);
   } catch (nightlyError) {
@@ -2561,6 +2726,17 @@ app.delete('/api/alerts/timeline', checkAccess, async (req, res) => {
     } catch (e) {
       res.status(500).json({ success: false, error: e.message });
     }
+});
+
+
+// ✅ GET Active Zone Events (Used for accurate Dwell Time/Immobilisation tracking)
+app.get('/api/zone-events/active', checkAccess, async (req, res) => {
+  try {
+    const openEvents = await ZoneEvent.find({ exitTime: null }).lean();
+    res.json({ success: true, activeEvents: openEvents });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/alerts/timeline', checkAccess, async (req, res) => {
@@ -3003,7 +3179,33 @@ app.get('/api/refuels', checkAccess, async (req, res) => {
 
     const parsedLimit = Math.max(1, Math.min(parseInt(limit, 10) || (query.timestamp ? 20000 : 1000), 50000));
     const data = await Refuel.find(query).sort({ timestamp: -1 }).limit(parsedLimit);
-    res.json(fmt(data));
+
+    // ✅ DEDUP V2 — Multi-rule deduplication
+    // Rule 1: ignore impossible amounts (<70L or >700L)
+    // Rule 2: never skip manual entries (isAuto === false)
+    // Rule 3: same truck + same day + within 5L → reject later
+    // Rule 4: same truck + within 2h + within 10L → reject later
+    const deduped = [];
+    const TWO_HOURS_MS = 2 * 3600000;
+    for (const refuel of data) {
+      const liters = refuel.addedLiters || 0;
+      if (liters < 70 || liters > 700) continue;
+      if (refuel.isAuto === false) { deduped.push(refuel); continue; }
+      const ts = refuel.timestamp ? refuel.timestamp.getTime() : 0;
+      const day = refuel.timestamp ? refuel.timestamp.toISOString().slice(0, 10) : '';
+      const isDupe = deduped.some(prev => {
+        if (prev.deviceId !== refuel.deviceId) return false;
+        if (prev.isAuto === false) return false;
+        const prevTs = prev.timestamp ? prev.timestamp.getTime() : 0;
+        const prevLiters = prev.addedLiters || 0;
+        const prevDay = prev.timestamp ? prev.timestamp.toISOString().slice(0, 10) : '';
+        if (prevDay === day && Math.abs(prevLiters - liters) < 5) return true;
+        if (Math.abs(prevTs - ts) < TWO_HOURS_MS && Math.abs(prevLiters - liters) < 10) return true;
+        return false;
+      });
+      if (!isDupe) deduped.push(refuel);
+    }
+    res.json(fmt(deduped));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -3215,6 +3417,671 @@ app.post('/api/refuels/rebuild-bulk', checkAccess, async (req, res) => {
   }
 });
 
+
+// ============================================================
+// ZONE ENTRY/EXIT REPORT API ENDPOINTS
+// ============================================================
+
+app.get('/api/zone-events', checkAccess, async (req, res) => {
+  try {
+    const { zone, truck, deviceId, start, end, status, limit: limitRaw, page: pageRaw } = req.query;
+    const filter = {};
+    if (zone) filter.zoneName = { $regex: zone, $options: 'i' };
+    if (truck) filter.truckName = { $regex: truck, $options: 'i' };
+    if (deviceId) filter.deviceId = String(deviceId);
+    if (status === 'open') filter.exitTime = null;
+    if (status === 'closed') filter.exitTime = { $ne: null };
+    if (start || end) {
+      filter.entryTime = {};
+      if (start) filter.entryTime.$gte = new Date(start).getTime();
+      if (end)   filter.entryTime.$lte = new Date(end).getTime();
+    }
+    const limit = Math.min(5000, parseInt(limitRaw, 10) || 50);
+    const page = Math.max(1, parseInt(pageRaw, 10) || 1);
+    const skip = (page - 1) * limit;
+    const total = await ZoneEvent.countDocuments(filter);
+    const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).skip(skip).limit(limit).lean();
+    const now = Date.now();
+    const rows = events.map(e => {
+      const durMin = e.exitTime ? e.durationMinutes : Math.round((now - e.entryTime) / 60000);
+      let recapMin = durMin;
+      if (e.plannedArrival && e.operationSource !== 'auto') {
+        recapMin = e.engagementMinutes || (e.exitTime ? Math.round((e.exitTime - e.plannedArrival) / 60000) : Math.round((now - e.plannedArrival) / 60000));
+      }
+      return {
+        id: e._id, deviceId: e.deviceId, truckName: e.truckName,
+        zoneName: e.zoneName, zoneType: e.zoneType,
+        entryTime: new Date(e.entryTime).toISOString(),
+        exitTime: e.exitTime ? new Date(e.exitTime).toISOString() : null,
+        durationMinutes: durMin,
+        durationHours: Math.round(durMin / 60 * 100) / 100,
+        status: e.exitTime ? 'closed' : 'open',
+        entryLat: e.entryLat, entryLng: e.entryLng,
+        exitLat: e.exitLat, exitLng: e.exitLng,
+        source: e.source,
+        operationId: e.operationId || null,
+        operationName: e.operationName || null,
+        operationSource: e.operationSource || null,
+        plannedArrival: e.plannedArrival ? new Date(e.plannedArrival).toISOString() : null,
+        plannedDeparture: e.plannedDeparture ? new Date(e.plannedDeparture).toISOString() : null,
+        diffArrivalMin: (e.plannedArrival && e.entryTime) ? Math.round((e.entryTime - e.plannedArrival) / 60000) : null,
+        engagementMinutes: e.engagementMinutes || null,
+        recapImmobilisationMin: recapMin,
+        clientId:        e.clientId        || null,
+        clientName:      e.clientName      || null,
+        finalClientId:   e.finalClientId   || null,
+        finalClientName: e.finalClientName || null,
+        zoneRadius:      e.zoneRadius      || null,
+        ...( !e.clientId && e.zoneName ? (() => { const ctx = resolveZoneClientContext(e.zoneName); return { clientId: ctx.clientId, clientName: ctx.clientName, finalClientId: ctx.finalClientId, finalClientName: ctx.finalClientName }; })() : {} )
+      };
+    });
+    res.json({ data: rows, pagination: { page, perPage: limit, total, totalPages: Math.ceil(total / limit) } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// PUT /api/zone-events/:id// PUT /api/zone-events/:id — manual edit from zone-report
+app.put('/api/zone-events/:id', checkAccess, async (req, res) => {
+  try {
+    const { entryTime, exitTime, plannedArrival, operationSource, operationName } = req.body;
+    const update = { updatedAt: new Date() };
+    if (entryTime) update.entryTime = new Date(entryTime);
+    if (exitTime !== undefined) update.exitTime = exitTime ? new Date(exitTime) : null;
+    if (plannedArrival !== undefined) update.plannedArrival = plannedArrival ? new Date(plannedArrival) : null;
+    if (operationSource) update.operationSource = operationSource;
+    if (operationName !== undefined) update.operationName = operationName;
+    if (update.entryTime && update.exitTime) {
+      update.durationMinutes = Math.round((update.exitTime - update.entryTime) / 60000);
+    }
+    const updated = await ZoneEvent.findByIdAndUpdate(req.params.id, update, { new: true });
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, data: updated });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /api/zone-events/live — trucks currently inside a zone (with elapsed time)
+app.get('/api/zone-events/live', checkAccess, async (req, res) => {
+  try {
+    const openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: -1 }).lean();
+    const now = Date.now();
+    res.json(openEvents.map(e => {
+      const elapsedMs = now - e.entryTime;
+      const h = Math.floor(elapsedMs / 3600000);
+      const m = Math.floor((elapsedMs % 3600000) / 60000);
+      const s = Math.floor((elapsedMs % 60000) / 1000);
+      return {
+        deviceId: e.deviceId,
+        truckName: e.truckName,
+        zoneName: e.zoneName,
+        zoneType: e.zoneType,
+        entryTime: new Date(e.entryTime).toISOString(),
+        elapsedMs,
+        elapsedFormatted: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`,
+        elapsedMinutes: Math.round(elapsedMs / 60000),
+        entryLat: e.entryLat, entryLng: e.entryLng,
+        operationName: e.operationName || null
+      };
+    }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// POST /api/zone-events/scan-history — backfill from GPS history
+app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
+  try {
+    const { start, end, deviceIds } = req.body || {};
+    if (!start || !end) return res.status(400).json({ error: 'start et end requis' });
+    const startMs = new Date(start).getTime();
+    const endMs = new Date(end).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return res.status(400).json({ error: 'Dates invalides' });
+
+    let trucks = [];
+    if (Array.isArray(deviceIds) && deviceIds.length) {
+      trucks = await Truck.find({ deviceId: { $in: deviceIds.map(String) } }, 'deviceId truckName').lean();
+    } else {
+      trucks = await Truck.find({}, 'deviceId truckName').lean();
+    }
+
+    const allZones = SYSTEM_SETTINGS.customLocations || [];
+    const summary = { trucks: trucks.length, zones: allZones.length, created: 0, errors: [] };
+
+    for (const truck of trucks) {
+      try {
+        // Fetch GPS history for this truck in the window
+        const rawMessages = await fetchGpsHistoryWindow(String(truck.deviceId), startMs, endMs);
+        if (!Array.isArray(rawMessages) || rawMessages.length < 2) continue;
+
+        const points = normalizeGpsHistoryMessages(rawMessages, String(truck.deviceId), getTruckConfig(String(truck.deviceId)));
+
+        // Delete existing scan events for this truck in this window (avoid duplicates)
+        await ZoneEvent.deleteMany({
+          deviceId: String(truck.deviceId),
+          entryTime: { $gte: startMs, $lte: endMs },
+          source: 'gps-history-scan'
+        });
+
+        let currentZone = null;
+        let entryPoint = null;
+
+        for (const pt of points) {
+          let inZone = null;
+          for (const loc of allZones) {
+            const dist = calculateDistance(pt.lat, pt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
+            if (dist <= (loc.radius || 500)) { inZone = loc; break; }
+          }
+
+          if (inZone) {
+            if (!currentZone || currentZone.name !== inZone.name) {
+              // Close previous zone if any
+              if (currentZone && entryPoint) {
+                const durMins = Math.round((pt.time - entryPoint.time) / 60000);
+                await ZoneEvent.create({
+                  deviceId: String(truck.deviceId), truckName: truck.truckName,
+                  zoneName: currentZone.name, zoneType: currentZone.type || 'unknown',
+                  entryTime: entryPoint.time, exitTime: pt.time, durationMinutes: durMins,
+                  entryLat: entryPoint.lat, entryLng: entryPoint.lng,
+                  exitLat: pt.lat, exitLng: pt.lng, source: 'gps-history-scan'
+                });
+                summary.created++;
+              }
+              currentZone = inZone;
+              entryPoint = pt;
+            }
+          } else {
+            if (currentZone && entryPoint) {
+              const durMins = Math.round((pt.time - entryPoint.time) / 60000);
+              await ZoneEvent.create({
+                deviceId: String(truck.deviceId), truckName: truck.truckName,
+                zoneName: currentZone.name, zoneType: currentZone.type || 'unknown',
+                entryTime: entryPoint.time, exitTime: pt.time, durationMinutes: durMins,
+                entryLat: entryPoint.lat, entryLng: entryPoint.lng,
+                exitLat: pt.lat, exitLng: pt.lng, source: 'gps-history-scan'
+              });
+              summary.created++;
+              currentZone = null; entryPoint = null;
+            }
+          }
+        }
+      } catch (e) {
+        summary.errors.push({ truck: truck.truckName, error: e.message });
+      }
+    }
+    res.json({ success: true, summary });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+
+// ============================================================
+// 📍 ZONE ENTRY/EXIT EVENT TRACKER — ALL ZONES, ALL TRUCKS
+// Records every entry/exit to MongoDB for the report & Power BI
+// ============================================================
+
+async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
+  try {
+    // Close any open event for this truck (safety net)
+    await ZoneEvent.updateMany(
+      { deviceId, exitTime: null },
+      { $set: { exitTime: Date.now(), durationMinutes: 0 } }
+    );
+    const now = Date.now();
+    // Resolve client/final-client context from zone settings
+    const zoneCtx = resolveZoneClientContext(zone.name);
+    const deliveryCtx = updateTruckDeliveryContext(deviceId, truckName, zoneCtx, zone.name);
+    const doc = await ZoneEvent.create({
+      deviceId, truckName,
+      zoneName: zone.name,
+      zoneType: zone.type || 'unknown',
+      entryTime: now,
+      entryLat: lat, entryLng: lng,
+      source: 'live-bot',
+      clientId:      zoneCtx.clientId      || deliveryCtx.clientId      || null,
+      clientName:    zoneCtx.clientName    || deliveryCtx.clientName    || null,
+      finalClientId: zoneCtx.finalClientId || deliveryCtx.finalClientId || null,
+      finalClientName: zoneCtx.finalClientName || deliveryCtx.finalClientName || null,
+      zoneRadius: zoneCtx.zoneRadius || zone.radius || 500
+    });
+    console.log(`📍 [ZoneEvent] ${truckName} → ENTRÉ dans "${zone.name}"`);
+    // 🔴 Push to Power BI Streaming Dataset (real-time)
+    pushToPowerBI(formatZoneEventForPowerBI(doc.toObject(), now)).catch(() => {});
+    // 🔗 Link to active ZoneOperation OR auto-create one
+    try {
+      let activeOp = await ZoneOperation.findOne({ deviceId, status: { $in: ['pending','active'] } });
+      let linked = false;
+      if (activeOp && Array.isArray(activeOp.route)) {
+        const nextStop = activeOp.route.find(s => s.status === 'pending' && s.zoneName === zone.name);
+        if (nextStop) {
+          nextStop.actualArrival = now;
+          nextStop.status = 'arrived';
+          activeOp.status = 'active';
+          activeOp.updatedAt = new Date();
+          await activeOp.save();
+          await ZoneEvent.findByIdAndUpdate(doc._id, {
+            operationId: activeOp._id.toString(),
+            operationName: activeOp.operationName,
+            operationSource: activeOp.source || 'manual',
+            plannedArrival: nextStop.expectedArrival || null,
+            plannedDeparture: nextStop.expectedDeparture || null
+          });
+          linked = true;
+        }
+      }
+      // Auto-create operation if no existing operation matched
+      if (!linked) {
+        const autoOp = await ZoneOperation.create({
+          operationName: `Auto — ${truckName} → ${zone.name}`,
+          truckName, deviceId,
+          route: [{ zoneName: zone.name, actualArrival: now, status: 'arrived' }],
+          status: 'active', source: 'auto'
+        });
+        await ZoneEvent.findByIdAndUpdate(doc._id, {
+          operationId: autoOp._id.toString(),
+          operationName: autoOp.operationName,
+          operationSource: 'auto'
+        });
+      }
+    } catch (opErr) { console.error('OpLink entry:', opErr.message); }
+  } catch (e) { console.error('logZoneEntry error:', e.message); }
+}
+
+async function logZoneExit(deviceId, truckName, zoneName, lat, lng) {
+  try {
+    const openEvent = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName }).sort({ entryTime: -1 });
+    if (openEvent) {
+      const now = Date.now();
+      const durationMinutes = Math.round((now - openEvent.entryTime) / 60000);
+      let engagementMinutes = null;
+      if (openEvent.plannedArrival) {
+        engagementMinutes = Math.round((now - openEvent.plannedArrival) / 60000);
+      }
+      const updated = await ZoneEvent.findByIdAndUpdate(openEvent._id, {
+        exitTime: now, exitLat: lat, exitLng: lng, durationMinutes, engagementMinutes
+      }, { new: true });
+      console.log(`🏁 [ZoneEvent] ${truckName} → SORTI de "${zoneName}" (${durationMinutes} min)`);
+      // 🔴 Push completed row to Power BI
+      if (updated) pushToPowerBI(formatZoneEventForPowerBI(updated.toObject(), now)).catch(() => {});
+      // 🔗 Update operation stop on zone exit + auto-complete
+      try {
+        const activeOp = await ZoneOperation.findOne({
+          deviceId, status: { $in: ['active','pending'] },
+          'route.zoneName': zoneName, 'route.status': 'arrived'
+        });
+        if (activeOp) {
+          const stop = activeOp.route.find(s => s.zoneName === zoneName && s.status === 'arrived');
+          if (stop) {
+            stop.actualDeparture = now;
+            stop.waitingTimeMinutes = stop.actualArrival ? Math.round((now - stop.actualArrival) / 60000) : durationMinutes;
+            stop.status = 'departed';
+            const allDone = activeOp.route.every(s => ['departed','skipped'].includes(s.status));
+            if (allDone) activeOp.status = 'completed';
+            activeOp.updatedAt = new Date();
+            await activeOp.save();
+          }
+        }
+      } catch (opErr) { console.error('OpLink exit:', opErr.message); }
+    }
+  } catch (e) {
+    console.error('logZoneExit error:', e.message);
+  }
+}
+
+// Runs for every truck on every bot cycle — tracks ALL customLocations
+// Separately from runVidangeDetection (which only handles maintenance + business logic)
+async function runZoneEntryExitTracking(truck, dbTruck) {
+  const deviceId = String(truck.id || truck.imei);
+  const truckName = truck.name || deviceId;
+  const lat = parseFloat(truck.lat);
+  const lng = parseFloat(truck.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  // Check all custom locations (maintenance + douroub + any future type)
+  const allZones = SYSTEM_SETTINGS.customLocations || [];
+  let currentZone = null;
+  for (const loc of allZones) {
+    const dist = calculateDistance(lat, lng, parseFloat(loc.lat), parseFloat(loc.lng));
+    if (dist <= (loc.radius || 500)) {
+      currentZone = loc;
+      break;
+    }
+  }
+
+  const prevZoneName = dbTruck._zoneEventZone || null; // use separate key to avoid conflicting with existing zone tracking
+
+  if (currentZone) {
+    if (prevZoneName !== currentZone.name) {
+      // ENTRY (or zone change)
+      if (prevZoneName && prevZoneName !== currentZone.name) {
+        await logZoneExit(deviceId, truckName, prevZoneName, lat, lng);
+      }
+      await logZoneEntry(deviceId, truckName, currentZone, lat, lng);
+      // Store current zone name in a separate field to avoid overwriting existing zone tracking
+      await Truck.findOneAndUpdate({ deviceId }, { _zoneEventZone: currentZone.name });
+    }
+    // else: still in same zone, nothing to do
+  } else {
+    if (prevZoneName) {
+      // EXIT
+      await logZoneExit(deviceId, truckName, prevZoneName, lat, lng);
+      await Truck.findOneAndUpdate({ deviceId }, { _zoneEventZone: null });
+    }
+  }
+}
+
+// ============================================================
+// CLIENT & CLIENT FINAL - CRUD ENDPOINTS
+// ============================================================
+
+app.get('/api/clients', checkAccess, async (req, res) => {
+  try {
+    const doc = await Settings.findOne({ id: 'global' });
+    res.json(doc && doc.clients ? doc.clients : []);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/clients', checkAccess, async (req, res) => {
+  try {
+    const { name, color } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const newClient = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), name, color: color || '#22c55e', finalClients: [] };
+    await Settings.findOneAndUpdate({ id: 'global' }, { $setOnInsert: { clients: [] } }, { upsert: true });
+    await Settings.updateOne({ id: 'global' }, { $push: { clients: newClient } });
+    if (!SYSTEM_SETTINGS.clients) SYSTEM_SETTINGS.clients = [];
+    SYSTEM_SETTINGS.clients.push(newClient);
+    res.json(newClient);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/clients/:id', checkAccess, async (req, res) => {
+  try {
+    const { name, color } = req.body;
+    const update = {};
+    if (name) update['clients.$.name'] = name;
+    if (color) update['clients.$.color'] = color;
+    await Settings.updateOne({ id: 'global', 'clients.id': req.params.id }, { $set: update });
+    const c = (SYSTEM_SETTINGS.clients || []).find(x => x.id === req.params.id);
+    if (c) { if (name) c.name = name; if (color) c.color = color; }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/clients/:id', checkAccess, async (req, res) => {
+  try {
+    await Settings.updateOne({ id: 'global' }, { $pull: { clients: { id: req.params.id } } });
+    SYSTEM_SETTINGS.clients = (SYSTEM_SETTINGS.clients || []).filter(x => x.id !== req.params.id);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/clients/:id/final-clients', checkAccess, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    const fc = { id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), name };
+    await Settings.updateOne({ id: 'global', 'clients.id': req.params.id }, { $push: { 'clients.$.finalClients': fc } });
+    const c = (SYSTEM_SETTINGS.clients || []).find(x => x.id === req.params.id);
+    if (c) { if (!c.finalClients) c.finalClients = []; c.finalClients.push(fc); }
+    res.json(fc);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/clients/:clientId/final-clients/:fcId', checkAccess, async (req, res) => {
+  try {
+    await Settings.updateOne({ id: 'global', 'clients.id': req.params.clientId },
+      { $pull: { 'clients.$.finalClients': { id: req.params.fcId } } });
+    const c = (SYSTEM_SETTINGS.clients || []).find(x => x.id === req.params.clientId);
+    if (c) c.finalClients = (c.finalClients || []).filter(x => x.id !== req.params.fcId);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/zone-operations/check-conflict', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, excludeId } = req.query;
+    if (!deviceId) return res.json([]);
+    const filter = { deviceId, status: { $in: ['pending', 'active'] } };
+    if (excludeId) filter._id = { $ne: excludeId };
+    const conflicts = await ZoneOperation.find(filter).lean();
+    res.json(conflicts);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ============================================================
+// 🚛 ZONE OPERATIONS — CRUD ENDPOINTS
+// ============================================================
+
+// GET /api/zone-operations/active — only pending/active
+app.get('/api/zone-operations/active', checkAccess, async (req, res) => {
+  try {
+    const ops = await ZoneOperation.find({ status: { $in: ['pending', 'active'] } }).sort({ updatedAt: -1 }).lean();
+    res.json(ops);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/zone-operations — list all, filterable
+app.get('/api/zone-operations', checkAccess, async (req, res) => {
+  try {
+    const filter = {};
+    const { status, truck, zone, start, end, source } = req.query;
+    if (status) filter.status = status;
+    if (truck) filter.truckName = { $regex: truck, $options: 'i' };
+    if (zone) filter['route.zoneName'] = zone;
+    if (source) filter.source = source;
+    if (start || end) {
+      filter.createdAt = {};
+      if (start) filter.createdAt.$gte = new Date(start);
+      if (end)   filter.createdAt.$lte = new Date(end);
+    }
+    const ops = await ZoneOperation.find(filter).sort({ updatedAt: -1 }).limit(1000).lean();
+    res.json(ops);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/zone-operations — create new (manual or auto)
+app.post('/api/zone-operations', checkAccess, async (req, res) => {
+  try {
+    const { operationName, truckName, deviceId, route, planStart, planEnd, notes, source } = req.body;
+    if (!operationName || !truckName || !deviceId) return res.status(400).json({ error: 'operationName, truckName, deviceId required' });
+    if (!route || !Array.isArray(route) || route.length === 0) return res.status(400).json({ error: 'At least one route stop required' });
+    const op = await ZoneOperation.create({
+      operationName, truckName, deviceId, route, planStart, planEnd,
+      notes: notes || '', source: source || 'manual'
+    });
+    res.json(op);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/zone-operations/:id — update
+app.put('/api/zone-operations/:id', checkAccess, async (req, res) => {
+  try {
+    const { routeTimings, ...rest } = req.body;
+    const update = { ...rest, updatedAt: new Date() };
+    // If routeTimings is provided, merge timing edits into existing route stops
+    if (routeTimings && Array.isArray(routeTimings)) {
+      const existing = await ZoneOperation.findById(req.params.id);
+      if (existing && existing.route) {
+        routeTimings.forEach((t, i) => {
+          if (existing.route[i]) {
+            if (t.expectedArrival !== undefined) existing.route[i].expectedArrival = t.expectedArrival;
+            if (t.expectedDeparture !== undefined) existing.route[i].expectedDeparture = t.expectedDeparture;
+            if (t.errorMarginMinutes !== undefined) existing.route[i].errorMarginMinutes = t.errorMarginMinutes;
+          }
+        });
+        update.route = existing.route;
+      }
+    }
+    const op = await ZoneOperation.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
+    if (!op) return res.status(404).json({ error: 'Not found' });
+    res.json(op);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/zone-operations/:id
+app.delete('/api/zone-operations/:id', checkAccess, async (req, res) => {
+  try {
+    const op = await ZoneOperation.findByIdAndDelete(req.params.id);
+    if (!op) return res.status(404).json({ error: 'Not found' });
+    res.json({ ok: true, deleted: op._id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+// ============================================================
+// 📊 ZONE OPERATIONS — POWER BI FLAT TABLE
+// GET /api/zone-operations/powerbi?token=...&truck=&status=
+// Returns one row per route stop with signature metadata on top
+// ============================================================
+app.get('/api/zone-operations/powerbi', async (req, res) => {
+  const tok = req.query.token || req.headers['x-access-code'];
+  if (tok !== POWERBI_TOKEN && tok !== process.env.ACCESS_CODE) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const { truck, status, start, end } = req.query;
+    const filter = {};
+    if (truck) filter.truckName = { $regex: truck, $options: 'i' };
+    if (status) filter.status = status;
+    if (start || end) {
+      filter.createdAt = {};
+      if (start) filter.createdAt.$gte = new Date(start);
+      if (end)   filter.createdAt.$lte = new Date(end);
+    }
+    const ops = await ZoneOperation.find(filter).sort({ createdAt: -1 }).limit(5000).lean();
+    const SIG = { _Exported_From: 'Website dedsite.online — dev by Chikhaoui Abderrahime', _Dev: 'Chikhaoui Abderrahime', _Version: 'Fleet Analytics v2.0', _Export_Timestamp: new Date().toISOString(), _Server_Time: new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Algiers' }) };
+    const rows = [];
+    for (const op of ops) {
+      for (const stop of (op.route || [])) {
+        const expArr = stop.expectedArrival ? new Date(stop.expectedArrival) : null;
+        const actArr = stop.actualArrival   ? new Date(stop.actualArrival)   : null;
+        const expDep = stop.expectedDeparture ? new Date(stop.expectedDeparture) : null;
+        const actDep = stop.actualDeparture   ? new Date(stop.actualDeparture)   : null;
+        const delayMins = (expArr && actArr) ? Math.round((actArr - expArr) / 60000) : null;
+        const meta = getZoneClientMeta(stop.zoneName);
+        rows.push({
+          ...meta,
+          Operation:          op.operationName,
+          Type:               op.source === 'auto' ? 'Auto (bot)' : 'Manuel (utilisateur)',
+          Camion:             op.truckName,
+          Zone:               stop.zoneName,
+          Statut_Stop:        stop.status,
+          Statut_Operation:   op.status,
+          Arrivee_Prevue:     expArr ? expArr.toISOString() : null,
+          Arrivee_Reelle:     actArr ? actArr.toISOString() : null,
+          Depart_Prevu:       expDep ? expDep.toISOString() : null,
+          Depart_Reel:        actDep ? actDep.toISOString() : null,
+          Retard_Minutes:     delayMins,
+          Temps_Attente_Min:  stop.waitingTimeMinutes || null,
+          Marge_Erreur_Min:   stop.errorMarginMinutes || 30,
+          Date_Page:          new Date().toISOString().slice(0, 10),
+          Heure_Algerie:      new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Algiers' }),
+          Notes:              op.notes || '',
+          ...SIG
+        });
+      }
+    }
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ============================================================
+// 📊 POWER BI — REAL-TIME + HISTORICAL ENDPOINTS
+// ============================================================
+//
+// HISTORICAL (use in Power BI Desktop "Get Data → Web"):
+//   All zones:   https://dedgps.site/api/zone-events/powerbi?token=fleet_powerbi_2025
+//   One zone:    https://dedgps.site/api/zone-events/powerbi/SITE_DED_BISKRA?token=fleet_powerbi_2025
+//   With dates:  https://dedgps.site/api/zone-events/powerbi/SITE_DED_BISKRA?token=fleet_powerbi_2025&start=2026-01-01&end=2026-12-31
+//
+// LIVE (trucks currently in zone, elapsed chargement time):
+//   All zones:   https://dedgps.site/api/zone-events/powerbi-live?token=fleet_powerbi_2025
+//   One zone:    https://dedgps.site/api/zone-events/powerbi-live/SITE_DED_BISKRA?token=fleet_powerbi_2025
+//
+// REAL-TIME STREAMING → Set POWERBI_PUSH_URL in Render env vars.
+//   Every entry/exit is pushed automatically — Power BI updates in seconds.
+// ============================================================
+
+// Shared auth + query builder for PowerBI routes
+function powerbiAuth(req, res) {
+  const token = req.query.token;
+  if (!token || token !== POWERBI_TOKEN) {
+    res.status(403).json({ error: `Token invalide. Ajoutez ?token=${POWERBI_TOKEN} à l'URL.` });
+    return false;
+  }
+  return true;
+}
+
+async function buildZoneFilter(req, zoneParam) {
+  const { start, end, truck } = req.query;
+  const filter = {};
+  // Zone from URL path takes priority, then query param
+  const zoneName = zoneParam || req.query.zone;
+  if (zoneName) filter.zoneName = { $regex: decodeURIComponent(zoneName).trim(), $options: 'i' };
+  if (truck) filter.truckName = { $regex: truck, $options: 'i' };
+  if (start || end) {
+    filter.entryTime = {};
+    if (start) filter.entryTime.$gte = new Date(start).getTime();
+    if (end)   filter.entryTime.$lte = new Date(end).getTime();
+  }
+  return filter;
+}
+
+// HISTORICAL — all zones
+app.get('/api/zone-events/powerbi', async (req, res) => {
+  if (!powerbiAuth(req, res)) return;
+  try {
+    const filter = await buildZoneFilter(req, null);
+    const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).limit(10000).lean();
+    const now = Date.now();
+    res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// HISTORICAL — specific zone in URL path (e.g. /powerbi/SITE_DED_BISKRA)
+app.get('/api/zone-events/powerbi/:zone', async (req, res) => {
+  if (!powerbiAuth(req, res)) return;
+  try {
+    const filter = await buildZoneFilter(req, req.params.zone);
+    const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).limit(10000).lean();
+    const now = Date.now();
+    res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// LIVE — trucks currently inside, with real elapsed chargement time (no zone filter)
+app.get('/api/zone-events/powerbi-live', async (req, res) => {
+  if (!powerbiAuth(req, res)) return;
+  try {
+    const filter = { exitTime: null };
+    if (req.query.zone) filter.zoneName = { $regex: req.query.zone, $options: 'i' };
+    const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).lean();
+    const now = Date.now();
+    res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// LIVE — specific zone in URL path
+app.get('/api/zone-events/powerbi-live/:zone', async (req, res) => {
+  if (!powerbiAuth(req, res)) return;
+  try {
+    const filter = { exitTime: null, zoneName: { $regex: decodeURIComponent(req.params.zone).trim(), $options: 'i' } };
+    const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).lean();
+    const now = Date.now();
+    res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// INFO — list all available zones (helps building Power BI URLs)
+app.get('/api/zone-events/powerbi-zones', async (req, res) => {
+  if (!powerbiAuth(req, res)) return;
+  try {
+    const zones = await ZoneEvent.distinct('zoneName');
+    res.json({
+      token: POWERBI_TOKEN,
+      base: process.env.RENDER_EXTERNAL_URL || 'https://dedgps.site',
+      availableZones: zones.sort(),
+      endpoints: {
+        allZones:    `https://dedgps.site/api/zone-events/powerbi?token=${POWERBI_TOKEN}`,
+        byZone:      `https://dedgps.site/api/zone-events/powerbi/ZONE_NAME?token=${POWERBI_TOKEN}`,
+        live:        `https://dedgps.site/api/zone-events/powerbi-live?token=${POWERBI_TOKEN}`,
+        liveByZone:  `https://dedgps.site/api/zone-events/powerbi-live/ZONE_NAME?token=${POWERBI_TOKEN}`,
+        withDates:   `https://dedgps.site/api/zone-events/powerbi/ZONE_NAME?token=${POWERBI_TOKEN}&start=2026-01-01&end=2026-12-31`
+      },
+      streaming: POWERBI_PUSH_URL ? '✅ Real-time push configured' : '⚠️ Not configured — set POWERBI_PUSH_URL env var for real-time streaming'
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post('/api/refuels/nightly-reconcile', checkAccess, async (req, res) => {
   try {
     const summary = await runNightlyRefuelReconciliation(true);
@@ -3815,6 +4682,26 @@ app.use('/api/itinerary', itinRoute);
 
 // ============================================================
 // ✅ MAINTENANCE ARTICLES CATALOG API
+
+// GET /api/zone-stats — Zone activity statistics (entries/exits per zone, last 24h)
+app.get('/api/zone-stats', checkAccess, async (req, res) => {
+  try {
+    const since = new Date(Date.now() - 24 * 3600000);
+    const events = await ZoneEvent.find({ entryTime: { $gte: since } }).lean();
+    const stats = {};
+    events.forEach(ev => {
+      const z = ev.zoneName || 'Unknown';
+      if (!stats[z]) stats[z] = { zone: z, entries: 0, exits: 0, trucks: new Set(), lastEntry: null, lastExit: null, events: [] };
+      stats[z].entries++;
+      stats[z].trucks.add(ev.truckName);
+      if (!stats[z].lastEntry || ev.entryTime > stats[z].lastEntry) stats[z].lastEntry = ev.entryTime;
+      if (ev.exitTime) { stats[z].exits++; if (!stats[z].lastExit || ev.exitTime > stats[z].lastExit) stats[z].lastExit = ev.exitTime; }
+      stats[z].events.push({ truck: ev.truckName, entryTime: ev.entryTime, exitTime: ev.exitTime, duration: ev.durationMinutes });
+    });
+    const result = Object.values(stats).map(s => ({ ...s, trucks: [...s.trucks], truckCount: s.trucks.size }));
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // ============================================================
 
 // GET all articles
@@ -3976,7 +4863,25 @@ mongoose.connection.on('error', (err) => {
 });
 
 if (DB_URI) {
-  mongoose.connect(DB_URI, {
+  // ── 6-MONTH DATA CLEANUP — remove zone events older than 180 days to save MongoDB space ──
+async function cleanupOldZoneEvents() {
+  try {
+    const cutoff = Date.now() - (180 * 24 * 3600000);
+    const result = await ZoneEvent.deleteMany({ entryTime: { $lt: cutoff }, exitTime: { $ne: null } });
+    if (result.deletedCount > 0) console.log(`🧹 Cleanup: ${result.deletedCount} old zone events removed (>6 months)`);
+  } catch (e) { console.error('Cleanup error:', e.message); }
+}
+// Run cleanup every 24h
+setInterval(cleanupOldZoneEvents, 24 * 3600000);
+
+// ── STARTUP BANNER ──
+console.log('\n╔════════════════════════════════════════════════╗');
+console.log('║  🚛  Fleet Analytics Engine v2.0               ║');
+console.log('║  📍  dedsite.online                             ║');
+console.log('║  👨‍💻  Dev: Chikhaoui Abderrahime                 ║');
+console.log('║  📊  Zone Mission Control + Power BI API        ║');
+console.log('╚════════════════════════════════════════════════╝\n');
+mongoose.connect(DB_URI, {
     serverSelectionTimeoutMS: 10000,
     socketTimeoutMS: 45000,
     maxPoolSize: 5
@@ -4002,4 +4907,72 @@ if (DB_URI) {
 
 
 
+
+
+// ============================================================
+// 🗺️ ZONE SUMMARY — enriched zones with client data + live truck counts
+// ============================================================
+app.get('/api/zone-summary', checkAccess, async (req, res) => {
+  try {
+    const settings = SYSTEM_SETTINGS;
+    const locs     = settings.customLocations || [];
+    const clients  = settings.clients || [];
+    // Get latest GPS positions
+    const trucks = await DeviceState.find({}).lean();
+
+    const summary = locs.map(loc => {
+      // Resolve client + finalClient
+      let clientName = '', finalClientName = '', clientColor = '';
+      if (loc.clientId && clients.length) {
+        const cl = clients.find(c => c.id === loc.clientId);
+        if (cl) {
+          clientName = cl.name;
+          clientColor = cl.color || '';
+          if (loc.finalClientId && cl.finalClients) {
+            const fc = cl.finalClients.find(f => f.id === loc.finalClientId);
+            if (fc) { finalClientName = fc.name; if (fc.color) clientColor = fc.color; }
+          }
+        }
+      }
+      // Count trucks currently inside zone
+      const R = 6371000;
+      const liveTrucks = trucks.filter(t => {
+        if (!t.lat || !t.lng) return false;
+        const dLat = (t.lat - loc.lat) * Math.PI / 180;
+        const dLng = (t.lng - loc.lng) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(loc.lat*Math.PI/180) * Math.cos(t.lat*Math.PI/180) * Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) <= (loc.radius || 500);
+      }).map(t => t.truckName || t.deviceId);
+
+      return {
+        id:               loc.id || '',
+        name:             loc.name,
+        wilaya:           loc.wilaya || '',
+        type:             loc.type || 'other',
+        lat:              loc.lat,
+        lng:              loc.lng,
+        radius:           loc.radius || 500,
+        color:            loc.color || '',
+        icon:             loc.icon || '',
+        iconEmoji:        loc.iconEmoji || '',
+        opacity:          loc.opacity || 0.15,
+        tags:             (loc.tags || []).join(', '),
+        description:      loc.description || '',
+        speedLimitKmh:    loc.speedLimitKmh || 0,
+        minDwellMinutes:  loc.minDwellMinutes || 0,
+        alertOnEntry:     loc.alertOnEntry || false,
+        alertOnExit:      loc.alertOnExit || false,
+        clientId:         loc.clientId || '',
+        clientName,
+        finalClientId:    loc.finalClientId || '',
+        finalClientName,
+        resolvedColor:    loc.color || clientColor || '',
+        liveTruckCount:   liveTrucks.length,
+        liveTrucks:       liveTrucks.join(', '),
+        _source: 'dedsite.online', _dev: 'Chikhaoui'
+      };
+    });
+    res.json(summary);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 

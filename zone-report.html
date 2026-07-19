@@ -1,0 +1,2756 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📍 Zone Mission Control — Fleet DED</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    /* ═══════════════════════════════════════════
+       DESIGN SYSTEM — TOKENS
+    ═══════════════════════════════════════════ */
+    :root {
+      --font: 'Inter', -apple-system, sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+
+      /* Dark theme (default) */
+      --bg:       #0f1117;
+      --bg-2:     #161920;
+      --bg-3:     #1e2028;
+      --bg-card:  #1a1d24;
+      --border:   rgba(255,255,255,0.07);
+      --border-2: rgba(255,255,255,0.12);
+      --text:     #e8eaf0;
+      --text-2:   #8b90a0;
+      --text-3:   #555a6a;
+
+      --teal:     #2dd4bf;
+      --teal-dim: rgba(45,212,191,0.12);
+      --blue:     #60a5fa;
+      --blue-dim: rgba(96,165,250,0.12);
+      --green:    #4ade80;
+      --green-dim:rgba(74,222,128,0.12);
+      --orange:   #fb923c;
+      --orange-dim:rgba(251,146,60,0.12);
+      --red:      #f87171;
+      --red-dim:  rgba(248,113,113,0.12);
+      --purple:   #a78bfa;
+      --purple-dim:rgba(167,139,250,0.12);
+
+      --radius:   10px;
+      --radius-sm:6px;
+      --shadow:   0 4px 24px rgba(0,0,0,0.4);
+      --shadow-sm:0 2px 8px rgba(0,0,0,0.3);
+
+      --sidebar-w: 260px;
+      --header-h:  56px;
+    
+    /* ── compat vars used in zone history (zone-report + ui.js) ── */
+    --color-info:      #38bdf8;
+    --color-primary:   #818cf8;
+    --color-warning:   #fb923c;
+    --color-success:   #4ade80;
+    --color-danger:    #f87171;
+    --font-weight-semibold: 600;
+    }
+
+    [data-theme="light"] {
+      --bg:       #f0f2f5;
+      --bg-2:     #ffffff;
+      --bg-3:     #f7f8fa;
+      --bg-card:  #ffffff;
+      --border:   rgba(0,0,0,0.08);
+      --border-2: rgba(0,0,0,0.14);
+      --text:     #111827;
+      --text-2:   #6b7280;
+      --text-3:   #9ca3af;
+      --teal:     #0d9488;
+      --teal-dim: rgba(13,148,136,0.1);
+      --blue:     #2563eb;
+      --blue-dim: rgba(37,99,235,0.1);
+      --green:    #16a34a;
+      --green-dim:rgba(22,163,74,0.1);
+      --orange:   #ea580c;
+      --orange-dim:rgba(234,88,12,0.1);
+      --red:      #dc2626;
+      --red-dim:  rgba(220,38,38,0.1);
+      --purple:   #7c3aed;
+      --purple-dim:rgba(124,58,237,0.1);
+      --shadow:   0 4px 24px rgba(0,0,0,0.1);
+      --shadow-sm:0 2px 8px rgba(0,0,0,0.06);
+    }
+
+    /* ═══════════════════════════════════════════
+       RESET & BASE
+    ═══════════════════════════════════════════ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; font-family: var(--font); background: var(--bg); color: var(--text); font-size: 13px; }
+    a { color: inherit; text-decoration: none; }
+    input, select, button { font-family: inherit; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 99px; }
+
+    /* ═══════════════════════════════════════════
+       LAYOUT SHELL
+    ═══════════════════════════════════════════ */
+    #app { display: flex; flex-direction: column; height: 100vh; }
+
+    /* HEADER */
+    #header {
+      height: var(--header-h); min-height: var(--header-h);
+      background: var(--bg-2); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 20px; gap: 16px;
+      position: relative; z-index: 100;
+    }
+    .hdr-logo { display: flex; align-items: center; gap: 10px; }
+    .hdr-logo .logo-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, var(--teal), var(--blue));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; color: #fff; font-weight: 800;
+    }
+    .hdr-logo .logo-text { font-size: 15px; font-weight: 700; color: var(--text); }
+    .hdr-logo .logo-sub { font-size: 10px; color: var(--text-2); }
+    .hdr-sep { width: 1px; height: 24px; background: var(--border-2); }
+    .hdr-title { font-size: 13px; font-weight: 600; color: var(--text-2); }
+    .hdr-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .live-badge {
+      display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+      background: var(--green-dim); border: 1px solid rgba(74,222,128,0.2);
+      border-radius: 99px; font-size: 11px; font-weight: 600; color: var(--green);
+    }
+    .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.7)} }
+    .hdr-btn {
+      background: var(--bg-3); border: 1px solid var(--border);
+      color: var(--text-2); padding: 6px 10px; border-radius: var(--radius-sm);
+      cursor: pointer; font-size: 12px; transition: all 0.15s; display: flex; align-items: center; gap: 5px;
+    }
+    .hdr-btn:hover { background: var(--border); color: var(--text); }
+    .hdr-btn.accent {
+      background: var(--teal); border-color: var(--teal);
+      color: #000; font-weight: 700;
+    }
+    .hdr-btn.accent:hover { opacity: .85; }
+    #authStatus { font-size: 11px; color: var(--text-3); }
+
+    /* BODY */
+    #body { display: flex; flex: 1; min-height: 0; }
+
+    /* SIDEBAR */
+    #sidebar {
+      width: var(--sidebar-w); min-width: var(--sidebar-w);
+      background: var(--bg-2); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .sb-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+    .sb-label {
+      font-size: 10px; font-weight: 700; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: .8px; margin-bottom: 10px;
+    }
+    .sb-filter { margin-bottom: 8px; }
+    .sb-filter label { font-size: 11px; color: var(--text-2); display: block; margin-bottom: 4px; font-weight: 500; }
+    .sb-select, .sb-input {
+      width: 100%; padding: 7px 10px; background: var(--bg-3);
+      border: 1px solid var(--border); color: var(--text);
+      border-radius: var(--radius-sm); font-size: 12px; outline: none;
+      transition: border-color 0.15s;
+    }
+    .sb-select:focus, .sb-input:focus { border-color: var(--teal); }
+    .sb-btn {
+      width: 100%; padding: 8px; background: var(--teal); border: none;
+      color: #000; border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 12px; font-weight: 700; transition: opacity 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .sb-btn:hover { opacity: .85; }
+    .sb-btn.ghost {
+      background: var(--bg-3); border: 1px solid var(--border);
+      color: var(--text-2); font-weight: 500;
+    }
+    .sb-btn.ghost:hover { border-color: var(--border-2); color: var(--text); }
+    .sb-nav { display: flex; flex-direction: column; gap: 2px; padding: 10px 10px; flex: 1; overflow-y: auto; }
+    .sb-nav-item {
+      display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+      border-radius: var(--radius-sm); cursor: pointer; color: var(--text-2);
+      font-size: 12px; font-weight: 500; transition: all 0.15s; border: 1px solid transparent;
+    }
+    .sb-nav-item:hover { background: var(--bg-3); color: var(--text); }
+    .top-tab.active { background: var(--teal-dim); color: var(--teal); border-color: rgba(45,212,191,0.2); font-weight: 600; }
+    .sb-nav-item .nav-icon { width: 18px; text-align: center; font-size: 13px; }
+    .sb-nav-item .nav-badge {
+      margin-left: auto; background: var(--teal); color: #000;
+      font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 99px;
+    }
+    .sb-footer { padding: 12px 16px; border-top: 1px solid var(--border); }
+    .sb-credit { font-size: 10px; color: var(--text-3); text-align: center; line-height: 1.6; }
+    .sb-credit strong { color: var(--teal); }
+
+    /* MAIN */
+    #main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+    .tab-pane { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+    .tab-pane.active { display: flex; }
+    .pane-scroll { flex: 1; overflow-y: auto; padding: 20px; }
+
+    /* ═══════════════════════════════════════════
+       COMPONENTS
+    ═══════════════════════════════════════════ */
+
+    /* PAGE HEADER */
+    .pane-header {
+      padding: 16px 20px 0; display: flex; align-items: flex-start;
+      justify-content: space-between; flex-wrap: wrap; gap: 10px;
+    }
+    .pane-title { font-size: 18px; font-weight: 800; color: var(--text); }
+    .pane-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .pane-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* KPI STRIP */
+    .kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px,1fr)); gap: 10px; margin: 16px 20px 0; }
+    .kpi-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px;
+    }
+    .kpi-val { font-size: 24px; font-weight: 800; font-family: var(--mono); }
+    .kpi-label { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; margin-top: 2px; }
+
+    /* SECTION HEADER */
+    .section-hdr {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 12px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-hdr-title { font-size: 13px; font-weight: 700; color: var(--text); }
+    .section-hdr-sub { font-size: 11px; color: var(--text-2); margin-left: auto; }
+
+    /* COMPACT GRID */
+    .compact-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 8px;
+    }
+
+    /* LIVE TRUCK CARD */
+    .live-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; cursor: pointer;
+      transition: all 0.2s; position: relative; overflow: hidden;
+    }
+    .live-card::before {
+      content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+      width: 3px; background: var(--teal);
+    }
+    .live-card:hover { border-color: var(--border-2); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+    .live-card .lc-truck { font-size: 13px; font-weight: 700; color: var(--text); }
+    .live-card .lc-zone { font-size: 11px; color: var(--teal); font-weight: 600; margin-top: 2px; }
+    .live-card .lc-timer { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--green); margin: 6px 0 2px; }
+    .live-card .lc-entry { font-size: 10px; color: var(--text-3); }
+    .live-card .lc-op { font-size: 10px; color: var(--purple); margin-top: 3px; font-weight: 600; }
+    .live-card.late::before { background: var(--red); }
+    .live-card.late .lc-timer { color: var(--red); }
+    .live-card.warning::before { background: var(--orange); }
+    .live-card.warning .lc-timer { color: var(--orange); }
+
+    /* OPERATION PLANNING BOARD */
+    .op-board { display: flex; flex-direction: column; gap: 10px; }
+    .op-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden; transition: border-color 0.2s;
+    }
+    .op-card:hover { border-color: var(--border-2); }
+    .op-card-header {
+      display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+      border-bottom: 1px solid var(--border); cursor: pointer;
+    }
+    .op-card-title { font-size: 13px; font-weight: 700; color: var(--text); flex: 1; }
+    .op-card-truck { font-size: 11px; color: var(--text-2); }
+    .op-status-badge {
+      padding: 3px 10px; border-radius: 99px; font-size: 10px; font-weight: 700;
+    }
+    .op-status-badge.pending  { background: var(--orange-dim); color: var(--orange); }
+    .op-status-badge.active   { background: var(--teal-dim); color: var(--teal); }
+    .op-status-badge.completed{ background: var(--green-dim); color: var(--green); }
+    .op-status-badge.cancelled{ background: var(--red-dim); color: var(--red); }
+    .op-route {
+      display: flex; align-items: stretch; padding: 12px 14px; gap: 0;
+      overflow-x: auto;
+    }
+    .route-stop {
+      display: flex; flex-direction: column; align-items: center; flex: 0 0 auto;
+      min-width: 100px; max-width: 140px;
+    }
+    .route-stop-dot {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--bg-3); border: 2px solid var(--border-2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 700; color: var(--text-2); flex-shrink: 0;
+    }
+    .route-stop-dot.arrived   { background: var(--teal-dim); border-color: var(--teal); color: var(--teal); }
+    .route-stop-dot.departed  { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+    .route-stop-dot.pending   { background: var(--bg-3); border-color: var(--border-2); color: var(--text-3); }
+    .route-stop-dot.late      { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+    .route-stop-name { font-size: 10px; font-weight: 600; color: var(--text); text-align: center; margin-top: 5px; word-break: break-word; line-height: 1.3; }
+    .route-stop-time { font-size: 9px; color: var(--text-3); text-align: center; margin-top: 2px; font-family: var(--mono); }
+    .route-stop-wait { font-size: 9px; color: var(--teal); text-align: center; }
+    .route-arrow {
+      flex: 1; height: 2px; background: var(--border-2); align-self: center;
+      min-width: 16px; margin: 0 4px; margin-bottom: 30px;
+      background: linear-gradient(90deg, var(--border-2) 0%, var(--teal-dim) 100%);
+    }
+    .op-card-footer {
+      display: flex; gap: 6px; padding: 10px 14px;
+      border-top: 1px solid var(--border); background: var(--bg-3);
+    }
+    .op-action-btn {
+      padding: 4px 10px; background: var(--bg-card);
+      border: 1px solid var(--border); color: var(--text-2);
+      border-radius: var(--radius-sm); font-size: 11px; cursor: pointer; transition: all 0.15s;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .op-action-btn:hover { border-color: var(--border-2); color: var(--text); }
+    .op-action-btn.danger:hover { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+
+    /* NEW OPERATION MODAL */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000; padding: 16px; backdrop-filter: blur(4px);
+    }
+    .modal-box {
+      background: var(--bg-2); border: 1px solid var(--border-2);
+      border-radius: calc(var(--radius) + 4px); padding: 24px; width: 620px;
+      max-width: 95vw; max-height: 90vh; overflow-y: auto;
+      box-shadow: var(--shadow);
+    }
+    .modal-title { font-size: 16px; font-weight: 800; color: var(--text); margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
+    .form-control {
+      width: 100%; padding: 9px 12px; background: var(--bg-3);
+      border: 1px solid var(--border); color: var(--text);
+      border-radius: var(--radius-sm); font-size: 12px; outline: none; transition: border-color 0.15s;
+    }
+    .form-control:focus { border-color: var(--teal); }
+    .route-builder { margin-bottom: 16px; }
+    .route-builder-label { font-size: 11px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+    .route-stop-row {
+      display: grid; grid-template-columns: 1fr 130px 130px 80px 32px;
+      gap: 8px; align-items: end; margin-bottom: 8px;
+    }
+    .route-stop-row input, .route-stop-row select { width: 100%; padding: 7px 9px; background: var(--bg-3); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius-sm); font-size: 11px; outline: none; }
+    .route-stop-row input:focus, .route-stop-row select:focus { border-color: var(--teal); }
+    .add-stop-btn {
+      padding: 8px 14px; background: var(--teal-dim); border: 1px dashed var(--teal);
+      color: var(--teal); border-radius: var(--radius-sm); cursor: pointer;
+      font-size: 11px; font-weight: 600; width: 100%; margin-bottom: 6px; transition: all 0.15s;
+    }
+    .add-stop-btn:hover { background: var(--teal); color: #000; }
+    .remove-stop-btn {
+      width: 32px; height: 32px; background: var(--red-dim); border: 1px solid rgba(248,113,113,.2);
+      color: var(--red); border-radius: var(--radius-sm); cursor: pointer; font-size: 11px;
+    }
+    .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding-top: 16px; border-top: 1px solid var(--border); margin-top: 4px; }
+    .modal-btn {
+      padding: 9px 20px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+      cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.15s; font-family: inherit;
+    }
+    .modal-btn.primary { background: var(--teal); border-color: var(--teal); color: #000; }
+    .modal-btn.primary:hover { opacity: .85; }
+    .modal-btn.ghost { background: transparent; color: var(--text-2); }
+    .modal-btn.ghost:hover { color: var(--text); background: var(--bg-3); }
+
+    /* TABLE */
+    .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .data-table th {
+      padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 700;
+      color: var(--text-3); text-transform: uppercase; letter-spacing: .6px;
+      border-bottom: 1px solid var(--border); background: var(--bg-3); white-space: nowrap;
+    }
+    .data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
+    .data-table tr:hover td { background: var(--bg-3); }
+    .data-table .mono { font-family: var(--mono); font-weight: 600; }
+    .data-table .tag {
+      display: inline-flex; padding: 2px 8px; border-radius: 99px;
+      font-size: 10px; font-weight: 700;
+    }
+    .tag.green  { background: var(--green-dim);  color: var(--green); }
+    .tag.teal   { background: var(--teal-dim);   color: var(--teal); }
+    .tag.orange { background: var(--orange-dim); color: var(--orange); }
+    .tag.red    { background: var(--red-dim);    color: var(--red); }
+    .tag.blue   { background: var(--blue-dim);   color: var(--blue); }
+    .tag.gray   { background: var(--bg-3);       color: var(--text-3); border: 1px solid var(--border); }
+
+    /* CHARTS */
+    .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .chart-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px; position: relative;
+    }
+    .chart-title { font-size: 12px; font-weight: 700; color: var(--text); margin-bottom: 14px; display:flex; align-items:center; gap:6px; }
+    .chart-dl-btn { margin-left:auto; background:var(--bg-3); border:1px solid var(--border); border-radius:6px; padding:3px 8px; font-size:10px; cursor:pointer; color:var(--text-2); font-weight:600; white-space:nowrap; }
+    .chart-dl-btn:hover { opacity:0.8; }
+    .chart-wrap { height: 220px; position: relative; }
+    .ranking-list { display: flex; flex-direction: column; gap: 8px; }
+    .rank-row { display: flex; align-items: center; gap: 10px; }
+    .rank-num { font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--text-3); width: 18px; flex-shrink: 0; }
+    .rank-bar-wrap { flex: 1; height: 6px; background: var(--bg-3); border-radius: 99px; overflow: hidden; }
+    .rank-bar { height: 100%; border-radius: 99px; background: var(--teal); transition: width 0.6s ease; }
+    .rank-label { font-size: 11px; color: var(--text); font-weight: 600; width: 100px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rank-val { font-family: var(--mono); font-size: 11px; color: var(--text-2); white-space: nowrap; }
+
+    /* TOP TAB BAR */
+    .top-tabs {
+      display: flex;
+      gap: 2px;
+      padding: 8px 16px;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      overflow-x: auto;
+    }
+    .top-tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text-2);
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.15s;
+      white-space: nowrap;
+      border: 1px solid transparent;
+    }
+    .top-tab:hover { background: var(--bg-3); color: var(--text); }
+    .top-tab.active {
+      background: var(--teal-dim);
+      color: var(--teal);
+      border-color: rgba(45,212,191,0.25);
+      font-weight: 700;
+    }
+    .top-tab .nav-badge {
+      background: var(--teal); color: #000;
+      font-size: 10px; font-weight: 800;
+      padding: 1px 6px; border-radius: 10px;
+      min-width: 16px; text-align: center;
+    }
+
+    /* Pulse animation for live data indicator */
+    @keyframes dataPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.9)} }
+    .pulse-dot { width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;animation:dataPulse 1.5s ease-in-out infinite;box-shadow:0 0 6px rgba(34,197,94,0.6); }
+    .pulse-dot.stale { background:#f97316;box-shadow:0 0 6px rgba(249,115,22,0.6); }
+
+    /* POWER BI BUILDER */
+    .pb-section { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-bottom: 14px; }
+    .pb-section-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+    .pb-filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 10px; margin-bottom: 14px; }
+    .pb-url-box {
+      background: var(--bg-3); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 12px 14px;
+      font-family: var(--mono); font-size: 11px; color: var(--teal);
+      word-break: break-all; line-height: 1.6; cursor: pointer;
+      transition: border-color 0.15s; position: relative;
+    }
+    .pb-url-box:hover { border-color: var(--teal); }
+    .pb-copy-btn {
+      position: absolute; top: 8px; right: 8px; padding: 4px 10px;
+      background: var(--teal); color: #000; border: none;
+      border-radius: var(--radius-sm); font-size: 10px; font-weight: 700; cursor: pointer;
+    }
+    .pb-how-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .pb-how-card { background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; }
+    .pb-how-num { font-size: 20px; font-weight: 900; color: var(--teal); font-family: var(--mono); }
+    .pb-how-title { font-size: 12px; font-weight: 700; color: var(--text); margin: 4px 0 2px; }
+    .pb-how-desc { font-size: 11px; color: var(--text-2); line-height: 1.5; }
+    .pb-endpoint-list { display: flex; flex-direction: column; gap: 6px; }
+    .pb-endpoint-row {
+      display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+      background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    }
+    .pb-endpoint-method { font-family: var(--mono); font-size: 10px; font-weight: 700; color: var(--teal); width: 30px; }
+    .pb-endpoint-url { font-family: var(--mono); font-size: 11px; color: var(--text); flex: 1; }
+    .pb-endpoint-desc { font-size: 11px; color: var(--text-2); }
+    .pb-copy-small { padding: 3px 8px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-2); border-radius: 4px; font-size: 10px; cursor: pointer; margin-left: auto; transition: all 0.15s; }
+    .pb-copy-small:hover { border-color: var(--teal); color: var(--teal); }
+
+    /* EMPTY STATE */
+    .empty-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; padding: 60px 20px; color: var(--text-3);
+      gap: 10px;
+    }
+    .empty-state i { font-size: 40px; opacity: .3; }
+    .empty-state p { font-size: 13px; }
+
+    /* TOAST */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      background: var(--bg-2); border: 1px solid var(--border-2);
+      border-radius: var(--radius); padding: 12px 18px;
+      font-size: 13px; font-weight: 600; box-shadow: var(--shadow);
+      transform: translateY(100px); opacity: 0; transition: all 0.3s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.success { border-color: var(--teal); color: var(--teal); }
+    #toast.error { border-color: var(--red); color: var(--red); }
+
+    /* LOGIN SCREEN */
+    #loginScreen {
+      position: fixed; inset: 0; background: var(--bg); z-index: 9000;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .login-box {
+      background: var(--bg-2); border: 1px solid var(--border-2);
+      border-radius: calc(var(--radius) + 4px); padding: 36px;
+      width: 380px; text-align: center; box-shadow: var(--shadow);
+    }
+    .login-box .logo { font-size: 32px; margin-bottom: 10px; }
+    .login-box h2 { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+    .login-box p { font-size: 12px; color: var(--text-2); margin-bottom: 24px; }
+    .login-box input { margin-bottom: 12px; }
+    .login-btn { width: 100%; padding: 11px; background: var(--teal); color: #000; border: none; border-radius: var(--radius-sm); font-size: 13px; font-weight: 700; cursor: pointer; }
+
+    /* UTIL */
+    .divider { width: 1px; height: 20px; background: var(--border-2); }
+    .flex-gap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .mt-16 { margin-top: 16px; }
+    .full-wrap { overflow-x: auto; }
+    @media (max-width: 900px) {
+      #sidebar { display: none; }
+      .charts-grid { grid-template-columns: 1fr; }
+      .pb-how-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN (hidden — auto-login via localStorage) -->
+<div id="loginScreen" style="display:none;">
+  <div class="login-box">
+    <div class="logo">📍</div>
+    <h2>Zone Mission Control</h2>
+    <p>Code requis</p>
+    <input type="password" id="loginCode" class="form-control" placeholder="Code d'accès..." autocomplete="off">
+    <button class="login-btn" onclick="ZMC.login()">Accéder <i class="fa-solid fa-arrow-right"></i></button>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="app">
+
+  <!-- HEADER -->
+  <header id="header">
+    <div class="hdr-logo">
+      <div class="logo-icon">ZM</div>
+      <div>
+        <div class="logo-text">Zone Mission Control</div>
+        <div class="logo-sub">Fleet Analytics Engine v2.0</div>
+      </div>
+    </div>
+    <div class="hdr-sep"></div>
+    <div class="hdr-title">dedsite.online</div>
+    <div class="hdr-right">
+      <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+      <span id="lastRefreshTime" style="font-size:10px;color:var(--text-3);"></span>
+      <button class="hdr-btn" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
+      <button class="hdr-btn" onclick="ZMC.toggleTheme()" id="themeBtn" title="Changer thème"><i class="fa-solid fa-circle-half-stroke"></i></button>
+      <button class="hdr-btn" onclick="ZMC.refreshAll()" title="Actualiser tout"><i class="fa-solid fa-rotate-right"></i></button>
+    </div>
+  </header>
+
+  <!-- BODY -->
+  <div id="body">
+
+    <!-- SIDEBAR -->
+    <nav id="sidebar">
+      <!-- FILTERS -->
+      <div class="sb-section">
+        <div class="sb-label">Filtres Globaux</div>
+        <div class="sb-filter" style="border-left:3px solid #3b82f6;padding-left:8px;">
+          <label style="color:#3b82f6;font-weight:700;">👤 Client</label>
+          <select id="sbClient" class="sb-select" onchange="ZMC.applyFilters()">
+            <option value="">— Tous Clients —</option>
+          </select>
+        </div>
+        <div class="sb-filter" style="padding-left:8px;">
+          <label style="color:#64748b;font-size:10px;">↳ Client Final</label>
+          <select id="sbFinalClient" class="sb-select" onchange="ZMC.applyFilters()">
+            <option value="">— Tous —</option>
+          </select>
+        </div>
+        <div class="sb-filter">
+          <label>Zone</label>
+          <select id="sbZone" class="sb-select" onchange="ZMC.applyFilters()">
+            <option value="">Toutes les zones</option>
+          </select>
+        </div>
+        <div class="sb-filter">
+          <label>Camion</label>
+          <select id="sbTruck" class="sb-select" onchange="ZMC.applyFilters()">
+            <option value="">Tous les camions</option>
+          </select>
+        </div>
+        <div class="sb-filter">
+          <label>Statut</label>
+          <select id="sbStatus" class="sb-select" onchange="ZMC.applyFilters()">
+            <option value="">Tous</option>
+            <option value="in-zone">🟢 En zone</option>
+            <option value="en-route">🚛 En route</option>
+            <option value="late">🔴 En retard</option>
+          </select>
+        </div>
+        <div class="sb-filter">
+          <label>Du</label>
+          <input type="date" id="sbStart" class="sb-input">
+        </div>
+        <div class="sb-filter">
+          <label>Au</label>
+          <input type="date" id="sbEnd" class="sb-input">
+        </div>
+        <button class="sb-btn" onclick="ZMC.applyFilters()" style="margin-top:4px;">
+          <i class="fa-solid fa-filter"></i> Appliquer
+        </button>
+        <button class="sb-btn ghost" onclick="ZMC.resetFilters()" style="margin-top:6px;">
+          <i class="fa-solid fa-xmark"></i> Réinitialiser
+        </button>
+      </div>
+
+
+
+
+      <div class="sb-footer">
+        <div class="sb-credit">
+          Fleet Analytics v2.0
+        </div>
+      </div>
+    </nav>
+
+    <!-- MAIN CONTENT -->
+    <main id="main">
+      <!-- TOP TAB BAR -->
+      <div class="top-tabs" id="topTabs">
+        <div class="top-tab active" data-tab="live" onclick="ZMC.switchTab('live')">
+          <i class="fa-solid fa-tower-broadcast"></i> Live
+          <span class="nav-badge" id="liveCount">0</span>
+        </div>
+        <div class="top-tab" data-tab="operations" onclick="ZMC.switchTab('operations')">
+          <i class="fa-solid fa-clipboard-list"></i> Opérations
+          <span class="nav-badge" id="opsCount" style="display:none;">0</span>
+        </div>
+        <div class="top-tab" data-tab="history" onclick="ZMC.switchTab('history')">
+          <i class="fa-solid fa-clock-rotate-left"></i> Historique
+        </div>
+        <div class="top-tab" data-tab="fleet" onclick="ZMC.switchTab('fleet')">
+          <i class="fa-solid fa-truck-fast"></i> Flotte
+        </div>
+        <div class="top-tab" data-tab="analytics" onclick="ZMC.switchTab('analytics')">
+          <i class="fa-solid fa-chart-line"></i> Analytiques
+        </div>
+        <div class="top-tab" data-tab="powerbi" onclick="ZMC.switchTab('powerbi')">
+          <i class="fa-solid fa-database"></i> Power BI
+        </div>
+        <div class="top-tab" data-tab="gps" onclick="ZMC.switchTab('gps')" style="margin-left:auto;border:1px solid rgba(45,212,191,0.3);">
+          <i class="fa-solid fa-satellite-dish" style="color:var(--teal);"></i> GPS Scan
+        </div>
+      </div>
+
+      <!-- ══════ TAB: LIVE ══════ -->
+      <div class="tab-pane active" id="tabLive">
+        <div class="pane-header">
+          <div>
+            <div class="pane-title"><i class="fa-solid fa-tower-broadcast" style="color:var(--green);"></i> Tableau de Bord Live</div>
+            <div class="pane-sub">Camions en zone en ce moment — mise à jour auto toutes les 2 min</div>
+          </div>
+          <div class="pane-actions">
+            <select id="liveZoneFilter" class="sb-select" style="width:auto;min-width:140px;" onchange="ZMC.renderLive()">
+              <option value="">Toutes les zones</option>
+            </select>
+            <select id="liveStatusFilter" class="sb-select" style="width:auto;" onchange="ZMC.renderLive()">
+              <option value="">Tous</option>
+              <option value="long">> 2h en zone</option>
+              <option value="late">> 4h (retard)</option>
+            </select>
+            <button class="hdr-btn" onclick="ZMC.refreshLive()"><i class="fa-solid fa-arrows-rotate"></i> Actualiser</button>
+            <button class="hdr-btn" onclick="ZMC.exportLiveCSV()"><i class="fa-solid fa-file-arrow-down"></i> CSV</button>
+          </div>
+        </div>
+        <div class="kpi-strip">
+          <div class="kpi-card"><div class="kpi-val" id="kpiInZone" style="color:var(--teal);">—</div><div class="kpi-label">En Zone</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="kpiZones" style="color:var(--blue);">—</div><div class="kpi-label">Zones Actives</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="kpiAvgTime" style="color:var(--green);">—</div><div class="kpi-label">Durée Moy.</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="kpiLate" style="color:var(--red);">—</div><div class="kpi-label">En Retard</div></div>
+        </div>
+        <div class="pane-scroll" style="padding-top:14px;">
+          <!-- Zone groups -->
+          <div id="liveContent"><div class="empty-state"><i class="fa-solid fa-satellite-dish"></i><p>Chargement des données live...</p></div></div>
+        </div>
+      </div>
+
+      <!-- ══════ TAB: OPERATIONS ══════ -->
+      <div class="tab-pane" id="tabOperations">
+        <div class="pane-header">
+          <div>
+            <div class="pane-title"><i class="fa-solid fa-route" style="color:var(--teal);"></i> Planification Opérations</div>
+            <div class="pane-sub">Créez et suivez les tournées multi-zones de chaque camion</div>
+          </div>
+          <div class="pane-actions">
+            <select id="opsFilter" class="sb-select" style="width:auto;" onchange="ZMC.loadOperations()">
+              <option value="active">🟢 Actives</option>
+              <option value="pending">⏳ En attente</option>
+              <option value="completed">✅ Terminées</option>
+              <option value="cancelled">❌ Annulées</option>
+              <option value="">Toutes</option>
+            </select>
+            <button class="hdr-btn" onclick="ZMC.exportOpsCSV()" title="Exporter toutes les opérations en CSV"><i class="fa-solid fa-file-csv"></i> CSV</button>
+            <button class="hdr-btn accent" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
+          </div>
+        </div>
+        <div class="pane-scroll">
+          <div class="op-board" id="opsContent"><div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Chargement...</p></div></div>
+        </div>
+      </div>
+
+      <!-- ══════ TAB: HISTORY ══════ -->
+      <div class="tab-pane" id="tabHistory">
+        <div class="pane-header" style="flex-wrap:wrap;gap:8px;">
+          <div>
+            <div class="pane-title"><i class="fa-solid fa-clock-rotate-left" style="color:var(--purple);"></i> Historique — Immobilisation</div>
+            <div class="pane-sub">Entrées/sorties de zones • calcul immobilisation • 50 par page</div>
+          </div>
+          <div class="pane-actions" style="flex-wrap:wrap;gap:6px;">
+            <select id="histZoneFilter" class="sb-select" style="width:auto;min-width:130px;">
+              <option value="">Toutes les zones</option>
+            </select>
+            <select id="histTruckFilter" class="sb-select" style="width:auto;min-width:130px;">
+              <option value="">Tous les camions</option>
+            </select>
+            <select id="histStatusFilter" class="sb-select" style="width:auto;">
+              <option value="">Tous</option>
+              <option value="open">En cours</option>
+              <option value="closed">Terminé</option>
+            </select>
+            <input type="date" id="histStart" class="sb-input" style="width:auto;padding:5px 8px;">
+            <input type="date" id="histEnd" class="sb-input" style="width:auto;padding:5px 8px;">
+            <button class="hdr-btn accent" onclick="ZMC.loadHistory()"><i class="fa-solid fa-magnifying-glass"></i> Rechercher</button>
+            <button class="hdr-btn" onclick="ZMC.exportHistoryCSV()" title="Exporte TOUT le résultat (pas uniquement la page affichée). Par défaut = aujourd hui. Sélectionnez une période pour filtrer."><i class="fa-solid fa-file-arrow-down"></i> Export CSV Complet</button>
+          </div>
+        </div>
+        <div class="kpi-strip" id="histStats" style="display:none;">
+          <div class="kpi-card"><div class="kpi-val" id="hkpiVisits" style="color:var(--teal);">—</div><div class="kpi-label">Visites</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="hkpiTrucks" style="color:var(--blue);">—</div><div class="kpi-label">Camions</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="hkpiZones" style="color:var(--purple);">—</div><div class="kpi-label">Zones</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="hkpiAvg" style="color:var(--green);">—</div><div class="kpi-label">Durée Moy.</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="hkpiTotal" style="color:var(--orange);">—</div><div class="kpi-label">Total Heures</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="hkpiRecap" style="color:var(--red);">—</div><div class="kpi-label">Recap Immob. Moy.</div></div>
+        </div>
+        <div class="pane-scroll" style="padding-top:10px;">
+          <div class="full-wrap">
+            <table class="data-table" id="histTable">
+              <thead>
+                <tr>
+                  <th>Date</th><th>Camion</th><th>Zone</th><th>Entrée</th><th>Sortie</th>
+                  <th>Durée</th><th>Arrivée Planifiée</th><th>Écart Arrivée</th>
+                  <th>Recap Immob.</th><th>Type</th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
+                </tr>
+              </thead>
+              <tbody id="histBody"><tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-3);">Sélectionnez vos filtres puis cliquez Rechercher</td></tr></tbody>
+            </table>
+          </div>
+          <!-- Pagination -->
+          <div id="histPagination" style="display:none;padding:10px 0;display:flex;align-items:center;justify-content:center;gap:8px;">
+            <button class="hdr-btn" onclick="ZMC.histPrevPage()" id="histPrevBtn" disabled><i class="fa-solid fa-chevron-left"></i></button>
+            <span id="histPageInfo" style="font-size:12px;color:var(--text-2);">Page 1/1</span>
+            <button class="hdr-btn" onclick="ZMC.histNextPage()" id="histNextBtn" disabled><i class="fa-solid fa-chevron-right"></i></button>
+            <span id="histTotalInfo" style="font-size:11px;color:var(--text-3);margin-left:12px;"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══════ TAB: FLEET ══════ -->
+      <div class="tab-pane" id="tabFleet">
+        <div class="pane-header">
+          <div>
+            <div class="pane-title"><i class="fa-solid fa-truck-moving" style="color:var(--blue);"></i> Flotte Complète</div>
+            <div class="pane-sub">Tous les camions • Position • Carburant • Kilométrage • Zone actuelle</div>
+          </div>
+          <div class="pane-actions">
+            <select id="fleetStatusFilter" class="sb-select" style="width:auto;" onchange="ZMC.renderFleetTable()">
+              <option value="">Tous statuts</option>
+              <option value="moving">En mouvement</option>
+              <option value="stopped">À l'arrêt</option>
+              <option value="inzone">En zone</option>
+            </select>
+            <select id="fleetZoneFilter" class="sb-select" style="width:auto;min-width:140px;" onchange="ZMC.renderFleetTable()">
+              <option value="">Toutes les zones</option>
+            </select>
+            <button class="hdr-btn" onclick="ZMC.loadFleetData()"><i class="fa-solid fa-arrows-rotate"></i> Actualiser</button>
+            <button class="hdr-btn" onclick="ZMC.exportFleetCSV()"><i class="fa-solid fa-file-arrow-down"></i> CSV</button>
+          </div>
+        </div>
+
+        <div class="kpi-strip">
+          <div class="kpi-card"><div class="kpi-val" id="fkpiTotal" style="color:var(--teal);">—</div><div class="kpi-label">Total Camions</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="fkpiMoving" style="color:var(--green);">—</div><div class="kpi-label">En Mouvement</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="fkpiStopped" style="color:var(--orange);">—</div><div class="kpi-label">À l'arrêt</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="fkpiInZone" style="color:var(--blue);">—</div><div class="kpi-label">En Zone</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="fkpiAvgFuel" style="color:var(--purple);">—</div><div class="kpi-label">Carburant Moy.</div></div>
+        </div>
+        <div class="pane-scroll" style="padding-top:10px;">
+          <!-- Fleet grid -->
+          <div class="section-hdr"><div class="section-hdr-title"><i class="fa-solid fa-list-check" style="color:var(--teal);"></i> État de la flotte</div><div class="section-hdr-sub" id="fleetTimestamp"></div></div>
+          <div class="full-wrap">
+            <table class="data-table" id="fleetTable">
+              <thead><tr>
+                <th>Camion</th><th>Statut</th><th>Vitesse</th><th>Carburant</th>
+                <th>Odomètre</th><th>Zone Actuelle</th><th>Km Auj.</th><th>Dernière MAJ</th>
+              </tr></thead>
+              <tbody id="fleetBody"><tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-3);">Cliquez "Actualiser" pour charger</td></tr></tbody>
+            </table>
+          </div>
+          <!-- Charts -->
+          <div id="fleetChartsContent"><div class="charts-grid mt-16">
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-gas-pump" style="color:var(--orange);"></i> Niveau Carburant par Camion</div>
+              <div class="chart-wrap"><canvas id="chartFuelLevels"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-table-cells" style="color:var(--blue);"></i> Matrice Zone × Camion (visites 30j)</div>
+              <div id="zoneMatrixWrap" style="max-height:220px;overflow:auto;"><div class="empty-state" style="padding:20px;"><p>Chargement...</p></div></div>
+            </div>
+          </div></div>
+        </div>
+      </div>
+            <!-- ══════ TAB: ANALYTICS ══════ -->
+      <div class="tab-pane" id="tabAnalytics">
+        <div class="pane-header">
+          <div>
+            <div class="pane-title"><i class="fa-solid fa-chart-column" style="color:var(--green);"></i> Analytiques & Classement</div>
+            <div class="pane-sub">Performances flotte — 30 derniers jours — données pour réunions</div>
+          </div>
+          <div class="pane-actions">
+            <button class="hdr-btn" onclick="ZMC.exportAllChartsPNG()" title="Télécharger tous les graphiques"><i class="fa-solid fa-images"></i> Export PNG</button>
+            <button class="hdr-btn" onclick="ZMC.exportAnalyticsCSV()" title="Exporter données CSV"><i class="fa-solid fa-file-csv"></i> CSV</button>
+            <button class="hdr-btn" onclick="ZMC.printAnalytics()" title="Imprimer le rapport complet"><i class="fa-solid fa-print"></i> Imprimer</button>
+            <button class="hdr-btn" onclick="ZMC.loadAnalytics()"><i class="fa-solid fa-refresh"></i> Recalculer</button>
+          </div>
+        </div>
+        <div class="pane-scroll">
+          <div id="analyticsContent"><div class="charts-grid mt-16">
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-ranking-star" style="color:var(--teal);"></i> Top Camions — Visites Zone<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartTopTrucks','Top Camions')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
+              <div class="chart-wrap"><canvas id="chartTopTrucks"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-chart-pie" style="color:var(--purple);"></i> Temps Total par Zone (heures)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartZonePie','Temps Zone')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
+              <div class="chart-wrap"><canvas id="chartZonePie"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-chart-line" style="color:var(--teal);"></i> Visites Journalières (30j)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartDaily','Visites Jour')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
+              <div class="chart-wrap"><canvas id="chartDaily"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-clock" style="color:var(--orange);"></i> Heures de Pointe — Trafic par Heure<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartRushHours','Rush Hours')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
+              <div class="chart-wrap"><canvas id="chartRushHours"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-hourglass-half" style="color:var(--red);"></i> Immobilisation Moyenne par Zone (min)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartImmoByZone','Immobilisation')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
+              <div class="chart-wrap"><canvas id="chartImmoByZone"></canvas></div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-title"><i class="fa-solid fa-calendar-week" style="color:var(--blue);"></i> Activité par Jour de la Semaine<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartWeekday','Activité Semaine')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
+              <div class="chart-wrap"><canvas id="chartWeekday"></canvas></div>
+            </div>
+            <div class="chart-card" style="grid-column:span 2;">
+              <div class="chart-title">🏆 Classement Camions — Visites &amp; Immobilisation</div>
+              <div class="ranking-list" id="rankingList"><div class="empty-state" style="padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
+            </div>
+          </div>
+          </div><!-- /analyticsContent -->
+        </div>
+      </div>
+
+      <!-- ══════ TAB: POWER BI ══════ -->
+      <div class="tab-pane" id="tabPowerbi">
+        <div class="pane-header">
+          <div>
+            <div class="pane-title">📊 Power BI — Générateur API</div>
+            <div class="pane-sub">Créez votre URL personnalisée et connectez Power BI en quelques clics</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+              <span class="pulse-dot" id="pbPulse"></span>
+              <span style="font-size:10px;color:#22c55e;font-weight:700;" id="pbFreshness">Données en temps réel</span>
+              <span style="font-size:10px;color:var(--text-3);margin-left:6px;" id="pbLastRefresh"></span>
+            </div>
+          </div>
+        </div>
+        <div class="pane-scroll">
+
+          <!-- URL BUILDER -->
+          <div class="pb-section mt-16">
+            <div class="pb-section-title"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--teal);"></i> Constructeur d'URL</div>
+            <div class="pb-filter-grid">
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Zone</label>
+                <select id="pbZone" class="form-control" onchange="ZMC.buildPBUrl()">
+                  <option value="">Toutes les zones</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Camion</label>
+                <select id="pbTruck" class="form-control" onchange="ZMC.buildPBUrl()">
+                  <option value="">Tous les camions</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Type de données</label>
+                <select id="pbType" class="form-control" onchange="ZMC.buildPBUrl()">
+                  <option value="powerbi">📋 Historique complet</option>
+                  <option value="powerbi-live">🟢 Live (en zone maintenant)</option>
+                  <option value="powerbi-zones">🗺️ Liste des zones</option>
+                  <option value="zone-operations/powerbi">📍 Opérations planifiées</option>
+                  <option value="realtime">🔴 Temps réel (jour en cours)</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Période début</label>
+                <input type="date" id="pbStart" class="form-control" onchange="ZMC.buildPBUrl()">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Période fin</label>
+                <input type="date" id="pbEnd" class="form-control" onchange="ZMC.buildPBUrl()">
+              </div>
+              <div class="form-group" style="margin:0;">
+                <label class="form-label">Token</label>
+                <input type="text" id="pbToken" class="form-control" value="fleet_powerbi_2025" onchange="ZMC.buildPBUrl()">
+              </div>
+            </div>
+            <div class="pb-url-box" id="pbUrlBox">
+              <span id="pbUrlText">— sélectionnez les options —</span>
+              <button class="pb-copy-btn" onclick="ZMC.copyPBUrl()"><i class="fa-solid fa-copy"></i> Copier</button>
+            </div>
+          </div>
+
+          <!-- HOW TO CONNECT POWER BI -->
+          <div class="pb-section">
+            <div class="pb-section-title"><i class="fa-solid fa-circle-question" style="color:var(--blue);"></i> Comment connecter Power BI (mode débutant)</div>
+            <div class="pb-how-grid">
+              <div class="pb-how-card">
+                <div class="pb-how-num">01</div>
+                <div class="pb-how-title">Copier l'URL</div>
+                <div class="pb-how-desc">Utilisez le constructeur ci-dessus, choisissez zone + type de données, puis copiez l'URL générée.</div>
+              </div>
+              <div class="pb-how-card">
+                <div class="pb-how-num">02</div>
+                <div class="pb-how-title">Importer dans Power BI</div>
+                <div class="pb-how-desc"><strong>Obtenir des données → Web → coller l'URL → OK</strong>. Power BI charge automatiquement les données JSON.</div>
+              </div>
+              <div class="pb-how-card">
+                <div class="pb-how-num">03</div>
+                <div class="pb-how-title">Actualisation auto</div>
+                <div class="pb-how-desc">Dans Power BI Service → <strong>Paramètres du jeu de données → Actualisation planifiée</strong>. Gratuit = jusqu'à 8×/jour.</div>
+              </div>
+            </div>
+            <div style="margin-top:12px;padding:10px 14px;background:var(--teal-dim);border:1px solid rgba(45,212,191,.2);border-radius:var(--radius-sm);font-size:11px;color:var(--teal);">
+              <strong>💡 Astuce :</strong> Pour une mise à jour en quelques secondes (streaming réel), configurez <code>POWERBI_PUSH_URL</code> dans Render → les données sont envoyées dès qu'un camion entre/sort d'une zone, sans aucune attente.
+            </div>
+          </div>
+
+          <!-- ALL ENDPOINTS -->
+          <div class="pb-section">
+            <div class="pb-section-title"><i class="fa-solid fa-plug" style="color:var(--purple);"></i> Tous les endpoints disponibles</div>
+            <div class="pb-endpoint-list" id="pbEndpointList"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ══════ TAB: GPS SCAN ══════ -->
+      <div class="tab-pane" id="tabGps">
+        <div class="pane-header">
+          <div>
+            <div class="pane-title"><i class="fa-solid fa-satellite-dish" style="color:var(--teal);"></i> Scanner GPS — Reconstruction Historique</div>
+            <div class="pane-sub">Relit les positions GPS de chaque camion et recrée les événements zone manquants</div>
+          </div>
+        </div>
+        <div class="pane-scroll" style="padding:20px;">
+          <!-- Config panel -->
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:end;padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:20px;">
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px;">📅 Date début</label>
+              <input type="date" id="gpsStart" class="sb-input" style="padding:10px;font-size:13px;box-sizing:border-box;width:100%;">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px;">📅 Date fin</label>
+              <input type="date" id="gpsEnd" class="sb-input" style="padding:10px;font-size:13px;box-sizing:border-box;width:100%;">
+            </div>
+            <button onclick="ZMC.reloadGPSHistory()" id="reloadGpsBtn" style="padding:10px 24px;font-size:13px;font-weight:700;background:linear-gradient(135deg,#2dd4bf,#0d9488);color:white;border:none;border-radius:8px;cursor:pointer;white-space:nowrap;">
+              <i class="fa-solid fa-satellite-dish"></i> Scanner tous les camions
+            </button>
+          </div>
+          <!-- Progress + Results -->
+          <div id="gpsScanResults" style="display:grid;gap:12px;">
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:30px;text-align:center;">
+              <i class="fa-solid fa-satellite-dish" style="font-size:40px;color:var(--teal);opacity:0.3;"></i>
+              <div style="margin-top:12px;font-size:14px;font-weight:700;color:var(--text-2);">Prêt à scanner</div>
+              <div style="font-size:12px;color:var(--text-3);margin-top:4px;">Sélectionnez une période et lancez le scan pour reconstruire les événements zone à partir des positions GPS.</div>
+              <div style="margin-top:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:400px;margin-left:auto;margin-right:auto;">
+                <div style="background:var(--bg-3);border-radius:8px;padding:12px;">
+                  <div style="font-size:20px;font-weight:900;color:var(--teal);" id="gpsScanTrucks">—</div>
+                  <div style="font-size:10px;color:var(--text-3);">Camions</div>
+                </div>
+                <div style="background:var(--bg-3);border-radius:8px;padding:12px;">
+                  <div style="font-size:20px;font-weight:900;color:var(--blue);" id="gpsScanEvents">—</div>
+                  <div style="font-size:10px;color:var(--text-3);">Événements créés</div>
+                </div>
+                <div style="background:var(--bg-3);border-radius:8px;padding:12px;">
+                  <div style="font-size:20px;font-weight:900;color:var(--purple);" id="gpsScanTime">—</div>
+                  <div style="font-size:10px;color:var(--text-3);">Durée</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- NEW OPERATION MODAL -->
+<div id="newOpModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <div class="modal-title"><i class="fa-solid fa-route" style="color:var(--teal);"></i> Nouvelle Opération</div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Nom de l'opération <span style="color:var(--red);">*</span></label>
+        <input type="text" id="opName" class="form-control" placeholder="Ex: Tournée Guedila → Zeralda">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Camion <span style="color:var(--red);">*</span></label>
+        <select id="opTruck" class="form-control"></select>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Début planifié</label>
+        <input type="datetime-local" id="opPlanStart" class="form-control">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fin planifiée (optionnel)</label>
+        <input type="datetime-local" id="opPlanEnd" class="form-control">
+      </div>
+    </div>
+
+    <!-- ROUTE BUILDER -->
+    <div class="route-builder">
+      <div class="route-builder-label">
+        <span>Route (Stops) <span style="color:var(--red);">*</span></span>
+        <span style="font-size:10px;color:var(--text-3);">minimum 1 arrêt</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 130px 130px 80px 32px;gap:8px;margin-bottom:6px;">
+        <div style="font-size:10px;color:var(--text-3);font-weight:700;text-transform:uppercase;">Zone</div>
+        <div style="font-size:10px;color:var(--text-3);font-weight:700;text-transform:uppercase;">Arr. prévue</div>
+        <div style="font-size:10px;color:var(--text-3);font-weight:700;text-transform:uppercase;">Dép. prévu</div>
+        <div style="font-size:10px;color:var(--text-3);font-weight:700;text-transform:uppercase;">Marge (min)</div>
+        <div></div>
+      </div>
+      <div id="routeStops"></div>
+      <button class="add-stop-btn" onclick="ZMC.addRouteStop()"><i class="fa-solid fa-plus"></i> Ajouter une zone</button>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Notes</label>
+      <input type="text" id="opNotes" class="form-control" placeholder="Remarques optionnelles...">
+    </div>
+
+    <div class="modal-footer">
+      <button class="modal-btn ghost" onclick="document.getElementById('newOpModal').style.display='none'">Annuler</button>
+      <button class="modal-btn primary" onclick="ZMC.createOperation()"><i class="fa-solid fa-check"></i> Créer l'opération</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+//  ZONE MISSION CONTROL — MAIN CONTROLLER
+//  dedsite.online | dev: Chikhaoui | Fleet Analytics v2.0
+// ═══════════════════════════════════════════════════════
+const ZMC = (() => {
+  // ── State ──
+  let state = {
+    code: null, base: '', zones: [], trucks: [],
+    liveData: [], histData: [], opsData: [],
+    charts: {}, liveTimer: null, opTimer: null,
+    filters: { zone: '', truck: '', status: '', start: '', end: '', client: '', finalClient: '' },
+    clientMap: {},
+    finalClientMap: {}
+  };
+
+  // ── AUTH ──
+  function login() {
+    const code = document.getElementById('loginCode').value.trim();
+    if (!code) { toast('Entrez le code d\'accès', 'error'); return; }
+    state.code = code;
+    state.base = localStorage.getItem('fleetServerUrl') || window.location.origin.replace(/\/$/, '');
+    // Store for next time
+    localStorage.setItem('fleetAccessCode', code);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    init();
+  }
+
+  function autoLogin() {
+    // Try localStorage from main app, fall back to origin
+    const savedCode = localStorage.getItem('fleetAccessCode') || localStorage.getItem('fleet_access_code') || localStorage.getItem('accessCode') || '';
+    const savedBase = localStorage.getItem('fleetServerUrl') || localStorage.getItem('fleet_backend_url') || localStorage.getItem('backendUrl') || window.location.origin.replace(/\/$/, '');
+    if (!savedCode) {
+      // No saved code — show login screen
+      document.getElementById('loginScreen').style.display = 'flex';
+      document.getElementById('app').style.display = 'none';
+      return false;
+    }
+    state.code = savedCode;
+    state.base = savedBase;
+    document.getElementById('loginCode').value = savedCode;
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    init();
+    return true;
+  }
+
+  function headers() { return { 'x-access-code': state.code, 'Content-Type': 'application/json' }; }
+
+  // ── INIT ──
+  async function init() {
+    setDefaultDates();
+    await loadZonesAndTrucks();
+    switchTab('live');
+    refreshLive();
+    // Auto-refresh live every 2 min
+    if (state.liveTimer) clearInterval(state.liveTimer);
+    state.liveTimer = setInterval(refreshLive, 120000);
+  }
+
+  function setDefaultDates() {
+    const now = new Date();
+    const weekAgo = new Date(now - 7 * 86400000);
+    const fmt = d => d.toISOString().slice(0,10);
+    ['sbStart','sbEnd','pbStart','pbEnd'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = id.includes('End') ? fmt(now) : fmt(weekAgo);
+    });
+    document.getElementById('opPlanStart').value = now.toISOString().slice(0,16);
+  }
+
+  async function loadZonesAndTrucks() {
+    try {
+      // 1. Load settings from server (same as main app — gets CUSTOM_LOCATIONS)
+      let zones = [];
+      try {
+        const r = await fetch(`${state.base}/api/settings`, { headers: headers() });
+        if (r.ok) {
+          const settings = await r.json();
+          if (settings.customLocations && Array.isArray(settings.customLocations)) {
+            zones = settings.customLocations.map(z => z.name || z);
+            state.zonesRaw = settings.customLocations; // keep full data for radius etc.
+          }
+        }
+      } catch (e) { console.warn('Settings load error:', e); }
+      // Fallback: try FLEET_CONFIG
+      if (!zones.length && typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.CUSTOM_LOCATIONS && FLEET_CONFIG.CUSTOM_LOCATIONS.length) {
+        zones = FLEET_CONFIG.CUSTOM_LOCATIONS.map(z => z.name);
+        state.zonesRaw = FLEET_CONFIG.CUSTOM_LOCATIONS;
+      }
+      state.zones = zones;
+
+      // 2. Load trucks
+      try {
+        const r = await fetch(`${state.base}/api/trucks`, { headers: headers() });
+        const d = await r.json();
+        // /api/trucks returns {deviceId: truckObj} — normalize
+        state.trucks = Array.isArray(d) ? d : Object.entries(d || {}).map(([id, t]) => ({
+          deviceId: id, name: (t && t.name) || id, id: id, imei: id, ...(t || {})
+        }));
+      } catch (e) { console.warn('Trucks load error:', e); }
+
+      // 3. Load clients for filter dropdowns
+      try {
+        const cr = await fetch(`${state.base}/api/clients`, { headers: headers() });
+        if (cr.ok) {
+          state.clients = await cr.json();
+          state.clientMap = {}; state.finalClientMap = {};
+          (state.clients||[]).forEach(cl => {
+            state.clientMap[cl.id] = cl.name;
+            (cl.finalClients||[]).forEach(fc => { state.finalClientMap[fc.id] = fc.name; });
+          });
+        }
+      } catch(ex) { console.warn('Clients load:', ex.message); }
+
+      populateSelects();
+    } catch (e) { console.warn('loadZonesAndTrucks fatal:', e); }
+  }
+
+  function populateSelects() {
+    const zoneSelects = ['sbZone','pbZone','opArrZone','liveZoneFilter','fleetZoneFilter','histZoneFilter'];
+    const truckSelects = ['sbTruck','pbTruck','opTruck','histTruckFilter'];
+
+    zoneSelects.forEach(id => {
+      const el = document.getElementById(id); if (!el) return;
+      el.innerHTML = `<option value="">Toutes les zones</option>`;
+      state.zones.forEach(z => { el.innerHTML += `<option value="${z}">${z}</option>`; });
+    });
+
+    truckSelects.forEach(id => {
+      const el = document.getElementById(id); if (!el) return;
+      el.innerHTML = `<option value="">Tous les camions</option>`;
+      state.trucks.sort((a,b) => (a.name||'').localeCompare(b.name||'')).forEach(t => {
+        el.innerHTML += `<option value="${t.deviceId||t.imei||t.id}" data-name="${t.name}">${t.name}</option>`;
+      });
+    });
+
+    // Populate client dropdown
+    const cSel = document.getElementById('sbClient');
+    if (cSel && state.clients && state.clients.length) {
+      cSel.innerHTML = '<option value="">\u2014 Tous Clients \u2014</option>';
+      (state.clients||[]).forEach(cl => {
+        cSel.innerHTML += `<option value="${cl.id}">${cl.name}</option>`;
+        (cl.finalClients||[]).forEach(fc => {
+          cSel.innerHTML += `<option value="fc:${cl.id}:${fc.id}">&nbsp;&nbsp;\u21b3 ${fc.name}</option>`;
+        });
+      });
+    }
+
+    // Populate route stop zone dropdowns
+    buildZoneOptions();
+    buildPBEndpoints();
+    buildPBUrl();
+  }
+
+  // ── TABS ──
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.top-tab').forEach(n => n.classList.remove('active'));
+    document.getElementById(`tab${tab.charAt(0).toUpperCase()+tab.slice(1)}`)?.classList.add('active');
+    document.querySelector(`.top-tab[data-tab="${tab}"]`)?.classList.add('active');
+
+    if (tab === 'fleet') loadFleetData();
+    if (tab === 'operations') loadOperations();
+    if (tab === 'history') loadHistory();
+    if (tab === 'analytics') loadAnalytics();
+    if (tab === 'powerbi') { buildPBUrl(); checkPBFreshness(); }
+  }
+
+  // ── FILTERS ──
+  function applyFilters() {
+    state.filters = {
+      zone: document.getElementById('sbZone')?.value || '',
+      truck: document.getElementById('sbTruck')?.value || '',
+      status: document.getElementById('sbStatus')?.value || '',
+      start: document.getElementById('sbStart')?.value || '',
+      end: document.getElementById('sbEnd')?.value || '',
+      client: document.getElementById('sbClient')?.value || '',
+      finalClient: document.getElementById('sbFinalClient')?.value || ''
+    };
+    const active = document.querySelector('.top-tab.active')?.dataset?.tab;
+    if (active === 'live') refreshLive();
+    else if (active === 'operations') loadOperations();
+    else if (active === 'history') loadHistory();
+    else if (active === 'analytics') loadAnalytics();
+  }
+
+  function resetFilters() {
+    ['sbZone','sbTruck','sbStatus','sbStart','sbEnd','sbClient','sbFinalClient'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    setDefaultDates();
+    applyFilters();
+  }
+
+  function refreshAll() { refreshLive(); }
+
+  // ── LIVE ──
+  async function refreshLive() {
+    document.getElementById('lastRefreshTime').textContent = 'Actualisation...';
+    try {
+      const r = await fetch(`${state.base}/api/zone-events/live`, { headers: headers() });
+      if (!r.ok) throw new Error(r.status);
+      const data = await r.json();
+      state.liveData = data;
+      renderLive();
+    } catch (e) {
+      document.getElementById('liveContent').innerHTML = `<div class="empty-state"><i class="fa-solid fa-wifi"></i><p>Erreur de connexion: ${e.message}</p></div>`;
+    } finally {
+      document.getElementById('lastRefreshTime').textContent = `⟳ ${new Date().toLocaleTimeString('fr-FR')}`;
+    }
+  }
+
+  function renderLive() {
+    const f = state.filters;
+    let data = state.liveData;
+    // Sidebar filters
+    if (f.zone) data = data.filter(e => e.zoneName === f.zone);
+    if (f.truck) data = data.filter(e => e.truckName === f.truck || e.deviceId === f.truck);
+    // Client / Final Client filter
+    if (f.client) {
+      // Get zone names linked to this client from fleet config
+      const clientZones = (() => {
+        try {
+          const locs = JSON.parse(localStorage.getItem('fleetCustomLocations') || '[]');
+          return locs.filter(z => z.clientId === f.client || (f.client.startsWith('fc:') && z.finalClientId === f.client.split(':')[2])).map(z => z.name);
+        } catch(e) { return []; }
+      })();
+      if (clientZones.length) data = data.filter(e => clientZones.includes(e.zoneName) || e.clientId === f.client || e.clientName === state.clientMap[f.client]);
+      else data = data.filter(e => e.clientId === f.client || (e.clientName && e.clientName === (state.clientMap && state.clientMap[f.client])));
+    }
+    if (f.finalClient) {
+      data = data.filter(e => e.finalClientId === f.finalClient || e.finalClientName === (state.finalClientMap && state.finalClientMap[f.finalClient]));
+    }
+    // Inline filters (top bar)
+    const liveZone = document.getElementById('liveZoneFilter')?.value;
+    const liveStatus = document.getElementById('liveStatusFilter')?.value;
+    if (liveZone) data = data.filter(e => e.zoneName === liveZone);
+    const now = Date.now();
+    if (liveStatus === 'long') data = data.filter(e => (now - new Date(e.entryTime).getTime()) > 2 * 3600000);
+    if (liveStatus === 'late') data = data.filter(e => (now - new Date(e.entryTime).getTime()) > 4 * 3600000);
+
+    document.getElementById('kpiInZone').textContent = data.length;
+    document.getElementById('kpiZones').textContent = new Set(data.map(e => e.zoneName)).size;
+    document.getElementById('liveCount').textContent = data.length;
+
+    // KPIs use same `now`
+    const durations = data.map(e => now - new Date(e.entryTime).getTime());
+    const avgMs = durations.length ? durations.reduce((a,b)=>a+b,0)/durations.length : 0;
+    const avgH = Math.floor(avgMs/3600000);
+    const avgM = Math.floor((avgMs%3600000)/60000);
+    document.getElementById('kpiAvgTime').textContent = avgH > 0 ? `${avgH}h${avgM}m` : `${avgM}m`;
+    document.getElementById('kpiLate').textContent = data.filter(e => e.expectedExit && now > e.expectedExit).length;
+
+    if (!data.length) {
+      document.getElementById('liveContent').innerHTML = `<div class="empty-state"><i class="fa-solid fa-circle-check" style="color:var(--green);opacity:1;"></i><p>Aucun camion en zone actuellement</p></div>`;
+      return;
+    }
+
+    // Group by zone
+    const byZone = {};
+    data.forEach(e => { if (!byZone[e.zoneName]) byZone[e.zoneName] = []; byZone[e.zoneName].push(e); });
+
+    let html = '';
+    Object.entries(byZone).forEach(([zone, trucks]) => {
+      html += `<div class="section-hdr"><div class="section-hdr-title">📍 ${zone}</div><div class="section-hdr-sub">${trucks.length} camion${trucks.length>1?'s':''}</div></div>`;
+      html += `<div class="compact-grid" style="margin-bottom:20px;">`;
+      trucks.forEach(e => {
+        const elapsed = now - new Date(e.entryTime).getTime();
+        const h = String(Math.floor(elapsed/3600000)).padStart(2,'0');
+        const m = String(Math.floor((elapsed%3600000)/60000)).padStart(2,'0');
+        const s = String(Math.floor((elapsed%60000)/1000)).padStart(2,'0');
+        const cls = elapsed > 4*3600000 ? 'late' : elapsed > 2*3600000 ? 'warning' : '';
+        html += `<div class="live-card ${cls}" data-id="${e._id}">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+            <div class="lc-truck" style="cursor:pointer;flex:1;" onclick="openInMap('${e.truckName}','${e.deviceId}')" data-tooltip="Voir sur la carte"><i class="fa-solid fa-location-dot" style="color:#3b82f6;margin-right:4px;font-size:10px;"></i>${e.truckName}</div>
+            <button onclick="openInHistory('${e.truckName}','${e.deviceId}',${new Date(e.entryTime).getTime()})" title="Voir historique ce jour" style="background:rgba(167,139,250,0.15);border:1px solid rgba(167,139,250,0.3);color:#a78bfa;border-radius:5px;padding:2px 6px;font-size:10px;cursor:pointer;white-space:nowrap;flex-shrink:0;"><i class="fa-solid fa-clock-rotate-left"></i></button>
+          </div>
+          <div class="lc-zone">📍 ${e.zoneName}</div>
+          <div class="lc-timer" data-entry="${new Date(e.entryTime).getTime()}">${h}:${m}:${s}</div>
+          <div class="lc-entry">Entrée: ${new Date(e.entryTime).toLocaleString('fr-FR')}</div>
+          ${e.operationName ? `<div class="lc-op"><i class="fa-solid fa-clipboard-list"></i> ${e.operationName}</div>` : ''}
+        </div>`;
+      });
+      html += '</div>';
+    });
+    document.getElementById('liveContent').innerHTML = html;
+
+    // Start second-level countdown
+    if (state.liveSecondsTimer) clearInterval(state.liveSecondsTimer);
+    state.liveSecondsTimer = setInterval(() => {
+      document.querySelectorAll('.lc-timer[data-entry]').forEach(el => {
+        const elapsed = Date.now() - parseInt(el.dataset.entry);
+        const h = String(Math.floor(elapsed/3600000)).padStart(2,'0');
+        const m = String(Math.floor((elapsed%3600000)/60000)).padStart(2,'0');
+        const s = String(Math.floor((elapsed%60000)/1000)).padStart(2,'0');
+        el.textContent = `${h}:${m}:${s}`;
+      });
+    }, 1000);
+  }
+
+  function exportLiveCSV() {
+    if (!state.liveData.length) { toast('Aucune donnée live','error'); return; }
+    let csv = '\uFEFFCamion,Zone,Entrée,Durée (min)\n';
+    state.liveData.forEach(e => {
+      const mins = Math.round((Date.now() - new Date(e.entryTime).getTime()) / 60000);
+      csv += `"${e.truckName}","${e.zoneName}","${e.entryTime}","${mins}"\n`;
+    });
+    downloadCSV(csv, 'live_zones');
+  }
+
+  // ── OPERATIONS ──
+  async function loadOperations() {
+    const grid = document.getElementById('opsContent');
+    grid.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Chargement...</p></div>';
+
+    const statusFilter = document.getElementById('opsFilter')?.value || 'active';
+    let url = `${state.base}/api/zone-operations`;
+    if (statusFilter === 'active') url += '/active';
+    else if (statusFilter) url += `?status=${statusFilter}`;
+
+    try {
+      const r = await fetch(url, { headers: headers() });
+      const ops = await r.json();
+      state.opsData = ops;
+
+      const badge = document.getElementById('opsCount');
+      if (ops.length) { badge.style.display=''; badge.textContent=ops.length; }
+      else badge.style.display='none';
+
+      if (!ops.length) { grid.innerHTML = '<div class="empty-state"><i class="fa-solid fa-route"></i><p>Aucune opération trouvée</p><p style="font-size:11px;">Créez votre première opération avec le bouton "+"</p></div>'; return; }
+
+      const now = Date.now();
+      grid.innerHTML = '<div class="op-board">' + ops.map(op => renderOpCard(op, now)).join('') + '</div>';
+
+      // Auto refresh ops every 10s if active tab
+      if (state.opTimer) clearInterval(state.opTimer);
+      state.opTimer = setInterval(() => {
+        if (document.querySelector('.top-tab[data-tab="operations"].active')) loadOperations();
+        else clearInterval(state.opTimer);
+      }, 10000);
+
+    } catch (e) { grid.innerHTML = `<div class="empty-state"><i class="fa-solid fa-xmark"></i><p>Erreur: ${e.message}</p></div>`; }
+  }
+
+  function renderOpCard(op, now) {
+    const statusMap = { pending:'En attente', active:'Active', completed:'Terminée', cancelled:'Annulée' };
+    const route = op.route || [];
+    const routeHtml = route.map((stop, i) => {
+      const dotClass = stop.status || 'pending';
+      const dotIcon = stop.status === 'departed' ? '✓' : stop.status === 'arrived' ? '▲' : (i+1);
+      const arrTime = stop.actualArrival ? new Date(stop.actualArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : (stop.expectedArrival ? new Date(stop.expectedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) + ' (prévu)' : '—');
+      const wait = stop.waitingTimeMinutes ? `⏱ ${stop.waitingTimeMinutes}min` : '';
+      return `
+        ${i > 0 ? '<div class="route-arrow"></div>' : ''}
+        <div class="route-stop">
+          <div class="route-stop-dot ${dotClass}">${dotIcon}</div>
+          <div class="route-stop-name">${stop.zoneName}</div>
+          <div class="route-stop-time">${arrTime}</div>
+          <div class="route-stop-wait">${wait}</div>
+        </div>`;
+    }).join('');
+
+    // Countdown for next pending stop
+    let countdown = '';
+    const nextStop = route.find(s => s.status === 'pending' && s.expectedArrival);
+    if (nextStop) {
+      const diff = nextStop.expectedArrival - now;
+      const margin = (nextStop.errorMarginMinutes || 30) * 60000;
+      const absH = Math.floor(Math.abs(diff)/3600000);
+      const absM = Math.floor((Math.abs(diff)%3600000)/60000);
+      if (diff > 0) {
+        const color = diff < margin ? 'var(--orange)' : 'var(--teal)';
+        countdown = `<span style="font-family:var(--mono);font-weight:700;color:${color};">⟳ Arrivée dans ${absH}h ${absM}min</span>`;
+      } else {
+        const color = Math.abs(diff) > margin ? 'var(--red)' : 'var(--orange)';
+        countdown = `<span style="font-family:var(--mono);font-weight:700;color:${color};">⚠ Retard +${absH}h ${absM}min</span>`;
+      }
+    }
+
+    return `<div class="op-card">
+      <div class="op-card-header" onclick="this.parentElement.querySelector('.op-route').style.display === 'none' ? this.parentElement.querySelector('.op-route').style.display='flex' : this.parentElement.querySelector('.op-route').style.display='none'">
+        <span class="op-status-badge ${op.status}">${statusMap[op.status]||op.status}</span>
+        <span class="op-card-title">${op.operationName}</span>
+        <span class="op-card-truck"><i class="fa-solid fa-truck" style="font-size:10px;"></i> ${op.truckName}</span>
+        <span class="tag ${op.source === 'auto' ? 'gray' : 'blue'}" style="font-size:9px;">${op.source === 'auto' ? '🤖 Auto' : '👤 Manuel'}</span>
+        ${countdown}
+        <i class="fa-solid fa-chevron-down" style="font-size:10px;color:var(--text-3);margin-left:8px;"></i>
+      </div>
+      <div class="op-route" style="display:flex;">${routeHtml}</div>
+      <div class="op-card-footer">
+        <button class="op-action-btn" onclick="event.stopPropagation();ZMC.openEditOp('${op._id||op.id}')" style="background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:white;border:none;"><i class="fa-solid fa-pen"></i> Modifier</button>
+        ${op.status !== 'completed' && op.status !== 'cancelled' ? `<button class="op-action-btn" onclick="ZMC.cancelOp('${op._id||op.id}')"><i class="fa-solid fa-ban"></i> Annuler</button>` : ''}
+        <button class="op-action-btn danger" onclick="ZMC.deleteOp('${op._id||op.id}')"><i class="fa-solid fa-trash"></i></button>
+        <button class="op-action-btn" onclick="ZMC.exportOpPDF('${op._id||op.id}')" style="margin-left:auto;" title="Exporter fiche opération"><i class="fa-solid fa-file-pdf"></i></button>
+        ${op.notes ? `<span style="font-size:10px;color:var(--text-3);"><i class="fa-solid fa-note-sticky"></i> ${op.notes}</span>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function openEditOp(id) {
+    const op = (state.opsData||[]).find(x => (x._id||x.id) === id);
+    if (!op) { toast('Opération introuvable', 'error'); return; }
+    const existing = document.getElementById('editOpModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'editOpModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:9999;overflow-y:auto;padding:20px;';
+    const statusMap = {pending:'En attente',active:'Active',completed:'Terminée',cancelled:'Annulée'};
+    const routeRows = (op.route||[]).map((s,i) => {
+      const arrVal = s.expectedArrival ? new Date(s.expectedArrival).toISOString().slice(0,16) : '';
+      const depVal = s.expectedDeparture ? new Date(s.expectedDeparture).toISOString().slice(0,16) : '';
+      const actArr = s.actualArrival ? new Date(s.actualArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '';
+      const actDep = s.actualDeparture ? new Date(s.actualDeparture).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '';
+      const statusIcon = s.status==='departed'?'✅':s.status==='arrived'?'🔵':s.status==='late'?'🔴':'⏳';
+      return `<div class="route-stop-row" id="eostop_${i}" style="align-items:start;">
+        <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <span style="font-size:16px;">${statusIcon}</span>
+            <strong style="font-size:12px;color:var(--teal);">${s.zoneName}</strong>
+            <span style="font-size:10px;color:var(--text-3);">Stop ${i+1}</span>
+            ${actArr ? `<span style="font-size:10px;background:rgba(45,212,191,0.15);color:var(--teal);padding:2px 8px;border-radius:10px;"><i class="fa-solid fa-check"></i> Arrivé ${actArr}</span>` : ''}
+            ${actDep ? `<span style="font-size:10px;background:rgba(96,165,250,0.15);color:var(--blue);padding:2px 8px;border-radius:10px;"><i class="fa-solid fa-check"></i> Parti ${actDep}</span>` : ''}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;">
+            <div><label style="font-size:9px;font-weight:700;color:var(--text-3);display:block;margin-bottom:2px;">Arrivée prévue</label><input type="datetime-local" class="eostop-arr" value="${arrVal}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:4px;padding:5px;color:var(--text-1);font-size:11px;box-sizing:border-box;"></div>
+            <div><label style="font-size:9px;font-weight:700;color:var(--text-3);display:block;margin-bottom:2px;">Départ prévu</label><input type="datetime-local" class="eostop-dep" value="${depVal}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:4px;padding:5px;color:var(--text-1);font-size:11px;box-sizing:border-box;"></div>
+            <div><label style="font-size:9px;font-weight:700;color:var(--text-3);display:block;margin-bottom:2px;">Marge (min)</label><input type="number" class="eostop-margin" value="${s.errorMarginMinutes||30}" min="0" max="480" style="width:60px;background:var(--bg-3);border:1px solid var(--border-1);border-radius:4px;padding:5px;color:var(--text-1);font-size:11px;"></div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+    modal.innerHTML = `
+      <div style="background:var(--bg-2);border-radius:16px;padding:24px;min-width:520px;max-width:640px;width:95%;box-shadow:0 24px 64px rgba(0,0,0,0.5);border:1px solid var(--border-1);">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border-1);">
+          <div style="width:40px;height:40px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border-radius:10px;display:flex;align-items:center;justify-content:center;">
+            <i class="fa-solid fa-pen-to-square" style="color:white;font-size:16px;"></i>
+          </div>
+          <div>
+            <div style="font-weight:800;font-size:15px;">Modifier l opération</div>
+            <div style="font-size:11px;color:var(--text-2);">${op.truckName} · ${(op.route||[]).length} stops</div>
+          </div>
+          <button onclick="document.getElementById('editOpModal').remove()" style="margin-left:auto;background:var(--bg-3);border:1px solid var(--border-1);border-radius:8px;width:32px;height:32px;cursor:pointer;color:var(--text-2);font-size:14px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px;">Nom opération</label><input type="text" id="eoName" value="${op.operationName}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:6px;padding:8px 10px;color:var(--text-1);font-size:12px;box-sizing:border-box;"></div>
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px;">Statut</label><select id="eoStatus" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:6px;padding:8px 10px;color:var(--text-1);font-size:12px;">${Object.entries(statusMap).map(([k,v])=>`<option value="${k}" ${op.status===k?"selected":""}>${v}</option>`).join('')}</select></div>
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px;">Notes</label><input type="text" id="eoNotes" value="${op.notes||''}" placeholder="Notes..." style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:6px;padding:8px 10px;color:var(--text-1);font-size:12px;box-sizing:border-box;"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px;">Début plan</label><input type="datetime-local" id="eoPlanStart" value="${op.planStart?new Date(op.planStart).toISOString().slice(0,16):''}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:6px;padding:7px;color:var(--text-1);font-size:11px;box-sizing:border-box;"></div>
+            <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:4px;">Fin plan</label><input type="datetime-local" id="eoPlanEnd" value="${op.planEnd?new Date(op.planEnd).toISOString().slice(0,16):''}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:6px;padding:7px;color:var(--text-1);font-size:11px;box-sizing:border-box;"></div>
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <div style="font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:8px;display:flex;align-items:center;gap:6px;"><i class="fa-solid fa-route" style="color:var(--teal);"></i> Arrêts de la tournée</div>
+          <div style="display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto;padding-right:4px;" id="eoStopsContainer">${routeRows}</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="document.getElementById('editOpModal').remove()" style="flex:1;background:var(--bg-3);border:1px solid var(--border-1);border-radius:8px;padding:10px;color:var(--text-1);font-size:12px;font-weight:700;cursor:pointer;">Annuler</button>
+          <button onclick="ZMC.saveEditOp('${id}')" style="flex:2;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;border-radius:8px;padding:10px;color:white;font-size:12px;font-weight:700;cursor:pointer;"><i class="fa-solid fa-floppy-disk"></i> Enregistrer les modifications</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  async function saveEditOp(id) {
+    const name = document.getElementById('eoName').value.trim();
+    const status = document.getElementById('eoStatus').value;
+    const notes = document.getElementById('eoNotes').value;
+    const planStart = document.getElementById('eoPlanStart').value;
+    const planEnd = document.getElementById('eoPlanEnd').value;
+    if (!name) { toast('Nom requis', 'error'); return; }
+    const stops = [];
+    document.querySelectorAll('#eoStopsContainer .route-stop-row').forEach(row => {
+      const arr = row.querySelector('.eostop-arr')?.value;
+      const dep = row.querySelector('.eostop-dep')?.value;
+      const margin = parseInt(row.querySelector('.eostop-margin')?.value) || 30;
+      stops.push({ expectedArrival: arr ? new Date(arr).getTime() : null, expectedDeparture: dep ? new Date(dep).getTime() : null, errorMarginMinutes: margin });
+    });
+    try {
+      const r = await fetch(`${state.base}/api/zone-operations/${id}`, {
+        method:'PUT', headers:{...headers(),'Content-Type':'application/json'},
+        body: JSON.stringify({ operationName:name, status, notes, planStart:planStart?new Date(planStart).getTime():null, planEnd:planEnd?new Date(planEnd).getTime():null, routeTimings:stops })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      toast('✅ Opération mise à jour', 'success');
+      document.getElementById('editOpModal').remove();
+      loadOperations();
+    } catch(e) { toast('Erreur: ' + e.message, 'error'); }
+  }
+
+  function exportOpPDF(id) {
+    const op = (state.opsData||[]).find(x => (x._id||x.id) === id);
+    if (!op) return;
+    const w = window.open('', '_blank');
+    const statusMap = {pending:'En attente',active:'Active',completed:'Terminée',cancelled:'Annulée'};
+    const routeHtml = (op.route||[]).map((s,i) => {
+      const arr = s.actualArrival ? new Date(s.actualArrival).toLocaleString('fr-FR') : (s.expectedArrival ? new Date(s.expectedArrival).toLocaleString('fr-FR') + ' (prévu)' : '—');
+      const dep = s.actualDeparture ? new Date(s.actualDeparture).toLocaleString('fr-FR') : (s.expectedDeparture ? new Date(s.expectedDeparture).toLocaleString('fr-FR') + ' (prévu)' : '—');
+      const statusIcon = s.status==='departed'?'✅':s.status==='arrived'?'🔵':s.status==='late'?'🔴':'⏳';
+      return `<tr><td>${i+1}</td><td>${statusIcon} ${s.zoneName}</td><td>${arr}</td><td>${dep}</td><td>${s.waitingTimeMinutes ? s.waitingTimeMinutes+'min' : '—'}</td><td>${s.errorMarginMinutes||30}min</td></tr>`;
+    }).join('');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Opération: ${op.operationName}</title>
+    <style>body{font-family:Arial,sans-serif;padding:30px;color:#111}h1{color:#1d4ed8;border-bottom:3px solid #1d4ed8;padding-bottom:10px}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;padding:16px;background:#f8fafc;border-radius:8px}
+    .meta-item label{font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;display:block}
+    .meta-item span{font-size:14px;font-weight:700;color:#0f172a}
+    table{width:100%;border-collapse:collapse;margin-top:20px}th{background:#1d4ed8;color:white;padding:10px 12px;text-align:left;font-size:12px}
+    td{padding:9px 12px;border-bottom:1px solid #e2e8f0;font-size:12px}tr:nth-child(even){background:#f8fafc}
+    .badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700}
+    .footer{margin-top:30px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;text-align:center}
+    @media print{button{display:none!important}}</style></head><body>
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:20px;">
+      <div><h1>🚛 Fiche Opération</h1><div style="font-size:22px;font-weight:900;color:#0f172a;">${op.operationName}</div></div>
+      <button onclick="window.print()" style="background:#1d4ed8;color:white;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;">🖨️ Imprimer</button>
+    </div>
+    <div class="meta">
+      <div class="meta-item"><label>Camion</label><span>${op.truckName}</span></div>
+      <div class="meta-item"><label>Statut</label><span>${statusMap[op.status]||op.status}</span></div>
+      <div class="meta-item"><label>Nombre de stops</label><span>${(op.route||[]).length}</span></div>
+      <div class="meta-item"><label>Notes</label><span>${op.notes||'—'}</span></div>
+    </div>
+    <table><thead><tr><th>#</th><th>Zone</th><th>Arrivée</th><th>Départ</th><th>Attente</th><th>Marge Erreur</th></tr></thead>
+    <tbody>${routeHtml}</tbody></table>
+    <div class="footer">Généré le ${new Date().toLocaleString('fr-FR')} · Fleet Analytics v2.0 · dedsite.online · Dev: Chikhaoui</div>
+    </body></html>`);
+    w.document.close();
+  }
+
+  function exportOpsCSV() {
+    const ops = state.opsData;
+    if (!ops || !ops.length) { toast('Aucune opération', 'error'); return; }
+    let csv = '\uFEFFOpération,Camion,Statut,Stops,Créé le,Notes\n';
+    ops.forEach(op => {
+      csv += `"${op.operationName}","${op.truckName}","${op.status}","${(op.route||[]).map(s=>s.zoneName).join(' → ')}","${new Date(op.createdAt).toLocaleDateString('fr-FR')}","${op.notes||''}"\n`;
+    });
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `fleet_operations_${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+    toast('📥 ' + ops.length + ' opérations exportées');
+  }
+
+  // Auto-check Power BI freshness
+  async function checkPBFreshness() {
+    try {
+      const token = document.getElementById('pbToken')?.value || 'fleet_powerbi_2025';
+      const r = await fetch(`${state.base}/api/zone-events/powerbi?token=${token}&start=${new Date().toISOString().slice(0,10)}&limit=1`);
+      const data = await r.json();
+      const dot = document.getElementById('pbPulse');
+      const label = document.getElementById('pbFreshness');
+      const ts = document.getElementById('pbLastRefresh');
+      if (data.length > 0 && data[0]._lastUpdated) {
+        const age = Date.now() - new Date(data[0]._lastUpdated).getTime();
+        const ageMins = Math.round(age / 60000);
+        if (dot) dot.className = ageMins > 30 ? 'pulse-dot stale' : 'pulse-dot';
+        if (label) label.textContent = ageMins > 30 ? 'Données à rafraîchir' : 'Données à jour';
+        if (label) label.style.color = ageMins > 30 ? '#f97316' : '#22c55e';
+        if (ts) ts.textContent = `Dernière MAJ: il y a ${ageMins}min`;
+      }
+    } catch(e) { /* silent */ }
+  }
+
+  async function cancelOp(id) {
+    if (!confirm('Annuler cette opération ?')) return;
+    await fetch(`${state.base}/api/zone-operations/${id}`, { method:'PUT', headers:headers(), body: JSON.stringify({status:'cancelled'}) });
+    loadOperations();
+  }
+  async function deleteOp(id) {
+    if (!confirm('Supprimer définitivement ?')) return;
+    await fetch(`${state.base}/api/zone-operations/${id}`, { method:'DELETE', headers:headers() });
+    loadOperations();
+    toast('Opération supprimée');
+  }
+
+  // ── NEW OPERATION MODAL ──
+  let stopCount = 0;
+  function openNewOp() {
+    stopCount = 0;
+    document.getElementById('routeStops').innerHTML = '';
+    document.getElementById('opName').value = '';
+    document.getElementById('opNotes').value = '';
+    // Populate truck select
+    const sel = document.getElementById('opTruck');
+    sel.innerHTML = '<option value="">— Choisir un camion —</option>';
+    state.trucks.sort((a,b)=>(a.name||'').localeCompare(b.name||'')).forEach(t => {
+      sel.innerHTML += `<option value="${t.deviceId||t.imei||t.id}" data-name="${t.name}">${t.name}</option>`;
+    });
+    addRouteStop();
+    document.getElementById('newOpModal').style.display = 'flex';
+  }
+
+  function buildZoneOptions() {
+    window._zoneOptions = state.zones.map(z => `<option value="${z}">${z}</option>`).join('');
+  }
+
+  function addRouteStop() {
+    stopCount++;
+    const id = `stop_${stopCount}`;
+    const row = document.createElement('div');
+    row.className = 'route-stop-row'; row.id = id;
+    row.innerHTML = `
+      <select class="stop-zone" required>
+        <option value="">— Zone —</option>
+        ${(window._zoneOptions || state.zones.map(z=>`<option value="${z}">${z}</option>`).join(''))}
+      </select>
+      <input type="datetime-local" class="stop-arr" placeholder="Arrivée prévue">
+      <input type="datetime-local" class="stop-dep" placeholder="Départ prévu">
+      <input type="number" class="stop-margin" value="30" min="0" max="480" placeholder="Min.">
+      <button class="remove-stop-btn" onclick="document.getElementById('${id}').remove()" title="Supprimer"><i class="fa-solid fa-xmark"></i></button>`;
+    document.getElementById('routeStops').appendChild(row);
+  }
+
+  async function createOperation() {
+    const name = document.getElementById('opName').value.trim();
+    const truckEl = document.getElementById('opTruck');
+    const deviceId = truckEl.value;
+    const truckName = truckEl.selectedOptions[0]?.dataset?.name || truckEl.selectedOptions[0]?.text || '';
+    const planStart = document.getElementById('opPlanStart').value;
+    const planEnd = document.getElementById('opPlanEnd').value;
+    const notes = document.getElementById('opNotes').value;
+
+    if (!name || !deviceId) { toast('Nom et camion requis','error'); return; }
+
+    const stops = [];
+    document.querySelectorAll('.route-stop-row').forEach(row => {
+      const zone = row.querySelector('.stop-zone')?.value;
+      if (!zone) return;
+      const arr = row.querySelector('.stop-arr')?.value;
+      const dep = row.querySelector('.stop-dep')?.value;
+      const margin = parseInt(row.querySelector('.stop-margin')?.value) || 30;
+      stops.push({ zoneName: zone, expectedArrival: arr ? new Date(arr).getTime() : null, expectedDeparture: dep ? new Date(dep).getTime() : null, errorMarginMinutes: margin });
+    });
+    if (!stops.length) { toast('Ajoutez au moins une zone','error'); return; }
+
+    try {
+      const r = await fetch(`${state.base}/api/zone-operations`, {
+        method:'POST', headers:headers(),
+        body: JSON.stringify({ operationName:name, truckName, deviceId, route:stops, planStart: planStart?new Date(planStart).getTime():null, planEnd: planEnd?new Date(planEnd).getTime():null, notes })
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      document.getElementById('newOpModal').style.display = 'none';
+      toast('✅ Opération créée', 'success');
+      switchTab('operations');
+    } catch(e) { toast('Erreur: '+e.message, 'error'); }
+  }
+
+  // ── HISTORY ──
+  let histPage = 1;
+  async function loadHistory(page) {
+    if (page) histPage = page;
+    const tbody = document.getElementById('histBody');
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>';
+
+    // Build URL from inline filters (header bar)
+    const zone = document.getElementById('histZoneFilter')?.value || state.filters.zone || '';
+    const truckVal = document.getElementById('histTruckFilter')?.value || state.filters.truck || '';
+    const status = document.getElementById('histStatusFilter')?.value || '';
+    const start = document.getElementById('histStart')?.value || state.filters.start || '';
+    const end = document.getElementById('histEnd')?.value || state.filters.end || '';
+
+    // Determine if the filter value is a deviceId (numeric) or a truck name
+    const isDeviceId = truckVal && /^\d{8,}$/.test(truckVal.trim());
+
+    let url = `${state.base}/api/zone-events?limit=50&page=${histPage}`;
+    if (zone) url += `&zone=${encodeURIComponent(zone)}`;
+    if (truckVal) {
+      if (isDeviceId) {
+        url += `&deviceId=${encodeURIComponent(truckVal)}`; // exact match by deviceId
+      } else {
+        url += `&truck=${encodeURIComponent(truckVal)}`; // regex match by truck name
+      }
+    }
+    if (status) url += `&status=${status}`;
+    if (start) url += `&start=${new Date(start).toISOString()}`;
+    if (end) url += `&end=${new Date(end+'T23:59:59').toISOString()}`;
+
+    try {
+      const r = await fetch(url, { headers: headers() });
+      const json = await r.json();
+      // Support both new {data,pagination} and old array format
+      const data = json.data || json;
+      const pag = json.pagination || { page: 1, totalPages: 1, total: data.length };
+      state.histData = data;
+      state.histPagination = pag;
+      renderHistory(data, pag);
+    } catch(e) { tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--red);">Erreur: ${e.message}</td></tr>`; }
+  }
+
+  function histPrevPage() { if (histPage > 1) loadHistory(histPage - 1); }
+  function histNextPage() { if (state.histPagination && histPage < state.histPagination.totalPages) loadHistory(histPage + 1); }
+
+  function fmtMin(m) { if (m == null) return '—'; return m >= 60 ? `${Math.floor(m/60)}h${m%60}m` : `${m}m`; }
+
+  function renderHistory(data, pag) {
+    const tbody = document.getElementById('histBody');
+    const statsBar = document.getElementById('histStats');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-3);">Aucun résultat</td></tr>'; statsBar.style.display='none'; return; }
+
+    // Stats
+    const closed = data.filter(e => e.status==='closed'||e.exitTime);
+    const totalMin = closed.reduce((s,e)=>(s+(e.durationMinutes||0)),0);
+    const avgMin = closed.length ? Math.round(totalMin/closed.length) : 0;
+    const recapValues = data.filter(e => e.recapImmobilisationMin != null).map(e => e.recapImmobilisationMin);
+    const avgRecap = recapValues.length ? Math.round(recapValues.reduce((a,b)=>a+b,0)/recapValues.length) : 0;
+    statsBar.style.display='grid';
+    document.getElementById('hkpiVisits').textContent = pag?.total || data.length;
+    document.getElementById('hkpiTrucks').textContent = new Set(data.map(e=>e.truckName)).size;
+    document.getElementById('hkpiZones').textContent = new Set(data.map(e=>e.zoneName)).size;
+    document.getElementById('hkpiAvg').textContent = fmtMin(avgMin);
+    document.getElementById('hkpiTotal').textContent = `${Math.floor(totalMin/60)}h`;
+    document.getElementById('hkpiRecap').textContent = fmtMin(avgRecap);
+
+    tbody.innerHTML = data.map(e => {
+      const entry = new Date(e.entryTime||e.createdAt);
+      const exit = e.exitTime ? new Date(e.exitTime) : null;
+      const dur = fmtMin(e.durationMinutes);
+      const badge = e.exitTime ? '<span class="tag green">Terminé</span>' : '<span class="tag teal">En cours</span>';
+      const typeBadge = e.operationSource === 'auto' || !e.operationSource ? '<span class="tag gray">Auto</span>' : '<span class="tag blue">Manuel</span>';
+      const planned = e.plannedArrival ? new Date(e.plannedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
+      const diff = e.diffArrivalMin != null ? `<span style="color:${e.diffArrivalMin > 0 ? 'var(--red)' : 'var(--green)'};">${e.diffArrivalMin > 0 ? '+' : ''}${e.diffArrivalMin}m</span>` : '—';
+      const recap = fmtMin(e.recapImmobilisationMin);
+      const recapColor = (e.recapImmobilisationMin||0) > 240 ? 'var(--red)' : (e.recapImmobilisationMin||0) > 120 ? 'var(--orange)' : 'var(--green)';
+      const evtDataKey = 'histEvt_' + (e._id || Date.now());
+      try { sessionStorage.setItem(evtDataKey, JSON.stringify({ _id: e._id, truckName: e.truckName, deviceId: e.deviceId, zoneName: e.zoneName, zoneType: e.zoneType, entryTime: e.entryTime, exitTime: e.exitTime, durationMinutes: e.durationMinutes, entryLat: e.entryLat, entryLng: e.entryLng, clientName: e.clientName, finalClientName: e.finalClientName, recapImmobilisationMin: e.recapImmobilisationMin })); } catch(_) {}
+      return `<tr>
+        <td>${entry.toLocaleDateString('fr-FR')}</td>
+        <td style="font-weight:700;color:#60a5fa;"><i class="fa-solid fa-truck" style="font-size:10px;margin-right:4px;color:#38bdf8;"></i>${e.truckName}</td>
+        <td style="color:var(--teal);">${e.zoneName}</td>
+        <td class="mono">${entry.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
+        <td class="mono">${exit ? exit.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '<span class="tag teal">En zone</span>'}</td>
+        <td class="mono" style="color:var(--green);">${dur}</td>
+        <td class="mono">${planned}</td>
+        <td class="mono">${diff}</td>
+        <td class="mono" style="font-weight:700;color:${recapColor};">${recap}</td>
+        <td>${typeBadge}</td>
+        <td style="color:var(--purple);font-size:11px;">${e.operationName||'—'}</td>
+        <td>${badge}</td>
+        <td style="display:flex;gap:5px;align-items:center;padding:4px 6px;">
+           <button onclick="openGPSHistory('${e.deviceId}','${e.truckName}','${e.entryTime}','${e.exitTime||''}')" title="Voir le trajet GPS de ce camion pendant cette visite (entrée → sortie)" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:white;border:none;border-radius:6px;padding:4px 9px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;"><i class="fa-solid fa-clock-rotate-left"></i> Vérifier</button>
+           <button onclick="openInMapLive('${e.truckName}','${e.deviceId}',${e.entryLat||'null'},${e.entryLng||'null'})" title="Voir position live du camion sur la carte" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;border:none;border-radius:6px;padding:4px 9px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;"><i class="fa-solid fa-location-dot"></i> Live</button>
+           <button onclick="ZMC.openEditHistory('${e._id}')" style="background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:white;border:none;border-radius:6px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;"><i class="fa-solid fa-pen"></i></button>
+         </td>
+      </tr>`;
+    }).join('');
+
+    // Pagination controls
+    const pagDiv = document.getElementById('histPagination');
+    if (pag && pag.totalPages > 1) {
+      pagDiv.style.display = 'flex';
+      document.getElementById('histPageInfo').textContent = `Page ${pag.page} / ${pag.totalPages}`;
+      document.getElementById('histTotalInfo').textContent = `${pag.total} résultats`;
+      document.getElementById('histPrevBtn').disabled = pag.page <= 1;
+      document.getElementById('histNextBtn').disabled = pag.page >= pag.totalPages;
+    } else {
+      pagDiv.style.display = pag ? 'flex' : 'none';
+      if (pag) {
+        document.getElementById('histPageInfo').textContent = `Page 1 / 1`;
+        document.getElementById('histTotalInfo').textContent = `${pag.total || data.length} résultats`;
+        document.getElementById('histPrevBtn').disabled = true;
+        document.getElementById('histNextBtn').disabled = true;
+      }
+    }
+  }
+
+  function openEditHistory(id) {
+    const e = (state.histData||[]).find(x => x._id === id);
+    if (!e) { toast('Entrée introuvable', 'error'); return; }
+    const existing = document.getElementById('editHistModal');
+    if (existing) existing.remove();
+    const modal = document.createElement('div');
+    modal.id = 'editHistModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    const entryVal = e.entryTime ? new Date(e.entryTime).toISOString().slice(0,16) : '';
+    const exitVal = e.exitTime ? new Date(e.exitTime).toISOString().slice(0,16) : '';
+    const plannedVal = e.plannedArrival ? new Date(e.plannedArrival).toISOString().slice(0,16) : '';
+    modal.innerHTML = `
+      <div style="background:var(--bg-2);border-radius:var(--radius-md);padding:24px;min-width:420px;max-width:500px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5);border:1px solid var(--border-1);">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
+          <i class="fa-solid fa-pen-to-square" style="color:#3b82f6;font-size:18px;"></i>
+          <div>
+            <div style="font-weight:800;font-size:14px;">Modifier l entrée historique</div>
+            <div style="font-size:11px;color:var(--text-2);">${e.truckName} — ${e.zoneName}</div>
+          </div>
+          <button onclick="document.getElementById('editHistModal').remove()" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--text-2);font-size:18px;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div style="display:grid;gap:10px;">
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:3px;">Heure d entrée</label><input type="datetime-local" id="ehEntryTime" value="${entryVal}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-1);font-size:12px;box-sizing:border-box;"></div>
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:3px;">Heure de sortie</label><input type="datetime-local" id="ehExitTime" value="${exitVal}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-1);font-size:12px;box-sizing:border-box;"></div>
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:3px;">Arrivée planifiée</label><input type="datetime-local" id="ehPlannedArrival" value="${plannedVal}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-1);font-size:12px;box-sizing:border-box;"></div>
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:3px;">Type</label><select id="ehOpSource" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-1);font-size:12px;"><option value="auto" ${(e.operationSource==='auto'||!e.operationSource)?'selected':''}>Automatique</option><option value="manual" ${e.operationSource==='manual'?'selected':''}>Manuel</option></select></div>
+          <div><label style="font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:3px;">Nom opération</label><input type="text" id="ehOpName" value="${e.operationName||''}" placeholder="ex: Livraison Client A" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-1);font-size:12px;box-sizing:border-box;"></div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button onclick="document.getElementById('editHistModal').remove()" style="flex:1;background:var(--bg-3);border:1px solid var(--border-1);border-radius:var(--radius-xs);padding:9px;color:var(--text-1);font-size:12px;font-weight:700;cursor:pointer;">Annuler</button>
+          <button onclick="ZMC.saveEditHistory('${id}')" style="flex:2;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border:none;border-radius:var(--radius-xs);padding:9px;color:white;font-size:12px;font-weight:700;cursor:pointer;"><i class="fa-solid fa-floppy-disk"></i> Enregistrer</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+  }
+
+  async function saveEditHistory(id) {
+    const entryTime = document.getElementById('ehEntryTime').value;
+    const exitTime = document.getElementById('ehExitTime').value;
+    const plannedArrival = document.getElementById('ehPlannedArrival').value;
+    const operationSource = document.getElementById('ehOpSource').value;
+    const operationName = document.getElementById('ehOpName').value;
+    if (!entryTime) { toast('Heure d entrée requise', 'error'); return; }
+    try {
+      const body = { entryTime: new Date(entryTime).toISOString(), operationSource, operationName };
+      if (exitTime) body.exitTime = new Date(exitTime).toISOString();
+      if (plannedArrival) body.plannedArrival = new Date(plannedArrival).toISOString();
+      const r = await fetch(`${state.base}/api/zone-events/${id}`, { method:'PUT', headers:{...headers(),'Content-Type':'application/json'}, body:JSON.stringify(body) });
+      if (!r.ok) throw new Error(await r.text());
+      toast('✅ Entrée mise à jour', 'success');
+      document.getElementById('editHistModal').remove();
+      loadHistory();
+    } catch(err) { toast('Erreur: ' + err.message, 'error'); }
+  }
+
+  async function exportHistoryCSV() {
+    // Re-fetch ALL records matching active filters — not just the current 50-row page
+    const zone   = document.getElementById('histZoneFilter')?.value || state.filters.zone || '';
+    const truck  = document.getElementById('histTruckFilter')?.value || state.filters.truck || '';
+    const status = document.getElementById('histStatusFilter')?.value || '';
+    const startVal = document.getElementById('histStart')?.value || state.filters.start || '';
+    const endVal   = document.getElementById('histEnd')?.value   || state.filters.end   || '';
+    // Default = today when no period selected
+    const today = new Date().toISOString().slice(0,10);
+    const start = startVal || today;
+    const end   = endVal   || today;
+
+    let url = `${state.base}/api/zone-events?limit=10000&page=1`;
+    if (zone)   url += `&zone=${encodeURIComponent(zone)}`;
+    if (truck)  url += `&truck=${encodeURIComponent(truck)}`;
+    if (status) url += `&status=${status}`;
+    url += `&start=${new Date(start).toISOString()}`;
+    url += `&end=${new Date(end + 'T23:59:59').toISOString()}`;
+
+    const label = (startVal || endVal) ? (start === end ? start : `${start}_${end}`) : "aujourd-hui";
+    toast(`📥 Export en cours (${label.replace('_',' → ')})...`, 'info');
+    try {
+      const r = await fetch(url, { headers: headers() });
+      const json = await r.json();
+      const all = Array.isArray(json) ? json : (json.data || []);
+      if (!all.length) { toast("Aucune donnée pour cette période", 'error'); return; }
+      let csv = '\uFEFFDate,Camion,Zone,Entrée,Sortie,Durée (min),Arrivée Planifiée,Écart Arrivée (min),Recap Immobilisation (min),Type,Opération,Statut\n';
+      all.forEach(function(e) {
+        const d = new Date(e.entryTime||e.createdAt).toLocaleDateString('fr-FR');
+        csv += '"'+d+'","'+(e.truckName||'')+'","'+(e.zoneName||'')+'","'+(e.entryTime||'')+'","'+(e.exitTime||'')+'","'+(e.durationMinutes||'')+'","'+(e.plannedArrival||'')+'","'+(e.diffArrivalMin||'')+'","'+(e.recapImmobilisationMin||'')+'","'+(e.operationSource||'auto')+'","'+(e.operationName||'')+'","'+(e.status||'')+'"\n';
+      });
+      downloadCSV(csv, 'historique_' + label);
+      toast('✅ ' + all.length + ' enregistrements exportés', 'success');
+    } catch(err) { toast('Erreur export: ' + err.message, 'error'); }
+  }
+
+  async function scanHistory() {
+    const start = document.getElementById('sbStart').value;
+    const end = document.getElementById('sbEnd').value;
+    if (!start||!end) { toast('Sélectionnez une période','error'); return; }
+    const btn = document.getElementById('scanHistBtn');
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scan...';
+    btn.disabled = true;
+    try {
+      const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
+        method:'POST', headers:headers(),
+        body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end+'T23:59:59').toISOString() })
+      });
+      const d = await r.json();
+      toast(`✅ ${d.summary?.created||0} événements créés`, 'success');
+      loadHistory();
+    } catch(e) { toast('Erreur scan: '+e.message,'error'); }
+    finally { btn.innerHTML='<i class="fa-solid fa-radar"></i> Scanner GPS'; btn.disabled=false; }
+  }
+
+  // ── ANALYTICS ──
+  async function loadAnalytics() {
+    const ac = document.getElementById('analyticsContent');
+    if (ac) ac.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px;color:var(--teal);"></i><p>Calcul des analytiques...</p></div>';
+    try {
+      const start = new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+      const end = new Date().toISOString().slice(0,10);
+      const r = await fetch(`${state.base}/api/zone-events?limit=5000&start=${new Date(start).toISOString()}&end=${new Date(end+'T23:59:59').toISOString()}`, { headers:headers() });
+      const raw = await r.json();
+      const data = Array.isArray(raw) ? raw : (raw.data || []);
+      if (!data.length) {
+        if (ac) ac.innerHTML = '<div class="empty-state"><i class="fa-solid fa-chart-line"></i><p>Aucune donnée sur les 30 derniers jours</p></div>';
+        return;
+      }
+      if (ac) ac.innerHTML = `<div class="charts-grid mt-16">
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-ranking-star" style="color:var(--teal);"></i> Top Camions — Visites Zone<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartTopTrucks','Top Camions')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartTopTrucks"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-chart-pie" style="color:var(--purple);"></i> Temps Total par Zone (heures)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartZonePie','Temps Zone')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartZonePie"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-chart-area" style="color:var(--teal);"></i> Événements par Jour<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartDaily','Evenements Jour')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartDaily"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-clock" style="color:var(--orange);"></i> Heures de Pointe (entrées zone)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartRushHours','Heures Pointe')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartRushHours"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-hourglass-half" style="color:var(--red);"></i> Immobilisation Moyenne par Zone (min)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartImmoByZone','Immobilisation')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartImmoByZone"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-calendar-week" style="color:var(--blue);"></i> Activité par Jour de la Semaine<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartWeekday','Activité Semaine')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartWeekday"></canvas></div></div>
+        <div class="chart-card" style="grid-column:span 2;"><div class="chart-title">🏆 Classement Camions — Visites &amp; Immobilisation</div><div class="ranking-list" id="rankingList"><div class="empty-state" style="padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i></div></div></div>
+      </div>`;
+      state.analyticsData = data;
+      buildCharts(data);
+    } catch(e) {
+      console.warn('Analytics load error:', e);
+      const ac2 = document.getElementById('analyticsContent');
+      if (ac2) ac2.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:var(--red);"></i><p>Erreur: ${e.message}</p></div>`;
+    }
+  }
+
+  function buildCharts(data) {
+    const isDark = document.documentElement.dataset.theme !== 'light';
+    const textColor = isDark ? '#8b90a0' : '#6b7280';
+    const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+    Chart.defaults.color = textColor;
+
+    // 1. Top trucks by visits — horizontal bar with gradient
+    const truckVisits = {};
+    data.forEach(e => { truckVisits[e.truckName] = (truckVisits[e.truckName]||0)+1; });
+    const sortedTrucks = Object.entries(truckVisits).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+    if (state.charts.topTrucks) state.charts.topTrucks.destroy();
+    state.charts.topTrucks = new Chart(document.getElementById('chartTopTrucks'), {
+      type:'bar',
+      data: {
+        labels: sortedTrucks.map(t=>t[0]),
+        datasets:[{
+          label: 'Visites zone',
+          data: sortedTrucks.map(t=>t[1]),
+          backgroundColor: sortedTrucks.map((_,i) => `hsla(${168 - i*12}, 70%, ${55 + i*2}%, 0.75)`),
+          borderColor: sortedTrucks.map((_,i) => `hsla(${168 - i*12}, 70%, ${55 + i*2}%, 1)`),
+          borderWidth: 1, borderRadius: 6
+        }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} visites zone` } } },
+        scales: { x: { grid: { color: gridColor }, title: { display: true, text: 'Nombre de visites', color: textColor, font: { size: 10 } } }, y: { grid: { display: false } } }
+      }
+    });
+
+    // 2. Zone doughnut — time spent (hours)
+    const zoneTimes = {};
+    data.filter(e=>e.durationMinutes).forEach(e => { zoneTimes[e.zoneName] = (zoneTimes[e.zoneName]||0)+(e.durationMinutes||0); });
+    const sortedZones = Object.entries(zoneTimes).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    const pieColors = ['#2dd4bf','#60a5fa','#a78bfa','#fb923c','#f87171','#4ade80','#38bdf8','#c084fc'];
+    if (state.charts.zonePie) state.charts.zonePie.destroy();
+    state.charts.zonePie = new Chart(document.getElementById('chartZonePie'), {
+      type: 'doughnut',
+      data: {
+        labels: sortedZones.map(z=>z[0]),
+        datasets: [{ data: sortedZones.map(z=>Math.round(z[1]/60*10)/10), backgroundColor: pieColors, borderWidth: 0, hoverOffset: 8 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '60%',
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 11 } } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}h` } }
+        }
+      }
+    });
+
+    // 3. Daily activity — area chart with gradient
+    const dayMap = {};
+    data.forEach(e => {
+      const day = (e.entryTime||e.createdAt||'').slice(0,10);
+      if (day) dayMap[day] = (dayMap[day]||0)+1;
+    });
+    const days = Object.keys(dayMap).sort().slice(-30);
+    if (state.charts.daily) state.charts.daily.destroy();
+    const dailyCtx = document.getElementById('chartDaily').getContext('2d');
+    const gradient = dailyCtx.createLinearGradient(0, 0, 0, 200);
+    gradient.addColorStop(0, isDark ? 'rgba(45,212,191,0.25)' : 'rgba(45,212,191,0.15)');
+    gradient.addColorStop(1, 'rgba(45,212,191,0.0)');
+    state.charts.daily = new Chart(document.getElementById('chartDaily'), {
+      type: 'line',
+      data: {
+        labels: days.map(d => { const dt = new Date(d); return dt.toLocaleDateString('fr-FR', {day:'2-digit', month:'short'}); }),
+        datasets: [{
+          label: 'Événements/jour',
+          data: days.map(d=>dayMap[d]||0),
+          borderColor: '#2dd4bf', backgroundColor: gradient,
+          fill: true, tension: 0.4, pointRadius: 3, pointHoverRadius: 6,
+          pointBackgroundColor: '#2dd4bf', pointBorderColor: isDark ? '#1a1d24' : '#fff', pointBorderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} événements` } } },
+        scales: { x: { grid: { color: gridColor } }, y: { grid: { color: gridColor }, beginAtZero: true, ticks: { stepSize: 1 } } }
+      }
+    });
+
+    // 4. Rush hours — entries per hour of day
+    const hourMap = {};
+    data.forEach(e => {
+      if (e.entryTime) { const h = new Date(e.entryTime).getHours(); hourMap[h] = (hourMap[h]||0)+1; }
+    });
+    const hours = Array.from({length:24},(_,i)=>i);
+    const hourData = hours.map(h=>hourMap[h]||0);
+    const peakHour = Math.max(...hourData);
+    const rushHourLabel = Object.entries(hourMap).sort((a,b)=>b[1]-a[1])[0];
+    if (state.charts.rushHours) state.charts.rushHours.destroy();
+    const rh = document.getElementById('chartRushHours');
+    if (rh) {
+      state.charts.rushHours = new Chart(rh, {
+        type:'bar',
+        data:{
+          labels:hours.map(h=>`${h}h`),
+          datasets:[{label:'Entrées en zone',data:hourData,
+            backgroundColor:hourData.map(v=>v===peakHour?'rgba(251,146,60,0.9)':'rgba(96,165,250,0.55)'),
+            borderColor:hourData.map(v=>v===peakHour?'#f97316':'#3b82f6'),
+            borderWidth:1,borderRadius:4
+          }]
+        },
+        options:{
+          responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} entrées`}}},
+          scales:{x:{grid:{display:false}},y:{grid:{color:gridColor},beginAtZero:true,ticks:{stepSize:1}}}
+        }
+      });
+    }
+
+    // 5. Immobilization average by zone
+    const zoneImmoSum = {}, zoneImmoCount = {};
+    data.filter(e=>e.exitTime).forEach(e => {
+      const v = e.recapImmobilisationMin||e.durationMinutes||0;
+      if (v>0) { zoneImmoSum[e.zoneName]=(zoneImmoSum[e.zoneName]||0)+v; zoneImmoCount[e.zoneName]=(zoneImmoCount[e.zoneName]||0)+1; }
+    });
+    const zoneImmoData = Object.entries(zoneImmoSum).map(([z,tot])=>({zone:z,avg:Math.round(tot/(zoneImmoCount[z]||1))})).sort((a,b)=>b.avg-a.avg).slice(0,10);
+    if (state.charts.immoByZone) state.charts.immoByZone.destroy();
+    const iz = document.getElementById('chartImmoByZone');
+    if (iz) {
+      state.charts.immoByZone = new Chart(iz, {
+        type:'bar',
+        data:{
+          labels:zoneImmoData.map(z=>z.zone),
+          datasets:[{label:'Immob. moy (min)',data:zoneImmoData.map(z=>z.avg),
+            backgroundColor:zoneImmoData.map(z=>z.avg>240?'rgba(248,113,113,0.85)':z.avg>120?'rgba(251,146,60,0.85)':'rgba(74,222,128,0.85)'),
+            borderRadius:6
+          }]
+        },
+        options:{
+          indexAxis:'y',responsive:true,maintainAspectRatio:false,
+          plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} min`}}},
+          scales:{x:{grid:{color:gridColor}},y:{grid:{display:false}}}
+        }
+      });
+    }
+
+    // 6. Weekday activity
+    const weekdays = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+    const wdMap = {0:0,1:0,2:0,3:0,4:0,5:0,6:0};
+    data.forEach(e => { if (e.entryTime) wdMap[new Date(e.entryTime).getDay()]++; });
+    if (state.charts.weekday) state.charts.weekday.destroy();
+    const wd = document.getElementById('chartWeekday');
+    if (wd) {
+      const wdGrad = wd.getContext('2d').createLinearGradient(0,0,0,150);
+      wdGrad.addColorStop(0,'rgba(167,139,250,0.85)');
+      wdGrad.addColorStop(1,'rgba(167,139,250,0.2)');
+      state.charts.weekday = new Chart(wd, {
+        type:'bar',
+        data:{labels:weekdays,datasets:[{label:'Visites',data:[0,1,2,3,4,5,6].map(d=>wdMap[d]),backgroundColor:wdGrad,borderRadius:6,borderWidth:0}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} visites`}}},scales:{x:{grid:{display:false}},y:{grid:{color:gridColor},beginAtZero:true}}}
+      });
+    }
+
+    // 7. Enhanced Ranking
+    const truckImmo = {};
+    data.forEach(e => {
+      const v = e.recapImmobilisationMin||e.durationMinutes||0;
+      if (v>0) truckImmo[e.truckName] = (truckImmo[e.truckName]||0)+v;
+    });
+    const top = sortedTrucks.slice(0,8);
+    const maxVal = top[0]?.[1] || 1;
+    const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
+    document.getElementById('rankingList').innerHTML = top.map((t,i) => {
+      const immoAvg = truckImmo[t[0]] ? Math.round(truckImmo[t[0]]/t[1]) : 0;
+      return `<div class="rank-row">
+        <div class="rank-num" style="${i<3?'font-size:16px;':''}">${medals[i]||i+1}</div>
+        <div class="rank-label" title="${t[0]}">${t[0]}</div>
+        <div class="rank-bar-wrap"><div class="rank-bar" style="width:${Math.round(t[1]/maxVal*100)}%;background:linear-gradient(90deg,${i===0?'var(--teal)':i===1?'var(--blue)':'var(--purple)'},transparent)"></div></div>
+        <div class="rank-val">${t[1]} visites</div>
+        <div style="font-size:10px;color:${immoAvg>120?'var(--red)':'var(--text-2)'};margin-left:8px;min-width:55px;">${immoAvg?immoAvg+'m moy':''}</div>
+      </div>`;
+    }).join('');
+
+    // KPI banner
+    const allImmo = data.filter(e=>e.exitTime).map(e=>e.recapImmobilisationMin||e.durationMinutes||0).filter(v=>v>0);
+    const avgImmoGlobal = allImmo.length ? Math.round(allImmo.reduce((a,b)=>a+b,0)/allImmo.length) : 0;
+    const kpiHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:18px;">
+      <div style="background:linear-gradient(135deg,#2dd4bf,#0d9488);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Total Événements</div><div style="font-size:28px;font-weight:900;">${data.length}</div></div>
+      <div style="background:linear-gradient(135deg,#60a5fa,#2563eb);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Camions Actifs</div><div style="font-size:28px;font-weight:900;">${new Set(data.map(e=>e.truckName)).size}</div></div>
+      <div style="background:linear-gradient(135deg,#a78bfa,#7c3aed);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Zones Visitées</div><div style="font-size:28px;font-weight:900;">${new Set(data.map(e=>e.zoneName)).size}</div></div>
+      <div style="background:linear-gradient(135deg,#fb923c,#ea580c);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Immob. Moy.</div><div style="font-size:28px;font-weight:900;">${avgImmoGlobal}m</div></div>
+      <div style="background:linear-gradient(135deg,#f472b6,#db2777);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Heure de Pointe</div><div style="font-size:28px;font-weight:900;">${rushHourLabel?rushHourLabel[0]+'h':'—'}</div></div>
+    </div>`;
+    const ac = document.getElementById('analyticsContent');
+    if (ac && !document.getElementById('akpiStrip')) {
+      ac.insertAdjacentHTML('afterbegin', `<div id="akpiStrip">${kpiHtml}</div>`);
+    }
+  }
+
+  // ── POWER BI ──
+  function buildPBUrl() {
+    const zone = document.getElementById('pbZone')?.value || '';
+    const truck = document.getElementById('pbTruck')?.value || '';
+    const type = document.getElementById('pbType')?.value || 'powerbi';
+    const start = document.getElementById('pbStart')?.value || '';
+    const end = document.getElementById('pbEnd')?.value || '';
+    const token = document.getElementById('pbToken')?.value || 'fleet_powerbi_2025';
+
+    let resolvedBase = state.base;
+    if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      resolvedBase = window.location.origin;
+    }
+    let url = `${resolvedBase}/api/`;
+    const isLive = type === 'powerbi-live';
+    const isOps = type.includes('zone-operations');
+
+    const isRealtime = type === 'realtime';
+    if (isRealtime) {
+      url += 'zone-events/powerbi?token=' + token + '&start=' + new Date().toISOString().slice(0, 10);
+      if (zone) url += '&zone=' + encodeURIComponent(zone);
+      if (truck) url += '&truck=' + encodeURIComponent(truck);
+    } else if (isOps) {
+      url += type + '?token=' + token;
+    } else if (type === 'powerbi-zones') {
+      url += 'zone-events/powerbi-zones?token=' + token;
+    } else if (isLive) {
+      url += 'zone-events/powerbi-live';
+      if (zone) url += '/' + encodeURIComponent(zone);
+      url += '?token=' + token;
+      if (truck) url += '&truck=' + encodeURIComponent(truck);
+    } else {
+      url += 'zone-events/powerbi';
+      if (zone) url += '/' + encodeURIComponent(zone);
+      url += '?token=' + token;
+      if (truck) url += '&truck=' + encodeURIComponent(truck);
+      if (start) url += '&start=' + encodeURIComponent(start);
+      if (end) url += '&end=' + encodeURIComponent(end);
+    }
+
+    document.getElementById('pbUrlText').textContent = url;
+  }
+
+  function copyPBUrl() {
+    const url = document.getElementById('pbUrlText').textContent;
+    navigator.clipboard.writeText(url).then(() => toast('✅ URL copiée !','success'));
+  }
+
+  function buildPBEndpoints() {
+    const base = state.base;
+    const token = 'fleet_powerbi_2025';
+    const endpoints = [
+      { url: `/api/zone-events/powerbi?token=${token}`, desc: 'Tout l\'historique zone (toutes zones)' },
+      { url: `/api/zone-events/powerbi?token=${token}&start=${new Date().toISOString().slice(0,10)}`, desc: '🔴 Temps réel — jour en cours uniquement' },
+      { url: `/api/zone-events/powerbi/NOM_ZONE?token=${token}`, desc: 'Historique d\'une zone spécifique' },
+      { url: `/api/zone-events/powerbi?token=${token}&truck=T049`, desc: 'Historique d\'un camion spécifique' },
+      { url: `/api/zone-events/powerbi-live?token=${token}`, desc: 'Camions en zone EN CE MOMENT' },
+      { url: `/api/zone-events/powerbi-live/NOM_ZONE?token=${token}`, desc: 'Live — une zone spécifique' },
+      { url: `/api/zone-operations/powerbi?token=${token}`, desc: 'Opérations planifiées + ponctualité' },
+      { url: `/api/zone-events/powerbi-zones?token=${token}`, desc: 'Liste de toutes les zones disponibles' },
+    ];
+    const sigBanner = `<div style="padding:10px 14px;background:linear-gradient(135deg,rgba(45,212,191,.12),rgba(96,165,250,.08));border:1px solid rgba(45,212,191,.25);border-radius:var(--radius-sm);margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+      <i class="fa-solid fa-certificate" style="color:var(--teal);font-size:16px;"></i>
+      <div>
+        <div style="font-size:12px;font-weight:700;color:var(--teal);">Données exportées depuis dedsite.online</div>
+        <div style="font-size:10px;color:var(--text-2);">Dev: Chikhaoui Abderrahime · Fleet Analytics v2.0 · Chaque ligne de données contient les champs <code>_Exported_From</code>, <code>_Dev</code>, <code>_Version</code></div>
+      </div>
+    </div>`;
+    document.getElementById('pbEndpointList').innerHTML = sigBanner + endpoints.map(ep => `
+      <div class="pb-endpoint-row">
+        <div class="pb-endpoint-method">GET</div>
+        <div class="pb-endpoint-url">${ep.url}</div>
+        <div class="pb-endpoint-desc">${ep.desc}</div>
+        <button class="pb-copy-small" onclick="navigator.clipboard.writeText('${base}${ep.url}').then(()=>ZMC.toast('Copié!','success'))"><i class="fa-solid fa-copy"></i></button>
+      </div>`).join('');
+  }
+
+  // ── EXPORT UTILITIES ──
+  function downloadChart(canvasId, name) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) { toast('Graphique introuvable', 'error'); return; }
+    const link = document.createElement('a');
+    link.download = `fleet_${name.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.png`;
+    link.href = canvas.toDataURL('image/png', 1.0);
+    link.click();
+    toast('📥 ' + name + ' exporté', 'success');
+  }
+
+  function exportAllChartsPNG() {
+    const charts = ['chartTopTrucks','chartZonePie','chartDaily','chartRushHours','chartImmoByZone','chartWeekday'];
+    const names = ['Top_Camions','Temps_Zone','Visites_Jour','Rush_Hours','Immobilisation','Activité_Semaine'];
+    let count = 0;
+    charts.forEach((id, i) => {
+      const canvas = document.getElementById(id);
+      if (canvas) {
+        setTimeout(() => {
+          const link = document.createElement('a');
+          link.download = `fleet_${names[i]}_${new Date().toISOString().slice(0,10)}.png`;
+          link.href = canvas.toDataURL('image/png', 1.0);
+          link.click();
+          count++;
+        }, i * 300);
+      }
+    });
+    toast(`📥 ${charts.length} graphiques exportés`);
+  }
+
+  function exportAnalyticsCSV() {
+    const data = state.analyticsData;
+    if (!data || !data.length) { toast('Chargez les analytiques d abord', 'error'); return; }
+    let csv = '\uFEFFDate,Camion,Zone,Entrée,Sortie,Durée (min),Immobilisation (min),Type,Opération\n';
+    data.forEach(e => {
+      csv += `"${new Date(e.entryTime||e.createdAt).toLocaleDateString('fr-FR')}","${e.truckName}","${e.zoneName}","${e.entryTime||''}","${e.exitTime||''}","${e.durationMinutes||''}","${e.recapImmobilisationMin||''}","${e.operationSource||'auto'}","${e.operationName||''}"\n`;
+    });
+    const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `fleet_analytics_${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+    toast('📥 CSV exporté avec ' + data.length + ' lignes');
+  }
+
+  function printAnalytics() {
+    const content = document.getElementById('analyticsContent');
+    if (!content) { toast('Chargez les analytiques d abord', 'error'); return; }
+    const w = window.open('', '_blank');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rapport Analytique Fleet</title>
+    
+    <style>
+      body{font-family:Arial,sans-serif;padding:30px;color:#111;background:white}
+      h1{color:#0d9488;border-bottom:3px solid #0d9488;padding-bottom:10px}
+      .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:20px 0}
+      .kpi{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;text-align:center}
+      .kpi-val{font-size:32px;font-weight:900;color:#0f172a}
+      .kpi-label{font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase}
+      .chart-img{max-width:48%;display:inline-block;margin:10px 1%;border:1px solid #e2e8f0;border-radius:8px;padding:10px}
+      .chart-img img{width:100%}
+      .footer{margin-top:40px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;text-align:center}
+      @media print{@page{margin:10mm}button{display:none!important}}
+    </style></head><body>
+    <div style="display:flex;justify-content:space-between;align-items:start">
+      <div><h1>📊 Rapport Analytique Fleet</h1><div style="color:#64748b;font-size:13px;">Période: 30 derniers jours · Généré le ${new Date().toLocaleString('fr-FR')}</div></div>
+      <button onclick="window.print()" style="background:#0d9488;color:white;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;">🖨️ Imprimer</button>
+    </div>`);
+    // Export each chart as image
+    const chartIds = ['chartTopTrucks','chartZonePie','chartDaily','chartRushHours','chartImmoByZone','chartWeekday'];
+    const chartLabels = ['Top Camions — Visites','Temps par Zone','Visites Journalières','Heures de Pointe','Immobilisation par Zone','Activité par Semaine'];
+    w.document.write('<div style="margin-top:20px;">');
+    chartIds.forEach((id, i) => {
+      const canvas = document.getElementById(id);
+      if (canvas) {
+        w.document.write(`<div class="chart-img"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#334155;">${chartLabels[i]}</div><img src="${canvas.toDataURL('image/png')}" /></div>`);
+      }
+    });
+    w.document.write('</div>');
+    w.document.write(`<div class="footer">Fleet Analytics v2.0 · dedsite.online · Dev: Chikhaoui</div></body></html>`);
+    w.document.close();
+  }
+
+  // ── THEME ──
+  function toggleTheme() {
+    const html = document.documentElement;
+    const isDark = html.dataset.theme === 'dark';
+    html.dataset.theme = isDark ? 'light' : 'dark';
+    localStorage.setItem('zmc_theme', html.dataset.theme);
+    // Rebuild charts with new theme
+    if (document.querySelector('.top-tab[data-tab="analytics"].active')) loadAnalytics();
+  }
+
+  // ── UTILS ──
+  function toast(msg, type='success') {
+    const el = document.getElementById('toast');
+    el.textContent = msg; el.className = `show ${type}`;
+    setTimeout(() => el.className='', 2800);
+  }
+
+  function downloadCSV(csv, name) {
+    const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`${name}_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  }
+
+  // ── FLEET ANALYTICS ──
+  async function loadFleetData() {
+    const tbody = document.getElementById('fleetBody');
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i></td></tr>';
+    try {
+      const r = await fetch(`${state.base}/api/trucks`, { headers: headers() });
+      const raw = await r.json();
+      // /api/trucks returns {deviceId: truckObj} — normalize to array
+      const trucks = Array.isArray(raw) ? raw : Object.entries(raw || {}).map(([id, t]) => ({
+        deviceId: id, name: (t && t.name) || id, speed: t?.speed || 0,
+        fuelPercent: t?.fuelPercent ?? t?.fuel ?? null,
+        odometer: t?.odometer ?? t?.totalDistance ?? null,
+        lastUpdate: t?.lastUpdate || t?.lastValidTrackTime || null,
+        totalKm: t?.totalKm ?? t?.totalDistance ?? null, ...(t || {})
+      }));
+      state.fleetData = trucks;
+      
+      // Live zone data
+      let liveZones = {};
+      try {
+        const lr = await fetch(`${state.base}/api/zone-events/live`, { headers: headers() });
+        const ld = await lr.json();
+        ld.forEach(e => { liveZones[e.deviceId || e.truckName] = e.zoneName; });
+      } catch {}
+      state._fleetLiveZones = liveZones;
+
+      // KPIs
+      const moving = trucks.filter(t => t.speed > 3).length;
+      const stopped = trucks.length - moving;
+      const inZone = Object.keys(liveZones).length;
+      const fuelLevels = trucks.filter(t => t.fuelPercent != null).map(t => t.fuelPercent);
+      const avgFuel = fuelLevels.length ? Math.round(fuelLevels.reduce((a,b) => a+b, 0) / fuelLevels.length) : 0;
+      
+      document.getElementById('fkpiTotal').textContent = trucks.length;
+      document.getElementById('fkpiMoving').textContent = moving;
+      document.getElementById('fkpiStopped').textContent = stopped;
+      document.getElementById('fkpiInZone').textContent = inZone;
+      document.getElementById('fkpiAvgFuel').textContent = avgFuel + '%';
+      document.getElementById('fleetTimestamp').textContent = `⟳ ${new Date().toLocaleTimeString('fr-FR')}`;
+
+      // Set default GPS dates
+      if (!document.getElementById('gpsStart')?.value) {
+        document.getElementById('gpsStart').value = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+        document.getElementById('gpsEnd').value = new Date().toISOString().slice(0, 10);
+      }
+
+      // Table — uses renderFleetTable for filter support
+      renderFleetTable();
+
+      // Fuel chart
+      const top20 = trucks.filter(t => t.fuelPercent != null).sort((a,b) => (a.fuelPercent||0) - (b.fuelPercent||0)).slice(0, 15);
+      if (state.charts.fuelLevels) state.charts.fuelLevels.destroy();
+      const isDark = document.documentElement.dataset.theme !== 'light';
+      state.charts.fuelLevels = new Chart(document.getElementById('chartFuelLevels'), {
+        type: 'bar',
+        data: {
+          labels: top20.map(t => t.name),
+          datasets: [{ data: top20.map(t => t.fuelPercent), backgroundColor: top20.map(t => t.fuelPercent < 20 ? 'rgba(248,113,113,0.7)' : t.fuelPercent < 40 ? 'rgba(251,146,60,0.7)' : 'rgba(74,222,128,0.7)'), borderRadius: 4 }]
+        },
+        options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { max: 100, grid: { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' } }, y: { grid: { display: false } } } }
+      });
+
+      // Zone × Truck matrix
+      await buildZoneMatrix();
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--red);">Erreur: ${e.message}</td></tr>`;
+    }
+  }
+
+  async function buildZoneMatrix() {
+    const wrap = document.getElementById('zoneMatrixWrap');
+    if (!wrap) return;
+    try {
+      const start = new Date(Date.now() - 30 * 86400000).toISOString();
+      const r = await fetch(`${state.base}/api/zone-events?limit=10000&start=${start}`, { headers: headers() });
+      const events = await r.json();
+      
+      const zones = [...new Set(events.map(e => e.zoneName))].sort();
+      const trucks = [...new Set(events.map(e => e.truckName))].sort();
+      if (!zones.length || !trucks.length) { wrap.innerHTML = '<div class="empty-state" style="padding:20px;">Pas assez de données</div>'; return; }
+      
+      const matrix = {};
+      trucks.forEach(t => { matrix[t] = {}; zones.forEach(z => matrix[t][z] = 0); });
+      events.forEach(e => { if (matrix[e.truckName]) matrix[e.truckName][e.zoneName] = (matrix[e.truckName][e.zoneName] || 0) + 1; });
+      
+      const maxVal = Math.max(...trucks.flatMap(t => zones.map(z => matrix[t][z])), 1);
+      wrap.innerHTML = `<table class="data-table" style="font-size:10px;">
+        <thead><tr><th>Camion</th>${zones.map(z => `<th style="writing-mode:vertical-lr;transform:rotate(180deg);max-width:30px;padding:4px 2px;">${z.slice(0,15)}</th>`).join('')}</tr></thead>
+        <tbody>${trucks.slice(0, 30).map(t => `<tr><td style="font-weight:600;white-space:nowrap;">${t}</td>${zones.map(z => {
+          const v = matrix[t][z] || 0;
+          const intensity = v / maxVal;
+          const bg = v > 0 ? `rgba(45,212,191,${0.1 + intensity * 0.6})` : 'transparent';
+          return `<td style="text-align:center;background:${bg};color:${v > 0 ? 'var(--text)' : 'var(--text-3)'};font-weight:${v > 0 ? '700' : '400'};">${v || '·'}</td>`;
+        }).join('')}</tr>`).join('')}</tbody>
+      </table>`;
+    } catch (e) { wrap.innerHTML = `<div class="empty-state" style="padding:20px;">Erreur: ${e.message}</div>`; }
+  }
+
+  async function reloadGPSHistory() {
+    const btn = document.getElementById('reloadGpsBtn');
+    const start = document.getElementById('gpsStart')?.value || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const end = document.getElementById('gpsEnd')?.value || new Date().toISOString().slice(0, 10);
+    if (!start || !end) { toast('Sélectionnez une période pour le scan GPS', 'error'); return; }
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scan GPS...';
+    btn.disabled = true;
+    try {
+      const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
+        method: 'POST', headers: headers(),
+        body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end + 'T23:59:59').toISOString() })
+      });
+      const d = await r.json();
+      toast(`✅ ${d.summary?.created || 0} événements zone recréés`, 'success');
+      loadFleetData();
+    } catch (e) { toast('Erreur GPS: ' + e.message, 'error'); }
+    finally { btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Recharger GPS'; btn.disabled = false; }
+  }
+
+  function exportFleetCSV() {
+    if (!state.fleetData || !state.fleetData.length) { toast('Aucune donnée', 'error'); return; }
+    let csv = '\uFEFFCamion,Statut,Vitesse,Carburant %,Odomètre,Zone,Dernière MAJ\n';
+    state.fleetData.forEach(t => {
+      const zone = state._fleetLiveZones?.[t.deviceId] || state._fleetLiveZones?.[t.name] || '';
+      csv += `"${t.name}","${t.speed > 3 ? 'En route' : 'Arrêt'}","${t.speed || 0}","${t.fuelPercent || ''}","${t.odometer || ''}","${zone}","${t.lastUpdate || ''}"\n`;
+    });
+    downloadCSV(csv, 'flotte_complete');
+  }
+
+  function renderFleetTable() {
+    if (!state.fleetData) return;
+    const trucks = state.fleetData;
+    const liveZones = state._fleetLiveZones || {};
+    const tbody = document.getElementById('fleetBody');
+    const statusF = document.getElementById('fleetStatusFilter')?.value || '';
+    const zoneF = document.getElementById('fleetZoneFilter')?.value || '';
+
+    let filtered = trucks;
+    if (statusF === 'moving') filtered = filtered.filter(t => t.speed > 3);
+    if (statusF === 'stopped') filtered = filtered.filter(t => !t.speed || t.speed <= 3);
+    if (statusF === 'inzone') filtered = filtered.filter(t => liveZones[t.deviceId] || liveZones[t.name]);
+    if (zoneF) filtered = filtered.filter(t => (liveZones[t.deviceId] || liveZones[t.name]) === zoneF);
+
+    tbody.innerHTML = filtered.sort((a,b) => (a.name||'').localeCompare(b.name||'')).map(t => {
+      const zone = liveZones[t.deviceId] || liveZones[t.name] || '—';
+      const statusBadge = t.speed > 3 ? '<span class="tag green">En route</span>' : '<span class="tag orange">Arrêt</span>';
+      const fuel = t.fuelPercent != null ? `${t.fuelPercent}%` : '—';
+      const odo = t.odometer != null ? `${Math.round(t.odometer)} km` : '—';
+      const lastUpdate = t.lastUpdate ? new Date(t.lastUpdate).toLocaleString('fr-FR') : '—';
+      const zoneTag = zone !== '—' ? `<span class="tag teal">${zone}</span>` : '—';
+      return `<tr>
+        <td style="font-weight:700;">${t.name}</td>
+        <td>${statusBadge}</td>
+        <td class="mono">${t.speed != null ? t.speed + ' km/h' : '—'}</td>
+        <td class="mono">${fuel}</td>
+        <td class="mono">${odo}</td>
+        <td>${zoneTag}</td>
+        <td class="mono">${t.totalKm ? Math.round(t.totalKm) + ' km' : '—'}</td>
+        <td style="font-size:11px;color:var(--text-2);">${lastUpdate}</td>
+      </tr>`;
+    }).join('');
+    if (!filtered.length) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-3);">Aucun camion trouvé avec ces filtres</td></tr>';
+  }
+
+    // ── CLIENT CHANGE HANDLER ──
+    function onClientChange(clientId) {
+      const fSel = document.getElementById('sbFinalClient');
+      if (!fSel) return;
+      fSel.innerHTML = '<option value="">— Tous —</option>';
+      if (!clientId || !state.clients) return;
+      const pure = clientId.startsWith('fc:') ? clientId.split(':')[1] : clientId;
+      const client = state.clients.find(c => c.id === pure);
+      if (client) (client.finalClients||[]).forEach(fc => {
+        const opt = document.createElement('option');
+        opt.value = fc.id; opt.textContent = fc.name; fSel.appendChild(opt);
+      });
+    }
+
+    // ── EXPOSE ──
+  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, scanHistory, loadAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV };
+})();
+
+// ── BOOTSTRAP ──
+document.addEventListener('DOMContentLoaded', () => {
+  // Restore theme
+  const theme = localStorage.getItem('zmc_theme') || 'dark';
+  document.documentElement.dataset.theme = theme;
+
+  // Enter on login
+  document.getElementById('loginCode')?.addEventListener('keydown', e => { if (e.key==='Enter') ZMC.login(); });
+
+  // Auto-connect — no login screen needed (reads code from localStorage / main app)
+  ZMC.autoLogin();
+});
+
+  // Open truck in main map
+  // ─── Navigate main app to a specific truck ──────────────────────────────
+  // Layer 1: window.opener (ZMC opened as popup from main app)
+  // Layer 2: BroadcastChannel (same origin, different tab)
+  // Layer 3: localStorage + hash redirect (direct URL open)
+  function openInMap(truckName, deviceId) {
+    const id = String(deviceId || truckName);
+    const name = truckName || id;
+
+    // Layer 1 — popup opener
+    if (window.opener && !window.opener.closed) {
+      try {
+        const opener = window.opener;
+        if (opener.ui && typeof opener.ui._zoneGoToMap === 'function') {
+          opener.ui._zoneGoToMap(null, id, name);
+          opener.focus();
+          return;
+        }
+      } catch(e) { /* cross-origin blocked */ }
+    }
+
+    // Layer 2 — BroadcastChannel (same-origin tabs)
+    try {
+      const ch = new BroadcastChannel('fleet_nav');
+      ch.postMessage({ type: 'focusTruck', id, name });
+      ch.close();
+    } catch(e) {}
+
+    // Layer 3 — localStorage + open/redirect
+    localStorage.setItem('mapFocusTruck', JSON.stringify({ id, name, ts: Date.now() }));
+    const mainWin = window.open('./index.html#focus:' + encodeURIComponent(id), 'fleetMain');
+    if (mainWin) mainWin.focus();
+  }
+
+  // Open History tab pre-filtered for this truck on the given date
+  // Open map from history row — isolate truck + show rich visit popup
+  function openInMapFromHistory(evtDataKey) {
+    let evt = null;
+    try { evt = JSON.parse(sessionStorage.getItem(evtDataKey) || 'null'); } catch(_) {}
+    if (!evt) return;
+    // Send to main window via BroadcastChannel
+    try {
+      const ch = new BroadcastChannel('fleet_nav');
+      ch.postMessage({ type: 'historyFocus', deviceId: evt.deviceId, truckName: evt.truckName, evt });
+      ch.close();
+    } catch(e) {}
+    // Also use localStorage fallback
+    try {
+      localStorage.setItem('mapFocusTruck', JSON.stringify({ id: evt.deviceId, name: evt.truckName, ts: Date.now(), histEvt: evt }));
+    } catch(e) {}
+    // If in a popup (opened via window.open), use opener
+    if (window.opener && !window.opener.closed) {
+      try { window.opener.ui && window.opener.ui._focusHistoryEvent && window.opener.ui._focusHistoryEvent(evt); } catch(e) {}
+      window.opener.focus();
+    } else {
+      window.open('index.html#histfocus:' + encodeURIComponent(JSON.stringify(evt)), '_blank');
+    }
+  }
+
+    function openInHistory(truckName, deviceId, entryDateMs) {
+    const truckKey = truckName || deviceId;
+    const devId = String(deviceId || '');
+    const dateStr = entryDateMs
+      ? new Date(entryDateMs).toISOString().slice(0, 10)
+      : new Date().toISOString().slice(0, 10);
+
+    // Switch to history tab
+    ZMC.switchTab('history');
+
+    // Wait for the pane to render, then set filters and search
+    setTimeout(() => {
+      const truckSel = document.getElementById('histTruckFilter');
+      const startInp  = document.getElementById('histStart');
+      const endInp    = document.getElementById('histEnd');
+
+      if (truckSel) {
+        // Try matching: 1) by deviceId value, 2) by truck name text, 3) by truckName value
+        let opt = null;
+        if (devId) opt = Array.from(truckSel.options).find(o => o.value === devId);
+        if (!opt && truckName) opt = Array.from(truckSel.options).find(o => o.text.trim() === truckName.trim());
+        if (!opt && truckName) opt = Array.from(truckSel.options).find(o => o.value === truckName);
+        
+        if (opt) {
+          truckSel.value = opt.value;
+        } else {
+          // Add a temporary option using deviceId as value so loadHistory sends &deviceId= param
+          const tmp = document.createElement('option');
+          tmp.value = devId || truckKey;
+          tmp.text = truckKey;
+          truckSel.appendChild(tmp);
+          truckSel.value = tmp.value;
+        }
+      }
+      if (startInp) startInp.value = dateStr;
+      if (endInp)   endInp.value   = dateStr;
+
+      // Trigger search
+      ZMC.loadHistory();
+
+      // Flash the filters row to show user what changed
+      const header = document.querySelector('#tabHistory .pane-header');
+      if (header) {
+        header.style.transition = 'background 0.3s';
+        header.style.background = 'rgba(56,189,248,0.12)';
+        setTimeout(() => { header.style.background = ''; }, 1200);
+      }
+    }, 200);
+  }
+
+  // Open a truck's LIVE position on the map from history (by name — most reliable)
+  function openInMapLive(truckName, deviceId, entryLat, entryLng) {
+    const id   = String(deviceId || truckName);
+    const name = truckName || id;
+
+    // Store entry coords as hint for _zoneGoToMap in case live GPS isn't ready
+    try {
+      if (entryLat && entryLng && entryLat !== 'null' && entryLng !== 'null') {
+        localStorage.setItem('fleet_focus_hint', JSON.stringify({ truckName: name, deviceId: id, lat: parseFloat(entryLat), lng: parseFloat(entryLng), ts: Date.now() }));
+      }
+    } catch(_) {}
+
+    // Layer 1: window.opener
+    if (window.opener && !window.opener.closed) {
+      try {
+        const op = window.opener;
+        if (op.ui && typeof op.ui._zoneGoToMap === 'function') {
+          if (entryLat && entryLng && entryLat !== 'null') op.ui._historyFocusCoords = { lat: parseFloat(entryLat), lng: parseFloat(entryLng) };
+          op.ui._zoneGoToMap(null, id, name);
+          op.focus(); return;
+        }
+      } catch(e) {}
+    }
+
+    // Layer 2: BroadcastChannel with focusTruck (proven path)
+    try {
+      const ch = new BroadcastChannel('fleet_nav');
+      ch.postMessage({ type: 'focusTruck', id, name, entryLat: parseFloat(entryLat)||null, entryLng: parseFloat(entryLng)||null, ts: Date.now() });
+      ch.close();
+    } catch(e) {}
+
+    // Layer 3: localStorage fallback
+    try { localStorage.setItem('mapFocusTruck', JSON.stringify({ id, name, ts: Date.now() })); } catch(e) {}
+
+    // Open/focus main window
+    const mainWin = window.open('./index.html#focus:' + encodeURIComponent(id), 'fleetMain');
+    if (mainWin) mainWin.focus();
+  }
+
+    // Open GPS history replay modal in the main window — exact entry→exit window
+  function openGPSHistory(deviceId, truckName, entryTime, exitTime) {
+    const dateStr  = entryTime ? new Date(entryTime).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const startISO = entryTime && entryTime !== 'null' ? entryTime : (dateStr + 'T00:00:00.000Z');
+    const endISO   = (exitTime && exitTime !== 'null' && exitTime !== '')
+      ? exitTime
+      : new Date(new Date(startISO).getTime() + 6 * 3600000).toISOString();
+
+    // Store exact window in localStorage so main window can read it
+    const payload = { deviceId: String(deviceId), truckName, date: dateStr, startISO, endISO, exitTime: exitTime || null, zoneName: '', ts: Date.now() };
+    try { localStorage.setItem('fleet_gps_verify', JSON.stringify(payload)); } catch(e) {}
+
+    const bcPayload = { type: 'openGPSHistory', ...payload };
+
+    // Layer 1: window.opener (popup) — set metadata DIRECTLY before calling modal
+    if (window.opener && !window.opener.closed) {
+      try {
+        const op = window.opener;
+        if (op.ui && typeof op.ui.openHistoryModal === 'function') {
+          // Inject recap metadata directly into opener window's global
+          // This bypasses localStorage race conditions completely
+          op._histRecapMeta = {
+            truckName: truckName,
+            imei:      String(deviceId),
+            zoneName:  '',           // will be enriched if available
+            exitTime:  (exitTime && exitTime !== 'null' && exitTime !== '') ? exitTime : null,
+            startISO:  startISO,
+            endISO:    endISO
+          };
+          op.ui.openHistoryModal(String(deviceId), truckName, dateStr, startISO, endISO);
+          op.focus(); return;
+        }
+      } catch(e) {}
+    }
+
+    // Layer 2: BroadcastChannel (same-origin tab)
+    try { const ch = new BroadcastChannel('fleet_nav'); ch.postMessage(bcPayload); ch.close(); } catch(e) {}
+
+    // Layer 3: open/focus main window — it will read localStorage on load
+    const mainWin = window.open('./index.html#gpshistory:' + encodeURIComponent(deviceId) + ':' + encodeURIComponent(truckName) + ':' + dateStr, 'fleetMain');
+    if (mainWin) mainWin.focus();
+  }
+</script>
+</body>
+</html>

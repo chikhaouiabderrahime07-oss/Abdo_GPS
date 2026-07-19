@@ -59,16 +59,26 @@ const AlgeriaMap = {
 
         this.map = new mapboxgl.Map({
             container: 'map-container',
-            style: 'mapbox://styles/mapbox/streets-v12',
+            style: 'mapbox://styles/mapbox/satellite-streets-v12',
             center: [3.0, 34.0],
-            zoom: 5,
-            projection: 'globe'
+            zoom: 5
+            // Note: globe projection removed — caused fog.js errors with markers
+        });
+
+        // Permanent fix for fog.js 'this.properties is undefined' error
+        // Patch _queryFogOpacity to always return 0 (no fog opacity on markers)
+        const _origFlyTo = this.map.flyTo.bind(this.map);
+        Object.defineProperty(this.map, '_queryFogOpacity', {
+            value: function() { return 0; },
+            writable: true, configurable: true
         });
 
         this.map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
         this.map.on('load', () => {
             console.log("✅ Map Engine Ready (Time Machine Pro)");
+            // Disable fog layer completely
+            try { if (typeof this.map.setFog === 'function') this.map.setFog(null); } catch(e) {}
             this.addTerrainSource();
             this.renderCustomLocations();
             this.setupSearchListeners();
@@ -754,6 +764,7 @@ addDecouchageMarker: function(s) {
 updateMarkers: function(trucks) {
     this.truckDataCache = trucks;
     this.populateTruckList();
+    this.updatePanelTruckList(trucks);
 
     // Live Counts
     const total = trucks.length;
@@ -833,6 +844,8 @@ updateMarkers: function(trucks) {
             this.markers[id] = new mapboxgl.Marker(el).setLngLat(coords).setPopup(popup).addTo(this.map);
         }
     });
+    
+    
 },
     attachMarkerListeners: function(el, popup, truck) {
         el.onclick = (e) => { e.stopPropagation(); this.selectTruck(truck); popup.addTo(this.map); };
@@ -848,8 +861,46 @@ updateMarkers: function(trucks) {
         let statusText = truck.speed > 0 ? 'En Route' : 'Arrêt';
         if(truck.isGpsCut) { statusColor = '#333'; statusText = '⚠️ COUPURE GPS'; }
         const fuelColor = truck.isCriticalFuel ? '#d32f2f' : (truck.isLowFuel ? '#f57c00' : '#2e7d32');
+        
+        // Get truck metadata (card, immatriculation)
+        const db = (window.ui && ui.truckDbCache || []).find(d => d.deviceId === truck.id) || {};
+        const metaHtml = (db.carteNaftal || db.immatriculation) ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px;">
+            ${db.immatriculation ? `<span style="background:#e0f2fe;color:#0284c7;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;">🚛 ${db.immatriculation}</span>` : ''}
+            ${db.carteNaftal ? `<span style="background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;">⛽ Carte ${db.carteNaftal}</span>` : ''}
+        </div>` : '';
+        
+        // Check which zone this truck is in
+        const coords = this.getCoordinates(truck);
+        let zoneHtml = '';
+        if (coords && FLEET_CONFIG.CUSTOM_LOCATIONS) {
+            for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+                const dist = this._getDistMeters(coords[1], coords[0], loc.lat, loc.lng);
+                if (dist <= (loc.radius || 500)) {
+                    zoneHtml = `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:6px 10px;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                        <i class="fa-solid fa-location-dot" style="color:#22c55e;"></i>
+                        <div><div style="font-size:10px;color:#166534;font-weight:700;">DANS LA ZONE</div><div style="font-size:12px;color:#15803d;font-weight:600;">${loc.name}</div></div>
+                    </div>`;
+                    break;
+                }
+            }
+        }
+        
+        // Check active operations for this truck
+        let opHtml = '';
+        if (window.ui && ui._zoneOperations) {
+            const activeOps = (ui._zoneOperations || []).filter(op => op.deviceId === truck.id && ['pending','active'].includes(op.status));
+            if (activeOps.length > 0) {
+                const op = activeOps[0];
+                opHtml = `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:6px 10px;margin-bottom:8px;">
+                    <div style="font-size:10px;color:#1d4ed8;font-weight:700;">📋 OPÉRATION EN COURS</div>
+                    <div style="font-size:12px;color:#1e40af;font-weight:600;">${op.operationName}</div>
+                    <div style="font-size:10px;color:#3b82f6;">Statut: ${op.status}</div>
+                </div>`;
+            }
+        }
+        
         return `
-            <div style="font-family:'Segoe UI',system-ui,sans-serif;">
+            <div style="font-family:'Segoe UI',system-ui,sans-serif;min-width:240px;">
               <div style="background:${statusColor}; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; align-items:center; gap:8px;">
                   <div style="width:32px; height:32px; border-radius:8px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center;">
@@ -863,6 +914,9 @@ updateMarkers: function(trucks) {
                 <span style="font-size:9px; background:rgba(255,255,255,0.25); padding:3px 8px; border-radius:10px; color:white; font-weight:700; text-transform:uppercase; letter-spacing:0.5px;">${statusText}</span>
               </div>
               <div style="padding:12px 14px; background:white;">
+                ${metaHtml}
+                ${zoneHtml}
+                ${opHtml}
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
                   <div style="background:#f8fafc; border-radius:8px; padding:8px 10px; text-align:center; border:1px solid #e2e8f0;">
                     <div style="font-size:9px; text-transform:uppercase; color:#94a3b8; font-weight:700; letter-spacing:0.5px;">Vitesse</div>
@@ -884,7 +938,7 @@ updateMarkers: function(trucks) {
                 </div>
                 <div style="display:flex; gap:6px;">
                   <button class="popup-action-btn" style="flex:1; background:#f0f9ff; color:#0284c7; border:1px solid #bae6fd; font-weight:700; border-radius:6px; padding:7px; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;" onclick="AlgeriaMap.selectTruckById('${truck.id}')"><i class="fa-solid fa-crosshairs"></i> Suivre</button>
-                  <button class="popup-action-btn" style="flex:1; background:#4f46e5; color:white; border:none; font-weight:700; border-radius:6px; padding:7px; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;" onclick="window.ui.openHistoryModal('${truck.id}', '${truck.name}')"><i class="fa-solid fa-clock-rotate-left"></i> Historique</button>
+                  <button class="popup-action-btn" style="flex:1; background:#4f46e5; color:white; border:none; font-weight:700; border-radius:6px; padding:7px; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;" onclick="window.ui.openHistoryModal('${truck.id}', '${(truck.name||'').replace(/'/g, "\\'")}')"><i class="fa-solid fa-clock-rotate-left"></i> Historique</button>
                 </div>
               </div>
             </div>`;
@@ -944,20 +998,231 @@ updateMarkers: function(trucks) {
         else { this.map.flyTo({ center: [loc.lng, loc.lat], zoom: 14 }); this.showToast(`📍 <b>${loc.name}</b> affiché. Sélectionnez un camion pour y aller.`); }
     },
     renderCustomLocations: function() {
+        // Clean up old markers
         this.customMarkers.forEach(m => m.remove());
-        if(!FLEET_CONFIG.CUSTOM_LOCATIONS) return;
-        FLEET_CONFIG.CUSTOM_LOCATIONS.forEach(loc => {
-            let typeClass = 'type-other'; let icon = 'fa-map-pin';
-            if(loc.type === 'client') { typeClass='type-client'; icon='fa-user-tie'; }
-            if(loc.type === 'maintenance') { typeClass='type-maintenance'; icon='fa-wrench'; }
-            if(loc.type === 'douroub') { typeClass='type-douroub'; icon='fa-building'; }
+        this.customMarkers = [];
+        
+        // Clean up old circle layers
+        if (this.map.getLayer('zone-circles-fill')) this.map.removeLayer('zone-circles-fill');
+        if (this.map.getLayer('zone-circles-line')) this.map.removeLayer('zone-circles-line');
+        if (this.map.getLayer('zone-labels')) this.map.removeLayer('zone-labels');
+        if (this.map.getSource('zone-circles')) this.map.removeSource('zone-circles');
+        
+        if(!FLEET_CONFIG.CUSTOM_LOCATIONS || !FLEET_CONFIG.CUSTOM_LOCATIONS.length) return;
+        
+        const typeColors = {
+            client:      '#3b82f6',
+            subclient:   '#22d3ee',
+            maintenance: '#f97316',
+            station:     '#eab308',
+            douroub:     '#22c55e',
+            other:       '#6b7280'
+        };
+        const typeIcons = {
+            client:      'fa-user-tie',
+            subclient:   'fa-users',
+            maintenance: 'fa-wrench',
+            station:     'fa-gas-pump',
+            douroub:     'fa-building',
+            other:       'fa-map-pin'
+        };
+        const typeLabels = {
+            client:      '💼 Client / Livraison',
+            subclient:   '📦 Sous-Client',
+            maintenance: '🔧 Maintenance / Garage',
+            station:     '⛽ Station Carburant',
+            douroub:     '🏭 Site Douroub',
+            other:       '📍 Autre'
+        };
+
+        // Build GeoJSON circle features
+        const features = [];
+        
+        FLEET_CONFIG.CUSTOM_LOCATIONS.forEach((loc, idx) => {
+            const locType = loc.type || 'other';
+            const typeClass = 'type-' + locType;
+            const icon = typeIcons[locType] || 'fa-map-pin';
+            const color = typeColors[locType] || '#6b7280';
+            
+            // Color priority: 1) zone.color  2) finalClient.color  3) client.color  4) type fallback
+            let circleColor = loc.color || color;
+            let resolvedFAIcon = loc.icon || icon;
+
+            // If zone has NO custom color, check client hierarchy
+            if (!loc.color && loc.clientId && FLEET_CONFIG.CLIENTS) {
+                const _cl = FLEET_CONFIG.CLIENTS.find(c => c.id === loc.clientId);
+                if (_cl && _cl.color) circleColor = _cl.color;
+                if (_cl && _cl.icon && !loc.icon) resolvedFAIcon = _cl.icon;
+                // Final client color overrides client color
+                if (loc.finalClientId && _cl && _cl.finalClients) {
+                    const _fc = _cl.finalClients.find(f => f.id === loc.finalClientId);
+                    if (_fc && _fc.color) circleColor = _fc.color;
+                    if (_fc && _fc.icon) resolvedFAIcon = _fc.icon;
+                }
+            }
+            
+            // Get client/finalClient names for label
+            let clientLabel = '';
+            let clientName = '';
+            let finalClientName = '';
+            if (loc.clientId && FLEET_CONFIG.CLIENTS) {
+                const client = FLEET_CONFIG.CLIENTS.find(c => c.id === loc.clientId);
+                if (client) {
+                    clientName = client.name;
+                    clientLabel = ` <span style="opacity:0.7;font-size:8px;">• ${client.name}</span>`;
+                    if (loc.finalClientId && client.finalClients) {
+                        const fc = client.finalClients.find(f => f.id === loc.finalClientId);
+                        if (fc) finalClientName = fc.name;
+                    }
+                }
+            }
+            
+            // Create professional marker with custom color + icon
             const el = document.createElement('div');
             el.className = `custom-loc-marker ${typeClass}`;
-            el.innerHTML = `<div class="custom-loc-label">${loc.name}</div><div class="custom-loc-icon"><i class="fa-solid ${icon}"></i></div>`;
-            el.addEventListener('click', (e) => { e.stopPropagation(); if(this.selectedTruck) this.calculateRoute(this.getCoordinates(this.selectedTruck), [loc.lng, loc.lat], loc.name); });
+            const _iconHtml = loc.iconEmoji
+              ? `<span style="font-size:15px;line-height:1;">${loc.iconEmoji}</span>`
+              : `<i class="fa-solid ${resolvedFAIcon}"></i>`;
+            el.innerHTML = `<div class="custom-loc-label" style="border-color:${circleColor}55;">${loc.name}${clientLabel}</div><div class="custom-loc-icon" style="background:${circleColor};border:2px solid ${circleColor}cc;">${_iconHtml}</div>`;
+            
+            // Count trucks currently in this zone
+            const trucksHere = (this.truckDataCache||[]).filter(t => {
+                const c = this.getCoordinates(t);
+                if (!c) return false;
+                return this._getDistMeters(c[1], c[0], loc.lat, loc.lng) <= (loc.radius || 500);
+            });
+            let truckListHtml = '';
+            if (trucksHere.length > 0) {
+                const pills = trucksHere.map(t => {
+                    const color = t.speed > 0 ? '#22c55e' : '#f59e0b';
+                    return `<span style="display:inline-flex;align-items:center;gap:4px;background:var(--bg-deep);border:1px solid var(--border);color:var(--text-primary);padding:2px 6px;border-radius:12px;font-size:9px;font-weight:700;"><span style="color:${color};font-size:8px;">●</span>${t.name}</span>`;
+                }).join('');
+                
+                truckListHtml = `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+                    <div style="font-size:10px;color:var(--text-muted);font-weight:700;margin-bottom:6px;display:flex;justify-content:space-between;">
+                        <span>🚛 ${trucksHere.length} CAMION${trucksHere.length>1?'S':''} ICI</span>
+                        <span style="color:var(--primary);">${trucksHere.filter(t=>t.speed>0).length} en route</span>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;max-height:150px;overflow-y:auto;padding-right:4px;">
+                        ${pills}
+                    </div>
+                   </div>`;
+            }
+            
+            // Info-only popup (no edit buttons)
+            const popupHtml = `<div style="padding:12px 14px;font-family:system-ui,sans-serif;min-width:180px;">
+                <div style="font-weight:800;font-size:14px;margin-bottom:6px;color:${circleColor};">${loc.name}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:5px;"><i class="fa-solid ${resolvedFAIcon}" style="color:${circleColor};width:14px;"></i>${typeLabels[locType] || 'Autre'}</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">📍 ${loc.wilaya || 'Algérie'}</div>
+                <div style="font-size:11px;color:var(--text-muted);">📏 Rayon: ${loc.radius || 500}m</div>
+                ${clientName ? `<div style="font-size:11px;padding:4px 8px;margin-top:5px;background:rgba(59,130,246,0.1);border-radius:5px;color:#3b82f6;font-weight:600;"><i class="fa-solid fa-user-tie"></i> ${clientName}${finalClientName ? ' → '+finalClientName : ''}</div>` : ''}
+                ${truckListHtml}
+            </div>`;
+            const popup = new mapboxgl.Popup({ offset: 30, closeButton: true, maxWidth: '280px', className: 'zone-popup-theme' }).setHTML(popupHtml);
+            
+            popup.on('open', () => {
+                trucksHere.forEach(t => {
+                    const id = t.id || t.deviceId;
+                    if (this.markers && this.markers[id] && this.markers[id].getElement()) {
+                        this.markers[id].getElement().style.display = 'none';
+                    }
+                });
+            });
+            
+            popup.on('close', () => {
+                trucksHere.forEach(t => {
+                    const id = t.id || t.deviceId;
+                    if (this.markers && this.markers[id] && this.markers[id].getElement()) {
+                        this.markers[id].getElement().style.display = '';
+                    }
+                });
+            });
+            
+            el.addEventListener('click', (e) => { 
+                e.stopPropagation(); 
+                popup.setLngLat([loc.lng, loc.lat]).addTo(this.map);
+                if(this.selectedTruck) this.calculateRoute(this.getCoordinates(this.selectedTruck), [loc.lng, loc.lat], loc.name); 
+            });
             const m = new mapboxgl.Marker({element: el, anchor:'bottom'}).setLngLat([loc.lng, loc.lat]).addTo(this.map);
             this.customMarkers.push(m);
+            
+            // Build circle polygon for the radius
+            const radiusKm = (loc.radius || 500) / 1000;
+            const circleCoords = this._generateCircleCoords(loc.lng, loc.lat, radiusKm, 64);
+            features.push({
+                type: 'Feature',
+                properties: { 
+                    name: loc.name,
+                    color: circleColor,
+                    strokeColor: loc.strokeColor || circleColor,
+                    opacity: (loc.opacity !== undefined && loc.opacity !== null) ? Number(loc.opacity) : 0.15,
+                    type: loc.type || 'other',
+                    idx: idx
+                },
+                geometry: { type: 'Polygon', coordinates: [circleCoords] }
+            });
         });
+        
+        // Add GeoJSON source with all circles
+        this.map.addSource('zone-circles', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: features }
+        });
+        
+        // Fill layer (translucent)
+        this.map.addLayer({
+            id: 'zone-circles-fill',
+            type: 'fill',
+            source: 'zone-circles',
+            paint: {
+                'fill-color': ['get', 'color'],
+                'fill-opacity': ['get', 'opacity']
+            }
+        });
+        
+        // Outline layer
+        this.map.addLayer({
+            id: 'zone-circles-line',
+            type: 'line',
+            source: 'zone-circles',
+            paint: {
+                'line-color': ['get', 'strokeColor'],
+                'line-width': 2.5,
+                'line-opacity': 0.85,
+                'line-dasharray': [4, 2]
+            }
+        });
+
+        // Zone click → show history in left panel
+        this.map.on('click', 'zone-circles-fill', (e) => {
+            if (!e.features || !e.features[0]) return;
+            const props = e.features[0].properties;
+            this.showZoneHistoryPanel(props.name);
+        });
+        this.map.on('mouseenter', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = 'pointer'; });
+        this.map.on('mouseleave', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = ''; });
+    },
+
+    
+    // Helper: generate circle coordinates around a point
+    _generateCircleCoords: function(lng, lat, radiusKm, steps) {
+        const coords = [];
+        for (let i = 0; i <= steps; i++) {
+            const angle = (i / steps) * 2 * Math.PI;
+            const dx = radiusKm * Math.cos(angle);
+            const dy = radiusKm * Math.sin(angle);
+            const newLat = lat + (dy / 110.574);
+            const newLng = lng + (dx / (111.320 * Math.cos(lat * Math.PI / 180)));
+            coords.push([newLng, newLat]);
+        }
+        return coords;
+    },
+    _getDistMeters: function(lat1, lng1, lat2, lng2) {
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2) * Math.sin(dLng/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     },
 selectTruck: function(truck) {
     this.selectedTruck = truck;
@@ -973,19 +1238,20 @@ selectTruck: function(truck) {
         }
     });
 
-    document.getElementById('mapTruckSelect').value = truck.id;
+    const mts = document.getElementById('mapTruckSelect'); if(mts) mts.value = truck.id;
     if (!this.isFollowMode) this.map.flyTo({
         center: this.getCoordinates(truck),
         zoom: 14
     });
     this.showToast(`🚛 ${truck.name} sélectionné (Focus Mode)`);
+    if (this.operationMode) this.drawOperationRoute(truck);
 },
 
 deselectTruck: function() {
     this.selectedTruck = null;
     this.currentRoutes = [];
     this.isFollowMode = false;
-    document.getElementById('btnFollow').classList.remove('active');
+    const btnFol = document.getElementById('btnFollow'); if(btnFol) btnFol.classList.remove('active');
     document.getElementById('mapTruckSelect').value = "";
 
     // 1. SHOW ALL TRUCKS AGAIN
@@ -998,7 +1264,17 @@ deselectTruck: function() {
     this.clearHistory();
 },
 
-    selectTruckById: function(id) { if(!id) this.deselectTruck(); else this.selectTruck(this.truckDataCache.find(t=>t.id===id)); },
+    selectTruckById: function(id) {
+      if (!id) { this.deselectTruck(); return; }
+      const sid = String(id);
+      // Match by truck.id first, then by truck.deviceId (IMEI)
+      const t = this.truckDataCache.find(t => String(t.id) === sid || String(t.deviceId) === sid);
+      if (t) {
+        this.selectTruck(t);
+        const m = this.markers[t.id];
+        if (m) { const p = m.getPopup(); if (p && !p.isOpen()) m.togglePopup(); }
+      }
+    },
     getCoordinates: function(t) { return t.coordinates ? [t.coordinates.lng, t.coordinates.lat] : [t.lng, t.lat]; },
     populateTruckList: function() {
         const sel = document.getElementById('mapTruckSelect');
@@ -1019,7 +1295,438 @@ deselectTruck: function() {
     toggleFollowMode: function() { if(!this.selectedTruck){this.showToast("Sélectionnez un camion");return;} this.isFollowMode=!this.isFollowMode; document.getElementById('btnFollow').classList.toggle('active'); if(this.isFollowMode) this.map.flyTo({center:this.getCoordinates(this.selectedTruck), zoom:17, pitch:60}); },
     toggleBuildings: function() { this.isBuildingsOn=!this.isBuildingsOn; document.getElementById('btnBuild').classList.toggle('active'); if(this.isBuildingsOn) { if(!this.map.getLayer('3d-buildings')) this.map.addLayer({'id':'3d-buildings','source':'composite','source-layer':'building','filter':['==','extrude','true'],'type':'fill-extrusion','minzoom':13,'paint':{'fill-extrusion-color':'#aaa','fill-extrusion-height':['get','height'],'fill-extrusion-base':['get','min_height'],'fill-extrusion-opacity':0.6}}); this.map.flyTo({pitch:45}); } else { if(this.map.getLayer('3d-buildings')) this.map.removeLayer('3d-buildings'); } },
     toggleFullscreen: function() { document.getElementById('map-wrapper').classList.toggle('fullscreen'); this.map.resize(); },
-    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); }
+    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); },
+
+    toggleZoneCircles: function(btn) {
+        this.zonesVisible = this.zonesVisible === false ? true : false;
+        const isOn = this.zonesVisible !== false;
+        ['zone-circles-fill','zone-circles-line'].forEach(id => {
+            if (this.map.getLayer(id)) this.map.setLayoutProperty(id, 'visibility', isOn ? 'visible' : 'none');
+        });
+        this.customMarkers.forEach(m => { if (m.getElement) m.getElement().style.display = isOn ? '' : 'none'; });
+        if (btn) { btn.classList.toggle('active', isOn); btn.title = isOn ? 'Masquer Zones' : 'Afficher Zones'; }
+        this.showToast(isOn ? '🟢 Zones affichées' : '🔴 Zones masquées');
+    },
+
+    toggleOperationMode: function(btn) {
+        this.operationMode = !this.operationMode;
+        if (btn) btn.classList.toggle('active', this.operationMode);
+        if (this.operationMode) {
+            this.showToast('🛣️ Mode Opération ON — Sélectionnez un camion pour voir sa trajectoire prévue');
+        } else {
+            // Remove operation route if shown
+            ['op-route-line','op-route-stops'].forEach(id => { if (this.map.getLayer(id)) this.map.removeLayer(id); });
+            if (this.map.getSource('op-route')) this.map.removeSource('op-route');
+            const panel = document.getElementById('opRoutePanel');
+            if (panel) panel.remove();
+            this.showToast('Mode Opération désactivé');
+        }
+    },
+
+    drawOperationRoute: async function(truck) {
+        if (!this.operationMode || !truck) return;
+        // Clean old op route
+        ['op-route-line','op-route-stops'].forEach(id => { if (this.map.getLayer(id)) this.map.removeLayer(id); });
+        if (this.map.getSource('op-route')) this.map.removeSource('op-route');
+        const panel = document.getElementById('opRoutePanel');
+        if (panel) panel.remove();
+
+        try {
+            const base = typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.API ? FLEET_CONFIG.API.baseUrl : '';
+            const res = await fetch(`${base}/api/zone-operations?truck=${encodeURIComponent(truck.name || truck.id)}&status=pending,active`);
+            if (!res.ok) return;
+            const ops = await res.json();
+            if (!ops.length) { this.showToast('Aucune opération en cours pour ce camion'); return; }
+
+            const op = ops[0]; // latest op
+            const stops = (op.route || []).filter(s => s.zoneName);
+            if (stops.length < 2) return;
+
+            // Build waypoints from zone locations
+            const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+            const waypoints = stops.map(s => {
+                const loc = locs.find(l => l.name === s.zoneName);
+                return loc ? [loc.lng, loc.lat] : null;
+            }).filter(Boolean);
+
+            if (waypoints.length < 2) { this.showToast('Zones introuvables sur la carte'); return; }
+
+            // Get route from Mapbox
+            const coordStr = waypoints.map(c => c.join(',')).join(';');
+            const routeRes = await fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${coordStr}?geometries=geojson&overview=full&access_token=${mapboxgl.accessToken}`);
+            const routeJson = await routeRes.json();
+
+            if (!routeJson.routes || !routeJson.routes[0]) return;
+            const geom = routeJson.routes[0].geometry;
+
+            this.map.addSource('op-route', { type: 'geojson', data: { type: 'Feature', geometry: geom, properties: {} } });
+            this.map.addLayer({ id: 'op-route-line', type: 'line', source: 'op-route',
+                layout: { 'line-join':'round','line-cap':'round' },
+                paint: { 'line-color':'#f59e0b','line-width':5,'line-dasharray':[2,1],'line-opacity':0.85 }
+            });
+
+            // Add stop markers
+            stops.forEach((s, i) => {
+                const loc = locs.find(l => l.name === s.zoneName);
+                if (!loc) return;
+                const statusColors = { pending:'#94a3b8', arrived:'#22c55e', departed:'#3b82f6', late:'#ef4444' };
+                const el = document.createElement('div');
+                el.style.cssText = `background:${statusColors[s.status]||'#94a3b8'};color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;border:2px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4);`;
+                el.textContent = i + 1;
+                const popup = new mapboxgl.Popup({ offset:20, closeButton:false }).setHTML(
+                    `<div style="padding:8px;min-width:160px;">
+                        <div style="font-weight:700;font-size:13px;">${s.zoneName}</div>
+                        <div style="font-size:11px;color:#888;margin-top:2px;">Stop ${i+1} — ${s.status}</div>
+                        ${s.expectedArrival ? `<div style="font-size:11px;color:#555;margin-top:3px;">⏰ Arrivée prévue: ${new Date(s.expectedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</div>` : ''}
+                    </div>`
+                );
+                el.addEventListener('mouseenter', () => popup.setLngLat([loc.lng, loc.lat]).addTo(this.map));
+                el.addEventListener('mouseleave', () => popup.remove());
+                new mapboxgl.Marker({ element: el }).setLngLat([loc.lng, loc.lat]).addTo(this.map);
+            });
+
+            // Info panel
+            const wrapper = document.getElementById('map-wrapper');
+            const infoPanel = document.createElement('div');
+            infoPanel.id = 'opRoutePanel';
+            infoPanel.style.cssText = 'position:absolute;top:15px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:white;padding:10px 18px;border-radius:20px;font-size:12px;z-index:20;backdrop-filter:blur(8px);border:1px solid rgba(245,158,11,0.4);display:flex;align-items:center;gap:12px;';
+            infoPanel.innerHTML = `<span style="color:#f59e0b;font-weight:700;"><i class="fa-solid fa-route"></i> ${op.operationName || 'Opération'}</span>
+                <span style="color:#94a3b8;">${stops.length} arrêts · ${(routeJson.routes[0].distance/1000).toFixed(1)} km · ${Math.round(routeJson.routes[0].duration/60)} min</span>
+                <button onclick="this.parentElement.remove()" style="background:rgba(239,68,68,0.2);border:none;color:#f87171;border-radius:6px;padding:3px 8px;cursor:pointer;">✕</button>`;
+            wrapper.appendChild(infoPanel);
+
+            // Fit map to route
+            const bounds = new mapboxgl.LngLatBounds();
+            waypoints.forEach(c => bounds.extend(c));
+            this.map.fitBounds(bounds, { padding: 80 });
+        } catch(e) { console.error('Op route error:', e); }
+    },
+    // ================================================================
+    // LEFT PANEL MANAGEMENT
+    // ================================================================
+    switchPanelTab: function(tab, btn) {
+        document.querySelectorAll('.panel-tab-content').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('.map-panel-tab').forEach(b => {
+            b.style.color = '#64748b'; b.style.borderBottomColor = 'transparent';
+        });
+        const panel = document.getElementById('panel' + tab.charAt(0).toUpperCase() + tab.slice(1));
+        if (panel) panel.style.display = 'block';
+        if (btn) { btn.style.color = '#e2e8f0'; btn.style.borderBottomColor = '#3b82f6'; }
+        if (tab === 'activity') this.refreshZoneActivity();
+        if (tab === 'zones') this.refreshPanelZones();
+    },
+
+    togglePanel: function() {
+        const panel = document.getElementById('mapLeftPanel');
+        if (!panel) return;
+        const isHidden = panel.style.width === '0px' || panel.style.display === 'none';
+        if (isHidden) { panel.style.width = '290px'; panel.style.display = 'flex'; }
+        else { panel.style.width = '0px'; panel.style.overflow = 'hidden'; }
+    },
+
+    filterPanel: function(query) {
+        const q = (query || '').toLowerCase();
+        document.querySelectorAll('.panel-truck-item').forEach(item => {
+            item.style.display = item.dataset.name && item.dataset.name.toLowerCase().includes(q) ? '' : 'none';
+        });
+    },
+
+    updatePanelTruckList: function(trucks) {
+        const list = document.getElementById('mapTruckList');
+        if (!list) return;
+        const total = trucks.length;
+        const moving = trucks.filter(t => (t.speed || 0) >= 1 && !t.isGpsCut).length;
+        const stopped = total - moving;
+        const setEl = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        setEl('panelCountAll', total); setEl('panelCountMoving', moving); setEl('panelCountStopped', stopped);
+        setEl('mapCountAll', `(${total})`); setEl('mapCountMoving', `(${moving})`); setEl('mapCountStopped', `(${stopped})`);
+
+        if (!trucks.length) { list.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucun camion</div>'; return; }
+        list.innerHTML = trucks.map(t => {
+            const id = t.deviceId || t.id;
+            const isMoving = (t.speed || 0) >= 1 && !t.isGpsCut;
+            const statusColor = t.isGpsCut ? '#64748b' : (isMoving ? '#22c55e' : '#f87171');
+            const statusIcon = t.isGpsCut ? 'fa-wifi-slash' : (isMoving ? 'fa-truck-fast' : 'fa-truck');
+            const zone = t.currentZone || t.zone || '';
+            const fuel = t.fuelPercent != null ? t.fuelPercent : (t.fuel_percent != null ? t.fuel_percent : null);
+            const fuelBar = fuel != null ? `<div style="height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:3px;"><div style="width:${Math.min(100,fuel)}%;height:100%;border-radius:2px;background:${fuel>30?'#22c55e':fuel>15?'#f59e0b':'#ef4444'};"></div></div>` : '';
+            return `<div class="panel-truck-item" data-id="${id}" data-name="${t.name||id}" onclick="window.AlgeriaMap.selectTruckById('${id}')"
+              style="padding:9px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s;margin-bottom:3px;border:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px;"
+              onmouseenter="this.style.background='rgba(59,130,246,0.1)'" onmouseleave="this.style.background=''">
+              <div style="width:30px;height:30px;border-radius:8px;background:${statusColor}22;border:1px solid ${statusColor}44;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="fa-solid ${statusIcon}" style="color:${statusColor};font-size:12px;"></i>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name || id}</div>
+                <div style="font-size:10px;color:#64748b;">${isMoving ? (t.speed||0)+' km/h' : 'À l\'arrêt'}${zone ? ' · '+zone : ''}</div>
+                ${fuelBar}
+              </div>
+              <span style="font-size:9px;font-weight:700;color:${statusColor};background:${statusColor}1a;padding:2px 5px;border-radius:4px;flex-shrink:0;">${isMoving?'▶':'■'}</span>
+            </div>`;
+        }).join('');
+    },
+
+    refreshPanelZones: function() {
+        const list = document.getElementById('mapZoneList');
+        if (!list) return;
+        const zones = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.CUSTOM_LOCATIONS) ? FLEET_CONFIG.CUSTOM_LOCATIONS : [];
+        const clients = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.CLIENTS) ? FLEET_CONFIG.CLIENTS : [];
+        const typeColors = { client:'#3b82f6', maintenance:'#ef4444', douroub:'#22c55e', other:'#94a3b8' };
+        const typeIcons = { client:'fa-user-tie', maintenance:'fa-wrench', douroub:'fa-building', station:'fa-gas-pump', other:'fa-map-pin' };
+        if (!zones.length) { list.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucune zone. Créez-en une.</div>'; return; }
+        list.innerHTML = zones.map((z, i) => {
+            const color = typeColors[z.type] || '#94a3b8';
+            const icon = typeIcons[z.type] || 'fa-map-pin';
+            const client = z.clientId ? clients.find(c => c.id === z.clientId) : null;
+            return `<div onclick="window.AlgeriaMap.flyToZone(${z.lat},${z.lng})"
+              style="padding:9px 10px;border-radius:8px;cursor:pointer;margin-bottom:3px;border:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px;"
+              onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background=''">
+              <div style="width:28px;height:28px;border-radius:50%;background:${color}22;border:2px solid ${color}55;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                <i class="fa-solid ${icon}" style="color:${color};font-size:11px;"></i>
+              </div>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:12px;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${z.name}</div>
+                <div style="font-size:10px;color:#475569;">${z.wilaya||''}${client ? ' · '+client.name : ''}</div>
+              </div>
+              <span style="font-size:9px;color:#475569;">${z.radius||500}m</span>
+            </div>`;
+        }).join('');
+    },
+
+    flyToZone: function(lat, lng) {
+        if (!this.map) return;
+        this.map.flyTo({ center: [lng, lat], zoom: 15, speed: 1.2 });
+    },
+
+    refreshZoneActivity: async function() {
+        const actList = document.getElementById('mapActivityList');
+        const chips = document.getElementById('zoneActivityChips');
+        try {
+            const base = typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.API ? FLEET_CONFIG.API.baseUrl : '';
+            const code = window.ui ? ui.currentCode : '';
+            
+            // Fetch zone stats
+            const res = await fetch(`${base}/api/zone-stats`);
+            if (!res.ok) throw new Error('No data');
+            const stats = await res.json();
+            stats.sort((a,b) => b.entries - a.entries);
+
+            // Fetch recent zone events (entry/exit feed)
+            let recentEvents = [];
+            try {
+                const evRes = await fetch(`${base}/api/zone-events?limit=30`, { headers: code ? { 'x-access-code': code } : {} });
+                if (evRes.ok) {
+                    const raw = await evRes.json();
+                    recentEvents = Array.isArray(raw) ? raw : (raw.data || []);
+                }
+            } catch(e) {}
+
+            if (actList) {
+                let html = '';
+                
+                // Zone summary cards
+                if (stats.length) {
+                    html += '<div style="padding:6px 8px 2px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">📊 Résumé par Zone</div>';
+                    html += stats.map(s => {
+                        const lastTime = s.lastEntry ? new Date(s.lastEntry).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '--';
+                        return `<div style="padding:8px 10px;border-radius:8px;margin:2px 4px;cursor:pointer;" onclick="window.AlgeriaMap.flyToZoneByName('${s.zone}')" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background=''">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+                                <span style="font-size:11px;font-weight:600;color:#e2e8f0;">${s.zone}</span>
+                                <span style="font-size:10px;font-weight:700;color:#3b82f6;background:rgba(59,130,246,0.15);padding:2px 7px;border-radius:10px;">${s.entries}</span>
+                            </div>
+                            <div style="display:flex;gap:10px;font-size:10px;color:#64748b;">
+                                <span><i class="fa-solid fa-truck" style="color:#22c55e;"></i> ${s.truckCount} camions</span>
+                                <span><i class="fa-solid fa-clock"></i> ${lastTime}</span>
+                            </div>
+                            <div style="height:3px;background:rgba(255,255,255,0.07);border-radius:2px;margin-top:4px;">
+                                <div style="width:${Math.min(100,Math.round(s.entries/Math.max(...stats.map(x=>x.entries))*100))}%;height:100%;border-radius:2px;background:linear-gradient(90deg,#3b82f6,#06b6d4);"></div>
+                            </div>
+                        </div>`;
+                    }).join('');
+                }
+                
+                // Recent entry/exit feed
+                if (recentEvents.length) {
+                    html += '<div style="padding:8px 8px 2px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-top:6px;border-top:1px solid rgba(255,255,255,0.06);">📋 Derniers Mouvements</div>';
+                    html += recentEvents.slice(0, 20).map(ev => {
+                        const isOpen = ev.status === 'open';
+                        const entryTime = new Date(ev.entryTime);
+                        const timeStr = entryTime.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+                        const dateStr = entryTime.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'});
+                        const exitStr = ev.exitTime ? new Date(ev.exitTime).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : null;
+                        const durStr = ev.durationMinutes != null ? `${Math.floor(ev.durationMinutes/60)}h${String(ev.durationMinutes%60).padStart(2,'0')}` : '';
+                        
+                        return `<div style="padding:6px 10px;margin:1px 4px;border-radius:6px;border-left:3px solid ${isOpen?'#22c55e':'#6366f1'};" onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background=''">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <span style="font-size:11px;font-weight:700;color:#e2e8f0;">${ev.truckName}</span>
+                                <span style="font-size:9px;color:#64748b;">${dateStr} ${timeStr}</span>
+                            </div>
+                            <div style="font-size:10px;color:#94a3b8;display:flex;align-items:center;gap:4px;margin-top:2px;">
+                                <span style="color:${isOpen?'#22c55e':'#6366f1'};font-weight:700;">${isOpen?'→ ENTRÉ':'← SORTI'}</span>
+                                <span style="color:#38bdf8;">${ev.zoneName}</span>
+                                ${exitStr ? `<span style="color:#64748b;">· Sorti ${exitStr}</span>` : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700;">📍 Encore là</span>'}
+                                ${durStr ? `<span style="color:#a78bfa;font-weight:600;">${durStr}</span>` : ''}
+                            </div>
+                        </div>`;
+                    }).join('');
+                }
+                
+                actList.innerHTML = html || '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucune activité</div>';
+            }
+
+            // Bottom bar chips
+            if (chips) {
+                chips.innerHTML = stats.slice(0,8).map(s =>
+                    `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.25);color:#93c5fd;padding:3px 10px;border-radius:20px;font-size:10px;white-space:nowrap;cursor:pointer;flex-shrink:0;" onclick="window.AlgeriaMap.flyToZoneByName('${s.zone}')">
+                        <span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;"></span>${s.zone} <strong style="color:#fff;">${s.entries}</strong>
+                    </span>`
+                ).join('');
+            }
+
+            this._zoneStats = stats;
+            this._updateZoneActivityColors(stats);
+
+        } catch(e) {
+            if (actList) actList.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;"><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;"></i><br>Données indisponibles</div>';
+            if (chips) chips.innerHTML = '<span style="font-size:11px;color:#475569;">Aucune donnée</span>';
+        }
+    },
+
+    _updateZoneActivityColors: function(stats) {
+        if (!this.map || !this.map.getSource('zone-circles')) return;
+        // Update the GeoJSON data with activity-based opacity
+        const maxEntries = Math.max(...stats.map(s => s.entries), 1);
+        // Just refresh the layer opacity - for now keep it simple
+    },
+
+    flyToZoneByName: function(zoneName) {
+        const zones = typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : [];
+        const zone = zones.find(z => z.name === zoneName);
+        if (zone) this.flyToZone(zone.lat, zone.lng);
+    },
+
+    showZoneActivityDetail: function(zoneName) {
+        if (!this._zoneStats) return;
+        const stat = this._zoneStats.find(s => s.zone === zoneName);
+        if (!stat) return;
+        const events = stat.events || [];
+        const popupHtml = `<div style="padding:10px;font-family:sans-serif;max-width:260px;">
+            <div style="font-weight:700;font-size:13px;color:#3b82f6;margin-bottom:8px;"><i class="fa-solid fa-chart-line"></i> ${zoneName}</div>
+            <div style="font-size:11px;color:#666;margin-bottom:8px;">${stat.entries} entrées · ${stat.truckCount} camions (24h)</div>
+            <div style="max-height:150px;overflow-y:auto;">
+                ${events.slice(0,10).map(ev => {
+                    const t = new Date(ev.entryTime).toLocaleString('fr-FR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+                    return `<div style="padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:10px;display:flex;justify-content:space-between;">
+                        <span><i class="fa-solid fa-truck" style="color:#22c55e;"></i> ${ev.truck}</span>
+                        <span style="color:#888;">${t} ${ev.duration?'('+Math.round(ev.duration)+'min)':''}</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
+        // Find zone location and show popup
+        const zones = typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : [];
+        const zone = zones.find(z => z.name === zoneName);
+        if (zone) {
+            new mapboxgl.Popup({ closeButton: true, maxWidth: '280px' })
+                .setLngLat([zone.lng, zone.lat])
+                .setHTML(popupHtml)
+                .addTo(this.map);
+            this.flyToZone(zone.lat, zone.lng);
+        }
+    },
+
+    fitBounds: function() {
+        if (!this.truckDataCache.length) return;
+        const bounds = new mapboxgl.LngLatBounds();
+        this.truckDataCache.forEach(t => {
+            const c = this.getCoordinates(t);
+            if (c) bounds.extend(c);
+        });
+        if (!bounds.isEmpty()) this.map.fitBounds(bounds, { padding: 60, maxZoom: 14 });
+    },
+
+    // ================================================================
+    // ZONE HISTORY PANEL — shows in the left panel when clicking a zone
+    // ================================================================
+    showZoneHistoryPanel: async function(zoneName) {
+        // Switch panel to activity tab
+        const actTab = document.getElementById('panelTabActivity');
+        if (actTab) this.switchPanelTab('activity', actTab);
+
+        const list = document.getElementById('mapActivityList');
+        if (list) list.innerHTML = '<div style="padding:20px;text-align:center;color:#475569;"><i class="fa-solid fa-spinner fa-spin" style="font-size:20px;color:#3b82f6;"></i><div style="margin-top:8px;font-size:12px;">Chargement historique...</div></div>';
+
+        try {
+            const base = typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.API ? FLEET_CONFIG.API.baseUrl : '';
+            const res = await fetch(`${base}/api/zone-events?zone=${encodeURIComponent(zoneName)}&limit=50`);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const events = await res.json();
+
+            // Get zone info
+            const zones = typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : [];
+            const zone = zones.find(z => z.name === zoneName);
+            const color = zone ? ({'client':'#3b82f6','maintenance':'#ef4444','douroub':'#22c55e'}[zone.type] || '#94a3b8') : '#3b82f6';
+
+            const totalEvents = events.length;
+            const uniqueTrucks = [...new Set(events.map(e => e.truckName))];
+            const avgDuration = events.filter(e => e.durationMinutes).reduce((s,e) => s + e.durationMinutes, 0) / (events.filter(e=>e.durationMinutes).length || 1);
+
+            if (!list) return;
+            list.innerHTML = `
+              <!-- Zone header -->
+              <div style="padding:12px 10px;border-bottom:1px solid rgba(255,255,255,0.06);background:${color}15;margin:-6px -6px 8px -6px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                  <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+                  <span style="font-size:13px;font-weight:700;color:#e2e8f0;">${zoneName}</span>
+                  <button onclick="window.AlgeriaMap.flyToZoneByName('${zoneName}')" style="margin-left:auto;background:rgba(255,255,255,0.08);border:none;color:#94a3b8;border-radius:5px;padding:3px 7px;cursor:pointer;font-size:10px;" title="Centrer sur la zone"><i class="fa-solid fa-location-crosshairs"></i></button>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;">
+                  <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:6px;text-align:center;">
+                    <div style="font-size:16px;font-weight:800;color:${color};">${totalEvents}</div>
+                    <div style="font-size:9px;color:#64748b;">ENTRÉES</div>
+                  </div>
+                  <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:6px;text-align:center;">
+                    <div style="font-size:16px;font-weight:800;color:#22c55e;">${uniqueTrucks.length}</div>
+                    <div style="font-size:9px;color:#64748b;">CAMIONS</div>
+                  </div>
+                  <div style="background:rgba(0,0,0,0.2);border-radius:6px;padding:6px;text-align:center;">
+                    <div style="font-size:16px;font-weight:800;color:#f59e0b;">${Math.round(avgDuration)}</div>
+                    <div style="font-size:9px;color:#64748b;">MOY MIN</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Truck chips -->
+              <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;padding:0 2px;">
+                ${uniqueTrucks.slice(0,8).map(t => `<span style="background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.25);color:#93c5fd;padding:2px 8px;border-radius:10px;font-size:10px;cursor:pointer;" onclick="window.AlgeriaMap.selectTruckById('${t}')">${t}</span>`).join('')}
+              </div>
+              <!-- Event list -->
+              <div style="font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding:0 2px;">Historique Entrées/Sorties</div>
+              ${events.length === 0 ? '<div style="text-align:center;color:#475569;padding:16px;font-size:12px;">Aucun événement récent</div>' :
+              events.map(ev => {
+                const entryTime = new Date(ev.entryTime);
+                const exitTime = ev.exitTime ? new Date(ev.exitTime) : null;
+                const dur = ev.durationMinutes ? Math.round(ev.durationMinutes) : null;
+                const isRecent = Date.now() - entryTime.getTime() < 3600000;
+                return `<div style="padding:9px 10px;border-radius:8px;margin-bottom:4px;border:1px solid rgba(255,255,255,${isRecent?'0.08':'0.03'});background:rgba(255,255,255,${isRecent?'0.05':'0.02'});cursor:pointer;" onclick="window.AlgeriaMap.selectTruckById('${ev.truckName || ev.deviceId}')">
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+                    <span style="font-size:12px;font-weight:700;color:#e2e8f0;display:flex;align-items:center;gap:5px;">
+                      <i class="fa-solid fa-truck" style="color:#22c55e;font-size:10px;"></i>${ev.truckName}
+                    </span>
+                    ${isRecent ? '<span style="font-size:9px;background:rgba(34,197,94,0.2);color:#22c55e;padding:1px 5px;border-radius:4px;font-weight:700;">RÉCENT</span>' : ''}
+                  </div>
+                  <div style="font-size:10px;color:#64748b;display:flex;gap:8px;flex-wrap:wrap;">
+                    <span><i class="fa-solid fa-arrow-right-to-bracket" style="color:#22c55e;"></i> ${entryTime.toLocaleString('fr-FR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+                    ${exitTime ? `<span><i class="fa-solid fa-arrow-right-from-bracket" style="color:#f87171;"></i> ${exitTime.toLocaleString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</span>` : '<span style="color:#f59e0b;"><i class="fa-solid fa-circle-dot fa-beat"></i> En zone</span>'}
+                    ${dur ? `<span><i class="fa-solid fa-clock"></i> ${dur}min</span>` : ''}
+                  </div>
+                </div>`;
+              }).join('')}
+            `;
+        } catch(e) {
+            if (list) list.innerHTML = `<div style="text-align:center;color:#475569;padding:20px;font-size:12px;"><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;font-size:20px;display:block;margin-bottom:8px;"></i>Erreur: ${e.message}</div>`;
+        }
+    },
+
 };
 
 window.AlgeriaMap = AlgeriaMap;

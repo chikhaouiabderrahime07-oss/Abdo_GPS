@@ -455,15 +455,17 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgb
 }
 
 .modal-box {
-    background: white;
+    background: var(--bg-surface, #1e2a45);
+    color: var(--text-primary, #e2e8f0);
     width: 90%;
     max-width: 600px;
-    border-radius: 12px;
-    padding: 25px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-    animation: zoomIn 0.3s ease;
+    border-radius: 16px;
+    padding: 0;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+    animation: zoomIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     max-height: 90vh;
     overflow-y: auto;
+    border: 1px solid rgba(255,255,255,0.1);
 }
 
 @keyframes zoomIn {
@@ -488,17 +490,24 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgb
 #map-wrapper {
     position: relative;
     width: 100%;
-    height: 75vh;
-    min-height: 500px;
-    border-radius: 12px;
+    height: 100%;
+    min-height: 0;
+    border-radius: 0;
     overflow: hidden;
-    margin-top: 15px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    border: 1px solid #ddd;
-    display: none;
-    background: #eef0f2;
+    margin-top: 0;
+    box-shadow: none;
+    border: none;
+    display: block; /* always visible inside gpsMapLayout flex */
+    background: #1a2035;
+    flex: 1;
 }
-#map-container { width: 100%; height: 100%; }
+#map-container {
+    width: 100% !important;
+    height: 100% !important;
+    position: absolute !important;
+    inset: 0;
+}
+
 
 /* --- CONTROLS --- */
 .map-overlay-controls {
@@ -869,7 +878,7 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgb
 @media (max-width: 768px) {
   .global-search-container { width: 100%; margin-left: 0; margin-top: 10px; order: 99; }
   .header-content { flex-direction: row; }
-  #map-wrapper { height: 70vh; }
+  #map-wrapper { height: 100%; }
 }
 
 /* --- NEW STYLES FOR BUTTONS & FLASHING --- */
@@ -1221,3 +1230,230 @@ input:focus, select:focus { border-color: var(--teal); box-shadow: 0 0 0 2px rgb
     50% { transform: scale(1.15); box-shadow: 0 0 50px #059669; }
     100% { transform: scale(1); box-shadow: 0 0 20px #059669; }
 }
+/* ================================================================
+   GPS MAP PANEL STYLES
+   ================================================================ */
+
+#gpsMapLayout {
+  position: relative;
+}
+
+#mapLeftPanel {
+  transition: width 0.3s ease;
+  min-width: 0;
+}
+
+.map-panel-tab {
+  transition: all 0.2s;
+}
+.map-panel-tab:hover {
+  color: #e2e8f0 !important;
+  background: rgba(255,255,255,0.04);
+}
+
+.panel-tab-content {
+  animation: fadeIn 0.2s ease;
+}
+
+.panel-truck-item:hover {
+  background: rgba(59,130,246,0.1) !important;
+}
+
+/* Scrollbar styling for panel */
+#mapPanelContent::-webkit-scrollbar { width: 4px; }
+#mapPanelContent::-webkit-scrollbar-track { background: transparent; }
+#mapPanelContent::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+
+/* ================================================================
+   TOOLTIP SYSTEM — Universal (data-tooltip attribute)
+   ================================================================ */
+
+[data-tooltip] {
+  position: relative;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15,23,42,0.95);
+  color: #e2e8f0;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 7px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  z-index: 9999;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  max-width: 200px;
+  white-space: normal;
+  text-align: center;
+  transform: translateX(-50%) translateY(4px);
+}
+[data-tooltip]:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Map extras bar - updated positioning */
+.map-extras-bar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.extra-btn {
+  width: 36px;
+  height: 36px;
+  background: rgba(15,23,42,0.85);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: all 0.2s;
+  backdrop-filter: blur(8px);
+}
+.extra-btn:hover {
+  background: rgba(59,130,246,0.2);
+  border-color: rgba(59,130,246,0.4);
+  color: #60a5fa;
+  transform: scale(1.05);
+}
+.extra-btn.active {
+  background: rgba(59,130,246,0.25);
+  border-color: rgba(59,130,246,0.5);
+  color: #3b82f6;
+}
+
+/* map-wrapper is now inside gpsMapLayout, no position:relative needed */
+#map-wrapper {
+  position: relative;
+}
+
+/* Zone activity bar scrollbar */
+#zoneActivityChips::-webkit-scrollbar { height: 0; }
+
+/* ================================================================
+   Zone stats chips animation
+   ================================================================ */
+@keyframes chipPop {
+  from { transform: scale(0.8); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+#zoneActivityChips span {
+  animation: chipPop 0.3s ease;
+}
+
+/* Style button active state in layers panel */
+.style-btn.active {
+  background: rgba(59,130,246,0.15) !important;
+  border-color: rgba(59,130,246,0.4) !important;
+  color: #93c5fd !important;
+}
+
+/* ================================================================
+   MODAL DARK THEME FIX — All modals use dark background
+   ================================================================ */
+
+/* Overlay */
+.modal-overlay {
+    backdrop-filter: blur(4px);
+    background: rgba(0,0,0,0.7) !important;
+}
+
+/* All modal content should use dark theme vars */
+.modal-box, .modal-content {
+    background: var(--bg-surface, #1a2035) !important;
+    color: var(--text-primary, #e2e8f0) !important;
+    border: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Modal inputs and selects should be readable */
+.modal-box input, .modal-box select, .modal-box textarea,
+.modal-content input, .modal-content select, .modal-content textarea {
+    background: rgba(255,255,255,0.06) !important;
+    color: var(--text-primary, #e2e8f0) !important;
+    border: 1px solid rgba(255,255,255,0.1) !important;
+    border-radius: 8px;
+}
+.modal-box input::placeholder, .modal-content input::placeholder { color: #64748b !important; }
+.modal-box input:focus, .modal-box select:focus, .modal-content input:focus {
+    outline: none !important;
+    border-color: rgba(59,130,246,0.5) !important;
+    box-shadow: 0 0 0 3px rgba(59,130,246,0.1) !important;
+}
+.modal-box select option { background: #1e2a45; color: #e2e8f0; }
+
+/* Modal labels */
+.modal-box label, .modal-content label {
+    color: var(--text-secondary, #94a3b8) !important;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Modal title */
+.modal-title {
+    color: var(--text-primary, #e2e8f0) !important;
+    font-size: 1.1rem;
+    font-weight: 800;
+}
+
+/* Modal header */
+.modal-header {
+    padding: 18px 20px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: rgba(0,0,0,0.2);
+    border-radius: 16px 16px 0 0;
+    margin-bottom: 0;
+}
+
+/* Client modal specific fix */
+#clientModal .cm-panel { background: rgba(255,255,255,0.03) !important; }
+#clientModal .cm-client-item { color: var(--text-primary, #e2e8f0) !important; }
+#clientModal h3, #clientModal h4, #clientModal p, #clientModal label {
+    color: var(--text-primary, #e2e8f0) !important;
+}
+
+/* Settings accordion inputs */
+.settings-content input, .settings-content select, .settings-content textarea {
+    background: var(--bg-elevated, rgba(255,255,255,0.05)) !important;
+    color: var(--text-primary, #e2e8f0) !important;
+    border: 1px solid var(--border, rgba(255,255,255,0.1)) !important;
+}
+.settings-content input::placeholder { color: #64748b !important; }
+.settings-content select option { background: #1e2a45; color: #e2e8f0; }
+
+/* Truck card body text on dark background */
+.card-premium .stat-value { color: var(--text-primary) !important; }
+
+/* General: any p, span, div inside modal should not be black */
+.modal-box p, .modal-box span:not([class*="badge"]):not([class*="tag"]),
+.modal-content p, .modal-content span:not([class*="badge"]):not([class*="tag"]) {
+    color: inherit;
+}
+
+/* mapbox popup fix for zone history */
+.mapboxgl-popup-content {
+    background: var(--bg-surface, #1e2a45) !important;
+    color: var(--text-primary, #e2e8f0) !important;
+    border-radius: 12px !important;
+    padding: 0 !important;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5) !important;
+}
+.mapboxgl-popup-tip { border-top-color: var(--bg-surface, #1e2a45) !important; }
+.mapboxgl-popup-close-button { color: #94a3b8 !important; font-size: 16px !important; right: 8px !important; top: 8px !important; }

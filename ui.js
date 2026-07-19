@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 🔒 GATEKEEPER INTERCEPTOR (Fixed for Mapbox)
  * Automatically injects the Access Code into every API request.
  * Handles both String URLs and Request Objects to prevent Mapbox crashes.
@@ -68,7 +68,7 @@ class UIController {
     this.zoneGroupingMode = 'city'; 
     this.searchQuery = '';
 
-    // ✅ Settings sync timestamp (used to refresh vidange overrides periodically)
+    // \u2705 Settings sync timestamp (used to refresh vidange overrides periodically)
     this.lastSettingsSync = 0;
     this.settingsSyncIntervalMs = 5 * 60 * 1000; // 5 minutes
     
@@ -148,7 +148,7 @@ class UIController {
       if(this.maintDateStart) this.maintDateStart.value = today;
       if(this.maintDateEnd) this.maintDateEnd.value = today;
       
-      console.log('✅ UI Controller Ready (Rule-Based System)');
+      console.log('\u2705 UI Controller Ready (Rule-Based System)');
       window.ui = this;
 
       if (FLEET_CONFIG.AUTO_START) {
@@ -220,7 +220,7 @@ toggleDecouchageSubTab(view) {
       .fuel-card-container:hover .fuel-card-overlay-btn { display: block; animation: fadeIn 0.3s;}
       .fuel-card-overlay-btn:hover { background: var(--teal-dark); }
 
-      /* ✅ Quick Vidange Button */
+      /* \u2705 Quick Vidange Button */
       .btn-vidange-done {
           background: #166534;
           color: #ffffff;
@@ -323,7 +323,7 @@ initElements() {
     this.modalMaintSubmitBtn = document.getElementById('modalMaintSubmitBtn'); 
     this.modalMaintTitle = document.querySelector('#maintenanceModal h3 span') || document.querySelector('#maintenanceModal h3');
 
-    // ✅ NEW: Maintenance Follow-up elements
+    // \u2705 NEW: Maintenance Follow-up elements
     this.maintTruckSearchInput = document.getElementById('maintTruckSearchInput');
     this.maintTruckSearchResults = document.getElementById('maintTruckSearchResults');
     this.maintTruckInfoPanel = document.getElementById('maintTruckInfoPanel');
@@ -368,11 +368,14 @@ initElements() {
     this.customLocLng = document.getElementById('customLocLng');
     this.customLocRadius = document.getElementById('customLocRadius'); 
     this.customLocType = document.getElementById('customLocType');
+    this.customLocClient = document.getElementById('customLocClient');
+    this.customLocFinalClient = document.getElementById('customLocFinalClient');
     this.addCustomLocBtn = document.getElementById('addCustomLocBtn');
-    this.customLocationsList = document.getElementById('customLocationsList');
+    
 
     // RULE SYSTEM
     this.rulesListContainer = document.getElementById('rulesListContainer');
+    if (!FLEET_CONFIG.IMMOBIL_RULES) FLEET_CONFIG.IMMOBIL_RULES = [];
     this.ruleEditorModal = document.getElementById('ruleEditorModal');
     this.ruleEditorContent = document.getElementById('ruleEditorContent');
 
@@ -437,6 +440,8 @@ initElements() {
           if (data.customLocations) FLEET_CONFIG.CUSTOM_LOCATIONS = data.customLocations;
           if (data.pollInterval) FLEET_CONFIG.UI.pollInterval = data.pollInterval;
           if (data.apiKeys) FLEET_CONFIG.GEOAPIFY_API_KEYS = data.apiKeys;
+          if (data.immobilRules) FLEET_CONFIG.IMMOBIL_RULES = data.immobilRules;
+          if (data.clients) FLEET_CONFIG.CLIENTS = data.clients;
           if (data.maintenanceRules) FLEET_CONFIG.MAINTENANCE_RULES = data.maintenanceRules;
 
           if (data.vidangeOverrides) FLEET_CONFIG.VIDANGE_OVERRIDES = data.vidangeOverrides;
@@ -447,11 +452,45 @@ initElements() {
           if (data.naftalBudget) FLEET_CONFIG.NAFTAL_BUDGET = data.naftalBudget;
 
           this.lastSettingsSync = Date.now();
+          // --- AUTO-MIGRATE LEGACY CLIENTS ---
+          let _migrated = false;
+          if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+          if (FLEET_CONFIG.CUSTOM_LOCATIONS && FLEET_CONFIG.CUSTOM_LOCATIONS.length > 0) {
+            FLEET_CONFIG.CUSTOM_LOCATIONS.forEach(loc => {
+              if (loc.type === 'client' || loc.type === 'subclient') {
+                const exists = FLEET_CONFIG.CLIENTS.find(c => c.id === loc.clientId || c.name.toLowerCase() === loc.name.toLowerCase());
+                if (!exists) {
+                  const newClient = {
+                    id: 'cl_' + Date.now() + Math.floor(Math.random()*1000),
+                    name: loc.name,
+                    color: loc.color || '#3b82f6',
+                    icon: 'fa-user-tie',
+                    iconEmoji: '',
+                    logoText: loc.name.substring(0, 2).toUpperCase(),
+                    industry: '', phone: '', email: '', address: '', notes: 'Migré depuis les anciennes zones',
+                    finalClients: []
+                  };
+                  FLEET_CONFIG.CLIENTS.push(newClient);
+                  loc.clientId = newClient.id; // link the legacy zone to the new client
+                  _migrated = true;
+                }
+              }
+            });
+          }
+          if (_migrated) {
+            console.log('🔄 Auto-migrated legacy clients to new structure.');
+            this.saveSettingsToCloud();
+          }
+          // -----------------------------------
+
           
           console.log("☁️ Settings synced from Cloud");
           this.loadGlobalSettingsToUI();
-          this.renderCustomLocationsList();
+          
+          this.loadClients();
           this.renderRulesList(); // RENDER RULES
+          this.renderImmobilRules();
+          if ((FLEET_CONFIG.IMMOBIL_RULES || []).filter(r => r.enabled).length > 0) this.startImmobilPoller();
           
           // Update Service with Loaded Keys
           if(geocodeService && FLEET_CONFIG.GEOAPIFY_API_KEYS) {
@@ -472,7 +511,9 @@ initElements() {
           maintenanceRules: FLEET_CONFIG.MAINTENANCE_RULES,
           apiKeys: FLEET_CONFIG.GEOAPIFY_API_KEYS,
           speedLimit: FLEET_CONFIG.SPEED_LIMIT || 90,
-          naftalBudget: FLEET_CONFIG.NAFTAL_BUDGET || 0
+          naftalBudget: FLEET_CONFIG.NAFTAL_BUDGET || 0,
+          immobilRules: FLEET_CONFIG.IMMOBIL_RULES,
+          clients: FLEET_CONFIG.CLIENTS
       };
       
       try {
@@ -517,6 +558,7 @@ initElements() {
     
     if(document.getElementById('saveDefaultsBtn')) document.getElementById('saveDefaultsBtn').addEventListener('click', () => this.saveDefaultsAndRefresh());
     if(this.addCustomLocBtn) this.addCustomLocBtn.addEventListener('click', () => this.addCustomLocation());
+    if(document.getElementById('addClientBtn')) document.getElementById('addClientBtn').addEventListener('click', () => this.addClient());
     if(this.saveConnectionBtn) this.saveConnectionBtn.addEventListener('click', () => this.saveConnectionSettings());
 
     this.routeDestSearch.addEventListener('input', (e) => this.handleRouteDestinationSearch(e.target.value));
@@ -678,7 +720,7 @@ initElements() {
               fetchRange.start,
               fetchRange.end,
               ({ done, total, truckName }) => {
-                  this.decouchageHistoryContainer.innerHTML = `<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-moon fa-spin"></i> Analyse précise ${done}/${total}<br><span style="font-size:12px; color:#94a3b8;">${truckName}</span></div>`;
+                  this.decouchageHistoryContainer.innerHTML = `<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-moon fa-spin"></i> Analyse précise ${done}/${total}<br><span style="font-size:12px; color:var(--text-muted, #94a3b8);">${truckName}</span></div>`;
               }
           );
           this.renderDecouchageList();
@@ -726,32 +768,44 @@ initElements() {
   }
   
   // --- HELPER: JUMP TO MAP ---
-  viewOnMap(lat, lng) {
-      if (!lat || !lng) {
-          if (window.showToast) showToast('Position GPS indisponible pour ce véhicule.', 'warning');
-          return;
-      }
-      // 1. Force Switch to Map Tab (using your 'byWilaya' ID for the map view)
-      this.switchTab('byWilaya'); 
+  viewOnMap(lat, lng, truckId) {
+    // Step 1: Switch to map tab + ensure map canvas mode
+    const mapNavBtn = document.querySelector('[data-tab="byWilaya"]');
+    if (mapNavBtn) mapNavBtn.click(); else this.switchTab('byWilaya');
+    if (this.zoneGroupingMode !== 'map') this.setZoneGrouping('map');
 
-      // 2. Wait 300ms for the map to un-hide and render
-      setTimeout(() => {
-          if (window.AlgeriaMap && window.AlgeriaMap.map) {
-              window.AlgeriaMap.map.resize(); // Fixes grey map bug
-              window.AlgeriaMap.map.flyTo({
-                  center: [lng, lat],
-                  zoom: 16,
-                  essential: true
-              });
-              
-              // Optional: Add a temporary red marker to show the spot
-              new mapboxgl.Marker({ color: 'red' })
-                  .setLngLat([lng, lat])
-                  .addTo(window.AlgeriaMap.map);
-          } else {
-              alert("⚠️ La carte n'est pas encore prête. Veuillez patienter.");
-          }
-      }, 300);
+    const hasCoords = lat && lng && lat !== 0 && lng !== 0;
+
+    const attemptFly = (attempt) => {
+      const am = window.AlgeriaMap;
+      if (!am || !am.map) {
+        if (attempt < 15) setTimeout(() => attemptFly(attempt + 1), 500);
+        return;
+      }
+      try { am.map.resize(); } catch(e) {}
+      const canvas = am.map.getCanvas();
+      if (!canvas || canvas.width === 0) {
+        if (attempt < 15) setTimeout(() => attemptFly(attempt + 1), 500);
+        return;
+      }
+
+      // Select and isolate truck (this handles focus mode)
+      if (truckId && am.selectTruckById) {
+        am.selectTruckById(truckId);
+      }
+
+      // Then fly to actual position
+      if (hasCoords) {
+        am.map.flyTo({ center: [lng, lat], zoom: 16, essential: true, duration: 1800 });
+      } else if (truckId && am.truckDataCache) {
+        // Try to find truck in cache to get coordinates
+        const t = am.truckDataCache.find(t => t.id === truckId || String(t.deviceId) === String(truckId));
+        if (t && t.coordinates) {
+          am.map.flyTo({ center: [t.coordinates.lng, t.coordinates.lat], zoom: 16, essential: true, duration: 1800 });
+        }
+      }
+    };
+    setTimeout(() => attemptFly(0), 600);
   }
   
 renderDecouchageList() {
@@ -784,10 +838,10 @@ renderDecouchageList() {
     this.currentDecouchageSummary = summaryArray;
 
     // Render Table
-    let tableHtml = `<div style="max-height: 350px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;"><table style="width:100%; border-collapse:collapse; font-size:13px; background:white;"><thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;"><tr style="color:#475569; text-align:left; border-bottom:2px solid #e2e8f0;"><th style="padding:12px 15px;">Camion</th><th style="padding:12px; text-align:center;">Nuits Dehors</th></tr></thead><tbody>`;
+    let tableHtml = `<div style="max-height: 350px; overflow-y: auto; border: 1px solid var(--text-primary, #e2e8f0); border-radius: 8px;"><table style="width:100%; border-collapse:collapse; font-size:13px; background:#1a2332;"><thead style="position: sticky; top: 0; background: #f1f5f9; z-index: 1;"><tr style="color:#475569; text-align:left; border-bottom:2px solid var(--text-primary, #e2e8f0);"><th style="padding:12px 15px;">Camion</th><th style="padding:12px; text-align:center;">Nuits Dehors</th></tr></thead><tbody>`;
     summaryArray.forEach((item, index) => {
         const bg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-        const countStyle = item.total > 0 ? 'color:#dc2626; font-weight:bold; background:#fef2f2; padding:2px 8px; border-radius:4px;' : 'color:#94a3b8;';
+        const countStyle = item.total > 0 ? 'color:#dc2626; font-weight:bold; background:#fef2f2; padding:2px 8px; border-radius:4px;' : 'color:var(--text-muted, #94a3b8);';
         tableHtml += `<tr style="background:${bg}; border-bottom:1px solid #eee;"><td style="padding:10px 15px; font-weight:600; color:#334155;">${item.name}</td><td style="padding:10px; text-align:center;"><span style="${countStyle}">${item.total}</span></td></tr>`;
     });
     tableHtml += '</tbody></table></div>';
@@ -805,7 +859,7 @@ renderDecouchageList() {
         const resolvedName = log.locationName || `${log.locationAtMidnight?.lat?.toFixed(4) || '?'}, ${log.locationAtMidnight?.lng?.toFixed(4) || '?'}`;
         const detectedTime = log.detectedAt ? new Date(log.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '00:00';
         const dateStr = new Date(log.date).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
-        html += `<div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid #dc2626; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;"><div style="flex:1;"><div style="font-weight:bold; color:#1e293b;">${log.truckName}</div><div style="font-size:12px; color:#64748b;">Nuit du <strong>${dateStr}</strong> · Détecté à ${detectedTime}</div></div><div style="flex:2; text-align:center;"><div onclick="ui.viewOnMap(${log.locationAtMidnight?.lat || 0}, ${log.locationAtMidnight?.lng || 0})" style="font-size:12px; color:#1e40af; background:#eff6ff; padding:6px 12px; border-radius:6px; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'"><i class="fa-solid fa-map-pin"></i> ${resolvedName} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px; opacity:0.6; margin-left:4px;"></i></div><div style="font-size:11px; color:#64748b;">à ${distKm} km du site</div></div><div style="flex:0.5; text-align:right;"><span style="background:#fff7ed; color:#c2410c; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; border:1px solid #fed7aa;">🌙 Hors Site</span></div></div>`;
+        html += `<div style="background:#1a2332; border:1px solid var(--border, rgba(255,255,255,0.08)); border-left: 5px solid #dc2626; padding:15px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;"><div style="flex:1;"><div style="font-weight:bold; color:var(--bg-elevated, #1e293b);">${log.truckName}</div><div style="font-size:12px; color:var(--text-muted, #64748b);">Nuit du <strong>${dateStr}</strong> · Détecté à ${detectedTime}</div></div><div style="flex:2; text-align:center;"><div onclick="ui.viewOnMap(${log.locationAtMidnight?.lat || 0}, ${log.locationAtMidnight?.lng || 0})" style="font-size:12px; color:#1e40af; background:#eff6ff; padding:6px 12px; border-radius:6px; cursor:pointer; transition:all 0.2s;" onmouseover="this.style.background='#dbeafe'" onmouseout="this.style.background='#eff6ff'"><i class="fa-solid fa-map-pin"></i> ${resolvedName} <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px; opacity:0.6; margin-left:4px;"></i></div><div style="font-size:11px; color:var(--text-muted, #64748b);">à ${distKm} km du site</div></div><div style="flex:0.5; text-align:right;"><span style="background:#fff7ed; color:#c2410c; padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700; border:1px solid #fed7aa;">🌙 Hors Site</span></div></div>`;
     });
     this.decouchageHistoryContainer.innerHTML = html + '</div>';
 }
@@ -1050,7 +1104,7 @@ exportDecouchageCSV() {
               <div class="form-group" style="grid-column: 1 / -1;">
                   <label>Capacité par IO (ex: io67=400, io82=300)</label>
                   <input type="text" id="ruleFuelSensorCaps" value="${fuelCapacityText}" placeholder="io67=400, io82=300">
-                  <div style="font-size:12px; color:#64748b; margin-top:6px;">Chaque IO peut avoir sa propre capacité. Le système additionne ensuite les réservoirs.</div>
+                  <div style="font-size:12px; color:var(--text-muted, #64748b); margin-top:6px;">Chaque IO peut avoir sa propre capacité. Le système additionne ensuite les réservoirs.</div>
               </div>
 
               <div class="form-group" style="grid-column: 1 / -1;">
@@ -1115,7 +1169,7 @@ exportDecouchageCSV() {
       this.saveSettingsToCloud();
       this.closeRuleEditor();
       this.renderRulesList();
-      alert("✅ Règle enregistrée !");
+      alert("\u2705 Règle enregistrée !");
       this.updateDashboard(); // Refresh dash to apply new physics
   }
 
@@ -1207,7 +1261,7 @@ exportDecouchageCSV() {
     }
 
     this.saveSettingsToCloud();
-    alert('✅ Configuration Globale sauvegardée !');
+    alert('\u2705 Configuration Globale sauvegardée !');
     this.updateDashboard();
   }
 
@@ -1224,7 +1278,7 @@ exportDecouchageCSV() {
     if(geocodeService) geocodeService.updateKeys(keysArray);
 
     this.saveSettingsToCloud();
-    alert('✅ Paramètres de connexion enregistrés !');
+    alert('\u2705 Paramètres de connexion enregistrés !');
     if (app && app.isRunning) this.startTracking();
   }
 
@@ -1233,21 +1287,18 @@ exportDecouchageCSV() {
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     const btn = document.querySelector(`[data-tab="${tabName}"]`);
     if (btn) btn.classList.add('active');
-    document.getElementById(tabName).classList.add('active');
+    const content = document.getElementById(tabName);
+    if (content) content.classList.add('active');
 
-if (tabName === 'byWilaya') {
-        // Force Map Mode by default when clicking this tab
-        if(this.zoneGroupingMode !== 'map') {
-            this.setZoneGrouping('map'); 
-        }
-        
-        // Refresh Map
+    if (tabName === 'byWilaya') {
+        // Always open in map mode
+        this.setZoneGrouping('map');
         setTimeout(() => {
             if(window.AlgeriaMap && window.AlgeriaMap.map) {
                 window.AlgeriaMap.map.resize();
                 window.AlgeriaMap.updateMarkers(app.getAllTrucks());
             }
-        }, 100);
+        }, 120);
     }
     if (tabName === 'fuelSection') this.renderFuelSection();
     if (tabName === 'vidangeSection') this.renderVidangeSection(); 
@@ -1256,8 +1307,9 @@ if (tabName === 'byWilaya') {
     if (tabName === 'routing') this.populateRouteTruckList();
     if (tabName === 'alertsSection') this.refreshAlerts();
     if (tabName === 'settings') { 
-        this.renderCustomLocationsList(); 
+         
         this.renderRulesList();
+        if (typeof this.detectPotentialZones === 'function') this.detectPotentialZones();
         // Load truck metadata in settings
         this.loadTruckDbCache().then(() => this.populateSettingsTruckSelect());
         // Restore Naftal budget input from cloud config
@@ -1331,7 +1383,7 @@ if (tabName === 'byWilaya') {
       }
       this.errorContainer.innerHTML = '';
 
-      // ✅ Periodic settings refresh (keeps vidange overrides + rules synced without manual reload)
+      // \u2705 Periodic settings refresh (keeps vidange overrides + rules synced without manual reload)
       const now = Date.now();
       if (!this.lastSettingsSync || (now - this.lastSettingsSync) > this.settingsSyncIntervalMs) {
         await this.loadSettingsFromCloud();
@@ -1348,6 +1400,11 @@ if (tabName === 'byWilaya') {
       await app.processTruckData(data);
       app.recordHistory();
       this.updateDashboard();
+
+      // \u2705 Smart Tracker: runs every poll cycle in background (1h/500m cluster detection)
+      // This keeps _stopTracker timestamps fresh so Zone Management shows accurate data
+      try { if (typeof this.detectPotentialZones === 'function') this.detectPotentialZones(); } catch(e) {}
+
     } catch (error) {
       this.loadingContainer.innerHTML = '';
       console.error(error);
@@ -1367,23 +1424,23 @@ if (tabName === 'byWilaya') {
     const rect = overlay.getBoundingClientRect();
     const pop = document.createElement('div');
     pop.id = 'searchPopover';
-    pop.style.cssText = `position:fixed; top:${rect.bottom + 6}px; right:20px; z-index:9999; background:#1e293b; border:1px solid rgba(56,189,248,0.3); border-radius:12px; padding:8px; min-width:300px; box-shadow:0 12px 40px rgba(0,0,0,0.4); backdrop-filter:blur(10px);`;
-    const header = `<div style="font-size:10px; color:#64748b; font-weight:700; padding:4px 8px; text-transform:uppercase; letter-spacing:1px;">${results.length} camion${results.length > 1 ? 's' : ''} trouvé${results.length > 1 ? 's' : ''} — Enter: Dashboard | Esc: Fermer</div>`;
+    pop.style.cssText = `position:fixed; top:${rect.bottom + 6}px; right:20px; z-index:9999; background:var(--bg-elevated, #1e293b); border:1px solid rgba(56,189,248,0.3); border-radius:12px; padding:8px; min-width:300px; box-shadow:0 12px 40px rgba(0,0,0,0.4); backdrop-filter:blur(10px);`;
+    const header = `<div style="font-size:10px; color:var(--text-muted, #64748b); font-weight:700; padding:4px 8px; text-transform:uppercase; letter-spacing:1px;">${results.length} camion${results.length > 1 ? 's' : ''} trouvé${results.length > 1 ? 's' : ''} — Enter: Dashboard | Esc: Fermer</div>`;
     const rows = results.map(t => {
       const db = (this.truckDbCache || []).find(d => d.deviceId === t.id) || {};
       const speedBadge = t.speed >= 1
         ? `<span style="background:#dcfce7; color:#166534; font-size:9px; padding:2px 6px; border-radius:10px; font-weight:700;">⚡ ${t.speed}km/h</span>`
-        : `<span style="background:#f1f5f9; color:#64748b; font-size:9px; padding:2px 6px; border-radius:10px;">STOP</span>`;
+        : `<span style="background:#f1f5f9; color:var(--text-muted, #64748b); font-size:9px; padding:2px 6px; border-radius:10px;">STOP</span>`;
       const lat = t.position?.lat || t.lat || 0;
       const lng = t.position?.lng || t.lng || 0;
       return `<div style="padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; transition:background 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.1)'" onmouseout="this.style.background='transparent'">
         <div onclick="ui.switchTab('dashboard'); ui.updateDashboard();" style="flex:1;">
           <div style="font-weight:700; color:#f8fafc; font-size:13px;">${t.name}</div>
-          <div style="font-size:10px; color:#94a3b8;">${t.location?.city || ''} ${db.carteNaftal ? '<span style=color:#c4b5fd;font-family:monospace;>' + db.carteNaftal + '</span>' : ''}</div>
+          <div style="font-size:10px; color:var(--text-muted, #94a3b8);">${t.location?.city || ''} ${db.carteNaftal ? '<span style=color:#c4b5fd;font-family:monospace;>' + db.carteNaftal + '</span>' : ''}</div>
         </div>
         <div style="display:flex; gap:6px; align-items:center;">
           ${speedBadge}
-          ${lat ? `<button onclick="event.stopPropagation(); ui.viewOnMap(${lat}, ${lng}); document.getElementById('searchPopover')?.remove();" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:6px;padding:3px 6px;font-size:9px;cursor:pointer;font-weight:700;">📍</button>` : ''}
+          ${lat ? `<button onclick="event.stopPropagation(); ui.viewOnMap(${lat}, ${lng}); document.getElementById('searchPopover')?.remove();" style="background:rgba(56,189,248,0.15);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:6px;padding:3px 6px;font-size:9px;cursor:pointer;font-weight:700;">\ud83d\udccd</button>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -1394,7 +1451,7 @@ if (tabName === 'byWilaya') {
   updateDashboard() {
 
     requestAnimationFrame(() => {
-        const activeTab = document.querySelector('.tab-content.active').id;
+        const _activeEl = document.querySelector('.tab-content.active'); if(!_activeEl) return; const activeTab = _activeEl.id;
         
         if (activeTab === 'dashboard') { 
             this.renderStats(); 
@@ -1433,34 +1490,216 @@ if (tabName === 'byWilaya') {
     const allTrucks = app.getAllTrucks();
     const movingCount = allTrucks.filter(t => t.speed >= 1).length;
     const stoppedCount = allTrucks.filter(t => t.speed < 1).length;
-    const gpsCutCount = allTrucks.filter(t => t.isGpsCut).length; // Count GPS Cut
+    const gpsCutCount = allTrucks.filter(t => t.isGpsCut).length;
 
-    const createCard = (label, value, color, filterType, icon) => {
+    // Document counts from loaded refs
+    const refs = this._vehicleRefs || [];
+    const now = new Date();
+    const expiredDocs = refs.filter(r => new Date(r.expiryDate) < now).length;
+    const soonDocs = refs.filter(r => {
+      const d = new Date(r.expiryDate); const days = Math.ceil((d - now) / 86400000);
+      return days >= 0 && days <= (r.reminderDays || 30);
+    }).length;
+    const docAlert = expiredDocs > 0 ? expiredDocs : soonDocs;
+    const docColor = expiredDocs > 0 ? '#ef4444' : soonDocs > 0 ? '#f97316' : '#8b5cf6';
+    const docGrad = expiredDocs > 0 ? 'linear-gradient(135deg,#ef4444,#dc2626)' : soonDocs > 0 ? 'linear-gradient(135deg,#f97316,#ea580c)' : 'linear-gradient(135deg,#8b5cf6,#7c3aed)';
+
+    const createCard = (label, value, grad, filterType, icon, badge) => {
       const isActive = this.currentFilter === filterType;
-      const safeLabel = label.replace(/'/g, "\\'"); 
+      const safeLabel = label.replace(/'/g, "\\'");
       return `
-        <div class="stat-card ${isActive ? 'active-filter' : ''}" 
+        <div class="stat-card ${isActive ? 'active-filter' : ''}"
              data-type="${filterType}"
              onclick="ui.setFilter('${filterType}', '${safeLabel}')"
-             style="border-bottom: 3px solid ${color}; background: linear-gradient(145deg, var(--bg-surface), color-mix(in srgb, ${color} 12%, var(--bg-surface))); cursor: pointer;">
-          <div class="stat-icon" style="color: ${color}; background: color-mix(in srgb, ${color} 15%, transparent);">${icon}</div>
-          <div class="stat-content">
-            <div class="stat-label" style="font-weight: 700; color: ${color};">${label}</div>
-            <div class="stat-value" style="color: var(--text-main);">${value}</div>
+             style="background:${grad}; cursor:pointer; border:none; border-radius:14px;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.15); transition: transform .15s, box-shadow .15s;
+                    transform: ${isActive ? 'translateY(-3px) scale(1.02)' : 'none'};
+                    position:relative; overflow:hidden; color:white;"
+             onmouseenter="this.style.transform='translateY(-3px) scale(1.02)'; this.style.boxShadow='0 8px 25px rgba(0,0,0,0.25)'"
+             onmouseleave="this.style.transform='${isActive ? 'translateY(-3px) scale(1.02)' : 'none'}'; this.style.boxShadow='0 4px 15px rgba(0,0,0,0.15)'">
+          <div style="position:absolute;top:-15px;right:-15px;width:70px;height:70px;border-radius:50%;background:var(--border, rgba(255,255,255,0.08));"></div>
+          <div style="position:absolute;bottom:-20px;right:10px;font-size:42px;opacity:0.12;">${icon}</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <div class="stat-icon" style="color:rgba(255,255,255,0.95); background:rgba(255,255,255,0.22); border-radius:10px; padding:8px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;">${icon}</div>
+            <div class="stat-label" style="font-weight:700; color:rgba(255,255,255,0.9); font-size:11px; text-transform:uppercase; letter-spacing:0.6px; line-height:1.2;">${label}</div>
           </div>
+          <div class="stat-content">
+            <div class="stat-value" style="color:white; font-size:36px; font-weight:900; line-height:1; letter-spacing:-1px; text-shadow:0 2px 8px rgba(0,0,0,0.2);">${value}</div>
+            ${badge ? `<div style="font-size:10px;color:rgba(255,255,255,0.75);margin-top:4px;font-weight:600;">${badge}</div>` : '<div style="height:14px;"></div>'}
+          </div>
+          ${isActive ? '<div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(255,255,255,0.6);border-radius:0 0 14px 14px;"></div>' : ''}
         </div>
       `;
     };
 
-    this.statsContainer.innerHTML = `
-      ${createCard('Tous', stats.totalTrucks, '#3b82f6', 'all', '<i class="fa-solid fa-list"></i>')}
-      ${createCard('En Route', movingCount, '#10b981', 'moving', '<i class="fa-solid fa-truck-fast"></i>')}
-      ${createCard('À l\'arrêt', stoppedCount, '#ef4444', 'stopped', '<i class="fa-solid fa-ban"></i>')}
-      ${createCard('Coupure GPS', gpsCutCount, '#475569', 'gps_cut', '<i class="fa-solid fa-satellite-dish"></i>')}
-      ${createCard('Carburant Critique', stats.criticalCount, '#f97316', 'critical', '<i class="fa-solid fa-gas-pump"></i>')}
-      ${createCard('Vidange', stats.vidangeCount, '#eab308', 'vidange', '<i class="fa-solid fa-wrench"></i>')}
+    // Documents card — special: opens panel instead of filter
+    const docCardHtml = `
+      <div class="stat-card ${this.currentFilter === 'docs' ? 'active-filter' : ''}"
+           data-type="docs"
+           onclick="ui.toggleDocPanel()"
+           style="background:${docGrad}; cursor:pointer; border:none; border-radius:14px;
+                  box-shadow: 0 4px 15px rgba(0,0,0,0.15); transition: transform .15s, box-shadow .15s;
+                  position:relative; overflow:hidden; color:white;"
+           onmouseenter="this.style.transform='translateY(-3px) scale(1.02)'; this.style.boxShadow='0 8px 25px rgba(0,0,0,0.25)'"
+           onmouseleave="this.style.transform='none'; this.style.boxShadow='0 4px 15px rgba(0,0,0,0.15)'">
+        <div style="position:absolute;top:-15px;right:-15px;width:70px;height:70px;border-radius:50%;background:var(--border, rgba(255,255,255,0.08));"></div>
+        <div style="position:absolute;bottom:-20px;right:10px;font-size:42px;opacity:0.12;"><i class="fa-solid fa-file-shield"></i></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <div class="stat-icon" style="color:rgba(255,255,255,0.95); background:rgba(255,255,255,0.22); border-radius:10px; padding:8px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:15px; flex-shrink:0;"><i class="fa-solid fa-file-shield"></i></div>
+          <div class="stat-label" style="font-weight:700; color:rgba(255,255,255,0.9); font-size:11px; text-transform:uppercase; letter-spacing:0.6px; line-height:1.2;">Documents</div>
+        </div>
+        <div class="stat-content">
+          <div class="stat-value" style="color:white; font-size:36px; font-weight:900; line-height:1; letter-spacing:-1px; text-shadow:0 2px 8px rgba(0,0,0,0.2);">${refs.length}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.8);margin-top:4px;font-weight:600;">
+            ${expiredDocs > 0 ? `<span style="background:rgba(0,0,0,0.25);border-radius:6px;padding:2px 6px;">⛔ ${expiredDocs} expiré${expiredDocs>1?'s':''}</span> ` : ''}
+            ${soonDocs > 0 ? `<span style="background:rgba(0,0,0,0.25);border-radius:6px;padding:2px 6px;">\u26a0\ufe0f ${soonDocs} bientôt</span>` : ''}
+            ${expiredDocs === 0 && soonDocs === 0 ? '<span style="background:rgba(0,0,0,0.25);border-radius:6px;padding:2px 6px;">\u2705 Tout valide</span>' : ''}
+          </div>
+        </div>
+      </div>
     `;
-    // Naftal panel removed from dashboard — available in Reports > Naftal section
+
+    this.statsContainer.innerHTML = `
+      ${createCard('Tous', stats.totalTrucks, 'linear-gradient(135deg,#1e3a8a,#3b82f6)', 'all', '<i class="fa-solid fa-list"></i>', '✓ ACTIF')}
+      ${createCard('En Route', movingCount, 'linear-gradient(135deg,#064e3b,#10b981)', 'moving', '<i class="fa-solid fa-truck-fast"></i>', '')}
+      ${createCard('À l\'arrêt', stoppedCount, 'linear-gradient(135deg,#1c1917,#57534e)', 'stopped', '<i class="fa-solid fa-circle-stop"></i>', '')}
+      ${createCard('Coupure GPS', gpsCutCount, 'linear-gradient(135deg,var(--bg-elevated, #1e293b),var(--text-muted, #64748b))', 'gps_cut', '<i class="fa-solid fa-satellite-dish"></i>', '')}
+      ${createCard('Carburant Critique', stats.criticalCount, 'linear-gradient(135deg,#7c2d12,#ef4444)', 'critical', '<i class="fa-solid fa-gas-pump"></i>', '')}
+      ${createCard('Vidange', stats.vidangeCount, 'linear-gradient(135deg,#78350f,#f59e0b)', 'vidange', '<i class="fa-solid fa-wrench"></i>', '')}
+      ${docCardHtml}
+    `;
+
+    // Render doc panel if it was open
+    if (this._docPanelOpen) this.renderDocPanel();
+  }
+
+  toggleDocPanel() {
+    this._docPanelOpen = !this._docPanelOpen;
+    const old = document.getElementById('docExpiryPanel');
+    if (old) old.remove();
+    if (this._docPanelOpen) {
+      this.currentFilter = 'docs';
+      if (this.activeFilterDisplay) this.activeFilterDisplay.style.display = 'flex';
+      if (this.filterName) this.filterName.textContent = 'Documents';
+      this.renderDocPanel();
+      this.renderTrucks();
+      this.renderStats();
+    } else {
+      this.currentFilter = 'all';
+      if (this.activeFilterDisplay) this.activeFilterDisplay.style.display = 'none';
+      this._docStatusFilter = 'all';
+      this._docTypeFilter = 'all';
+      this.renderTrucks();
+      this.renderStats();
+    }
+  }
+
+  renderDocPanel() {
+    const existing = document.getElementById('docExpiryPanel');
+    if (existing) existing.remove();
+
+    const refs = this._vehicleRefs || [];
+    const now = new Date();
+    const activeDocType = this._docTypeFilter || 'all';
+    const activeStatus = this._docStatusFilter || 'all';
+
+    // Collect unique doc types
+    const types = [...new Set(refs.map(r => r.refName))].sort();
+
+    const enriched = refs.map(r => {
+      const exp = new Date(r.expiryDate);
+      const days = Math.ceil((exp - now) / 86400000);
+      let status;
+      if (days < 0) status = 'expired';
+      else if (days <= (r.reminderDays || 30)) status = 'soon';
+      else status = 'valid';
+      return { ...r, days, status, exp };
+    }).sort((a, b) => a.days - b.days);
+
+    let filtered = enriched;
+    if (activeDocType !== 'all') filtered = filtered.filter(r => r.refName === activeDocType);
+    if (activeStatus !== 'all') filtered = filtered.filter(r => r.status === activeStatus);
+
+    const statusColors = { expired: '#ef4444', soon: '#f97316', valid: '#22c55e' };
+    const statusLabels = { expired: '⛔ Expiré', soon: '\u26a0\ufe0f Bientôt', valid: '\u2705 Valide' };
+
+    const panel = document.createElement('div');
+    panel.id = 'docExpiryPanel';
+    panel.style.cssText = `
+      margin: 0 0 12px 0; background: var(--bg-surface); border: 1px solid var(--border-color);
+      border-radius: 14px; padding: 16px; animation: fadeIn .2s ease;
+    `;
+    panel.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <i class="fa-solid fa-file-shield" style="color:#8b5cf6;font-size:18px;"></i>
+        <span style="font-weight:800;font-size:14px;">Documents Véhicules</span>
+        <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">${refs.length} documents • ${enriched.filter(r=>r.status==='expired').length} expirés • ${enriched.filter(r=>r.status==='soon').length} bientôt</span>
+        <button onclick="ui.toggleDocPanel()" style="margin-left:auto;background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px;"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:10px;color:var(--text-muted);align-self:center;font-weight:600;">STATUT:</span>
+        ${['all','expired','soon','valid'].map(s => `
+          <button onclick="ui._docStatusFilter='${s}'; ui.renderDocPanel(); ui.renderTrucks();"
+            style="font-size:10px;padding:4px 12px;border-radius:20px;border:2px solid ${s==='all'?'#6366f1':s==='expired'?'#ef4444':s==='soon'?'#f97316':'#22c55e'};
+                   background:${activeStatus===s?(s==='all'?'#6366f1':s==='expired'?'#ef4444':s==='soon'?'#f97316':'#22c55e'):'transparent'};
+                   color:${activeStatus===s?'white':(s==='all'?'#6366f1':s==='expired'?'#ef4444':s==='soon'?'#f97316':'#22c55e')};
+                   cursor:pointer;font-weight:700;transition:.15s;">
+            ${s==='all'?'Tous':statusLabels[s]}
+          </button>`).join('')}
+      </div>
+
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+        <span style="font-size:10px;color:var(--text-muted);align-self:center;font-weight:600;">TYPE:</span>
+        <button onclick="ui._docTypeFilter='all'; ui.renderDocPanel(); ui.renderTrucks();"
+          style="font-size:10px;padding:4px 12px;border-radius:20px;border:2px solid #8b5cf6;
+                 background:${activeDocType==='all'?'#8b5cf6':'transparent'};
+                 color:${activeDocType==='all'?'white':'#8b5cf6'};cursor:pointer;font-weight:700;transition:.15s;">
+          Tous types
+        </button>
+        ${types.map(t => `
+          <button onclick="ui._docTypeFilter='${t.replace(/'/g,"\\'")}'; ui.renderDocPanel(); ui.renderTrucks();"
+            style="font-size:10px;padding:4px 12px;border-radius:20px;border:2px solid #8b5cf6;
+                   background:${activeDocType===t?'#8b5cf6':'transparent'};
+                   color:${activeDocType===t?'white':'#8b5cf6'};cursor:pointer;font-weight:700;transition:.15s;">
+            ${t}
+          </button>`).join('')}
+      </div>
+
+      <div style="max-height:280px;overflow-y:auto;border-radius:8px;border:1px solid var(--border-color);">
+        ${filtered.length === 0 ? `<div style="text-align:center;padding:30px;color:var(--text-muted);">Aucun document dans cette catégorie</div>` :
+          `<table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+              <tr style="background:var(--bg-header,#f8fafc);position:sticky;top:0;z-index:1;">
+                <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">Camion</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">Type</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">N° Réf</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">Expiration</th>
+                <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">Statut</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map((r, i) => `
+                <tr style="background:${i%2===0?'transparent':'rgba(0,0,0,0.02)'}; border-top:1px solid var(--border-color);">
+                  <td style="padding:8px 12px;font-weight:700;">${r.truckName || '—'}</td>
+                  <td style="padding:8px 12px;color:var(--text-muted);">${r.refName}</td>
+                  <td style="padding:8px 12px;font-size:10px;color:var(--text-muted);">${r.refNumber || '—'}</td>
+                  <td style="padding:8px 12px;font-size:11px;">${r.exp.toLocaleDateString('fr-FR')}</td>
+                  <td style="padding:8px 12px;">
+                    <span style="background:${statusColors[r.status]}20;color:${statusColors[r.status]};border:1px solid ${statusColors[r.status]}40;
+                                 padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;">
+                      ${r.days < 0 ? `⛔ +${Math.abs(r.days)}j` : r.days === 0 ? "\u26a0\ufe0f Aujourd'hui" : r.status==='soon' ? `\u26a0\ufe0f ${r.days}j` : `\u2705 ${r.days}j`}
+                    </span>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>`
+        }
+      </div>
+    `;
+
+    // Insert after stats container
+    this.statsContainer.parentNode.insertBefore(panel, this.statsContainer.nextSibling);
   }
 
   renderTrucks() {
@@ -1477,13 +1716,28 @@ if (tabName === 'byWilaya') {
 
     if (this.currentFilter === 'critical') trucks = trucks.filter(t => t.isCriticalFuel);
     else if (this.currentFilter === 'low_fuel') trucks = trucks.filter(t => t.isLowFuel);
-    else if (this.currentFilter === 'vidange') trucks = trucks.filter(t => t.vidange.alert);
+    else if (this.currentFilter === 'vidange') trucks = trucks.filter(t => t.vidange?.alert);
     else if (this.currentFilter === 'moving') trucks = trucks.filter(t => t.speed >= 1);
     else if (this.currentFilter === 'stopped') trucks = trucks.filter(t => t.speed < 1);
-    else if (this.currentFilter === 'gps_cut') trucks = trucks.filter(t => t.isGpsCut); // NEW FILTER LOGIC
+    else if (this.currentFilter === 'gps_cut') trucks = trucks.filter(t => t.isGpsCut);
+    else if (this.currentFilter === 'docs') {
+      const now = new Date();
+      const activeStatus = this._docStatusFilter || 'all';
+      const activeType = this._docTypeFilter || 'all';
+      const refs = this._vehicleRefs || [];
+      trucks = trucks.filter(truck => {
+        const truckRefs = refs.filter(r => String(r.deviceId) === String(truck.id));
+        return truckRefs.some(r => {
+          const exp = new Date(r.expiryDate);
+          const days = Math.ceil((exp - now) / 86400000);
+          let st = days < 0 ? 'expired' : days <= (r.reminderDays || 30) ? 'soon' : 'valid';
+          return (activeStatus === 'all' || st === activeStatus) && (activeType === 'all' || r.refName === activeType);
+        });
+      });
+    }
 
     if (trucks.length === 0) {
-      this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888; background: white; border-radius: 8px;">Aucun camion ne correspond aux critères.</div>';
+      this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888; background:#111827; border-radius: 8px; color:var(--text-muted, #94a3b8);">Aucun camion ne correspond aux critères.</div>';
       return;
     }
 
@@ -1521,14 +1775,20 @@ if (tabName === 'byWilaya') {
         ? `En retard de ${Math.abs(vidangeKmUntil).toLocaleString()} km`
         : `${vidangeKmUntil.toLocaleString()} km restants`;
         
-      let cardStateClass = '';
-      let borderLeftColor = truck.speed >= 1 ? 'var(--success)' : 'var(--text-muted)';
-      if (truck.isCriticalFuel) {
-          cardStateClass = 'critical-alert';
-          borderLeftColor = 'var(--danger)';
+      // Determine card accent color matching the stat cards palette
+      let cardAccentColor, cardAccentGrad;
+      if (truck.isGpsCut) {
+        cardAccentColor = 'var(--text-muted, #64748b)'; cardAccentGrad = 'linear-gradient(135deg,var(--text-muted, #64748b),#475569)';
+      } else if (truck.isCriticalFuel) {
+        cardAccentColor = '#f97316'; cardAccentGrad = 'linear-gradient(135deg,#f97316,#ea580c)';
+      } else if (truck.vidange?.alert) {
+        cardAccentColor = '#eab308'; cardAccentGrad = 'linear-gradient(135deg,#eab308,#ca8a04)';
       } else if (isSpeeding) {
-          cardStateClass = 'critical-alert';
-          borderLeftColor = 'var(--warning)';
+        cardAccentColor = '#ef4444'; cardAccentGrad = 'linear-gradient(135deg,#ef4444,#dc2626)';
+      } else if (truck.speed >= 1) {
+        cardAccentColor = '#10b981'; cardAccentGrad = 'linear-gradient(135deg,#10b981,#059669)';
+      } else {
+        cardAccentColor = '#78716c'; cardAccentGrad = 'linear-gradient(135deg,#292524,#57534e)';
       }
 
       const nowTime = new Date();
@@ -1543,49 +1803,70 @@ if (tabName === 'byWilaya') {
       const ruleLabel = config._ruleName ? `<div style="font-size:9px; background:var(--teal); color:white; padding:2px 4px; border-radius:2px; display:inline-block; margin-top:2px;">${config._ruleName}</div>` : '';
 
       const card = document.createElement('div');
-      card.className = `card-premium ${isSpeeding ? 'speeding' : ''} ${truck.speed >= 1 ? 'moving' : 'stopped'} ${cardStateClass} ${hasExpiringRef ? 'doc-expiring' : ''}`;
-      card.style.borderLeft = `4px solid ${borderLeftColor}`;
+      card.className = `card-premium ${isSpeeding ? 'speeding' : ''} ${truck.speed >= 1 ? 'moving' : 'stopped'} ${hasExpiringRef ? 'doc-expiring' : ''}`;
+      card.style.cssText = `
+        border: 1.5px solid ${cardAccentColor}55;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.12), 0 1px 4px ${cardAccentColor}22;
+        transition: transform .18s ease, box-shadow .18s ease;
+        background: var(--bg-surface);
+      `;
+      card.onmouseenter = () => {
+        card.style.transform = 'translateY(-4px)';
+        card.style.boxShadow = `0 10px 32px rgba(0,0,0,0.18), 0 2px 8px ${cardAccentColor}44`;
+        card.style.borderColor = cardAccentColor;
+      };
+      card.onmouseleave = () => {
+        card.style.transform = '';
+        card.style.boxShadow = `0 4px 20px rgba(0,0,0,0.12), 0 1px 4px ${cardAccentColor}22`;
+        card.style.borderColor = `${cardAccentColor}55`;
+      };
+      const lat = truck.coordinates?.lat || 0;
+      const lng = truck.coordinates?.lng || 0;
+      const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}&t=k&z=17`;
+
       card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 12px;">
-          <div>
-            <h4 style="margin: 0; color: var(--text-primary); font-size: 1.15rem; display:flex; align-items:center; gap:6px;">
-              ${truck.name} 
-              ${truck.speed >= 1 ? '<span class="status-indicator moving"></span>' : '<span class="status-indicator stopped"></span>'}
-            </h4>
-            <div style="display:flex; gap:4px; margin-top:6px; flex-wrap:wrap; align-items:center;">
-              ${(() => { const db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id); if (!db) return ''; let tags = ''; if (db.carteNaftal) tags += `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${db.carteNaftal}</span> `; if (db.immatriculation) tags += `<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${db.immatriculation}</span> `; return tags; })()}
-              ${this.renderReferenceBadges ? this.renderReferenceBadges(truck.id) : ''}
-              ${hasExpiringRef ? `<span class="truck-meta-tag" style="background:var(--warning);color:#000;"><i class="fa-solid fa-triangle-exclamation"></i> Doc Expire</span>` : ''}
-            </div>
-            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
-              <i class="fa-regular fa-clock"></i> Dernière sync: ${new Date(truck.timestamp).toLocaleTimeString()}
-            </div>
+        <!-- Colored header bar — clickable → Google Maps satellite -->
+        <div style="background:${cardAccentGrad}; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;"
+             onclick="event.stopPropagation(); window.open('${mapsUrl}','_blank')"
+             title="Voir sur Google Maps satellite">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:16px;font-weight:900;color:white;letter-spacing:-0.5px;">${truck.name}</span>
+            ${truck.speed >= 1 ? '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.9);display:inline-block;box-shadow:0 0 6px rgba(255,255,255,0.8);"></span>' : '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);display:inline-block;"></span>'}
           </div>
-          <div style="text-align:right;">
-             <span class="${isSpeeding ? 'speed-badge-over' : ''}" style="background:${isSpeeding ? 'var(--danger)' : truck.speed >= 1 ? 'var(--success-subtle)' : 'var(--bg-elevated)'}; color:${isSpeeding ? '#fff' : truck.speed >= 1 ? 'var(--success)' : 'var(--text-secondary)'}; padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px; border: 1px solid ${isSpeeding ? 'var(--danger)' : truck.speed >= 1 ? 'var(--border-success)' : 'var(--border-light)'}; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">
-               ${isSpeeding ? '<i class="fa-solid fa-triangle-exclamation"></i>' : ''} ${truck.speed} km/h
-             </span>
-             ${ruleLabel ? `<div style="margin-top:6px;">${ruleLabel}</div>` : ''}
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span style="background:rgba(0,0,0,0.2); color:white; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:800; white-space:nowrap;">
+              ${isSpeeding ? '<i class="fa-solid fa-triangle-exclamation"></i> ' : ''}${truck.speed} km/h
+            </span>
+            <span style="background:rgba(0,0,0,0.2);color:white;padding:3px 8px;border-radius:20px;font-size:10px;" title="Ouvrir sur Google Maps satellite">
+              <i class="fa-solid fa-map-location-dot"></i>
+            </span>
           </div>
         </div>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: var(--bg-elevated); padding: 12px; border-radius: var(--radius-lg); border: 1px solid var(--border-light); margin-bottom: 12px;">
-          <div style="text-align: center;">
-            <div style="color:var(--text-muted); font-size: 10px; text-transform: uppercase; font-weight: 600;">Odomètre</div>
-            <strong style="color: var(--primary); font-size: 1.2rem;">${truck.odometer.toLocaleString()} <span style="font-size:10px; opacity:0.8">km</span></strong>
+        <!-- Card body -->
+        <div style="padding:12px 14px; background:var(--bg-surface);">
+          <div style="display:flex; gap:4px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+            ${(() => { const db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id); if (!db) return ''; let tags = ''; if (db.carteNaftal) tags += `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${db.carteNaftal}</span> `; if (db.immatriculation) tags += `<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${db.immatriculation}</span> `; return tags; })()}
+            ${this.renderReferenceBadges ? this.renderReferenceBadges(truck.id) : ''}
+            ${hasExpiringRef ? `<span class="truck-meta-tag" style="background:#f97316;color:white;"><i class="fa-solid fa-triangle-exclamation"></i> Doc Expire</span>` : ''}
           </div>
-          <div style="text-align: center; border-left: 1px solid var(--border-light);">
-            <div style="color:var(--text-muted); font-size: 10px; text-transform: uppercase; font-weight: 600;">Carburant</div>
-            <strong style="color: ${truck.isCriticalFuel ? 'var(--danger)' : 'var(--text-primary)'}; font-size: 1.2rem;">${truck.fuelLiters} <span style="font-size:10px; opacity:0.8">L</span></strong>
-            <div style="font-size: 10px; color: var(--text-muted);">${truck.fuelPercentage}% plein</div>
-          </div>
-        </div>
-
-        <div style="font-size: 11px; color: var(--text-secondary); display:flex; align-items:center; gap:8px; margin-bottom:12px;">
-            <i class="fa-solid fa-map-marker-alt" style="${truck.location.isCustom ? 'color: var(--success);' : ''}"></i>
-            <div>
-              <strong style="color: ${truck.location.isCustom ? 'var(--success)' : 'var(--text-primary)'};">${truck.location.city}</strong>, ${truck.location.wilaya}
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; background:var(--bg-elevated); padding:10px; border-radius:10px; border:1px solid var(--border-light); margin-bottom:10px;">
+            <div style="text-align:center;">
+              <div style="color:var(--text-muted); font-size:9px; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Odomètre</div>
+              <strong style="color:${cardAccentColor}; font-size:1.15rem; font-weight:800;">${truck.odometer.toLocaleString()} <span style="font-size:9px; opacity:0.7">km</span></strong>
             </div>
+            <div style="text-align:center; border-left:1px solid var(--border-light);">
+              <div style="color:var(--text-muted); font-size:9px; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Carburant</div>
+              <strong style="color:${truck.isCriticalFuel ? '#ef4444' : 'var(--text-primary)'}; font-size:1.15rem; font-weight:800;">${truck.fuelLiters} <span style="font-size:9px; opacity:0.7">L</span></strong>
+              <div style="font-size:9px; color:var(--text-muted);">${truck.fuelPercentage}% plein</div>
+            </div>
+          </div>
+          <div style="font-size:11px; color:var(--text-secondary); display:flex; align-items:center; gap:6px; margin-bottom:10px;">
+            <i class="fa-solid fa-location-dot" style="color:${truck.location.isCustom ? cardAccentColor : 'var(--text-muted)'}"></i>
+            <strong style="color:${truck.location.isCustom ? cardAccentColor : 'var(--text-primary)'}; font-size:11px;">${truck.location.city}</strong>
+            <span style="color:var(--text-muted);">— ${truck.location.wilaya}</span>
+          </div>
         </div>
 
         ${truck.vidange.alert ? `
@@ -1608,25 +1889,29 @@ if (tabName === 'byWilaya') {
           </div>
         ` : ''}
         
-        <div style="display:flex; gap:8px; border-top:1px solid var(--border-light); padding-top:12px;">
-          <button onclick="event.stopPropagation(); window.ui.viewOnMap(${truck.coordinates?.lat||0}, ${truck.coordinates?.lng||0})"
-            class="btn-primary" style="flex:1; background:var(--primary); font-size:11px; padding:8px; border:none; box-shadow:0 2px 8px var(--primary-glow);">
-            <i class="fa-solid fa-map-location-dot"></i> Suivre
-          </button>
-          <button onclick="event.stopPropagation(); window.ui.openRefModal('${truck.id}')"
-            class="btn-primary" style="flex:1; background:var(--info); font-size:11px; padding:8px; border:none; box-shadow:0 2px 8px rgba(56,189,248,0.4);">
-            <i class="fa-solid fa-file-contract"></i> Docs
-          </button>
-          <button onclick="event.stopPropagation(); window.ui.openMaintenanceModal('${truck.id}')"
-            class="btn-secondary" style="flex:1; font-size:11px; padding:8px; border:1px solid var(--border-strong);">
-            <i class="fa-solid fa-wrench"></i> Maint.
-          </button>
+          <div style="display:flex; gap:6px; border-top:1px solid var(--border-light); padding-top:10px;">
+            <button onclick="event.stopPropagation(); window.ui.viewOnMap(${truck.coordinates?.lat||0}, ${truck.coordinates?.lng||0})"
+              style="flex:1; background:${cardAccentGrad}; color:white; font-size:11px; padding:8px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px ${cardAccentColor}40;">
+              <i class="fa-solid fa-map-location-dot"></i> Suivre
+            </button>
+            <button onclick="event.stopPropagation(); window.ui.openRefModal('${truck.id}')"
+              style="flex:1; background:linear-gradient(135deg,#38bdf8,#0284c7); color:white; font-size:11px; padding:8px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px rgba(56,189,248,0.3);">
+              <i class="fa-solid fa-file-contract"></i> Docs
+            </button>
+            <button onclick="event.stopPropagation(); window.ui.openMaintenanceModal('${truck.id}')"
+              style="flex:1; background:var(--bg-elevated); color:var(--text-secondary); font-size:11px; padding:8px; border:1px solid var(--border-light); border-radius:8px; cursor:pointer; font-weight:700;">
+              <i class="fa-solid fa-wrench"></i> Maint.
+            </button>
+          </div>
         </div>
       `;
 
       this.trucksContainer.appendChild(card);
     });
   }
+
+
+
 
   setFilter(filterType, label) {
     this.currentFilter = filterType;
@@ -1646,11 +1931,10 @@ if (tabName === 'byWilaya') {
   // --- ZONES & MAP LOGIC ---
   setZoneGrouping(mode) {
     this.zoneGroupingMode = mode;
-    this.btnGroupWilaya.classList.remove('active');
-    this.btnGroupCity.classList.remove('active');
+    if(this.btnGroupWilaya) this.btnGroupWilaya.classList.remove('active');
+    if(this.btnGroupCity) this.btnGroupCity.classList.remove('active');
     
     const mapBtn = document.getElementById('btnGroupMap');
-    const mapWrapper = document.getElementById('map-wrapper');
     const listContainer = document.getElementById('wilayaContainer');
 
     // Reset styles
@@ -1664,18 +1948,56 @@ if (tabName === 'byWilaya') {
              mapBtn.style.backgroundColor = 'var(--teal)';
              mapBtn.style.color = 'white';
         }
-        if(mapWrapper) mapWrapper.style.display = 'block';
+        const gpsLayout = document.getElementById('gpsMapLayout');
+        if(gpsLayout) gpsLayout.style.display = 'flex';
         if(listContainer) listContainer.style.display = 'none';
         
-        if (window.AlgeriaMap && !window.AlgeriaMap.map) window.AlgeriaMap.init();
-        if (window.AlgeriaMap && app) window.AlgeriaMap.updateMarkers(app.getAllTrucks());
+        // CRITICAL: Wait for browser layout, then init or reinit the map
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const container = document.getElementById('map-container');
+            const containerW = container ? container.offsetWidth : 0;
+            const containerH = container ? container.offsetHeight : 0;
+            
+            // Check if existing map has a broken (0×0) canvas
+            let needsReinit = false;
+            if (window.AlgeriaMap && window.AlgeriaMap.map) {
+                const canvas = window.AlgeriaMap.map.getCanvas();
+                if (!canvas || canvas.width === 0 || canvas.height === 0) {
+                    console.warn('🗺️ Map canvas is 0×0, destroying and reinitializing...');
+                    try { window.AlgeriaMap.map.remove(); } catch(e) {}
+                    window.AlgeriaMap.map = null;
+                    window.AlgeriaMap.markers = {};
+                    needsReinit = true;
+                }
+            }
+            
+            if (!window.AlgeriaMap.map || needsReinit) {
+                console.log('🗺️ Initializing map... container:', containerW, 'x', containerH);
+                window.AlgeriaMap.init();
+                [500, 1000, 2000].forEach(ms => {
+                    setTimeout(() => {
+                        if(window.AlgeriaMap && window.AlgeriaMap.map) {
+                            window.AlgeriaMap.map.resize();
+                            if(app) window.AlgeriaMap.updateMarkers(app.getAllTrucks());
+                        }
+                    }, ms);
+                });
+            } else {
+                window.AlgeriaMap.map.resize();
+                if(app) window.AlgeriaMap.updateMarkers(app.getAllTrucks());
+                setTimeout(() => { if(window.AlgeriaMap && window.AlgeriaMap.map) window.AlgeriaMap.map.resize(); }, 300);
+            }
+          });
+        });
         
     } else {
-        if(mapWrapper) mapWrapper.style.display = 'none';
+        const gpsLayout = document.getElementById('gpsMapLayout');
+        if(gpsLayout) gpsLayout.style.display = 'none';
         if(listContainer) listContainer.style.display = 'block';
 
-        if (mode === 'wilaya') this.btnGroupWilaya.classList.add('active');
-        else this.btnGroupCity.classList.add('active');
+        if (mode === 'wilaya' && this.btnGroupWilaya) this.btnGroupWilaya.classList.add('active');
+        else if (this.btnGroupCity) this.btnGroupCity.classList.add('active');
         
         this.renderWilayaView();
     }
@@ -1879,7 +2201,7 @@ if (tabName === 'byWilaya') {
     this.vidangeSectionContainer.appendChild(content);
   }
 
-  // ✅ QUICK ACTION: declare a Vidange from an alert (opens Maintenance modal prefilled)
+  // \u2705 QUICK ACTION: declare a Vidange from an alert (opens Maintenance modal prefilled)
   quickAddVidange(deviceId) {
     try {
       const trucks = app.getAllTrucks();
@@ -1988,11 +2310,17 @@ if (tabName === 'byWilaya') {
                 const grid = div.nextElementSibling;
                 const isHidden = grid.style.display === 'none';
                 grid.style.display = isHidden ? 'grid' : 'none';
+                // Persist state so poll refresh doesn't collapse open zones
+                this.wilayaExpandState[groupName] = !isHidden;
             };
 
             const grid = document.createElement('div');
             grid.className = 'trucks-grid';
-            grid.style.display = this.searchQuery ? 'grid' : 'none'; 
+            // Restore saved state; custom zones default to OPEN; others to closed
+            const savedState = this.wilayaExpandState[groupName];
+            const defaultOpen = isCustom || !!this.searchQuery;
+            const isOpen = savedState !== undefined ? savedState : defaultOpen;
+            grid.style.display = isOpen ? 'grid' : 'none'; 
             grid.style.marginTop = '10px';
             grid.style.marginBottom = '20px';
             grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
@@ -2169,7 +2497,7 @@ if (tabName === 'byWilaya') {
           const summary = json.summary || {};
           const failedCount = Array.isArray(summary.failed) ? summary.failed.length : 0;
           alert(
-              `✅ Re-scan terminé.\n` +
+              `\u2705 Re-scan terminé.\n` +
               `Camions traités: ${summary.successCount || 0}/${summary.targetCount || targets.length}\n` +
               `Créés: ${summary.createdCount || 0}\n` +
               `Mis à jour: ${summary.updatedCount || 0}\n` +
@@ -2305,21 +2633,21 @@ renderFilteredRefuels() {
 
     let html = `
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:15px;">
-        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:#166534;">${totalRefuels}</div>
-            <div style="font-size:11px; color:#15803d; font-weight:600;">Remplissages</div>
+        <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#10b981;">${totalRefuels}</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Remplissages</div>
         </div>
-        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:#1e40af;">${totalVolume.toLocaleString()} L</div>
-            <div style="font-size:11px; color:#2563eb; font-weight:600;">Volume Total</div>
+        <div style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#3b82f6;">${totalVolume.toLocaleString()} L</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Volume Total</div>
         </div>
-        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:#166534;">${internalCount}</div>
-            <div style="font-size:11px; color:#15803d; font-weight:600;">Sur Site</div>
+        <div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#22c55e;">${internalCount}</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Sur Site</div>
         </div>
-        <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:#64748b;">${externalCount}</div>
-            <div style="font-size:11px; color:#94a3b8; font-weight:600;">Externe</div>
+        <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; padding:12px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:var(--text-secondary);">${externalCount}</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Externe</div>
         </div>
     </div>`;
 
@@ -2339,46 +2667,46 @@ renderFilteredRefuels() {
         const barColor = fillPercent < 15 ? '#dc2626' : fillPercent < 30 ? '#f59e0b' : '#22c55e';
 
         html += `
-        <div style="background:white; border:1px solid #e2e8f0; border-left: 5px solid ${log.isInternal ? '#22c55e' : '#f59e0b'}; padding:15px; border-radius:10px; box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+        <div class="refuel-card" style="background:var(--bg-surface); border:1px solid var(--border); border-left: 5px solid ${log.isInternal ? '#22c55e' : '#f59e0b'}; padding:15px; border-radius:10px; box-shadow:var(--shadow-sm);">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
                 <div>
-                    <div style="font-weight:800; font-size:15px; color:#1e293b;">${log.truckName}</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                    <div style="font-weight:800; font-size:15px; color:var(--text-primary);">${log.truckName}</div>
+                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
                         <i class="fa-regular fa-calendar"></i> ${dateDisplay} &nbsp; <i class="fa-regular fa-clock"></i> ${timeDisplay}
                     </div>
                     ${(() => { const db = (this.truckDbCache||[]).find(d=>d.deviceId===String(log.deviceId)); return db&&db.carteNaftal ? `<span class="truck-meta-tag naftal" style="margin-top:4px; display:inline-block; font-size:10px; padding:2px 10px;"><i class="fa-solid fa-credit-card"></i> N° ${db.carteNaftal}</span>` : ''; })()}
                 </div>
                 <div style="text-align:right;">
-                    <div style="font-size:24px; font-weight:900; color:${log.isInternal ? '#15803d' : '#0f172a'}; line-height:1;">+${log.realAdded} L</div>
-                    <div style="font-size:10px; color:#94a3b8; margin-top:2px;">≈ ${Math.round(log.realAdded * (log.isInternal ? (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29) : (ui.naftalPricePerLiter || 31)))} DA${log.isInternal ? '' : ' <span style="color:#f59e0b; font-size:9px;">(Naftal)</span>'}</div>
+                    <div style="font-size:24px; font-weight:900; color:${log.isInternal ? '#15803d' : 'var(--text-primary)'}; line-height:1;">+${log.realAdded} L</div>
+                    <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">≈ ${Math.round(log.realAdded * (log.isInternal ? (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29) : (ui.naftalPricePerLiter || 31)))} DA${log.isInternal ? '' : ' <span style="color:#f59e0b; font-size:9px;">(Naftal)</span>'}</div>
                 </div>
             </div>
 
             <!-- Fuel level bar: before → after -->
             <div style="margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8; margin-bottom:3px;">
+                <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-bottom:3px;">
                     <span>${(log.realOld && log.realOld > 0) ? ('↓ Avant: ' + log.realOld + ' L (' + oldPercent + '%)') : ''}</span>
                     <span>Après: ${log.realTotal} L (${fillPercent}%)</span>
                 </div>
-                <div style="background:#f1f5f9; border-radius:4px; height:8px; overflow:hidden; position:relative;">
-                    <div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:#cbd5e1; border-radius:4px;"></div>
+                <div style="background:var(--bg-elevated); border-radius:4px; height:8px; overflow:hidden; position:relative;">
+                    <div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:var(--text-dim); border-radius:4px;"></div>
                     <div style="position:absolute; left:0; top:0; height:100%; width:${fillPercent}%; background:${barColor}; border-radius:4px; transition:width 0.3s;"></div>
                 </div>
-                <div style="font-size:10px; color:#64748b; text-align:right; margin-top:2px;">Capacité: ${log.truckCapacity} L</div>
+                <div style="font-size:10px; color:var(--text-muted); text-align:right; margin-top:2px;">Capacité: ${log.truckCapacity} L</div>
             </div>
 
             <!-- Location -->
             <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="display:flex; align-items:center; gap:8px;">
                     ${locBadge}
-                    <span style="font-size:12px; color:#334155; font-weight:600;" id="${log.domId}-text">${log.locationDisplay}</span>
+                    <span style="font-size:12px; color:var(--text-secondary); font-weight:600;" id="${log.domId}-text">${log.locationDisplay}</span>
                 </div>
                 ${(log.lat && log.lng && log.lat !== 0) ? `
                 <div style="display:flex; gap:6px;">
-                    <a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="font-size:10px; color:#2563eb; text-decoration:none; background:#eff6ff; padding:4px 8px; border-radius:4px; font-weight:600;">
+                    <a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="font-size:10px; color:#2563eb; text-decoration:none; background:rgba(37,99,235,0.1); padding:4px 8px; border-radius:4px; font-weight:600;">
                         <i class="fa-solid fa-map-location-dot"></i> Maps
                     </a>
-                    <button onclick="ui.viewOnMap(${log.lat}, ${log.lng})" style="font-size:10px; color:#0284c7; background:#e0f2fe; padding:4px 8px; border-radius:4px; font-weight:600; border:none; cursor:pointer;">
+                    <button onclick="ui.viewOnMap(${log.lat}, ${log.lng})" style="font-size:10px; color:#0284c7; background:rgba(2,132,199,0.1); padding:4px 8px; border-radius:4px; font-weight:600; border:none; cursor:pointer;">
                         <i class="fa-solid fa-crosshairs"></i> Carte
                     </button>
                 </div>` : ''}
@@ -2457,15 +2785,15 @@ exportRefuelCSV() {
             // 3. IMPROVED VISUAL LAYOUT
             div.innerHTML = `
                 <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:#1e293b; font-size:13px;">
+                    <span style="color:var(--bg-elevated, #1e293b); font-size:13px;">
                         <i class="fa-solid fa-map-pin" style="color: var(--teal); margin-right: 8px;"></i> 
                         <strong>${cityName}</strong>
                     </span>
-                    <span style="font-size:10px; color:#64748b; background:#e2e8f0; padding:2px 6px; border-radius:4px; font-weight:bold;">
+                    <span style="font-size:10px; color:var(--text-muted, #64748b); background:var(--text-primary, #e2e8f0); padding:2px 6px; border-radius:4px; font-weight:bold;">
                         ${context}
                     </span>
                 </div>
-                <div style="font-size:10px; color:#94a3b8; margin-left:22px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                <div style="font-size:10px; color:var(--text-muted, #94a3b8); margin-left:22px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     ${p.formatted || ''}
                 </div>
             `;
@@ -2518,7 +2846,7 @@ exportRefuelCSV() {
     const destinations = this.selectedRouteDestinations;
 
     if (!truckId || !destinations || destinations.length === 0) {
-      alert('⚠️ Sélectionnez un camion et au moins une destination.');
+      alert('\u26a0\ufe0f Sélectionnez un camion et au moins une destination.');
       return;
     }
 
@@ -2546,13 +2874,13 @@ exportRefuelCSV() {
     
     let litersToBuy = 0;
     let statusColor = 'green';
-    let statusText = '✅ SUFFISANT';
+    let statusText = '\u2705 SUFFISANT';
     let cost = 0;
 
     if (shortfall > 0) {
       litersToBuy = shortfall;
       statusColor = 'orange'; 
-      statusText = `⚠️ FAIRE L'APPOINT`;
+      statusText = `\u26a0\ufe0f FAIRE L'APPOINT`;
       if (remainingAfterTrip < 0) {
         statusColor = 'red';
         statusText = `❌ INSUFFISANT`;
@@ -2569,1738 +2897,1219 @@ exportRefuelCSV() {
         </div>
         <div style="background: var(--bg-elevated); padding: 15px; border-radius: 8px;">
           <h4 style="margin: 0 0 10px 0; color: ${statusColor};">${statusText}</h4>
-          ${litersToBuy > 0 ? `
-            <p>Ajouter pour sécuriser le trajet (+marge ${marginLiters}L):</p>
-            <div style="font-size: 24px; font-weight: bold; color: ${statusColor};">${litersToBuy} Litres</div>
-            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-light);">
-              <div style="font-size: 12px; color: var(--text-muted);">COÛT ESTIMÉ</div>
-              <div style="font-size: 28px; font-weight: 800; color: var(--teal);">${cost.toLocaleString()} DA</div>
-            </div>
-          ` : `<p style="color: var(--success);">Réserve à l'arrivée: ${remainingAfterTrip}L (Marge OK).</p>`}
+          ${litersToBuy > 0 ? '<div style="font-size:24px;font-weight:bold;color:'+statusColor+';">'+litersToBuy+' Litres</div>' : '<p style="color:var(--success);">Reserve OK: '+remainingAfterTrip+'L</p>'}
         </div>
       </div>
     `;
   }
-  
+
   goToPlanning(truckId) {
       this.switchTab('routing');
       this.routeTruck.value = truckId;
-      this.routeTruck.focus();
-      this.routeTruck.style.borderColor = 'var(--teal)';
-      setTimeout(() => { this.routeTruck.style.borderColor = '#ddd'; }, 1000);
   }
 
-  // --- CUSTOM LOCATIONS CRUD ---
-  addCustomLocation() {
-    const name = this.customLocName.value.trim();
-    const wilaya = this.customLocWilaya.value.trim();
-    const lat = parseFloat(this.customLocLat.value);
-    const lng = parseFloat(this.customLocLng.value);
-    let radius = parseInt(this.customLocRadius.value);
-    const type = this.customLocType ? this.customLocType.value : 'other';
+  openZoneManagementModal(activeTab) {
+    document.getElementById('zoneManagementModal')?.remove();
+    
+    // ── DATA ──
+    let locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    let clients = FLEET_CONFIG.CLIENTS || [];
+    const allT = (typeof app !== 'undefined' && app.trucks) ? [...app.trucks.values()] : [];
+    const R = 6371000;
+    function inZone(zone, t) {
+      const c = t && t.coordinates; if(!c||!zone.lat||!zone.lng) return false;
+      const dLa=(c.lat-zone.lat)*Math.PI/180, dLo=(c.lng-zone.lng)*Math.PI/180;
+      const a=Math.sin(dLa/2)**2+Math.cos(zone.lat*Math.PI/180)*Math.cos(c.lat*Math.PI/180)*Math.sin(dLo/2)**2;
+      return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))<=(zone.radius||500);
+    }
 
-    if (!name || !wilaya || isNaN(lat) || isNaN(lng)) {
-      alert('⚠️ Veuillez remplir tous les champs obligatoires.');
+    // ── Auto-migrate old CLIENTS into CUSTOM_LOCATIONS ──
+    let needsSave = false;
+    clients.forEach(cl => {
+      let cSite = locs.find(l => l.type === 'client' && (l.clientId === cl.id || l.name === cl.name));
+      if (!cSite) {
+        cSite = { id: 'zone_' + Date.now() + '_' + Math.floor(Math.random()*9999), name: cl.name, type: 'client', clientId: cl.id, color: cl.color || '#3b82f6', lat: 0, lng: 0, radius: 500 };
+        locs.push(cSite);
+        needsSave = true;
+      } else if (!cSite.clientId) { cSite.clientId = cl.id; needsSave = true; }
+      (cl.finalClients || []).forEach(fc => {
+        let fcSite = locs.find(l => l.type === 'final_client' && (l.finalClientId === fc.id || (l.clientId === cl.id && l.name === fc.name)));
+        if (!fcSite) {
+          locs.push({ id: 'zone_fc_' + Date.now() + '_' + Math.floor(Math.random()*9999), name: fc.name, type: 'final_client', clientId: cl.id, finalClientId: fc.id, color: cl.color || '#3b82f6', lat: fc.lat || 0, lng: fc.lng || 0, radius: fc.radius || 500 });
+          needsSave = true;
+        }
+      });
+    });
+    if (needsSave) { FLEET_CONFIG.CUSTOM_LOCATIONS = locs; if(typeof this.saveSettingsToCloud === 'function') this.saveSettingsToCloud(); }
+
+    // ── TYPE CONFIG ──
+    const TC = {
+      douroub:     {icon:'fa-star',     color:'#f59e0b', label:'Si\u00e8ge / HQ'},
+      client:      {icon:'fa-building', color:'#3b82f6', label:'Client'},
+      final_client:{icon:'fa-user-tie', color:'#8b5cf6', label:'Client Final'},
+      maintenance: {icon:'fa-wrench',   color:'#f97316', label:'Maintenance'},
+      station:     {icon:'fa-gas-pump', color:'#eab308', label:'Station/Repos'},
+      other:       {icon:'fa-map-pin',  color:'#6b7280', label:'Autre'}
+    };
+    const fldS = 'width:100%;background:var(--bg-elevated,var(--bg-elevated, #1e293b));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:8px;padding:10px 12px;color:var(--text-primary,var(--text-primary, #e2e8f0));font-size:13px;box-sizing:border-box;outline:none;';
+    const lblS = 'font-size:10px;font-weight:800;color:var(--text-muted,#888);text-transform:uppercase;display:block;margin-bottom:5px;';
+
+    // ── HELPER: site card ──
+    const siteCard = (loc, i) => {
+      const tc = TC[loc.type]||TC.other;
+      // Color priority: zone.color → client.color → type fallback
+      let col = loc.color || tc.color;
+      if (!loc.color && loc.clientId) {
+        const _cl = clients.find(c => c.id === loc.clientId);
+        if (_cl && _cl.color) col = _cl.color;
+        if (loc.finalClientId && _cl && _cl.finalClients) {
+          const _fc = _cl.finalClients.find(f => f.id === loc.finalClientId);
+          if (_fc && _fc.color) col = _fc.color;
+        }
+      }
+      const here = allT.filter(t=>inZone(loc,t)).length;
+      const hasGPS = loc.lat && loc.lng && loc.lat !== 0 && loc.lng !== 0;
+      const coordTxt = hasGPS ? Number(loc.lat).toFixed(4)+', '+Number(loc.lng).toFixed(4) : '<span style="color:#f87171;">\u26a0\ufe0f GPS manquant</span>';
+      const flyJs = hasGPS ? "ui._goToZoneMap("+loc.lat+","+loc.lng+",'"+loc.name.replace(/'/g,"\\'")+"',"+(loc.radius||0)+")" : "";
+      return '<div class="zm-site-card" data-search="'+loc.name.toLowerCase()+' '+tc.label.toLowerCase()+' '+(loc.wilaya||'').toLowerCase()+'" style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-elevated,rgba(255,255,255,0.02));border:1px solid var(--border,rgba(255,255,255,0.07));border-left:3px solid '+col+';border-radius:10px;margin-bottom:6px;transition:all 0.15s;" onmouseover="this.style.background=\'var(--border, rgba(255,255,255,0.05))\';this.style.boxShadow=\'0 2px 12px rgba(0,0,0,0.2)\'" onmouseout="this.style.background=\'var(--bg-elevated,rgba(255,255,255,0.02))\';this.style.boxShadow=\'none\'">' +
+        '<div style="width:32px;height:32px;border-radius:8px;background:'+col+';display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px '+col+'66;">' + (loc.iconEmoji ? '<span style="font-size:16px;">'+loc.iconEmoji+'</span>' : '<i class="fa-solid '+(loc.icon||tc.icon)+'" style="color:#ffffff;font-size:14px;"></i>') + '</div>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-weight:700;font-size:12px;color:var(--text-primary,var(--text-primary, #e2e8f0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+loc.name+'</div>' +
+          '<div style="font-size:10px;color:var(--text-muted,#888);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+            '<span style="background:'+col+'15;color:'+col+';padding:1px 6px;border-radius:6px;font-weight:700;font-size:9px;">'+tc.label+'</span>' +
+            (loc.wilaya?'<span>'+loc.wilaya+'</span>':'') +
+            '<span style="font-family:monospace;font-size:9px;opacity:0.6;">'+coordTxt+'</span>' +
+          '</div>' +
+        '</div>' +
+        (here?'<span style="background:rgba(34,197,94,0.12);color:#22c55e;padding:2px 7px;border-radius:8px;font-size:10px;font-weight:700;flex-shrink:0;"><i class="fa-solid fa-truck" style="font-size:8px;margin-right:3px;"></i>'+here+'</span>':'') +
+        '<div style="display:flex;gap:4px;flex-shrink:0;">' +
+          (flyJs?'<button onclick="'+flyJs+'" title="Carte" style="background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);color:#38bdf8;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:10px;"><i class="fa-solid fa-crosshairs"></i></button>':'') +
+          '<button onclick="ui.openZoneClientModal('+i+')" title="Modifier" style="background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.2);color:#818cf8;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:10px;"><i class="fa-solid fa-pen"></i></button>' +
+          '<button onclick="if(confirm(\'Supprimer ce site ?\')){{FLEET_CONFIG.CUSTOM_LOCATIONS.splice('+i+',1);ui.saveSettingsToCloud();ui.openZoneManagementModal(\'sites\');}}" title="Supprimer" style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);color:#f87171;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:10px;"><i class="fa-solid fa-trash"></i></button>' +
+        '</div>' +
+      '</div>';
+    };
+
+        // ── BUILD TREE VIEW (NEW HIERARCHICAL STRUCTURE) ──
+    let treeHtml = '';
+
+    // Search bar & Header Buttons
+    treeHtml += '<div style="position:sticky;top:0;background:var(--bg-surface,#1e293b);z-index:10;padding-bottom:15px;display:flex;flex-direction:column;gap:12px;">' +
+      '<div style="display:flex;gap:10px;">' +
+        '<button onclick="ui.openClientEditorModal(null)" style="flex:1;background:linear-gradient(135deg,#4f46e5,#3730a3);color:white;border:none;border-radius:12px;padding:12px;font-weight:900;font-size:14px;cursor:pointer;box-shadow:0 4px 14px rgba(79,70,229,0.4);display:flex;align-items:center;justify-content:center;gap:8px;"><i class="fa-solid fa-building" style="font-size:18px;"></i>NOUVEAU CLIENT</button>' +
+        '<button onclick="ui.openZoneClientModal(null)" style="flex:1;background:linear-gradient(135deg,#2563eb,#1d4ed8);color:white;border:none;border-radius:12px;padding:12px;font-weight:900;font-size:14px;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.4);display:flex;align-items:center;justify-content:center;gap:8px;"><i class="fa-solid fa-location-dot" style="font-size:18px;"></i>NOUVEAU SITE</button>' +
+      '</div>' +
+      '<input type="text" placeholder="\uD83D\uDD0D Rechercher un site ou un client..." oninput="const v=this.value.toLowerCase();document.querySelectorAll(\'.zm-site-card,.zm-tree-group,.zm-client-card,.zm-fc-card\').forEach(el=>{const s=el.getAttribute(\'data-search\')||\'\';el.style.display=!v||s.includes(v)?\'\' :\'none\'});" style="width:100%;background:var(--bg-elevated,rgba(255,255,255,0.04));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:10px;padding:12px 14px;color:var(--text-primary,white);font-size:14px;outline:none;box-sizing:border-box;">' +
+    '</div>';
+
+    if (!locs.length && !clients.length) {
+      treeHtml += '<div style="text-align:center;padding:50px;color:var(--text-muted,#888);"><div style="font-size:38px;margin-bottom:12px;">📍</div><div style="font-weight:700;font-size:15px;color:var(--text-primary,var(--text-primary, #e2e8f0));">Aucun site ni client</div><div style="margin-top:8px;font-size:12px;">Utilisez les boutons en haut pour commencer.</div></div>';
+    } else {
+      
+      const orphanedLocs = [...locs]; // Track unplaced locations
+
+      // Render Clients & Their Hierarchy
+      clients.forEach((client, clientIdx) => {
+        const clientCol = client.color || '#3b82f6';
+        
+        // Find sites belonging to this client directly
+        const directSites = locs.filter(l => l.clientId === client.id && !l.finalClientId);
+        directSites.forEach(s => {
+          const idx = orphanedLocs.indexOf(s);
+          if (idx !== -1) orphanedLocs.splice(idx, 1);
+        });
+
+        // Client Header Card
+        treeHtml += '<div class="zm-tree-group" data-search="'+client.name.toLowerCase()+' client" style="margin-bottom:14px;background:var(--bg-elevated,rgba(255,255,255,0.02));border:1px solid var(--border,var(--border, rgba(255,255,255,0.05)));border-radius:12px;overflow:hidden;">';
+        
+        treeHtml += '<div class="zm-client-card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border,rgba(255,255,255,0.03));background:linear-gradient(to right, '+clientCol+'10, transparent); border-left:4px solid '+clientCol+';">' +
+          '<div style="width:36px;height:36px;border-radius:10px;background:'+clientCol+';display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px '+clientCol+'40;">' +
+            (client.iconEmoji ? '<span style="font-size:18px;">'+client.iconEmoji+'</span>' : '<i class="fa-solid '+(client.icon||'fa-building')+'" style="color:white;font-size:16px;"></i>') +
+          '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-weight:800;font-size:14px;color:var(--text-primary,var(--text-primary, #e2e8f0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+client.name+'</div>' +
+            '<div style="font-size:10px;color:var(--text-muted,#888);margin-top:2px;">'+(client.industry||'Client')+' &bull; '+(client.finalClients?.length||0)+' Sous-clients &bull; '+directSites.length+' Sites</div>' +
+          '</div>' +
+          '<button onclick="ui.openClientEditorModal('+clientIdx+')" style="background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-muted,var(--text-muted, #94a3b8));border-radius:8px;width:30px;height:30px;cursor:pointer;transition:all 0.2s;flex-shrink:0;" onmouseover="this.style.color=\''+clientCol+'\';this.style.borderColor=\''+clientCol+'40\'"><i class="fa-solid fa-pencil"></i></button>' +
+        '</div>';
+
+        // Direct Sites
+        if (directSites.length) {
+          treeHtml += '<div style="padding:10px;display:flex;flex-direction:column;gap:6px;">';
+          directSites.forEach(s => { treeHtml += siteCard(s, locs.indexOf(s)); });
+          treeHtml += '</div>';
+        }
+
+        // Final Clients
+        if (client.finalClients && client.finalClients.length) {
+          treeHtml += '<div style="padding:0 10px 10px 10px;display:flex;flex-direction:column;gap:8px;">';
+          client.finalClients.forEach((fc, fcIdx) => {
+            const fcCol = fc.color || clientCol;
+            const fcSites = locs.filter(l => l.clientId === client.id && l.finalClientId === fc.id);
+            fcSites.forEach(s => {
+              const idx = orphanedLocs.indexOf(s);
+              if (idx !== -1) orphanedLocs.splice(idx, 1);
+            });
+
+            treeHtml += '<div class="zm-fc-card" data-search="'+fc.name.toLowerCase()+'" style="border:1px solid var(--border,var(--bg-elevated, rgba(255,255,255,0.04)));border-radius:10px;background:var(--bg-surface,rgba(0,0,0,0.1));padding:10px;margin-left:14px;border-left:2px solid '+fcCol+'60;">' +
+              '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+                '<i class="fa-solid fa-diagram-project" style="color:'+fcCol+';font-size:12px;"></i>' +
+                '<div style="flex:1;font-weight:700;font-size:12px;color:var(--text-primary,var(--text-primary, #e2e8f0));">'+fc.name+'</div>' +
+                '<div style="font-size:10px;color:var(--text-muted,#888);">'+fcSites.length+' Sites</div>' +
+              '</div>';
+              
+            if (fcSites.length) {
+              treeHtml += '<div style="display:flex;flex-direction:column;gap:6px;margin-left:8px;">';
+              fcSites.forEach(s => { treeHtml += siteCard(s, locs.indexOf(s)); });
+              treeHtml += '</div>';
+            } else {
+               treeHtml += '<div style="margin-left:8px;font-size:10px;color:var(--text-muted,var(--text-muted, #64748b));font-style:italic;">Aucun site rattaché</div>';
+            }
+            treeHtml += '</div>';
+          });
+          treeHtml += '</div>';
+        }
+
+        treeHtml += '</div>'; // End Client Group
+      });
+
+      // Render remaining orphaned sites
+      if (orphanedLocs.length) {
+        const renderSection = (title, icon, color, sites, type) => {
+          if (!sites.length) return '';
+          let s = '<div class="zm-tree-group" data-search="'+type+'" style="margin-bottom:14px;">' +
+            '<div style="font-size:10px;font-weight:800;color:'+color+';text-transform:uppercase;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid '+color+'20;display:flex;align-items:center;gap:6px;">' +
+              '<i class="fa-solid '+icon+'" style="font-size:11px;"></i>' + title + ' ('+sites.length+')' +
+            '</div>';
+          sites.forEach(loc => { s += siteCard(loc, locs.indexOf(loc)); });
+          s += '</div>';
+          return s;
+        };
+
+        const hqSites = orphanedLocs.filter(l => l.type === 'douroub');
+        const maintenanceSites = orphanedLocs.filter(l => l.type === 'maintenance');
+        const stationSites = orphanedLocs.filter(l => l.type === 'station');
+        const legacyClientSites = orphanedLocs.filter(l => l.type === 'client');
+        const legacyFCSites = orphanedLocs.filter(l => l.type === 'final_client');
+        const otherSites = orphanedLocs.filter(l => l.type === 'other');
+        
+        treeHtml += renderSection('Siège / HQ', 'fa-star', '#f59e0b', hqSites, 'douroub siège hq');
+        treeHtml += renderSection('Maintenance', 'fa-wrench', '#f97316', maintenanceSites, 'maintenance');
+        treeHtml += renderSection('Stations / Repos', 'fa-gas-pump', '#eab308', stationSites, 'station repos');
+        treeHtml += renderSection('Clients Isolés', 'fa-user-tie', '#3b82f6', legacyClientSites, 'client');
+        treeHtml += renderSection('Sous-Clients Isolés', 'fa-diagram-project', '#8b5cf6', legacyFCSites, 'final_client');
+        treeHtml += renderSection('Autres', 'fa-map-pin', '#6b7280', otherSites, 'autre divers');
+      }
+    }
+
+    // ── DETECTION TAB ──
+    const today = new Date().toISOString().slice(0,10);
+    const weekAgo = new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+    const detHtml = `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:flex-end;">
+       <div><label style="${lblS}">Date d\u00e9but</label><input type="date" id="zmScanStart" value="${weekAgo}" style="${fldS}"></div>
+       <div><label style="${lblS}">Date fin</label><input type="date" id="zmScanEnd" value="${today}" style="${fldS}"></div>
+       <button id="zmScanBtn" onclick="ui._zmRunGPSScan()" style="background:linear-gradient(135deg,#a78bfa,#8b5cf6);color:white;border:none;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12px;"><i class="fa-solid fa-satellite-dish"></i>Scanner GPS</button>
+       <button onclick="ui._zmDetectFromLive()" style="background:rgba(56,189,248,0.1);color:#38bdf8;border:1px solid rgba(56,189,248,0.25);border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:12px;"><i class="fa-solid fa-radar"></i>D\u00e9tecter Live</button>
+       <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-muted,#888);cursor:pointer;padding:6px 10px;background:var(--bg-elevated, rgba(255,255,255,0.04));border:1px solid var(--border, rgba(255,255,255,0.08));border-radius:7px;" title="Ignorer les positions d\u00e9j\u00e0 dans un site existant"><input type="checkbox" id="zmScanSkipExisting" checked style="accent-color:#a78bfa;"> Ignorer sites existants</label>
+     </div>
+     <div style="background:rgba(167,139,250,0.06);border:1px solid rgba(167,139,250,0.15);border-radius:9px;padding:11px 14px;margin-bottom:14px;font-size:12px;color:var(--text-muted,#888);"><i class="fa-solid fa-circle-info" style="color:#a78bfa;margin-right:6px;"></i>Sites d\u00e9tect\u00e9s \u2192 <b style="color:#22c55e;">pr\u00e9remplissent</b> le formulaire &quot;Nouveau Site&quot;. Le bouton <b style="color:#38bdf8;">Carte</b> zoome sur <b>votre carte</b>.</div>
+     <div id="zmScanResults"><div style="text-align:center;padding:30px;color:var(--text-muted,#888);"><i class="fa-solid fa-satellite-dish" style="font-size:26px;display:block;margin-bottom:8px;color:#a78bfa;opacity:0.5;"></i>Lancez un scan pour voir les r\u00e9sultats</div></div>`;
+
+    // ── TABS ──
+    const tabBtn = (id, icon, label, badge, active) =>
+      `<button class="zmTab2${active?' active':''}" onclick="ui._zmSwitchTab(this,'${id}')" style="background:none;border:none;padding:11px 15px;${active?'color:#38bdf8;border-bottom:2px solid #38bdf8;':'color:var(--text-muted,#888);border-bottom:2px solid transparent;'}font-weight:700;font-size:12px;cursor:pointer;margin-bottom:-1px;white-space:nowrap;"${active?'':' onmouseover="this.style.color=\'var(--text-primary,var(--text-primary, #e2e8f0))\'" onmouseout="if(!this.classList.contains(\'active\'))this.style.color=\'var(--text-muted,#888)\'"'}><i class="fa-solid ${icon}" style="margin-right:5px;"></i>${label}${badge!==null?`<span style="background:rgba(255,255,255,0.07);padding:1px 6px;border-radius:8px;font-size:10px;margin-left:5px;">${badge}</span>`:''}</button>`;
+
+    // ── MODAL ──
+    const modal = document.createElement('div');
+    modal.id = 'zoneManagementModal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:99999;var(--bg-overlay, rgba(0,0,0,0.75));display:flex;align-items:center;justify-content:center;backdrop-filter:blur(14px);padding:16px;';
+    const totalFC = clients.reduce((s,c)=>s+(c.finalClients||[]).length,0);
+    modal.innerHTML = `<div style="background:var(--bg-surface,var(--bg-elevated, #1e293b));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:20px;width:1020px;max-width:96vw;height:88vh;max-height:860px;box-shadow:0 30px 80px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;">
+      <div style="padding:16px 22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));flex-shrink:0;background:var(--bg-elevated,rgba(0,0,0,0.12));">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:42px;height:42px;background:linear-gradient(135deg,#3b82f6,#6366f1);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 12px rgba(59,130,246,0.35);">\ud83d\uddfa\ufe0f</div>
+          <div><div style="font-weight:800;font-size:17px;color:var(--text-primary,var(--text-primary, #e2e8f0));">Sites & Clients</div>
+          <div style="font-size:11px;color:var(--text-muted,#888);margin-top:2px;">${locs.length} sites \u00b7 ${clients.length} clients \u00b7 ${totalFC} clients finaux</div></div>
+        </div>
+        <button onclick="document.getElementById('zoneManagementModal').remove()" style="width:34px;height:34px;border:none;background:var(--bg-elevated,rgba(255,255,255,0.06));border-radius:9px;color:var(--text-muted,#888);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='rgba(239,68,68,0.15)';this.style.color='#f87171'" onmouseout="this.style.background='var(--bg-elevated,rgba(255,255,255,0.06))';this.style.color='var(--text-muted,#888)'">&times;</button>
+      </div>
+      <div style="display:flex;padding:0 22px;border-bottom:1px solid var(--border,rgba(255,255,255,0.07));background:var(--bg-elevated,rgba(0,0,0,0.08));flex-shrink:0;overflow-x:auto;">
+        ${tabBtn('zmPane_sites','fa-sitemap','Arborescence',locs.length,true)}
+        
+        ${tabBtn('zmPane_detector','fa-satellite-dish','D\u00e9tection',null,false)}
+      </div>
+      <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+        <div id="zmPane_sites" style="flex:1;overflow-y:auto;padding:16px 20px;">${treeHtml}</div>
+        
+        <div id="zmPane_detector" style="display:none;flex:1;overflow-y:auto;padding:18px 22px;">${detHtml}</div>
+      </div>
+    </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if(e.target===modal) modal.remove(); });
+    if (activeTab) {
+      const mp = {sites:'zmPane_sites',add:'zmPane_add',detector:'zmPane_detector'};
+      const pid = mp[activeTab];
+      if (pid) setTimeout(() => { const b = modal.querySelector(`.zmTab2[onclick*="${pid}"]`); if(b) b.click(); }, 20);
+    }
+  }
+
+  _zmSelectClient(idx, el) {
+    this._zmCurrentClientIdx = idx;
+    const c = (FLEET_CONFIG.CLIENTS||[])[idx]; if (!c) return;
+    document.querySelectorAll('.zmClientCard').forEach(card => { card.classList.remove('zmSel'); card.style.background=''; card.style.border='1px solid transparent'; });
+    if (el) { el.classList.add('zmSel'); el.style.background='rgba(59,130,246,0.1)'; el.style.border='1px solid rgba(59,130,246,0.3)'; }
+    const prompt = document.getElementById('zmSelectPrompt'); const content = document.getElementById('zmFinalContent');
+    if (prompt) prompt.style.display='none';
+    if (content) { content.style.display='flex'; content.style.flexDirection='column'; }
+    const dot = document.getElementById('zmSelDot'); const name = document.getElementById('zmSelName');
+    if (dot) dot.style.background = c.color||'#3b82f6';
+    if (name) name.textContent = c.name;
+    this._zmRenderFinalClients(idx);
+  }
+
+  _zmRenderFinalClients(clientIdx) {
+    const c = (FLEET_CONFIG.CLIENTS||[])[clientIdx];
+    const list = document.getElementById('zmFinalList'); if (!list||!c) return;
+    const fcs = c.finalClients || [];
+    if (!fcs.length) { list.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted,#888);font-size:12px;"><i class="fa-solid fa-users" style="display:block;font-size:20px;margin-bottom:8px;opacity:0.3;"></i>Aucun client final.<br>Ajoutez-en un.</div>`; return; }
+    list.innerHTML = fcs.map((fc,j) =>
+      `<div style="display:flex;align-items:center;gap:8px;padding:9px 10px;background:var(--bg-elevated,rgba(255,255,255,0.03));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:8px;">
+        <i class="fa-solid fa-user-tie" style="color:#8b5cf6;font-size:13px;"></i>
+        <span style="flex:1;font-weight:600;font-size:13px;color:var(--text-primary,var(--text-primary, #e2e8f0));">${fc.name}</span>
+        <button onclick="if(confirm('Supprimer ?')){FLEET_CONFIG.CLIENTS[${clientIdx}].finalClients.splice(${j},1);ui.saveSettingsToCloud();ui._zmRenderFinalClients(${clientIdx});}" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:10px;"><i class="fa-solid fa-trash"></i></button>
+      </div>`).join('');
+  }
+
+  _addFinalClient() {
+    const idx = this._zmCurrentClientIdx;
+    if (idx === undefined) return alert('Choisissez un client.');
+    const name = document.getElementById('zm_newFCName')?.value.trim();
+    if (!name) return alert('Nom requis.');
+    const clients = FLEET_CONFIG.CLIENTS || []; if (!clients[idx]) return;
+    if (!clients[idx].finalClients) clients[idx].finalClients = [];
+    if (clients[idx].finalClients.some(f => f.name.toLowerCase() === name.toLowerCase())) return alert('Existe d\u00e9j\u00e0.');
+    clients[idx].finalClients.push({ id: 'fc_' + Date.now(), name });
+    this.saveSettingsToCloud();
+    if (window.showToast) showToast('Client final cr\u00e9\u00e9', 'success');
+    document.getElementById('zm_newFCName').value = '';
+    this._zmRenderFinalClients(idx);
+  }
+
+  _zmRenameClient() {
+    const idx = this._zmCurrentClientIdx; const clients = FLEET_CONFIG.CLIENTS||[];
+    if (idx===undefined||!clients[idx]) return;
+    const n = prompt('Nouveau nom:', clients[idx].name); if(!n||!n.trim()) return;
+    clients[idx].name = n.trim(); this.saveSettingsToCloud();
+    this.openZoneManagementModal('clients');
+  }
+
+  _zmDeleteClient() {
+    const idx = this._zmCurrentClientIdx; const clients = FLEET_CONFIG.CLIENTS||[];
+    if (idx===undefined||!clients[idx]) return;
+    if (!confirm('Supprimer ' + clients[idx].name + ' ?')) return;
+    const id = clients[idx].id; clients.splice(idx, 1);
+    (FLEET_CONFIG.CUSTOM_LOCATIONS||[]).forEach(z => { if(z.clientId===id){z.clientId=null;z.finalClientId=null;} });
+    this._zmCurrentClientIdx = undefined; this.saveSettingsToCloud();
+    this.openZoneManagementModal('clients');
+  }
+
+  _zmOnClientChange() {
+    const cid = document.getElementById('zm_client')?.value;
+    const sel = document.getElementById('zm_finalclient'); if(!sel) return;
+    if (!cid) { sel.innerHTML = '<option value="">Choisissez un client en premier</option>'; return; }
+    const c = (FLEET_CONFIG.CLIENTS||[]).find(x => x.id === cid);
+    const fcs = (c && c.finalClients) || [];
+    sel.innerHTML = '<option value="">Aucun client final</option>' + fcs.map(fc => `<option value="${fc.id}">${fc.name}</option>`).join('');
+    // Sync color from client to zm_color
+    if (c && c.color) { const col = document.getElementById('zm_color'); if(col) col.value = c.color; }
+  }
+
+  async _zmRunGPSScan() {
+    const start = document.getElementById('zmScanStart')?.value;
+    const end   = document.getElementById('zmScanEnd')?.value;
+    if (!start||!end) { if(window.showToast) showToast('P\u00e9riode requise','warning'); return; }
+    const btn = document.getElementById('zmScanBtn');
+    const res = document.getElementById('zmScanResults');
+    if (btn) { btn.disabled=true; btn.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Scan...'; }
+    if (res) res.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted,#888);"><i class="fa-solid fa-spinner fa-spin" style="font-size:22px;color:#a78bfa;display:block;margin-bottom:10px;"></i>Analyse en cours...</div>';
+    try {
+      const urlEvts = `${FLEET_CONFIG.API.baseUrl}/api/zone-events?limit=5000&start=${new Date(start).toISOString()}&end=${new Date(end+'T23:59:59').toISOString()}`;
+      const urlDecs = `${FLEET_CONFIG.API.baseUrl}/api/decouchages?limit=5000`; // decouchages are great for finding unknown stops!
+      
+      const [rEvts, rDecs] = await Promise.all([
+        fetch(urlEvts, { headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' } }),
+        fetch(urlDecs, { headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' } })
+      ]);
+      
+      const jsonEvts = await rEvts.json();
+      const jsonDecs = await rDecs.json();
+      
+      const evsRaw = Array.isArray(jsonEvts) ? jsonEvts : (jsonEvts.data || []);
+      const decsRaw = Array.isArray(jsonDecs) ? jsonDecs : (jsonDecs.data || []);
+      
+      // Normalize decouchages to look like events
+      const normDecs = decsRaw.map(d => ({
+        truckName: d.truckName,
+        entryLat: d.locationAtMidnight?.lat,
+        entryLng: d.locationAtMidnight?.lng,
+        zoneName: 'Arr\u00eat (Decouchage)'
+      })).filter(d => d.entryLat && d.entryLng);
+      
+      const evs = [...evsRaw, ...normDecs];
+      const clusters = []; const used = new Set(); const R = 6371000;
+      for (const ev of evs) {
+        if (!ev.entryLat || !ev.entryLng) continue;
+        const key = ev.entryLat.toFixed(3) + ',' + ev.entryLng.toFixed(3);
+        if (used.has(key)) continue;
+        const grp = evs.filter(e2 => {
+          if (!e2.entryLat || !e2.entryLng) return false;
+          const dL = (e2.entryLat - ev.entryLat) * Math.PI / 180, dN = (e2.entryLng - ev.entryLng) * Math.PI / 180;
+          const a = Math.sin(dL/2)**2 + Math.cos(ev.entryLat*Math.PI/180) * Math.cos(e2.entryLat*Math.PI/180) * Math.sin(dN/2)**2;
+          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) < 300;
+        });
+        if (grp.length < 2) continue;
+        const aLat = grp.reduce((s, e) => s + e.entryLat, 0) / grp.length;
+        const aLng = grp.reduce((s, e) => s + e.entryLng, 0) / grp.length;
+        clusters.push({ lat: aLat, lng: aLng, count: grp.length, trucks: [...new Set(grp.map(e => e.truckName))] });
+        grp.forEach(e => used.add(e.entryLat.toFixed(3) + ',' + e.entryLng.toFixed(3)));
+      }
+      // Filter out clusters near existing sites (checkbox: checked = skip existing)
+      const skipExisting = document.getElementById('zmScanSkipExisting')?.checked !== false;
+      const smartClusters = skipExisting ? clusters.filter(cl => !this._zmIsNearKnownSite(cl.lat, cl.lng)) : clusters;
+      if (!smartClusters.length) {
+        if (res) res.innerHTML = '<div style="text-align:center;padding:28px;color:var(--text-muted,#888);">' + (clusters.length ? 'Tous les ' + clusters.length + ' clusters sont proches de sites existants.<br>D\u00e9cochez \"Ignorer sites existants\" pour tous les voir.' : 'Aucun cluster d\u00e9tect\u00e9.') + '</div>';
+        return;
+      }
+      const apiKey = (FLEET_CONFIG.GEOAPIFY_API_KEYS || [])[0] || '';
+      const geo = await Promise.all(smartClusters.map(async cl => {
+        if (!apiKey) return { ...cl, address: cl.lat.toFixed(5) + ', ' + cl.lng.toFixed(5) };
+        try {
+          const gr = await fetch(`https://api.geoapify.com/v1/geocode/reverse?lat=${cl.lat}&lon=${cl.lng}&apiKey=${apiKey}`);
+          const gj = await gr.json(); const p = gj.features?.[0]?.properties || {};
+          return { ...cl, address: [p.name || p.street, p.city || p.county, p.state].filter(Boolean).join(', ') || cl.lat.toFixed(5) + ', ' + cl.lng.toFixed(5) };
+        } catch (e) { return { ...cl, address: cl.lat.toFixed(5) + ', ' + cl.lng.toFixed(5) }; }
+      }));
+      if (res) res.innerHTML = geo.map(cl => {
+        const safeAddr = cl.address.replace(/'/g, "\\'");
+        return `<div style="background:var(--bg-elevated,rgba(255,255,255,0.03));border:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));border-radius:10px;padding:13px 14px;display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:13px;color:var(--text-primary,var(--text-primary, #e2e8f0));margin-bottom:3px;">${cl.address}</div>
+          <div style="font-size:11px;color:var(--text-muted,#888);">${cl.lat.toFixed(5)}, ${cl.lng.toFixed(5)} &middot; ${cl.count} arr&ecirc;ts &middot; ${cl.trucks.slice(0,3).join(', ')}</div></div>
+          <button onclick="if(window.AlgeriaMap&&AlgeriaMap.map){AlgeriaMap.map.flyTo({center:[${cl.lng},${cl.lat}],zoom:16,essential:true});}" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:7px;padding:5px 9px;font-size:11px;cursor:pointer;font-weight:700;margin-right:5px;"><i class="fa-solid fa-crosshairs"></i> Carte</button>
+          <button onclick="ui._zmConvertClusterToSite(${cl.lat},${cl.lng},'${safeAddr}')" style="background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:7px;padding:5px 9px;font-size:11px;cursor:pointer;font-weight:700;"><i class="fa-solid fa-plus"></i> Cr&eacute;er Site</button>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      if (res) res.innerHTML = `<div style="padding:20px;color:var(--text-muted,#888);text-align:center;">Erreur: ${e.message}</div>`;
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Scanner GPS'; }
+    }
+  }
+
+  _zmDetectFromLive() {
+    const allT = (typeof app !== 'undefined' && app.trucks) ? [...app.trucks.values()] : (window.AlgeriaMap && window.AlgeriaMap.trucks ? [...window.AlgeriaMap.trucks.values()] : []);
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || []; const R = 6371000;
+    const res = document.getElementById('zmScanResults');
+    if (!allT.length) {
+      if (res) res.innerHTML = '<div style="text-align:center;padding:24px;color:var(--warning,#f59e0b);"><i class="fa-solid fa-triangle-exclamation" style="display:block;font-size:22px;margin-bottom:8px;"></i>Donn\u00e9es live non charg\u00e9es encore. Attendez quelques secondes et r\u00e9essayez.</div>';
       return;
     }
-    if (isNaN(radius) || radius < 10) radius = 500;
-    
-    const newLoc = { name, wilaya, lat, lng, radius, type }; 
-    
-    if (!FLEET_CONFIG.CUSTOM_LOCATIONS) FLEET_CONFIG.CUSTOM_LOCATIONS = [];
-    
-    if (this.editingLocationIndex !== null) {
-        FLEET_CONFIG.CUSTOM_LOCATIONS[this.editingLocationIndex] = newLoc;
-        alert(`✅ Lieu "${name}" mis à jour !`);
-        this.editingLocationIndex = null;
-        this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-        this.addCustomLocBtn.style.background = '#166534';
-    } else {
-        FLEET_CONFIG.CUSTOM_LOCATIONS.push(newLoc);
-        alert(`✅ Lieu "${name}" ajouté !`);
+    function inK(t) {
+      if (!t.coordinates) return false;
+      return locs.some(z => {
+        if (!z.lat || !z.lng) return false;
+        const dL = (t.coordinates.lat - z.lat) * Math.PI / 180, dN = (t.coordinates.lng - z.lng) * Math.PI / 180;
+        const a = Math.sin(dL/2)**2 + Math.cos(z.lat*Math.PI/180) * Math.cos(t.coordinates.lat*Math.PI/180) * Math.sin(dN/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) <= (z.radius || 500);
+      });
     }
+    const stopped = allT.filter(t => t.coordinates && (t.speed || 0) < 2 && !inK(t));
+    if (!stopped.length) { if (res) res.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-muted,#888);">Tous les camions sont dans des zones connues.</div>'; return; }
+    if (res) res.innerHTML = stopped.map(t => {
+      return `<div style="background:var(--bg-elevated,rgba(255,255,255,0.03));border:1px solid rgba(234,179,8,0.25);border-radius:10px;padding:13px 14px;display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+        <div style="flex:1;"><div style="font-weight:700;font-size:13px;color:var(--text-primary,var(--text-primary, #e2e8f0));">${t.name}</div>
+        <div style="font-size:11px;color:var(--text-muted,#888);">${t.coordinates.lat.toFixed(5)}, ${t.coordinates.lng.toFixed(5)} &middot; Arr&ecirc;t&eacute; hors zone</div></div>
+        <button onclick="if(window.AlgeriaMap&&AlgeriaMap.map){AlgeriaMap.map.flyTo({center:[${t.coordinates.lng},${t.coordinates.lat}],zoom:16,essential:true});}" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:7px;padding:5px 9px;font-size:11px;cursor:pointer;font-weight:700;margin-right:5px;"><i class="fa-solid fa-crosshairs"></i> Carte</button>
+        <button onclick="ui._zmConvertClusterToSite(${t.coordinates.lat},${t.coordinates.lng},'${t.name}')" style="background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:7px;padding:5px 9px;font-size:11px;cursor:pointer;font-weight:700;"><i class="fa-solid fa-plus"></i> Cr&eacute;er Site</button>
+      </div>`;
+    }).join('');
+  }
+
+  _zmConvertClusterToSite(lat, lng, label) {
+    this.openZoneManagementModal('add');
+    setTimeout(() => {
+      const n = document.getElementById('zm_name'), la = document.getElementById('zm_lat'), lo = document.getElementById('zm_lng');
+      if (n && !n.value) n.value = label || '';
+      if (la) la.value = typeof lat === 'number' ? lat.toFixed(6) : lat;
+      if (lo) lo.value = typeof lng === 'number' ? lng.toFixed(6) : lng;
+    }, 80);
+  }
+
+
+
+  // Show/hide Client + Final Client fields based on site type
+  _zmUpdateTypeVisibility() {
+    const type = document.getElementById('zm_type')?.value;
+    const clientRow = document.getElementById('zm_clientRow');
+    if (type === 'final_client') {
+      if (clientRow) clientRow.style.display = '';
+      // Sync color from selected client
+      const cid = document.getElementById('zm_client')?.value;
+      if (cid) {
+        const cl = (FLEET_CONFIG.CLIENTS||[]).find(x=>x.id===cid);
+        if (cl && cl.color) { const col = document.getElementById('zm_color'); if(col) col.value = cl.color; }
+      }
+    } else {
+      if (clientRow) clientRow.style.display = 'none';
+    }
+  }
+
+  // Check if a lat/lng is within 200m of any existing site
+  _zmIsNearKnownSite(lat, lng) {
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    const R = 6371000;
+    return locs.some(z => {
+      if (!z.lat || !z.lng) return false;
+      const dLat = (lat - z.lat) * Math.PI / 180;
+      const dLng = (lng - z.lng) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(z.lat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(dLng/2)**2;
+      const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      // Use the site's actual radius — any overlap means it's a known site
+      return dist < (z.radius || 500) + 1500;
+    });
+  }
+
+    _zmSwitchTabById(paneId) {
+    const modal = document.getElementById('zoneManagementModal');
+    if (!modal) return;
+    const btn = modal.querySelector('.zmTab2[onclick*="' + paneId + '"]');
+    if (btn) btn.click();
+  }
+
+  _zmSwitchTab(btn, paneId) {
+    const modal = document.getElementById('zoneManagementModal');
+    if (!modal) return;
+    modal.querySelectorAll('.zmTab2').forEach(b => { b.classList.remove('active'); b.style.color='var(--text-muted, #64748b)'; b.style.borderBottom='2px solid transparent'; });
+    btn.classList.add('active'); btn.style.color='#38bdf8'; btn.style.borderBottom='2px solid #38bdf8';
+    modal.querySelectorAll('[id^="zmPane_"]').forEach(p => p.style.display='none');
+    const pane = document.getElementById(paneId);
+    if (pane) { pane.style.display='flex'; pane.style.flexDirection='column'; }
+  }
+
+  openZoneClientModal(index) {
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    const isNew = (index === null || index === undefined || index === 'null');
+    const loc = isNew ? { name: '', type: 'other', lat: '', lng: '', radius: 500, color: '#3b82f6', icon: '' } : locs[index];
+    if (!loc) return;
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const TC = {
+      douroub:'Si\u00e8ge / HQ', client:'Client', final_client:'Client Final',
+      maintenance:'Maintenance', station:'Station/Repos', other:'Autre'
+    };
+    const typeOpts = Object.entries(TC).map(([v,l]) => `<option value="${v}"${loc.type===v?' selected':''}>${l}</option>`).join('');
+    const clientOpts = `<option value="">— Aucun —</option>` + clients.map(c=>`<option value="${c.id}"${loc.clientId===c.id?' selected':''}>${c.name}</option>`).join('');
+    
+    // For final_client, build the final client select from the parent
+    const parentClient = loc.clientId ? clients.find(c=>c.id===loc.clientId) : null;
+    const fcOpts = parentClient ? 
+      `<option value="">— Aucun —</option>` + (parentClient.finalClients||[]).map(fc=>`<option value="${fc.id}"${loc.finalClientId===fc.id?' selected':''}>${fc.name}</option>`).join('') :
+      '<option value="">Choisir un client d\'abord</option>';
+
+    const fld = 'width:100%;background:var(--bg-elevated, #1e293b);border:1px solid var(--border, rgba(255,255,255,0.1));border-radius:8px;padding:11px 13px;color:var(--text-primary, #e2e8f0);font-size:13px;box-sizing:border-box;outline:none;';
+    const lbl = 'font-size:10px;font-weight:800;color:var(--text-muted, #64748b);text-transform:uppercase;display:block;margin-bottom:5px;';
+    const hasGPS = loc.lat && loc.lng && loc.lat !== 0 && loc.lng !== 0;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'zmEditOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;var(--bg-overlay, rgba(0,0,0,0.75));display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);padding:16px;';
+    overlay.innerHTML = `<div style="background:var(--bg-surface, #0f172a);border:1px solid rgba(255,255,255,0.12);border-radius:18px;width:600px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.6);">
+      <div style="padding:20px 24px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#3b82f6);border-radius:10px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-pen-to-square" style="color:white;font-size:15px;"></i></div>
+          <div>
+            <div style="font-weight:800;font-size:15px;color:var(--text-primary, #e2e8f0);">Modifier — ${loc.name}</div>
+            <div style="font-size:10px;color:var(--text-muted, #64748b);margin-top:2px;">${hasGPS ? Number(loc.lat).toFixed(5)+', '+Number(loc.lng).toFixed(5) : '\u26a0\ufe0f Position GPS manquante'}</div>
+          </div>
+        </div>
+        <button onclick="document.getElementById('zmEditOverlay').remove()" style="background:rgba(255,255,255,0.06);border:none;border-radius:8px;width:32px;height:32px;color:var(--text-muted, #64748b);font-size:16px;cursor:pointer;">\u2715</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:20px;scrollbar-width:thin;">
+
+        <!-- SECTION: Identite -->
+        <div style="font-size:10px;font-weight:800;color:var(--text-muted, #64748b);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">📝 Identité</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
+          <div><label style="${lbl}">Nom *</label><input id="zme_name" value="${loc.name.replace(/"/g,'&quot;')}" placeholder="Ex: SGEM GUEDILA" style="${fld}"></div>
+          <div><label style="${lbl}">Wilaya</label><input id="zme_wilaya" value="${(loc.wilaya||'').replace(/"/g,'&quot;')}" placeholder="Ex: Ghardaïa" style="${fld}"></div>
+          <div style="grid-column:1/-1"><label style="${lbl}">Description / Notes</label><textarea id="zme_desc" rows="2" placeholder="Informations complémentaires…" style="${fld}resize:none;">${loc.description||''}</textarea></div>
+        </div>
+
+        <!-- SECTION: Localisation -->
+        <div style="font-size:10px;font-weight:800;color:var(--text-muted, #64748b);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">📍 Localisation</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:8px;">
+          <div><label style="${lbl}">Latitude</label><input id="zme_lat" type="number" step="any" value="${loc.lat||''}" style="${fld}"></div>
+          <div><label style="${lbl}">Longitude</label><input id="zme_lng" type="number" step="any" value="${loc.lng||''}" style="${fld}"></div>
+          <div><label style="${lbl}">Rayon (m)</label>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <input id="zme_radius" type="number" value="${loc.radius||500}" min="50" max="50000" style="${fld}flex:1;" oninput="document.getElementById('zme_radius_lbl').textContent=this.value+'m'">
+              <span id="zme_radius_lbl" style="font-size:11px;color:#38bdf8;font-weight:700;white-space:nowrap;">${loc.radius||500}m</span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-bottom:18px;">
+          <button onclick="ui._startZoneMapPicker({editIndex:${index}})" style="background:rgba(56,189,248,0.08);color:#38bdf8;border:1px solid rgba(56,189,248,0.25);border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-size:12px;width:100%;justify-content:center;"><i class="fa-solid fa-crosshairs"></i> Repositionner sur la carte</button>
+        </div>
+
+        <!-- SECTION: Apparence -->
+        <div style="font-size:10px;font-weight:800;color:var(--text-muted, #64748b);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">🎨 Apparence</div>
+        <div style="display:grid;grid-template-columns:auto auto 1fr;gap:14px;align-items:start;margin-bottom:10px;">
+          <div>
+            <label style="${lbl}">Couleur zone</label>
+            <input id="zme_color" type="color" value="${loc.color||'#3b82f6'}" style="width:54px;height:42px;border:2px solid rgba(255,255,255,0.15);border-radius:8px;cursor:pointer;padding:2px;background:var(--bg-elevated, #1e293b);display:block;margin-bottom:5px;">
+            <div style="display:flex;gap:3px;flex-wrap:wrap;width:54px;">${['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#f97316','#14b8a6','#6b7280','var(--text-primary, #e2e8f0)','var(--bg-elevated, #1e293b)'].map(c=>`<span onclick="document.getElementById('zme_color').value='${c}'" style="width:15px;height:15px;border-radius:3px;background:${c};cursor:pointer;border:1px solid rgba(255,255,255,0.2);display:inline-block;" title="${c}"></span>`).join('')}</div>
+          </div>
+          <div>
+            <label style="${lbl}">Bordure</label>
+            <input id="zme_color_stroke" type="color" value="${loc.strokeColor||loc.color||'#3b82f6'}" style="width:54px;height:42px;border:2px solid rgba(255,255,255,0.15);border-radius:8px;cursor:pointer;padding:2px;background:var(--bg-elevated, #1e293b);">
+          </div>
+          <div>
+            <label style="${lbl}">Opacité remplissage</label>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+              <input id="zme_opacity" type="range" min="0" max="0.6" step="0.05" value="${loc.opacity!==undefined?loc.opacity:0.15}" style="flex:1;" oninput="document.getElementById('zme_opacity_lbl').textContent=Math.round(this.value*100)+'%'">
+              <span id="zme_opacity_lbl" style="font-size:11px;color:#38bdf8;font-weight:700;width:34px;">${Math.round(((loc.opacity!==undefined?loc.opacity:0.15))*100)}%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Icon picker -->
+        <div style="margin-bottom:18px;">
+          <label style="${lbl}">Icône FontAwesome</label>
+          <div id="zme_icon_grid" style="display:flex;flex-wrap:wrap;gap:5px;max-height:120px;overflow-y:auto;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px;border:1px solid var(--border, rgba(255,255,255,0.08));">
+            ${['fa-building','fa-warehouse','fa-industry','fa-oil-well','fa-tower-observation','fa-landmark','fa-store','fa-hotel','fa-truck','fa-boxes-stacked','fa-pallet','fa-route','fa-map-pin','fa-location-dot','fa-crosshairs','fa-gas-pump','fa-charging-station','fa-bolt','fa-fire-flame-curved','fa-droplet','fa-oil-can','fa-user-tie','fa-users','fa-helmet-safety','fa-handshake','fa-wrench','fa-screwdriver-wrench','fa-gear','fa-toolbox','fa-hammer','fa-star','fa-circle-check','fa-triangle-exclamation','fa-shield-halved','fa-flag'].map(ic=>{const sel=(loc.icon||'fa-building')===ic;return `<button type="button" onclick="ui._zmeSelectIcon(this,'${ic}')" data-icon="${ic}" title="${ic}" style="width:32px;height:32px;border-radius:6px;border:${sel?'2px solid #3b82f6':'1px solid var(--border, rgba(255,255,255,0.1))'};background:${sel?'rgba(59,130,246,0.2)':'var(--bg-elevated, rgba(255,255,255,0.04))'};color:${sel?'#60a5fa':'var(--text-muted, #94a3b8)'};cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;"><i class="fa-solid ${ic}"></i></button>`;}).join('')}
+          </div>
+          <input type="hidden" id="zme_icon" value="${loc.icon||'fa-building'}">
+          <div style="margin-top:7px;display:flex;align-items:center;gap:8px;">
+            <label style="${lbl};margin:0;white-space:nowrap;">Ou emoji:</label>
+            <input id="zme_emoji" value="${loc.iconEmoji||''}" placeholder="🏭" maxlength="4" style="${fld}width:60px;text-align:center;font-size:18px;">
+            <span style="font-size:10px;color:var(--text-muted, #64748b);">(remplace l'icône FA)</span>
+          </div>
+        </div>
+
+        <!-- SECTION: Type & Client -->
+        <div style="font-size:10px;font-weight:800;color:var(--text-muted, #64748b);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">🏢 Type & Client</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
+          <div><label style="${lbl}">Type de zone</label><select id="zme_type" style="${fld}">${typeOpts}</select></div>
+          <div><label style="${lbl}">Client lié</label><select id="zme_client" onchange="ui._zmeClientChanged()" style="${fld}">${clientOpts}</select></div>
+          <div id="zme_fcWrap" style="${parentClient?'':'display:none;'}grid-column:1/-1;"><label style="${lbl}">Client Final lié</label><select id="zme_finalclient" style="${fld}">${fcOpts}</select></div>
+        </div>
+
+        <!-- SECTION: Comportement -->
+        <div style="font-size:10px;font-weight:800;color:var(--text-muted, #64748b);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">⚙️ Comportement</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">
+          <div><label style="${lbl}">Vitesse limite km/h (0=aucune)</label><input id="zme_speedlimit" type="number" min="0" max="200" value="${loc.speedLimitKmh||0}" style="${fld}"></div>
+          <div><label style="${lbl}">Durée min. visite (min)</label><input id="zme_mindwell" type="number" min="0" max="480" value="${loc.minDwellMinutes||0}" style="${fld}"></div>
+        </div>
+        <div style="display:flex;gap:18px;margin-bottom:18px;">
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;color:var(--text-primary, #e2e8f0);"><input type="checkbox" id="zme_alertentry" ${loc.alertOnEntry?'checked':''} style="width:15px;height:15px;accent-color:#3b82f6;"> 🔔 Alerte entrée</label>
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;color:var(--text-primary, #e2e8f0);"><input type="checkbox" id="zme_alertexit" ${loc.alertOnExit?'checked':''} style="width:15px;height:15px;accent-color:#3b82f6;"> 🔔 Alerte sortie</label>
+        </div>
+
+        <!-- SECTION: Tags -->
+        <div>
+          <label style="${lbl}">Tags (séparés par virgule)</label>
+          <input id="zme_tags" value="${(loc.tags||[]).join(', ')}" placeholder="Ex: prioritaire, nord, livraison" style="${fld}">
+        </div>
+
+      </div>
+
+      <div style="padding:16px 24px;border-top:1px solid rgba(255,255,255,0.07);display:flex;gap:10px;flex-shrink:0;">
+        <button onclick="document.getElementById('zmEditOverlay').remove()" style="flex:1;background:var(--border, rgba(255,255,255,0.05));border:1px solid var(--border, rgba(255,255,255,0.1));color:var(--text-muted, #94a3b8);border-radius:9px;padding:12px;font-weight:700;cursor:pointer;">Annuler</button>
+        <button onclick="ui._saveEditedSite(${index})" style="flex:2;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:9px;padding:12px;font-weight:800;cursor:pointer;box-shadow:0 4px 15px rgba(59,130,246,0.3);"><i class="fa-solid fa-check" style="margin-right:8px;"></i>Enregistrer</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', e => { if(e.target===overlay) overlay.remove(); });
+  }
+
+  _zmeSelectIcon(btn, icon) {
+    document.getElementById('zme_icon').value = icon;
+    document.querySelectorAll('#zme_icon_grid button').forEach(b => {
+      const sel = b.dataset.icon === icon;
+      b.style.border = sel ? '2px solid #3b82f6' : '1px solid var(--border, rgba(255,255,255,0.1))';
+      b.style.background = sel ? 'rgba(59,130,246,0.2)' : 'var(--bg-elevated, rgba(255,255,255,0.04))';
+      b.style.color = sel ? '#60a5fa' : 'var(--text-muted, #94a3b8)';
+    });
+  }
+
+  _zmeTypeChanged() {
+    // All types can now have client link — kept for back-compat
+  }
+
+  _zmeClientChanged() {
+    const cid = document.getElementById('zme_client')?.value;
+    const fw = document.getElementById('zme_fcWrap');
+    const sel = document.getElementById('zme_finalclient');
+    if (!cid) { if(fw) fw.style.display = 'none'; return; }
+    const c = (FLEET_CONFIG.CLIENTS||[]).find(x => x.id === cid);
+    if (!c) { if(fw) fw.style.display = 'none'; return; }
+    if (fw) fw.style.display = '';
+    if (sel) sel.innerHTML = '<option value="">— Aucun —</option>' + (c.finalClients||[]).map(fc => `<option value="${fc.id}">${fc.name}</option>`).join('');
+    // Sync color
+    const col = document.getElementById('zme_color');
+    if (col && c.color) col.value = c.color;
+  }
+
+  _saveEditedSite(index) {
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    const isNew = (index === null || index === undefined || index === 'null');
+    const locToEdit = isNew ? { id: 'zone_' + Date.now() + '_' + Math.floor(Math.random()*9999) } : locs[index];
+    if (!locToEdit) return;
+    
+    const name   = document.getElementById('zme_name')?.value.trim();
+    const wilaya = document.getElementById('zme_wilaya')?.value.trim();
+    const lat    = parseFloat(document.getElementById('zme_lat')?.value);
+    const lng    = parseFloat(document.getElementById('zme_lng')?.value);
+    const radius = parseInt(document.getElementById('zme_radius')?.value) || 500;
+    const type   = document.getElementById('zme_type')?.value || 'other';
+    const clientId = document.getElementById('zme_client')?.value || null;
+    if (!name) return alert('\u26a0\ufe0f Le nom est requis.');
+    const color         = document.getElementById('zme_color')?.value || locToEdit.color || '#3b82f6';
+    const strokeColor   = document.getElementById('zme_color_stroke')?.value || color;
+    const opacity       = parseFloat(document.getElementById('zme_opacity')?.value ?? 0.15);
+    const icon          = document.getElementById('zme_icon')?.value || 'fa-building';
+    const iconEmoji     = (document.getElementById('zme_emoji')?.value || '').trim();
+    const description   = (document.getElementById('zme_desc')?.value || '').trim();
+    const speedLimitKmh = parseInt(document.getElementById('zme_speedlimit')?.value) || 0;
+    const minDwellMin   = parseInt(document.getElementById('zme_mindwell')?.value) || 0;
+    const alertOnEntry  = document.getElementById('zme_alertentry')?.checked || false;
+    const alertOnExit   = document.getElementById('zme_alertexit')?.checked || false;
+    const tagsRaw       = document.getElementById('zme_tags')?.value || '';
+    const tags          = tagsRaw.split(',').map(t=>t.trim()).filter(Boolean);
+    const finalClientId = document.getElementById('zme_finalclient')?.value || null;
+    
+    Object.assign(locToEdit, {
+      name, wilaya,
+      lat: isNaN(lat) ? locToEdit.lat : lat,
+      lng: isNaN(lng) ? locToEdit.lng : lng,
+      radius, type, color, strokeColor, opacity,
+      icon, iconEmoji, description,
+      speedLimitKmh, minDwellMinutes: minDwellMin,
+      alertOnEntry, alertOnExit, tags,
+      clientId: clientId||null, finalClientId: finalClientId||null
+    });
+    
+    if (isNew) locs.push(locToEdit);
     
     this.saveSettingsToCloud();
-    this.renderCustomLocationsList();
-    this.customLocName.value = '';
-    this.customLocLat.value = '';
-    this.customLocLng.value = '';
+    if (window.AlgeriaMap && window.AlgeriaMap.refreshPanelZones) window.AlgeriaMap.refreshPanelZones();
+    if (window.showToast) showToast(`\u2705 Site "${name}" ${isNew ? 'créé' : 'mis à jour'}`, 'success');
+    document.getElementById('zmEditOverlay')?.remove();
+    this.openZoneManagementModal('sites');
   }
 
-  editCustomLocation(index) {
-      if (!FLEET_CONFIG.CUSTOM_LOCATIONS || !FLEET_CONFIG.CUSTOM_LOCATIONS[index]) return;
-      const loc = FLEET_CONFIG.CUSTOM_LOCATIONS[index];
-      
-      this.customLocName.value = loc.name;
-      this.customLocWilaya.value = loc.wilaya;
-      this.customLocLat.value = loc.lat;
-      this.customLocLng.value = loc.lng;
-      this.customLocRadius.value = loc.radius || 500;
-      if(this.customLocType) this.customLocType.value = loc.type || 'other';
-
-      this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-save"></i>';
-      this.addCustomLocBtn.style.background = '#e65100'; 
-      this.editingLocationIndex = index;
-      
-      const accordion = document.querySelector('.settings-header i.fa-map-location-dot');
-      if(accordion) {
-          const header = accordion.closest('.settings-header');
-          const content = header.nextElementSibling;
-          if(!content.classList.contains('open')) header.click();
-      }
+  _addCompany() {
+    const name  = document.getElementById('zm_new_company_name')?.value.trim();
+    const color = document.getElementById('zm_new_company_color')?.value || '#3b82f6';
+    if (!name) return alert('\u26a0\ufe0f Nom de société requis.');
+    if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+    if (FLEET_CONFIG.CLIENTS.some(c => c.name.toLowerCase() === name.toLowerCase()))
+      return alert(`\u26a0\ufe0f La société "${name}" existe déjà.`);
+    FLEET_CONFIG.CLIENTS.push({ id: 'co_' + Date.now(), name, color });
+    this.saveSettingsToCloud();
+    if (window.showToast) showToast(`\u2705 Société "${name}" créée`, 'success');
+    this.openZoneManagementModal('societes');
   }
 
-  deleteCustomLocation(index) {
-    if(confirm('Supprimer ce lieu ?')) {
-      FLEET_CONFIG.CUSTOM_LOCATIONS.splice(index, 1);
-      this.saveSettingsToCloud();
-      this.renderCustomLocationsList();
-      
-      if(this.editingLocationIndex === index) {
-         this.editingLocationIndex = null;
-         this.addCustomLocBtn.innerHTML = '<i class="fa-solid fa-plus"></i>';
-         this.addCustomLocBtn.style.background = '#166534';
+
+  _saveNewZoneFromModal() {
+    const name   = document.getElementById('zm_name')?.value.trim();
+    const wilaya = document.getElementById('zm_wilaya')?.value.trim();
+    const lat    = parseFloat(document.getElementById('zm_lat')?.value);
+    const lng    = parseFloat(document.getElementById('zm_lng')?.value);
+    const radius = parseInt(document.getElementById('zm_radius')?.value) || 500;
+    const type   = document.getElementById('zm_type')?.value || 'other';
+    const clientId      = document.getElementById('zm_client')?.value || null;
+    const finalClientId = null; // Final client link is managed in edit modal
+    const color         = document.getElementById('zm_color')?.value || '#3b82f6';
+
+    // Validate: final_client type requires a client
+    if (type === 'final_client' && !clientId) return alert('Un site Client Final doit avoir un Client parent.');
+    // final_client type just needs a parent client
+    if (!name)          return alert('\u26a0\ufe0f Le nom de la zone est requis.');
+    // Auto-create logical Client if type is client
+    if (type === 'client') {
+      if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+      let existingClient = FLEET_CONFIG.CLIENTS.find(c => c.name.toLowerCase() === name.toLowerCase());
+      if (!existingClient) {
+          FLEET_CONFIG.CLIENTS.push({ id: 'cl_' + Date.now(), name: name, color: color, finalClients: [] });
       }
     }
+    if (!wilaya)        return alert('\u26a0\ufe0f La wilaya est requise.');
+    if (isNaN(lat) || isNaN(lng)) return alert('\u26a0\ufe0f Latitude et longitude valides requises.');
+
+    if (!FLEET_CONFIG.CUSTOM_LOCATIONS) FLEET_CONFIG.CUSTOM_LOCATIONS = [];
+    const existing = FLEET_CONFIG.CUSTOM_LOCATIONS.findIndex(z => z.name.toLowerCase() === name.toLowerCase());
+    if (existing >= 0) {
+      if (!confirm(`Une zone "${name}" existe déjà. Voulez-vous la remplacer?`)) return;
+      FLEET_CONFIG.CUSTOM_LOCATIONS.splice(existing, 1);
+    }
+
+    const newZone = {
+      id: 'zone_' + Date.now(),
+      name, wilaya, lat, lng, radius, type,
+      color: color || '#3b82f6',
+      strokeColor: color || '#3b82f6',
+      opacity: 0.15,
+      icon: 'fa-building',
+      iconEmoji: '',
+      description: '',
+      speedLimitKmh: 0,
+      minDwellMinutes: 0,
+      alertOnEntry: false,
+      alertOnExit: false,
+      tags: [],
+      clientId: clientId || null,
+      finalClientId: finalClientId || null,
+      createdAt: new Date().toISOString()
+    };
+
+    FLEET_CONFIG.CUSTOM_LOCATIONS.push(newZone);
+    this.saveSettingsToCloud();
+
+    // Refresh the ZMC if open
+    if (window.AlgeriaMap && window.AlgeriaMap.refreshPanelZones) {
+      window.AlgeriaMap.refreshPanelZones();
+    }
+
+    if (window.showToast) showToast(`\u2705 Zone "${name}" créée avec succès!`, 'success');
+    
+    // Go back to zones list tab
+    this.openZoneManagementModal();
+    setTimeout(() => { const t = document.querySelectorAll('.zmTab2'); if(t[0]) t[0].click(); }, 80);
   }
 
-  renderCustomLocationsList() {
-    this.customLocationsList.innerHTML = '';
-    if (!FLEET_CONFIG.CUSTOM_LOCATIONS || FLEET_CONFIG.CUSTOM_LOCATIONS.length === 0) {
-      this.customLocationsList.innerHTML = '<div style="color:#888; font-size:12px; grid-column:1/-1;">Aucun lieu personnalisé.</div>';
+
+  // ── FIX: was called but never defined ──────────────────────
+  // Renders the cm_clientsList panel in the existing Client Management modal (index.html)
+  loadClients() {
+    const list = document.getElementById('cm_clientsList');
+    if (!list) return; // modal not open yet, that's fine
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    if (!clients.length) {
+      list.innerHTML = '<div style="text-align:center;color:#888;padding:20px;font-size:12px;">Aucun client configuré.<br>Créez-en un ci-dessus.</div>';
       return;
     }
-    FLEET_CONFIG.CUSTOM_LOCATIONS.forEach((loc, index) => {
-      const typeConfig = (FLEET_CONFIG.LOCATION_TYPES || []).find(t => t.id === loc.type) || { color: '666666', icon: 'fa-map-pin', label: 'Autre' };
-      
-      const div = document.createElement('div');
-      div.style.cssText = `background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #ddd; border-left: 4px solid ${typeConfig.color || '#666'}; position: relative;`;
-      div.innerHTML = `
-        <div style="position:absolute; top:5px; right:5px; display:flex; gap:5px;">
-             <button onclick="ui.editCustomLocation(${index})" style="background:none; border:none; color: var(--teal); cursor:pointer;"><i class="fa-solid fa-pen"></i></button>
-             <button onclick="ui.deleteCustomLocation(${index})" style="background:none; border:none; color: #d32f2f; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
+    list.innerHTML = clients.map((c, i) => {
+      const fcCount = (c.finalClients || []).length;
+      return `<div class="cm-client-item" onclick="ui.cmSelectClient(${i})" style="padding:10px 12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:background 0.15s;" onmouseover="this.style.background='rgba(59,130,246,0.08)'" onmouseout="this.style.background=''">
+        <span style="width:12px;height:12px;border-radius:50%;background:${c.color||'#3b82f6'};flex-shrink:0;"></span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:13px;color:var(--text-primary,var(--text-primary, #e2e8f0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
+          <div style="font-size:10px;color:#888;">${fcCount} client(s) final(s)</div>
         </div>
-        <div style="font-weight:bold; color: #333; margin-right:40px;">${loc.name}</div>
-        <div style="font-size:10px; color:${typeConfig.color || '#666'}; font-weight:bold; margin-bottom:4px;">
-           <i class="fa-solid ${typeConfig.icon || 'fa-map-pin'}"></i> ${typeConfig.label || 'Autre'}
-        </div>
-        <div style="font-size:11px; color:#555;">${loc.wilaya}</div>
-        <div style="font-size:10px; color:#888;">${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}</div>
-      `;
-      this.customLocationsList.appendChild(div);
-    });
+        <i class="fa-solid fa-chevron-right" style="color:#555;font-size:10px;"></i>
+      </div>`;
+    }).join('');
   }
 
-  // --- MAINTENANCE & EXPORTS ---
+  // ── FIX: was called but never defined ──────────────────────
+  // Fetches maintenance history from API and populates the maintenance history tab
   async fetchAndRenderMaintenance() {
-      if(!this.maintenanceListContainer) return;
-      this.maintenanceListContainer.innerHTML = '<div style="color:#666; text-align:center; padding:20px;"><i class="fa-solid fa-sync fa-spin"></i> Chargement Maintenance...</div>';
-      
-      try {
-          const response = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance`);
-          if (!response.ok) throw new Error("Erreur Serveur");
-          this.allMaintenanceLogs = await response.json();
-          this.renderMaintenanceList();
-      } catch (e) {
-          this.maintenanceListContainer.innerHTML = '<div style="color:#888; text-align:center; padding:10px;">Maintenance indisponible (Serveur en veille).</div>';
-          console.error("Maintenance fetch failed:", e);
-      }
-  }
-
-  renderMaintenanceList() {
-      if(!this.allMaintenanceLogs || this.allMaintenanceLogs.length === 0) {
-          this.maintenanceListContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun historique de maintenance.</div>';
-          return;
-      }
-
-      const start = this.maintDateStart.value ? new Date(this.maintDateStart.value) : null;
-      const end = this.maintDateEnd.value ? new Date(this.maintDateEnd.value) : null;
-      if(end) end.setHours(23, 59, 59, 999);
-      
-      const typeFilter = this.maintTypeFilter.value;
-      const truckFilter = this.maintTruckSearch.value.toLowerCase().trim();
-
-const filtered = this.allMaintenanceLogs.filter(item => {
-          const d = new Date(item.date);
-          
-          // FIX: Always show Active (En cours) items, regardless of date filter
-	      const isActive = item.isAuto && !item.exitDate;
-          
-          if (!isActive) {
-              if(start && d < start) return false;
-              if(end && d > end) return false;
-          }
-
-          if(typeFilter !== 'all' && item.type !== typeFilter) return false;
-          if(truckFilter && !item.truckName.toLowerCase().includes(truckFilter)) return false;
-          return true;
-      });
-
-      if(filtered.length === 0) {
-          this.maintenanceListContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun résultat pour cette date/filtre.</div>';
-          return;
-      }
-
-      // Sort: Active First, then Newest
-	      filtered.sort((a,b) => {
-	          const aActive = a.isAuto && !a.exitDate;
-	          const bActive = b.isAuto && !b.exitDate;
-          if(aActive && !bActive) return -1; // Active comes first
-          if(!aActive && bActive) return 1;  // Inactive goes down
-          return new Date(b.date) - new Date(a.date);
-      });
-
-      const totalItems = filtered.length;
-      const totalPages = Math.ceil(totalItems / this.maintItemsPerPage);
-      
-      if (this.maintCurrentPage > totalPages) this.maintCurrentPage = totalPages || 1;
-      if (this.maintCurrentPage < 1) this.maintCurrentPage = 1;
-
-      const startIndex = (this.maintCurrentPage - 1) * this.maintItemsPerPage;
-      const paginatedItems = filtered.slice(startIndex, startIndex + this.maintItemsPerPage);
-
-      // Statistics bar
-      const totalCost = this.allMaintenanceLogs.reduce((s, l) => s + (l.cost || 0), 0);
-      const urgentCount = this.allMaintenanceLogs.filter(l => l.priority === 'urgent').length;
-      const activeCount = this.allMaintenanceLogs.filter(l => l.isAuto && !l.exitDate).length;
-      const thisMonthKey = new Date().toISOString().slice(0, 7);
-      const thisMonthCount = this.allMaintenanceLogs.filter(l => new Date(l.date).toISOString().slice(0,7) === thisMonthKey).length;
-
-      let html = `
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:8px; margin-bottom:12px;">
-        <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:8px; text-align:center;">
-          <div style="font-size:18px; font-weight:900; color:#92400e;">${totalItems}</div>
-          <div style="font-size:9px; color:#b45309; font-weight:700;">FILTRÉES</div>
-        </div>
-        <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px; padding:8px; text-align:center;">
-          <div style="font-size:18px; font-weight:900; color:#16a34a;">${thisMonthCount}</div>
-          <div style="font-size:9px; color:#15803d; font-weight:700;">CE MOIS</div>
-        </div>
-        <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px; text-align:center;">
-          <div style="font-size:18px; font-weight:900; color:#dc2626;">${urgentCount}</div>
-          <div style="font-size:9px; color:#ef4444; font-weight:700;">URGENTES</div>
-        </div>
-        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:8px; text-align:center;">
-          <div style="font-size:18px; font-weight:900; color:#1d4ed8;">${activeCount}</div>
-          <div style="font-size:9px; color:#2563eb; font-weight:700;">EN COURS</div>
-        </div>
-        <div style="background:#fdf4ff; border:1px solid #e9d5ff; border-radius:8px; padding:8px; text-align:center;">
-          <div style="font-size:16px; font-weight:900; color:#7e22ce;">${totalCost.toLocaleString()} DA</div>
-          <div style="font-size:9px; color:#9333ea; font-weight:700;">COÛT TOTAL</div>
-        </div>
-      </div>
-      <div style="display:flex; justify-content:flex-end; margin-bottom:8px;">
-        <button class="btn-secondary" onclick="ui.exportMaintenanceCSV()" style="font-size:10px; padding:5px 12px; border-color:#fde68a; color:#92400e;">
-          <i class="fa-solid fa-file-excel"></i> Export Excel
-        </button>
-      </div>`;
-
-      html += '<div style="display:grid; gap:10px;">';
-      
-      paginatedItems.forEach(item => {
-          let icon = 'fa-wrench';
-          let color = '#d32f2f'; 
-          
-          if(item.type === 'Vidange') { icon = 'fa-oil-can'; color = '#f57c00'; } 
-          if(item.type === 'Plaquettes') { icon = 'fa-circle-stop'; color = '#c2185b'; }
-
-          const isAuto = item.isAuto ? '<span style="background:#e3f2fd; color:#1565c0; padding:2px 6px; border-radius:4px; font-size:10px; margin-left:5px;"><i class="fa-solid fa-robot"></i> AUTO</span>' : '';
-          
-          // Determine status text (Active or Done)
-          let statusHtml = '';
-          if(item.isAuto) {
-if (item.exitDate) {
-                  const exitTime = new Date(item.exitDate).toLocaleString('fr-FR');
-                  // Calculate Duration for closed logs
-                  const diffMs = new Date(item.exitDate) - new Date(item.date);
-                  const durationHrs = (diffMs / (1000 * 60 * 60)).toFixed(1);
-                  statusHtml = `<div style="font-size:11px; color:#2e7d32; margin-top:3px;"><i class="fa-solid fa-check-circle"></i> Sortie: ${exitTime} (Durée: ${durationHrs}h)</div>`;
-              } else {
-                  // Calculate Live Duration for open logs
-                  const now = new Date();
-                  const start = new Date(item.date);
-                  const diffMs = now - start;
-                  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                  
-                  let durationText = "";
-                  if (days > 0) durationText = `${days}j ${hours}h`;
-                  else durationText = `${hours}h`;
-
-                  statusHtml = `<div style="font-size:11px; color:#e65100; margin-top:3px; font-weight:bold; animation: pulse-gray 2s infinite;">
-                      <i class="fa-solid fa-spinner fa-spin"></i> En cours (Depuis: ${durationText})
-                  </div>`;
-              }
-          }
-
-          html += `
-          <div style="background:white; border-left:4px solid ${color}; padding:15px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); display:flex; justify-content:space-between; align-items:center;">
-              <div style="display:flex; gap:15px; align-items:center; flex:1;">
-                  <div style="background:${color}20; color:${color}; width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;">
-                      <i class="fa-solid ${icon}"></i>
-                  </div>
-                  <div style="flex:1;">
-                      <div style="font-weight:bold; color:#333; font-size:15px;">
-                          ${item.type} <span style="font-weight:normal; color:#666;">- ${item.truckName}</span>
-                          ${isAuto}
-                          ${item.priority === 'urgent' ? '<span class="maint-status-badge badge-urgent" style="margin-left:5px;">URGENT</span>' : ''}
-                      </div>
-                      <div style="font-size:12px; color:#666; margin-top:3px;">
-                          <i class="fa-solid fa-arrow-right-to-bracket"></i> Entrée: ${new Date(item.date).toLocaleString()}
-                      </div>
-                      ${statusHtml}
-                      <div style="font-size:12px; color:#666; margin-top:3px;">
-                          <i class="fa-solid fa-road"></i> ${item.odometer.toLocaleString()} km
-                          ${item.location ? ` |  <i class="fa-solid fa-map-pin"></i> ${item.location}` : ''}
-                          ${item.technician ? ` | <i class="fa-solid fa-user-gear"></i> ${item.technician}` : ''}
-                          ${item.cost ? ` | <i class="fa-solid fa-coins"></i> ${item.cost.toLocaleString()} DA` : ''}
-                      </div>
-                      ${item.description ? `<div style="font-size:11px; color:#555; margin-top:3px;"><i class="fa-solid fa-file-lines"></i> ${item.description}</div>` : ''}
-                      ${item.note ? `<div style="font-size:12px; color:#444; margin-top:4px; font-style:italic;">"${item.note}"</div>` : ''}
-                      <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
-                          ${item.chassisNumber ? `<span class="truck-meta-tag chassis"><i class="fa-solid fa-hashtag"></i> ${item.chassisNumber}</span>` : ''}
-                          ${item.immatriculation ? `<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${item.immatriculation}</span>` : ''}
-                      </div>
-                  </div>
-              </div>
-              <div style="display:flex; gap: 5px; flex-shrink:0;">
-                <button onclick="ui.viewOrdreReparation('${item.id}')" style="background:none; border:none; color:#f59e0b; cursor:pointer; font-size:14px; padding:5px;" title="Voir Ordre de Réparation">
-                  <i class="fa-solid fa-file-pdf"></i>
-                </button>
-                <button onclick="ui.editMaintenance('${item.id}')" style="background:none; border:none; color:var(--teal); cursor:pointer; font-size:14px; padding:5px;" title="Modifier">
-                  <i class="fa-solid fa-pen"></i>
-                </button>
-                <button onclick="ui.deleteMaintenance('${item.id}')" style="background:none; border:none; color:#e57373; cursor:pointer; font-size:14px; padding:5px;" title="Supprimer">
-                  <i class="fa-solid fa-trash"></i>
-                </button>
-              </div>
-          </div>
-          `;
-      });
-      html += '</div>';
-
-      if (totalPages > 1) {
-          html += `
-          <div class="pagination-controls">
-              <button class="pagination-btn" onclick="ui.changeMaintPage(-1)" ${this.maintCurrentPage === 1 ? 'disabled' : ''}>« Préc.</button>
-              <span class="pagination-info">Page ${this.maintCurrentPage} / ${totalPages} (${totalItems} entrées)</span>
-              <button class="pagination-btn" onclick="ui.changeMaintPage(1)" ${this.maintCurrentPage === totalPages ? 'disabled' : ''}>Suiv. »</button>
-          </div>
-          `;
-      }
-
-      this.maintenanceListContainer.innerHTML = html;
-  }
-
-  changeMaintPage(direction) {
-      this.maintCurrentPage += direction;
-      this.renderMaintenanceList();
-  }
-
-  async deleteMaintenance(id) {
-      if(!confirm("Supprimer cette entrée ?")) return;
-      try {
-          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/delete`, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ id })
-          });
-          if(res.ok) this.fetchAndRenderMaintenance(); 
-          else alert("Erreur suppression.");
-      } catch(e) { alert("Erreur connexion."); }
-  }
-
-  editMaintenance(id) {
-    const log = this.allMaintenanceLogs.find(l => l.id === id);
-    if(!log) return;
-    this.openMaintenanceModal(log);
-  }
-
-  // ✅ Auto-fill form from selected Forfait
-  _onForfaitSelectChange() {
-      const select = document.getElementById('modalMaintForfait');
-      if (!select) return;
-      const code = select.value;
-      if (!code) {
-          // Reset if "Aucun forfait" is selected
-          document.getElementById('modalMaintCost').value = '';
-          document.getElementById('modalMaintDescription').value = '';
-          return;
-      }
-      const forfait = (this.maintenanceArticles || []).find(a => a.code === code);
-      if (forfait) {
-          document.getElementById('modalMaintCost').value = forfait.defaultPrice || '';
-          document.getElementById('modalMaintDescription').value = forfait.description || '';
-          
-          // Auto-select type if category is vidange
-          if (forfait.category === 'Forfait Vidange') {
-              document.getElementById('modalMaintType').value = 'Vidange';
-          }
-      }
-  }
-
-  openMaintenanceModal(editData = null) {
-      this.maintenanceModal.style.display = 'flex';
-      
-      // Always reset wizard to step 1
-      if (typeof this.setMaintWizardStep === 'function') {
-        this.setMaintWizardStep(1);
-      }
-
-      if (!editData) {
-          if(document.getElementById('modalMaintDate')) document.getElementById('modalMaintDate').value = new Date().toISOString().slice(0,16);
-          if(document.getElementById('modalMaintType')) document.getElementById('modalMaintType').value = 'Preventive';
-          if(document.getElementById('modalMaintOdo')) document.getElementById('modalMaintOdo').value = '';
-          if(document.getElementById('modalMaintTechnician')) document.getElementById('modalMaintTechnician').value = '';
-          if(document.getElementById('modalMaintDescription')) document.getElementById('modalMaintDescription').value = '';
-          if(document.getElementById('modalMaintPriority')) document.getElementById('modalMaintPriority').value = 'Moyenne';
-          if(document.getElementById('modalMaintScheme')) document.getElementById('modalMaintScheme').value = 'vehicule';
-          this._wizardParts = [];
-          if(this._renderPartsChecklist) this._renderPartsChecklist();
-      }
-      
-      let preselectTruckId = null;
-      if (typeof editData === 'string') {
-          preselectTruckId = editData;
-          editData = null; // Adding a new entry for this truck
-      }
-
-      const select = document.getElementById('modalMaintTruck');
-      select.innerHTML = '';
-      
-      // ✅ GPS trucks
-      const gpsTrucks = app.getAllTrucks();
-      const addedIds = new Set();
-      gpsTrucks.forEach(t => {
-          const opt = document.createElement('option');
-          opt.value = t.name;
-          opt.dataset.id = t.id;
-          opt.dataset.odo = t.odometer;
-          opt.text = t.name;
-          select.appendChild(opt);
-          addedIds.add(t.id);
-      });
-
-      // ✅ NEW: Also add manual/non-GPS trucks from DB cache
-      (this.truckDbCache || []).forEach(db => {
-          if (!addedIds.has(db.deviceId)) {
-              const opt = document.createElement('option');
-              opt.value = db.truckName;
-              opt.dataset.id = db.deviceId;
-              opt.dataset.odo = '0';
-              opt.text = `➕ ${db.truckName} (hors GPS)`;
-              opt.style.color = '#f59e0b';
-              select.appendChild(opt);
-              addedIds.add(db.deviceId);
-          }
-      });
-
-      // ✅ NEW: Option to add a completely new vehicle
-      const addNewOpt = document.createElement('option');
-      addNewOpt.value = '__ADD_NEW__';
-      addNewOpt.text = '➕ Ajouter un véhicule hors GPS...';
-      addNewOpt.style.color = '#16a34a';
-      addNewOpt.style.fontWeight = 'bold';
-      select.appendChild(addNewOpt);
-
-      // ✅ Populate location dropdown from customLocations
-      const locSelect = document.getElementById('modalMaintLocation');
-      if (locSelect) {
-        locSelect.innerHTML = '<option value="Atelier Douroub">🏭 Atelier Douroub</option>';
-        const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
-        locs.filter(l => l.type === 'maintenance').forEach(l => {
-          locSelect.innerHTML += `<option value="${l.name}">🔧 ${l.name}</option>`;
-        });
-        locSelect.innerHTML += '<option value="Entrée Manuelle">📍 Entrée Manuelle</option>';
-      }
-
-      // ✅ Populate forfait dropdown
-      const forfaitSelect = document.getElementById('modalMaintForfait');
-      const forfaitContainer = document.getElementById('forfaitSelectContainer');
-      if (forfaitSelect && forfaitContainer) {
-          forfaitSelect.innerHTML = '<option value="">-- Aucun forfait (saisie manuelle) --</option>';
-          const forfaits = (this.maintenanceArticles || []).filter(a => a.category === 'Forfait' || a.category === 'Forfait Vidange');
-          if (forfaits.length > 0) {
-              forfaitContainer.style.display = 'grid';
-              forfaits.forEach(f => {
-                  const opt = document.createElement('option');
-                  opt.value = f.code;
-                  opt.text = `${f.code} - ${f.name} (${f.defaultPrice} DA)`;
-                  forfaitSelect.appendChild(opt);
-              });
-          } else {
-              forfaitContainer.style.display = 'none';
-          }
-      }
-
-      if (editData) {
-        this.editingMaintenanceId = editData.id;
-        this.editingIsAuto = editData.isAuto;
-        this.editingOriginalLocation = editData.location;
-        this.editingStatus = editData.status || 'en_cours';
-        this.modalMaintTitle.innerText = 'Modifier Maintenance';
-        this.modalMaintSubmitBtn.innerHTML = '<i class="fa-solid fa-save"></i> Mettre à jour';
-        
-        select.value = editData.truckName;
-        document.getElementById('modalMaintType').value = editData.type;
-        
-        const d = new Date(editData.date);
-        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-        document.getElementById('modalMaintDate').value = d.toISOString().slice(0,16);
-        document.getElementById('modalMaintOdo').value = editData.odometer;
-        document.getElementById('modalMaintNote').value = editData.note || '';
-        
-        // ✅ NEW: Fill enhanced fields when editing
-        if (locSelect && editData.location) locSelect.value = editData.location;
-        const prioSelect = document.getElementById('modalMaintPriority');
-        if (prioSelect) prioSelect.value = editData.priority || 'normal';
-        const descField = document.getElementById('modalMaintDescription');
-        if (descField) descField.value = editData.description || '';
-        const techField = document.getElementById('modalMaintTechnician');
-        if (techField) techField.value = editData.technician || '';
-        const costField = document.getElementById('modalMaintCost');
-        if (costField) costField.value = editData.cost || '';
-
-        // ✅ NEW: Restore scheme and tire marks
-        const schemeField = document.getElementById('modalMaintScheme');
-        if (schemeField && editData.scheme) {
-            schemeField.value = editData.scheme;
-            if (typeof window.setScheme === 'function') window.setScheme(editData.scheme);
-        }
-        if (editData.tires) {
-            const tires = editData.tires.split(',');
-            tires.forEach(t => {
-                const el = document.getElementById(t);
-                if (el) el.classList.add('on');
-            });
-        }
-
-      } else {
-        this.editingMaintenanceId = null;
-        this.editingOriginalLocation = null;
-        this.modalMaintTitle.innerText = 'Ajouter Maintenance Manuelle';
-        this.modalMaintSubmitBtn.innerHTML = '<i class="fa-solid fa-save"></i> Enregistrer';
-        
-        if (preselectTruckId) {
-            const opt = Array.from(select.options).find(o => o.dataset.id === preselectTruckId);
-            if (opt) {
-                select.value = opt.value;
-                document.getElementById('modalMaintOdo').value = opt.dataset.odo || '0';
-            }
-        } else if(select.options.length > 0) {
-            document.getElementById('modalMaintOdo').value = select.options[0].dataset.odo;
-        }
-        const now = new Date();
-        now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-        document.getElementById('modalMaintDate').value = now.toISOString().slice(0,16);
-        document.getElementById('modalMaintNote').value = '';
-        // ✅ NEW: Reset enhanced fields
-        const prioSelect = document.getElementById('modalMaintPriority');
-        if (prioSelect) prioSelect.value = 'normal';
-        const descField = document.getElementById('modalMaintDescription');
-        if (descField) descField.value = '';
-        const techField = document.getElementById('modalMaintTechnician');
-        if (techField) techField.value = '';
-        const costField = document.getElementById('modalMaintCost');
-        if (costField) costField.value = '';
-      }
-      
-      select.onchange = () => {
-         if (select.value === '__ADD_NEW__') {
-             this.addManualTruckPrompt(select);
-             return;
-         }
-         if (!this.editingMaintenanceId) {
-             const opt = select.options[select.selectedIndex];
-             document.getElementById('modalMaintOdo').value = opt.dataset.odo;
-             this._autoFillTruckInfoInModal(opt.dataset.id);
-         }
-      };
-      // Auto-fill on initial load too (when not editing)
-      if (!editData && select.options.length > 0) {
-        const initialId = select.options[select.selectedIndex]?.dataset?.id;
-        if (initialId) this._autoFillTruckInfoInModal(initialId);
-      }
-  }
-
-  // ✅ NEW: Prompt user to add a manual (non-GPS) truck
-  async addManualTruckPrompt(selectEl) {
-    const name = prompt('Nom du véhicule (ex: GRUE-01, CITERNE-03) :');
-    if (!name || !name.trim()) { selectEl.selectedIndex = 0; return; }
-    const chassis = prompt('N° Châssis (optionnel) :') || '';
-    const imm = prompt('Immatriculation (optionnel) :') || '';
-    const naftal = prompt('Carte Naftal (optionnel) :') || '';
+    const container = document.getElementById('maintenanceHistoryContainer');
+    if (!container) return;
     try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks/manual`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ truckName: name.trim(), chassisNumber: chassis, immatriculation: imm, carteNaftal: naftal })
+      const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance?limit=500`, {
+        headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
       });
-      if (res.ok) {
-        const data = await res.json();
-        alert(`✅ Véhicule "${name.trim()}" ajouté ! Il sera disponible dans toutes les sections.`);
-        await this.loadTruckDbCache();
-        // Re-add to the current dropdown
-        const opt = document.createElement('option');
-        opt.value = name.trim();
-        opt.dataset.id = data.truck?.deviceId || ('manual_' + name.trim().toLowerCase().replace(/\s+/g, '_'));
-        opt.dataset.odo = '0';
-        opt.text = `➕ ${name.trim()} (hors GPS)`;
-        // Insert before the last option (Add new)
-        selectEl.insertBefore(opt, selectEl.lastChild);
-        selectEl.value = name.trim();
-      } else { alert('Erreur serveur.'); selectEl.selectedIndex = 0; }
-    } catch (e) { alert('Erreur connexion.'); selectEl.selectedIndex = 0; }
-  }
-
-  closeMaintenanceModal() {
-      this.maintenanceModal.style.display = 'none';
-      this.editingMaintenanceId = null;
-      this.editingIsAuto = false;
-      this.editingStatus = null;
-      this.editingOriginalLocation = null;
-      this._wizardParts = [];
-      // Reset all form fields
-      var fields = ['modalMaintOdo','modalMaintTechnician','modalMaintDescription','modalMaintNote','modalMaintCost','modalMaintImm'];
-      fields.forEach(function(id) { var el = document.getElementById(id); if(el) el.value = ''; });
-      var forfaitSel = document.getElementById('modalMaintForfait');
-      if (forfaitSel) forfaitSel.selectedIndex = 0;
-      var truckSel = document.getElementById('modalMaintTruck');
-      if (truckSel) truckSel.selectedIndex = 0;
-      var schemeSel = document.getElementById('modalMaintScheme');
-      if (schemeSel) schemeSel.value = 'vehicule';
-      // Reset tire marks
-      document.querySelectorAll('#maintenanceModal .mark').forEach(el => el.classList.remove('on'));
-      // Reset scheme visual
-      if (typeof window.setScheme === 'function') window.setScheme('vehicule');
-  }
-
-  async saveManualMaintenance() {
-      const select = document.getElementById('modalMaintTruck');
-      const truckName = select.value;
-      const deviceId = select.options[select.selectedIndex].dataset.id;
-      const type = document.getElementById('modalMaintType').value;
-      const dateVal = document.getElementById('modalMaintDate').value;
-      // Auto-fill odometer from GPS if user left it empty
-      let odo = parseInt(document.getElementById('modalMaintOdo').value);
-      if (isNaN(odo)) {
-          const gpsTruck = app.getAllTrucks().find(function(t) { return t.id === deviceId; });
-          odo = gpsTruck ? (gpsTruck.odometer || 0) : 0;
-          document.getElementById('modalMaintOdo').value = odo;
-      }
-      const note = document.getElementById('modalMaintNote').value;
-
-      if(!truckName || !dateVal) {
-          alert("Veuillez sélectionner un camion et une date.");
-          return;
-      }
-
-// NEW LOGIC: Keep "Auto" status if we are editing an existing auto-entry
-let isAutoState = false;
-if (this.editingMaintenanceId) {
-    isAutoState = this.editingIsAuto; 
-}
-
-// ✅ NEW: Capture enhanced fields
-const locationSelect = document.getElementById('modalMaintLocation');
-const locationVal = locationSelect ? locationSelect.value : 'Entrée Manuelle';
-const priority = document.getElementById('modalMaintPriority')?.value || 'normal';
-const description = document.getElementById('modalMaintDescription')?.value || '';
-const technician = document.getElementById('modalMaintTechnician')?.value || '';
-const cost = parseFloat(document.getElementById('modalMaintCost')?.value) || undefined;
-const forfaitName = document.getElementById('modalMaintForfait')?.value || '';
-const scheme = document.getElementById('modalMaintScheme')?.value || 'vehicule';
-const marks = Array.from(document.querySelectorAll('#maintenanceModal .mark.on')).map(el => el.id).join(',');
-const checkedParts = (this._wizardParts || []).filter(p => p.checked);
-
-// Get truck metadata from DB cache
-const db = this.truckDbCache.find(d => String(d.deviceId) === String(deviceId)) || {};
-
-const eventData = {
-    truckName,
-    deviceId,
-    type: type,
-    location: (isAutoState && this.editingOriginalLocation) ? this.editingOriginalLocation : locationVal,
-    odometer: odo,
-    date: new Date(dateVal).toISOString(),
-    note: note,
-    isAuto: isAutoState,
-    status: this.editingMaintenanceId ? (this.editingStatus || 'en_cours') : 'en_cours',
-    priority,
-    description: description + (forfaitName ? '\nPack choisi: ' + forfaitName : ''),
-    technician,
-    cost,
-    forfaitName,
-    scheme,
-    tires: marks,
-    parts: checkedParts,
-    chassisNumber: db.chassisNumber || '',
-    immatriculation: document.getElementById('modalMaintImm')?.value || db.immatriculation || ''
-};
-
-      let url = '/api/maintenance/add';
-      if (this.editingMaintenanceId) {
-         url = '/api/maintenance/update';
-         eventData.id = this.editingMaintenanceId;
-      }
-
-      try {
-          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}${url}`, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json', 'x-access-code': this.currentCode},
-              body: JSON.stringify(eventData)
-          });
-          if(res.ok) {
-              alert(this.editingMaintenanceId ? "✅ Mis à jour !" : "✅ Enregistré !");
-              this.closeMaintenanceModal();
-              this.fetchAndRenderMaintenance();
-
-              // ✅ If it was a Vidange, refresh settings (override) + trucks so the Vidange alert disappears
-              if (eventData.type === 'Vidange') {
-                  try {
-                      await this.loadSettingsFromCloud();
-                      await this.fetchAndUpdateTrucks();
-                  } catch (e) {
-                      console.warn('Refresh after Vidange failed:', e.message);
-                  }
-              }
-          } else {
-              alert("Erreur serveur.");
-          }
-      } catch(e) {
-          alert("Erreur connexion.");
-      }
-  }
-  
-  exportMaintenanceCSV() {
-      if(!this.allMaintenanceLogs || this.allMaintenanceLogs.length === 0) { alert("Rien à exporter."); return; }
-      
-      let csv = "Date,Type,Camion,Compteur (km),Lieu,Note,Auto\n";
-      this.allMaintenanceLogs.forEach(item => {
-          csv += `"${new Date(item.date).toLocaleString()}","${item.type}","${item.truckName}",${item.odometer},"${item.location}","${item.note || ''}","${item.isAuto ? 'Oui' : 'Non'}"\n`;
-      });
-      
-      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `maintenance_export_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
-  }
-
-  // ============================================================
-  // ✅ MAINTENANCE FOLLOW-UP SYSTEM (NEW)
-  // ============================================================
-
-  async loadTruckDbCache() {
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks/db`, { headers: { 'x-access-code': this.currentCode } });
-      if (res.ok) this.truckDbCache = await res.json();
-    } catch (e) { console.warn('Failed to load truck DB cache:', e.message); }
-  }
-
-  async refreshMaintenanceFollowup() {
-    await this.loadTruckDbCache();
-    await this.loadActiveMaintenanceOrders();
-    this.renderActiveOrdersDashboard();
-  }
-
-  async loadActiveMaintenanceOrders() {
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/active`);
-      if (res.ok) {
-        this.activeMaintenanceOrders = await res.json();
-        if (this.activeOrderCount) this.activeOrderCount.textContent = this.activeMaintenanceOrders.length;
-      }
-    } catch (e) { console.warn('Failed to load active orders:', e.message); }
-  }
-
-  handleMaintTruckSearch(query) {
-    const q = (query || '').trim().toLowerCase();
-    if (q.length < 1) { this.maintTruckSearchResults.classList.remove('show'); return; }
-
-    // Search from GPS trucks + DB metadata
-    const gpsTrucks = app.getAllTrucks();
-    const results = gpsTrucks.filter(t => {
-      const nameMatch = t.name.toLowerCase().includes(q);
-      const dbEntry = this.truckDbCache.find(d => d.deviceId === t.id);
-      const immMatch = dbEntry && dbEntry.immatriculation && dbEntry.immatriculation.toLowerCase().includes(q);
-      const chassisMatch = dbEntry && dbEntry.chassisNumber && dbEntry.chassisNumber.toLowerCase().includes(q);
-      const naftalMatch = dbEntry && dbEntry.carteNaftal && dbEntry.carteNaftal.toLowerCase().includes(q);
-      return nameMatch || immMatch || chassisMatch || naftalMatch;
-    }).slice(0, 10);
-
-    if (results.length === 0) {
-      this.maintTruckSearchResults.innerHTML = '<div style="padding:12px; color:#94a3b8; text-align:center; font-size:12px;">Aucun résultat</div>';
-      this.maintTruckSearchResults.classList.add('show');
-      return;
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const json = await r.json();
+      const logs = Array.isArray(json) ? json : (json.data || []);
+      this.allMaintenanceLogs = logs;
+      const filtersHtml = this.renderMaintenanceHistoryFilters ? this.renderMaintenanceHistoryFilters() : '';
+      if (filtersHtml) container.innerHTML = filtersHtml;
+      if (typeof this.applyMaintenanceHistoryFilters === 'function') this.applyMaintenanceHistoryFilters();
+    } catch(e) {
+      console.warn('fetchAndRenderMaintenance failed:', e.message);
+      if (container) container.innerHTML = `<div style="padding:20px;color:#888;text-align:center;"><i class="fa-solid fa-triangle-exclamation"></i> Impossible de charger l'historique maintenance: ${e.message}</div>`;
     }
-
-    let html = '';
-    results.forEach(t => {
-      const db = this.truckDbCache.find(d => d.deviceId === t.id) || {};
-      const tags = [];
-      if (db.immatriculation) tags.push(`<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${db.immatriculation}</span>`);
-      if (db.chassisNumber) tags.push(`<span class="truck-meta-tag chassis"><i class="fa-solid fa-hashtag"></i> ${db.chassisNumber}</span>`);
-      html += `
-        <div class="maint-search-item" onclick="ui.selectMaintTruck('${t.id}')">
-          <div>
-            <div style="font-weight:700; color:#0f172a;">${t.name}</div>
-            <div style="display:flex; gap:4px; margin-top:3px; flex-wrap:wrap;">${tags.join('')}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:11px; color:#64748b;">${t.odometer.toLocaleString()} km</div>
-            <div style="font-size:10px; color:${t.speed > 0 ? '#16a34a' : '#94a3b8'};">${t.speed > 0 ? '🟢 En route' : '🔴 Arrêt'}</div>
-          </div>
-        </div>`;
-    });
-    this.maintTruckSearchResults.innerHTML = html;
-    this.maintTruckSearchResults.classList.add('show');
   }
 
-  selectMaintTruck(truckId) {
-    this.selectedMaintTruckId = truckId;
-    this.maintTruckSearchResults.classList.remove('show');
-    const truck = app.trucks.get(truckId);
-    if (!truck) return;
-    this.maintTruckSearchInput.value = truck.name;
-    this.renderTruckInfoPanel(truckId);
-    this.showTruckMetaEditor(truckId);
+  _updateFinalClientSelect(clientId, targetSelectId) {
+    const sel = document.getElementById(targetSelectId);
+    if(!sel) return;
+    if(!clientId) {
+       sel.innerHTML = '<option value="">— Sélectionnez d\'abord un client —</option>';
+       return;
+    }
+    const c = (FLEET_CONFIG.CLIENTS||[]).find(x => x.id === clientId);
+    if(!c || !c.finalClients || c.finalClients.length === 0) {
+       sel.innerHTML = '<option value="">— Aucun client final —</option>';
+       return;
+    }
+    sel.innerHTML = '<option value="">— Aucun —</option>' + c.finalClients.map(fc => `<option value="${fc.id}">${fc.name}</option>`).join('');
   }
 
-  renderTruckInfoPanel(truckId) {
-    const truck = app.trucks.get(truckId);
-    if (!truck || !this.maintTruckInfoPanel) return;
-    const db = this.truckDbCache.find(d => String(d.deviceId) === String(truckId)) || {};
-
-    this.maintTruckInfoPanel.style.display = 'block';
-    this.maintTruckInfoPanel.innerHTML = `
-      <div class="truck-info-panel">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-          <h3 style="margin:0; color:#f59e0b;"><i class="fa-solid fa-truck"></i> ${truck.name}</h3>
-          <div style="display:flex; gap:6px;">
-            <button class="btn-primary" onclick="ui.openNewMaintenanceOrder('${truckId}')" style="background:#f59e0b; border:none; font-size:12px; padding:6px 12px;">
-              <i class="fa-solid fa-plus"></i> Créer Ordre
-            </button>
-          </div>
-        </div>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:8px;">
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-road"></i> Compteur</span><span class="truck-info-value">${truck.odometer.toLocaleString()} km</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-gas-pump"></i> Carburant</span><span class="truck-info-value">${truck.fuelLiters} L (${truck.fuelPercentage}%)</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-location-dot"></i> Position</span><span class="truck-info-value">${truck.location.city || 'Inconnue'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-hashtag"></i> Châssis</span><span class="truck-info-value">${db.chassisNumber || '<em style="color:#94a3b8;">Non renseigné</em>'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-id-badge"></i> Immatriculation</span><span class="truck-info-value">${db.immatriculation || '<em style="color:#94a3b8;">Non renseigné</em>'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-credit-card"></i> Carte Naftal</span><span class="truck-info-value">${db.carteNaftal || '<em style="color:#94a3b8;">Non renseigné</em>'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-oil-can"></i> Vidange</span><span class="truck-info-value" style="color:${truck.vidange.alert ? '#ef4444' : '#22c55e'};">${truck.vidange.alert ? '⚠️ ' + truck.vidange.kmUntilNext + ' km' : '✅ OK (' + truck.vidange.kmUntilNext + ' km)'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-signal"></i> Vitesse</span><span class="truck-info-value">${truck.speed} km/h</span></div>
-        </div>
-      </div>`;
-  }
-
-  showTruckMetaEditor(truckId) {
-    if (!this.truckMetaEditor) return;
-    const db = this.truckDbCache.find(d => d.deviceId === truckId) || {};
-    this.truckMetaEditor.style.display = 'block';
-    document.getElementById('editChassisNumber').value = db.chassisNumber || '';
-    document.getElementById('editImmatriculation').value = db.immatriculation || '';
-    document.getElementById('editCarteNaftal').value = db.carteNaftal || '';
-  }
-
-  async saveTruckMetadata() {
-    if (!this.selectedMaintTruckId) { alert('Sélectionnez d\'abord un camion.'); return; }
-    const truck = app.trucks.get(this.selectedMaintTruckId);
-    const payload = {
-      deviceId: this.selectedMaintTruckId,
-      truckName: truck ? truck.name : this.maintTruckSearchInput?.value || '',
-      chassisNumber: document.getElementById('editChassisNumber').value.trim(),
-      immatriculation: document.getElementById('editImmatriculation').value.trim(),
-      carteNaftal: document.getElementById('editCarteNaftal').value.trim()
-    };
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks/update-info`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        alert('✅ Fiche véhicule sauvegardée !');
-        await this.loadTruckDbCache();
-        this.renderTruckInfoPanel(this.selectedMaintTruckId);
-      } else { alert('Erreur serveur.'); }
-    } catch (e) { alert('Erreur connexion.'); }
-  }
-
-  renderActiveOrdersDashboard() {
-    if (!this.activeOrdersDashboard) return;
+  _addNewClientFromModal2() {
+    const name = document.getElementById('zm_new_client_name')?.value.trim();
+    const color = document.getElementById('zm_new_client_color')?.value || '#3b82f6';
+    if (!name) return alert('Nom de client requis.');
     
-    // Add header without toggle buttons
-    let headerHtml = `
-      <div style="grid-column: 1/-1; display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <div style="font-weight:700; color:var(--text-primary);"><i class="fa-solid fa-truck-medical"></i> Véhicules en Maintenance</div>
-      </div>
-    `;
+    if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+    FLEET_CONFIG.CLIENTS.push({ id: 'client_' + Date.now(), name, color, finalClients: [] });
+    this.saveSettingsToCloud();
+    this.openZoneManagementModal();
+    setTimeout(() => {
+        const tabs = document.querySelectorAll('.zmTab');
+        if (tabs.length > 2) tabs[2].click();
+    }, 50);
+    if(window.showToast) showToast(`\u2705 Client "${name}" créé !`, 'success');
+  }
 
-    if (!this.activeMaintenanceOrders.length) {
-      this.activeOrdersDashboard.innerHTML = headerHtml + `
-        <div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8;">
-          <i class="fa-solid fa-clipboard-check" style="font-size:40px; margin-bottom:12px; display:block; opacity:0.4;"></i>
-          <div style="font-size:14px; font-weight:600;">Aucun ordre de maintenance actif</div>
-          <div style="font-size:12px; margin-top:4px;">Les ordres apparaîtront ici automatiquement lorsqu'un camion entre en zone de maintenance</div>
-        </div>`;
-      this.activeOrdersDashboard.style.display = 'grid';
-      this.activeOrdersDashboard.style.gridTemplateColumns = '1fr';
-      return;
-    }
+  _acceptSuggestion(lat, lng, wilaya, name) {
+    document.querySelectorAll('.zmTab')[1].click(); // Go to ADD ZONE tab
+    setTimeout(() => {
+      const nameInp = document.getElementById('zm_name');
+      const wilInp = document.getElementById('zm_wilaya');
+      const latInp = document.getElementById('zm_lat');
+      const lngInp = document.getElementById('zm_lng');
+      if(nameInp) nameInp.value = name;
+      if(wilInp) wilInp.value = wilaya;
+      if(latInp) latInp.value = lat;
+      if(lngInp) lngInp.value = lng;
+    }, 100);
+  }
 
-    let html = headerHtml;
+  async detectPotentialZones() {
+    if (!window.app || !app.trucks) return;
+    if (!this._stopTracker) this._stopTracker = new Map();
     
-    // Adjust container style
-    this.activeOrdersDashboard.style.display = 'grid';
-    this.activeOrdersDashboard.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
-    this.activeOrdersDashboard.style.gap = '16px';
-
-    this.activeMaintenanceOrders.forEach(order => {
-      const priorityClass = order.priority === 'urgent' ? 'urgent' : (order.status === 'termine' ? 'completed' : 'active-order');
-      const statusBadge = order.status === 'termine'
-        ? '<span class="maint-status-badge badge-termine"><i class="fa-solid fa-check-circle"></i> Terminé</span>'
-        : (order.priority === 'urgent'
-          ? '<span class="maint-status-badge badge-urgent"><i class="fa-solid fa-exclamation-triangle"></i> Urgent</span>'
-          : '<span class="maint-status-badge badge-en-cours"><i class="fa-solid fa-spinner fa-spin"></i> En cours</span>');
-
-      const start = new Date(order.date);
-      const formattedDate = start.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-      const diffMs = new Date() - start;
-      const days = Math.floor(diffMs / 86400000);
-      const hours = Math.floor((diffMs % 86400000) / 3600000);
-      const durationText = days > 0 ? `${days}j ${hours}h` : `${hours}h`;
-
-      const db = this.truckDbCache.find(d => d.deviceId === order.deviceId) || {};
-      const metaTags = [];
-      if (db.immatriculation) metaTags.push(`<span class="truck-meta-tag imm">${db.immatriculation}</span>`);
-      if (db.chassisNumber) metaTags.push(`<span class="truck-meta-tag chassis">${db.chassisNumber}</span>`);
-
-      if (viewMode === 'list') {
-         html += `
-         <div class="maint-card ${priorityClass}" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px;">
-           <div style="flex:1;">
-             <div style="display:flex; align-items:center; gap:12px;">
-               <div style="font-size:15px; font-weight:800; color:#0f172a; min-width:120px;">${order.truckName}</div>
-               <div style="display:flex; gap:4px; flex-wrap:wrap;">${metaTags.join('')}</div>
-               ${statusBadge}
-             </div>
-             <div style="display:flex; gap:15px; font-size:12px; margin-top:8px; color:var(--text-secondary);">
-               <div><i class="fa-solid fa-wrench" style="color:#f59e0b;"></i> <strong>${order.type}</strong></div>
-               <div><i class="fa-solid fa-calendar" style="color:#3b82f6;"></i> ${formattedDate}</div>
-               <div><i class="fa-solid fa-clock" style="color:#64748b;"></i> ${durationText}</div>
-               <div><i class="fa-solid fa-map-pin" style="color:#ef4444;"></i> ${order.location || 'N/A'}</div>
-             </div>
-           </div>
-           <div style="display:flex; gap:6px;">
-             <button onclick="ui.cancelMaintenanceOrder('${order.id}')" class="btn-secondary" style="font-size:11px; padding:6px 10px; border-color:#fecaca; color:#dc2626;"><i class="fa-solid fa-ban"></i></button>
-             <button onclick="ui.editMaintenance('${order.id}')" class="btn-secondary" style="font-size:11px; padding:6px 10px;"><i class="fa-solid fa-pen"></i></button>
-             <button onclick="ui.closeMaintenanceOrderUI('${order.id}')" class="btn-primary" style="font-size:11px; padding:6px 10px; background:#22c55e; border:none;"><i class="fa-solid fa-check"></i> Terminer</button>
-           </div>
-         </div>`;
-      } else {
-         html += `
-        <div class="maint-card ${priorityClass}">
-          <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
-            <div>
-              <div style="font-size:16px; font-weight:800; color:#0f172a;">${order.truckName}</div>
-              <div style="display:flex; gap:4px; margin-top:3px; flex-wrap:wrap;">${metaTags.join('')}</div>
-            </div>
-            ${statusBadge}
-          </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:12px; margin-top:10px;">
-            <div><i class="fa-solid fa-wrench" style="color:#f59e0b; width:16px;"></i> <strong>${order.type}</strong></div>
-            <div><i class="fa-solid fa-calendar" style="color:#3b82f6; width:16px;"></i> ${formattedDate}</div>
-            <div><i class="fa-solid fa-clock" style="color:#64748b; width:16px;"></i> ${durationText}</div>
-            <div><i class="fa-solid fa-map-pin" style="color:#ef4444; width:16px;"></i> ${order.location || 'N/A'}</div>
-            <div><i class="fa-solid fa-road" style="color:#3b82f6; width:16px;"></i> ${(order.odometer || 0).toLocaleString()} km</div>
-            ${order.technician ? `<div><i class="fa-solid fa-user-gear" style="color:#7e22ce; width:16px;"></i> ${order.technician}</div>` : ''}
-            ${order.cost ? `<div><i class="fa-solid fa-coins" style="color:#f59e0b; width:16px;"></i> ${order.cost.toLocaleString()} DA</div>` : ''}
-          </div>
-          ${order.note ? `<div style="font-size:11px; color:#64748b; margin-top:8px; font-style:italic; padding:6px; background:#f8fafc; border-radius:4px;">"${order.note}"</div>` : ''}
-          <div style="display:flex; gap:6px; margin-top:10px; justify-content:flex-end;">
-            <button onclick="ui.cancelMaintenanceOrder('${order.id}')" class="btn-secondary" style="font-size:11px; padding:4px 10px; border-color:#fecaca; color:#dc2626;">
-              <i class="fa-solid fa-ban"></i> Annuler
-            </button>
-            <button onclick="ui.editMaintenance('${order.id}')" class="btn-secondary" style="font-size:11px; padding:4px 10px;">
-              <i class="fa-solid fa-pen"></i> Modifier
-            </button>
-            <button onclick="ui.closeMaintenanceOrderUI('${order.id}')" class="btn-primary" style="font-size:11px; padding:4px 10px; background:#22c55e; border:none;">
-              <i class="fa-solid fa-check"></i> Terminer
-            </button>
-          </div>
-        </div>`;
-      }
-    });
-    this.activeOrdersDashboard.innerHTML = html;
-  }
-
-  async closeMaintenanceOrderUI(id) {
-    if (!confirm('Marquer cet ordre comme TERMINÉ ?')) return;
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/close`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-      if (res.ok) {
-        alert('✅ Ordre clôturé !');
-        this.refreshMaintenanceFollowup();
-        this.fetchAndRenderMaintenance();
-      } else { alert('Erreur serveur.'); }
-    } catch (e) { alert('Erreur connexion.'); }
-  }
-
-  async cancelMaintenanceOrder(id) {
-    if (!confirm('⚠️ ANNULER cet ordre de maintenance ?\n\nCette action est irréversible. L\'ordre sera marqué comme annulé.')) return;
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/${id}/cancel`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }
-      });
-      if (res.ok) {
-        alert('✅ Ordre annulé avec succès.');
-        this.refreshMaintenanceFollowup();
-        this.fetchAndRenderMaintenance();
-      } else { alert('Erreur serveur.'); }
-    } catch (e) { alert('Erreur connexion: ' + e.message); }
-  }
-
-  async loadMaintenanceArticles() {
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-articles`);
-      if (res.ok) { this._maintenanceArticles = await res.json(); }
-    } catch (e) { console.warn('Failed to load articles:', e.message); this._maintenanceArticles = []; }
-    return this._maintenanceArticles || [];
-  }
-
-  async seedDefaultArticles() {
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-articles/seed-defaults`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }
-      });
-      if (res.ok) {
-        alert('✅ Articles par défaut créés ! (Vidange, Freins, Pneus, Filtres, Batterie, Embrayage, Clim, Suspension, Divers)');
-        await this.loadMaintenanceArticles();
-      }
-    } catch (e) { alert('Erreur: ' + e.message); }
-  }
-
-  _populateArticleDropdown() {
-    const articles = this._maintenanceArticles || [];
-    const typeSelect = document.getElementById('modalMaintType');
-    if (!typeSelect || articles.length === 0) return;
-    typeSelect.innerHTML = '<option value="">— Sélectionner un article —</option>';
-    const categories = {};
-    articles.forEach(art => {
-      if (!categories[art.category]) categories[art.category] = [];
-      categories[art.category].push(art);
-    });
-    Object.keys(categories).forEach(cat => {
-      const group = document.createElement('optgroup');
-      group.label = cat;
-      categories[cat].forEach(art => {
-        const opt = document.createElement('option');
-        opt.value = art.name;
-        opt.dataset.articleCode = art.code;
-        opt.dataset.articleId = art.id;
-        opt.textContent = `${art.code} — ${art.name} (${(art.defaultPrice || 0).toLocaleString()} DA)`;
-        group.appendChild(opt);
-      });
-      typeSelect.appendChild(group);
-    });
-    typeSelect.addEventListener('change', () => this._onArticleSelected(typeSelect.value));
-  }
-
-  _onArticleSelected(articleName) {
-    const articles = this._maintenanceArticles || [];
-    const art = articles.find(a => a.name === articleName);
-    if (!art) return;
-    const costInput = document.getElementById('modalMaintCost');
-    const descInput = document.getElementById('modalMaintDescription');
-    const noteInput = document.getElementById('modalMaintNote');
-    if (costInput) costInput.value = art.defaultPrice || '';
-    if (descInput) descInput.value = art.description || '';
-    if (noteInput && art.components && art.components.length > 0) {
-      const partsText = art.components.map(c => `• ${c.name} x${c.quantity} (${(c.unitCost || 0).toLocaleString()} DA)`).join('\n');
-      noteInput.value = `Pièces:\n${partsText}\n\nMain d'œuvre: ${(art.laborCost || 0).toLocaleString()} DA\nDurée estimée: ${art.estimatedDuration || 'N/A'}`;
-    }
-  }
-
-  async openMaintenanceSettingsModal() {
-    document.getElementById('maintenanceSettingsModal').style.display = 'flex';
-    this._switchSettingsTab('catalogue');
-    await this.loadMaintenanceArticles();
-    this._renderArticlesCatalog();
-    this._loadForfaits();
-  }
-
-  _switchItinTab(tab) {
-    ['create', 'routes', 'analyze'].forEach(t => {
-      const panel = document.getElementById(`itab_${t}_panel`);
-      const btn = document.getElementById(`itab_${t}`);
-      if (panel) panel.style.display = t === tab ? 'block' : 'none';
-      if (btn) {
-        if (t === tab) {
-          btn.style.background = 'linear-gradient(135deg,#7e22ce,#9333ea)';
-          btn.style.color = '#fff';
-          btn.style.fontWeight = '800';
+    const now = Date.now();
+    const trucks = Array.from(app.trucks.values());
+    const validStoppedTrucks = [];
+    
+    trucks.forEach(t => {
+      if (t.speed <= 2 && t.coordinates) {
+        let tracker = this._stopTracker.get(t.id);
+        if (!tracker) {
+          tracker = { coords: t.coordinates, since: now, truck: t };
+          this._stopTracker.set(t.id, tracker);
         } else {
-          btn.style.background = '#f8fafc';
-          btn.style.color = '#475569';
-          btn.style.fontWeight = '700';
-        }
-      }
-    });
-    // Auto-load routes tab
-    if (tab === 'routes') {
-      const minTrucks = parseInt(document.getElementById('itineraryMinTrucks')?.value) || 4;
-      this.loadItineraryFromDB(minTrucks);
-    }
-  }
-
-  _switchSettingsTab(tab) {
-    ['catalogue', 'forfaits', 'intervalles'].forEach(t => {
-      const panel = document.getElementById(`stab_${t}_panel`);
-      const btn = document.getElementById(`stab_${t}`);
-      if (panel) panel.style.display = t === tab ? 'block' : 'none';
-      if (btn) {
-        btn.style.background = t === tab ? '#7e22ce' : '#f3e8ff';
-        btn.style.color = t === tab ? '#fff' : '#7e22ce';
-      }
-    });
-  }
-
-  _loadForfaits() {
-    const articles = this._maintenanceArticles || [];
-    const forfaits = articles.filter(a => a.category === 'Forfait' || a.category === 'Forfait Vidange');
-    const container = document.getElementById('forfaitsContainer');
-    if (!container) return;
-    if (forfaits.length === 0) {
-      container.innerHTML = `<div style="text-align:center;padding:30px;color:#94a3b8;font-size:13px;">
-        <i class="fa-solid fa-oil-can" style="font-size:32px;display:block;margin-bottom:10px;opacity:0.3;"></i>
-        Aucun forfait défini. Utilisez les boutons ci-dessus pour en ajouter.</div>`;
-      return;
-    }
-    let html = '<div style="display:grid;gap:10px;">';
-    forfaits.forEach((f, i) => {
-      html += `<div style="background:white;border:1px solid #fed7aa;border-left:4px solid #f59e0b;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <div style="font-weight:800;color:#92400e;font-size:13px;">${f.name} <span style="font-size:10px;font-weight:600;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:10px;margin-left:6px;">${f.code}</span></div>
-          <div style="font-size:11px;color:#78716c;margin-top:4px;">${f.description || ''}</div>
-          <div style="font-size:11px;color:#b45309;margin-top:3px;font-weight:700;">💰 ${(f.defaultPrice||0).toLocaleString()} DA · ⏱ ${f.estimatedDuration||'N/A'} · 🔧 MO: ${(f.laborCost||0).toLocaleString()} DA</div>
-        </div>
-        <button onclick="ui.deleteArticle('${f.id}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
-      </div>`;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-  }
-
-  async _quickAddForfait(name, code, components, price, labor, duration) {
-    const article = {
-      code, name,
-      category: 'Forfait Vidange',
-      description: components,
-      defaultPrice: parseInt(price),
-      laborCost: labor,
-      estimatedDuration: duration,
-      components: components.split('+').map(c => ({ name: c.trim(), quantity: 1, unitCost: 0 }))
-    };
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-articles`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-access-code': FLEET_CONFIG.accessCode },
-        body: JSON.stringify(article)
-      });
-      if (res.ok) {
-        if (window.showToast) showToast(`✅ Forfait "${name}" ajouté au catalogue`, 'success');
-        await this.loadMaintenanceArticles();
-        this._loadForfaits();
-        this._populateArticleDropdown();
-      }
-    } catch(e) { if (window.showToast) showToast('❌ Erreur: ' + e.message, 'error'); }
-  }
-
-  async _saveForfait() {
-    const code = document.getElementById('forfaitCode')?.value?.trim();
-    const name = document.getElementById('forfaitName')?.value?.trim();
-    const price = parseInt(document.getElementById('forfaitPrice')?.value) || 0;
-    const labor = parseInt(document.getElementById('forfaitLabor')?.value) || 0;
-    const duration = document.getElementById('forfaitDuration')?.value?.trim();
-    const componentsRaw = document.getElementById('forfaitComponents')?.value?.trim();
-    if (!code || !name) { if (window.showToast) showToast('⚠️ Code et Nom requis', 'warning'); return; }
-    const components = componentsRaw
-      ? componentsRaw.split(',').map(c => ({ name: c.trim(), quantity: 1, unitCost: 0 }))
-      : [];
-    await this._quickAddForfait(name, code, componentsRaw || name, String(price), labor, duration || 'N/A');
-  }
-
-  _saveIntervalles() {
-    const intervalles = {
-      vidange: { km: parseInt(document.getElementById('intVidangeKm')?.value)||10000, mois: parseInt(document.getElementById('intVidangeMois')?.value)||6 },
-      freins:  { km: parseInt(document.getElementById('intFreinsKm')?.value)||30000, mois: parseInt(document.getElementById('intFreinsMois')?.value)||12 },
-      pneus:   { km: parseInt(document.getElementById('intPneusKm')?.value)||80000, mois: parseInt(document.getElementById('intPneusMois')?.value)||6 },
-      filtreAir: { km: parseInt(document.getElementById('intFiltreAirKm')?.value)||20000 },
-      filtreGasoil: { km: parseInt(document.getElementById('intFiltreGasoilKm')?.value)||15000 }
-    };
-    localStorage.setItem('fleet_maintenance_intervalles', JSON.stringify(intervalles));
-    if (window.showToast) showToast('✅ Intervalles d\'entretien sauvegardés', 'success');
-  }
-
-  _renderArticlesCatalog() {
-    const container = document.getElementById('articlesCatalogContainer');
-    if (!container) return;
-    const articles = this._maintenanceArticles || [];
-    if (articles.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:30px;color:#94a3b8;"><i class="fa-solid fa-box-open" style="font-size:36px;display:block;margin-bottom:10px;opacity:0.4;"></i><div style="font-size:13px;">Aucun article configuré. Cliquez "Créer Articles Par Défaut" pour commencer.</div></div>';
-      return;
-    }
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;color:#475569;"><th style="padding:8px;text-align:left;">Code</th><th style="padding:8px;text-align:left;">Nom</th><th style="padding:8px;">Catégorie</th><th style="padding:8px;">Prix (DA)</th><th style="padding:8px;">Pièces</th><th style="padding:8px;">Actions</th></tr></thead><tbody>';
-    articles.forEach((art, i) => {
-      const bg = i % 2 === 0 ? '#fff' : '#fdf4ff';
-      const partsCount = (art.components || []).length;
-      html += `<tr style="background:${bg};border-bottom:1px solid #f1f5f9;">
-        <td style="padding:8px;font-weight:700;font-family:monospace;color:#7e22ce;">${art.code}</td>
-        <td style="padding:8px;font-weight:700;">${art.name}</td>
-        <td style="padding:8px;text-align:center;"><span style="background:#f5f3ff;color:#7e22ce;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;">${art.category}</span></td>
-        <td style="padding:8px;text-align:center;font-weight:700;color:#059669;">${(art.defaultPrice || 0).toLocaleString()}</td>
-        <td style="padding:8px;text-align:center;">${partsCount} pièce${partsCount > 1 ? 's' : ''}</td>
-        <td style="padding:8px;text-align:center;"><button onclick="ui.deleteArticle('${art.id}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600;"><i class="fa-solid fa-trash"></i></button></td>
-      </tr>`;
-    });
-    html += '</tbody></table>';
-    container.innerHTML = html;
-  }
-
-  async deleteArticle(id) {
-    if (!confirm('Supprimer cet article ?')) return;
-    try {
-      await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-articles/${id}`, { method: 'DELETE' });
-      await this.loadMaintenanceArticles();
-      this._renderArticlesCatalog();
-    } catch (e) { alert('Erreur: ' + e.message); }
-  }
-
-  async saveArticleFromSettings() {
-    const code = document.getElementById('artCode')?.value?.trim();
-    const name = document.getElementById('artName')?.value?.trim();
-    if (!code || !name) { alert('Code et Nom sont obligatoires.'); return; }
-    const payload = {
-      code, name,
-      category: document.getElementById('artCategory')?.value?.trim() || 'general',
-      description: document.getElementById('artDescription')?.value?.trim() || '',
-      defaultPrice: parseFloat(document.getElementById('artPrice')?.value) || 0,
-      laborCost: parseFloat(document.getElementById('artLabor')?.value) || 0,
-      estimatedDuration: document.getElementById('artDuration')?.value?.trim() || ''
-    };
-    try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-articles`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        alert('✅ Article enregistré !');
-        ['artCode','artName','artCategory','artDescription','artPrice','artLabor','artDuration'].forEach(id => {
-          const el = document.getElementById(id); if (el) el.value = '';
-        });
-        await this.loadMaintenanceArticles();
-        this._renderArticlesCatalog();
-      } else { alert('Erreur serveur.'); }
-    } catch (e) { alert('Erreur: ' + e.message); }
-  }
-
-  openNewMaintenanceOrder(truckId = null) {
-    // Populate the location dropdown from customLocations
-    const locSelect = document.getElementById('modalMaintLocation');
-    if (locSelect) {
-      locSelect.innerHTML = '<option value="Atelier Douroub">🏭 Atelier Douroub</option>';
-      const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
-      locs.filter(l => l.type === 'maintenance').forEach(l => {
-        locSelect.innerHTML += `<option value="${l.name}">🔧 ${l.name}</option>`;
-      });
-      locSelect.innerHTML += '<option value="Entrée Manuelle">📍 Entrée Manuelle</option>';
-    }
-
-    // Load articles catalog and populate dropdown
-    this.loadMaintenanceArticles().then(() => this._populateArticleDropdown());
-
-    this.openMaintenanceModal(null);
-
-    // Pre-select truck if provided
-    if (truckId) {
-      const select = document.getElementById('modalMaintTruck');
-      if (select) {
-        for (let i = 0; i < select.options.length; i++) {
-          if (select.options[i].dataset.id === truckId) {
-            select.selectedIndex = i;
-            document.getElementById('modalMaintOdo').value = select.options[i].dataset.odo;
-            break;
+          const R = 6371; 
+          const dLat = (t.coordinates.lat - tracker.coords.lat) * Math.PI / 180;
+          const dLng = (t.coordinates.lng - tracker.coords.lng) * Math.PI / 180;
+          const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(tracker.coords.lat * Math.PI / 180) * Math.cos(t.coordinates.lat * Math.PI / 180) * Math.sin(dLng/2) * Math.sin(dLng/2);
+          const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          if (d > 0.5) {
+             tracker.coords = t.coordinates;
+             tracker.since = now;
           }
         }
+        
+        // 1 hour = 3600000 ms
+        if (now - tracker.since >= 3600000) {
+          validStoppedTrucks.push(t);
+        }
+      } else {
+        this._stopTracker.delete(t.id);
       }
-    }
-  }
+    });
 
-  async generateOrdreReparation() {
-    const select = document.getElementById('modalMaintTruck');
-    const truckName = select && select.options[select.selectedIndex] ? select.options[select.selectedIndex].text : (select ? select.value : '');
-    const truckId = select && select.options[select.selectedIndex] ? select.options[select.selectedIndex].dataset.id : '';
-    const db = this.truckDbCache.find(d => d.deviceId === truckId) || {};
-    const truck = app.getAllTrucks().find(t => t.id === truckId);
+    const clusters = [];
     
-    // Gather checked parts from wizard
-    const checkedParts = (this._wizardParts || []).filter(p => p.checked);
-    let partsStr = '';
-    if (checkedParts.length > 0) {
-        partsStr = encodeURIComponent(JSON.stringify(checkedParts));
-    }
-
-    // Read scheme from the dropdown we added
-    const schemeSelect = document.getElementById('modalMaintScheme');
-    const scheme = schemeSelect ? schemeSelect.value : 'vehicule';
-
-    // Get forfait name from the dropdown
-    const forfaitSelect = document.getElementById('modalMaintForfait');
-    let forfaitName = '';
-    if (forfaitSelect && forfaitSelect.value) {
-        forfaitName = forfaitSelect.options[forfaitSelect.selectedIndex]?.text || '';
-    }
-
-    // Gather tire marks
-    const marks = Array.from(document.querySelectorAll('#maintenanceModal .mark.on')).map(el => el.id).join(',');
-
-    const typeVal = document.getElementById('modalMaintType')?.value || 'Preventive';
-    const dateVal = document.getElementById('modalMaintDate')?.value || new Date().toISOString().slice(0, 16);
-    let odoVal = parseInt(document.getElementById('modalMaintOdo')?.value);
-    if (isNaN(odoVal)) odoVal = truck ? (truck.odometer || 0) : 0;
-    const descVal = document.getElementById('modalMaintDescription')?.value || '';
-    const techVal = document.getElementById('modalMaintTechnician')?.value || '';
-    const costVal = parseFloat(document.getElementById('modalMaintCost')?.value) || 0;
-    const prioVal = document.getElementById('modalMaintPriority')?.value || 'normal';
-    const laborVal = document.getElementById('modalMaintLabor')?.value || '0';
-    const locationVal = document.getElementById('modalMaintLocation')?.value || '';
-
-    try {
-      const isEdit = !!this.editingMaintenanceId;
-      const url = isEdit ? '/api/maintenance/update' : '/api/maintenance/add';
-      const payload = {
-        truckName: truckName,
-        deviceId: truckId,
-        type: typeVal,
-        location: locationVal,
-        odometer: odoVal,
-        date: new Date(dateVal).toISOString(),
-        note: 'Ordre de Réparation généré' + (forfaitName ? ' — Pack: ' + forfaitName : ''),
-        isAuto: false,
-        priority: prioVal,
-        status: isEdit ? (this.editingStatus || 'en_cours') : 'en_cours',
-        description: descVal + (forfaitName ? '\nPack choisi: ' + forfaitName : ''),
-        technician: techVal,
-        cost: costVal,
-        parts: checkedParts,
-        scheme: scheme,
-        tires: marks,
-        forfaitName: forfaitName,
-        chassisNumber: db.chassisNumber || '',
-        immatriculation: document.getElementById('modalMaintImm')?.value || db.immatriculation || ''
-      };
-      if (isEdit) payload.id = this.editingMaintenanceId;
-
-      await fetch(FLEET_CONFIG.API.baseUrl + url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
-        body: JSON.stringify(payload)
+    // Simple clustering logic
+    validStoppedTrucks.forEach(t => {
+      const lat = t.coordinates.lat;
+      const lng = t.coordinates.lng;
+      let found = false;
+      for (let c of clusters) {
+        const R = 6371; 
+        const dLat = (lat - c.lat) * Math.PI / 180;
+        const dLng = (lng - c.lng) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(c.lat * Math.PI / 180) * Math.cos(lat * Math.PI / 180) *
+          Math.sin(dLng/2) * Math.sin(dLng/2);
+        const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        if (d <= 0.5) { // 500 meters
+          c.trucks.push(t);
+          c.lat = c.trucks.reduce((s, tr) => s + tr.coordinates.lat, 0) / c.trucks.length;
+          c.lng = c.trucks.reduce((s, tr) => s + tr.coordinates.lng, 0) / c.trucks.length;
+          found = true;
+          break;
+        }
+      }
+      if (!found) clusters.push({ lat, lng, trucks: [t] });
+    });
+    
+    // Filter clusters with >= 2 trucks
+    const potential = clusters.filter(c => c.trucks.length >= 2);
+    
+    // Filter out existing zones
+    const existingZones = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    const newSuggestions = potential.filter(c => {
+      return !existingZones.some(z => {
+        const R = 6371; 
+        const dLat = (c.lat - z.lat) * Math.PI / 180;
+        const dLng = (c.lng - z.lng) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(z.lat * Math.PI / 180) * Math.cos(c.lat * Math.PI / 180) *
+          Math.sin(dLng/2) * Math.sin(dLng/2);
+        const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return d <= ((z.radius || 500) / 1000) + 0.1;
       });
-      console.log('✅ Maintenance entry auto-saved with OR generation');
-    } catch (e) {
-      console.warn('Could not auto-save maintenance entry:', e.message);
-    }
-
-    const params = new URLSearchParams({
-      truck: truckName,
-      chassis: db.chassisNumber || '',
-      imm: document.getElementById('modalMaintImm')?.value || db.immatriculation || '',
-      type: typeVal,
-      date: dateVal,
-      odo: String(odoVal),
-      tech: techVal,
-      desc: descVal + (forfaitName ? '\nPack choisi: ' + forfaitName : ''),
-      priority: prioVal,
-      status: this.editingMaintenanceId ? (this.editingStatus || 'en_cours') : 'en_cours',
-      cost: String(costVal),
-      labor: laborVal,
-      location: truck?.location?.city ? (truck.location.city + ', ' + (truck.location.wilaya || '')) : '',
-      parts: partsStr,
-      scheme: scheme,
-      tires: marks,
-      forfaitName: forfaitName
     });
-    window.open('ordre_reparation_v21.html?v=' + Date.now() + '&' + params.toString(), '_blank');
+    
+    // Update UI if modal is open
+    const section = document.getElementById('suggestedZonesSection');
+    const list = document.getElementById('suggestedZonesList');
+    const badge = document.getElementById('suggestedZonesBadge');
+    
+    if (section && list && badge) {
+      if (newSuggestions.length > 0) {
+        section.style.display = 'block';
+        badge.style.display = 'flex';
+        badge.innerText = newSuggestions.length;
+        
+        // Reverse geocode the suggestions using Geoapify
+        const htmls = await Promise.all(newSuggestions.map(async (s, i) => {
+          let address = "Lieu Inconnu";
+          let wilaya = "Algérie";
+          try {
+            const res = await fetch("https://api.geoapify.com/v1/geocode/reverse?lat=" + s.lat + "&lon=" + s.lng + "&apiKey=44c4cd0de9754f738f6bdfde5fb8f448");
+            if (res.ok) {
+              const data = await res.json();
+              if (data.features && data.features.length > 0) {
+                const props = data.features[0].properties;
+                address = props.formatted || (props.city + ', ' + props.state);
+                wilaya = props.state || props.county || "Algérie";
+              }
+            }
+          } catch(e) {}
+          
+          const trucksListHtml = s.trucks.map(t => {
+            const tr = this._stopTracker.get(t.id);
+            const hours = tr ? Math.floor((now - tr.since) / 3600000) : 1;
+            const mins = tr ? Math.floor(((now - tr.since) % 3600000) / 60000) : 0;
+            return "↳ " + t.name + " (" + hours + "h " + mins + "m)";
+          }).join("<br>");
 
-    // Close the modal and fully reset for next use
-    this.closeMaintenanceModal();
-    // Refresh maintenance list
-    this.fetchAndRenderMaintenance();
-  }
-
-  // ✅ NEW: Open Ordre de Réparation pre-filled from a maintenance history entry
-  viewOrdreReparation(id) {
-    const item = (this.allMaintenanceLogs || []).find(l => l.id === id);
-    if (!item) { alert('Entrée introuvable.'); return; }
-    const db = this.truckDbCache.find(d => d.deviceId === item.deviceId) || {};
-    let scheme = item.scheme;
-    if (!scheme) {
-      scheme = 'vehicule';
-      const activeScheme = document.querySelector('#maintenanceModal .scheme.active');
-      if (activeScheme) {
-        scheme = activeScheme.id.replace('scheme_', '');
+          return `<div style="background:linear-gradient(to right, rgba(245,158,11,0.05), rgba(245,158,11,0.1));border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:start;">
+              <div>
+                <div style="font-size:12px;font-weight:800;color:var(--warning);">\ud83d\udccd ${address.substring(0, 30)}...</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}</div>
+              </div>
+              <span style="background:var(--warning);color:black;padding:2px 6px;border-radius:10px;font-size:9px;font-weight:800;">${s.trucks.length} CAMIONS ICI</span>
+            </div>
+            <div style="font-size:10px;color:var(--text-secondary);font-family:monospace;">${trucksListHtml}</div>
+            <button onclick="ui._acceptSuggestion(${s.lat}, ${s.lng}, '${wilaya.replace(/'/g, "\\'")}', '${address.replace(/'/g, "\\'").substring(0,25)}')" style="background:var(--warning);color:black;border:none;border-radius:6px;padding:6px;font-size:11px;font-weight:800;cursor:pointer;margin-top:4px;"><i class="fa-solid fa-plus"></i> Créer la Zone</button>
+          </div>`;
+        }));
+        list.innerHTML = htmls.join('');
+      } else {
+        section.style.display = 'none';
+        list.innerHTML = '';
       }
     }
-
-    const params = new URLSearchParams({
-      truck: item.truckName || '',
-      chassis: item.chassisNumber || db.chassisNumber || '',
-      imm: item.immatriculation || db.immatriculation || '',
-      type: item.type || '',
-      date: item.date ? new Date(item.date).toISOString().slice(0, 16) : '',
-      odo: item.odometer || '',
-      tech: item.technician || '',
-      desc: item.description || item.note || '',
-      location: item.location || '',
-      priority: item.priority || '',
-      status: item.status || 'en_cours',
-      cost: item.cost || '',
-      scheme: scheme,
-      tires: item.tires || '',
-      forfaitName: item.forfaitName || '',
-      parts: (item.parts && item.parts.length > 0) ? encodeURIComponent(JSON.stringify(item.parts)) : ''
-    });
-    window.open(`ordre_reparation_v21.html?v=${Date.now()}&${params.toString()}`, '_blank');
   }
 
-  // ============================================================
-  // END MAINTENANCE FOLLOW-UP SYSTEM
-  // ============================================================
+  _zoneGoToMap(e, deviceId, truckName) {
+    if (e && e.stopPropagation) e.stopPropagation();
 
-  exportCSV() {
-     const csv = app.exportCSV();
-     if(!csv) return;
-     const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-     const url = window.URL.createObjectURL(blob);
-     const a = document.createElement('a');
-     a.href = url;
-     a.download = `rapport_flotte_${new Date().toISOString().slice(0,10)}.csv`;
-     a.click();
-  }
-  
-  exportJSON() {
-     const json = app.exportJSON();
-     const blob = new Blob([json], { type: 'application/json' });
-     const url = window.URL.createObjectURL(blob);
-     const a = document.createElement('a');
-     a.href = url;
-     a.download = `backup_flotte_${new Date().toISOString().slice(0,10)}.json`;
-     a.click();
-  }
-// =========================================================
-  // 📊 RAPPORT MENSUEL SÉLECTIF (THE MISSING PIECE)
-  // =========================================================
+    // Close any open zone report modal
+    const modal = document.getElementById('zoneReportModal');
+    if (modal) modal.remove();
+    if (this._zoneCountdownTimer) { clearInterval(this._zoneCountdownTimer); this._zoneCountdownTimer = null; }
 
-// =========================================================
-  // 📊 RAPPORT: BIG WINDOW & EXACT TIME
-  // =========================================================
-
-// REPLACE openReportModal in ui.js
-
-openReportModal() {
-    if (document.getElementById('reportModal')) document.getElementById('reportModal').remove();
-
-    const div = document.createElement('div');
-    div.id = 'reportModal';
-    div.className = 'modal-overlay';
-    div.style.display = 'flex';
-    
-    const now = new Date();
-    const yest = new Date(now); yest.setDate(yest.getDate() - 1);
-    const toInput = (d) => d.toISOString().slice(0,16);
-
-    div.innerHTML = `
-        <div class="modal-box" style="width: 700px; max-width:95vw; background:white; padding:20px; border-radius:8px; box-shadow:0 10px 25px rgba(0,0,0,0.3);">
-            <h2 style="margin-top:0; color:var(--teal);"><i class="fa-solid fa-file-invoice"></i> Centre de Rapports</h2>
-            
-            <div style="background:#f0f9ff; padding:15px; border-radius:6px; margin:15px 0; border:1px solid #bae6fd;">
-                <label style="font-weight:bold; color:#0369a1; display:block; margin-bottom:5px;">TYPE DE RAPPORT</label>
-                <select id="reportTypeSelector" style="width:100%; padding:10px; border:1px solid #0ea5e9; border-radius:4px; font-weight:bold; color:#0c4a6e;">
-                    <option value="global">📊 Audit Global (Standard)</option>
-                    <option value="decouchage">🌙 Détail Découchages (Lieu Exact)</option>
-                    <option value="refill">⛽ Détail Carburant (Remplissages)</option>
-                </select>
-            </div>
-
-            <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin:15px 0;">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
-                    <div><label>Début</label><input type="datetime-local" id="reportStart" style="width:100%; padding:8px;" value="${toInput(yest)}"></div>
-                    <div><label>Fin</label><input type="datetime-local" id="reportEnd" style="width:100%; padding:8px;" value="${toInput(now)}"></div>
-                </div>
-            </div>
-
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
-                <span style="font-size:12px; font-weight:bold; color:#555;">Sélectionnez les camions :</span>
-                <div style="display:flex; gap:5px;">
-                    <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(true)">
-                        <i class="fa-solid fa-check-double"></i> Tout
-                    </button>
-                    <button class="btn-secondary" style="font-size:11px; padding:4px 8px; cursor:pointer;" onclick="ui.toggleSelectReport(false)">
-                        <i class="fa-solid fa-square"></i> Rien
-                    </button>
-                </div>
-            </div>
-
-            <div style="height:250px; overflow-y:auto; border:1px solid #eee; padding:10px; margin-bottom:15px; background:#fafafa; border-radius:4px;">
-                <div id="reportTruckList"></div>
-            </div>
-
-            <div style="text-align:right; gap:10px; display:flex; justify-content:flex-end;">
-                <button class="btn-secondary" onclick="document.getElementById('reportModal').remove()">Annuler</button>
-                <button class="btn-primary" onclick="ui.startBulkReport()">Générer Rapport</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(div);
-
-    const list = document.getElementById('reportTruckList');
-    app.getAllTrucks().sort((a,b)=>a.name.localeCompare(b.name)).forEach(t => {
-        const d = document.createElement('div');
-        d.style.padding = "4px 0";
-        d.innerHTML = `<label style="display:flex; align-items:center; cursor:pointer; font-size:13px;">
-                          <input type="checkbox" class="report-check" value="${t.id}" style="margin-right:8px;"> 
-                          ${t.name}
-                       </label>`;
-        list.appendChild(d);
-    });
-}  
-  toggleSelectReport(state) {
-      document.querySelectorAll('.report-check').forEach(c => c.checked = state);
-  }
-
-// REPLACE startBulkReport in ui.js
-
-async startBulkReport() {
-    const reportType = document.getElementById('reportTypeSelector').value;
-    const startInput = document.getElementById('reportStart').value;
-    const endInput = document.getElementById('reportEnd').value;
-    
-    if (!startInput || !endInput) { alert("Dates invalides."); return; }
-    
-    const startDate = startInput.replace('T', ' ') + ':00';
-    const endDate = endInput.replace('T', ' ') + ':59';
-
-    const selectedIds = Array.from(document.querySelectorAll('.report-check:checked')).map(c => c.value);
-    if (selectedIds.length === 0) { alert("Sélectionnez au moins un camion."); return; }
-
-    document.getElementById('reportModal').style.display = 'none';
-
-    // ROUTER: Choose the right report
-    if (reportType === 'decouchage') {
-        this.generateDetailedDecouchageReport(selectedIds, startDate, endDate);
-    } else if (reportType === 'refill') {
-        this.generateDetailedRefillReport(selectedIds, startDate, endDate);
-    } else {
-        // Default Global Audit
-        this.generateGlobalAudit(selectedIds, startDate, endDate);
-    }
-}  
- 
-// === NEW REPORT GENERATORS ===
-// REPLACE THESE 3 FUNCTIONS IN ui.js TO FIX ALL CRASHES
-
-// 1. GLOBAL AUDIT (Fixed: skips server errors)
-async generateGlobalAudit(selectedIds, startDate, endDate) {
-    const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
-    const originalText = btn ? btn.innerHTML : 'Rapport';
-    if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Audit Global...`;
-
-    let csv = "Camion,Début,Fin,Distance (km),Conso (L),Conso/100,Remplissages,Ajouté (L),Temps Conduite,Conduite Nuit (00h-05h),Arrêts,Vitesse Max,Découchages (Nuits Dehors)\n";
-    let count = 0;
-
-    for (const id of selectedIds) {
-        const truck = app.trucks.get(id);
-        if(!truck) continue;
-        count++;
-        if(btn) btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Audit ${count}/${selectedIds.length}`;
-
-        try {
-            const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
-            
-            // 🛑 STOP: If server errors (500), skip this truck
-            if (!res.ok) {
-                console.warn(`⚠️ Serveur Erreur ${res.status} pour ${truck.name}`);
-                csv += `"${truck.name}","${startDate}","${endDate}",0,0,0,0,0,"Erreur Serveur","0","0",0,0\n`;
-                continue; 
-            }
-
-            const json = await res.json();
-            
-            // Safety: Ensure we pass an Array
-            let safeData = [];
-            if (Array.isArray(json)) safeData = json;
-            else if (json && Array.isArray(json.messages)) safeData = json.messages;
-
-            const stats = this.analyzeTruckPrecise(safeData, truck);
-            
-            csv += `"${truck.name}","${startDate}","${endDate}",${stats.distance},${stats.consumption},${stats.avgConso},${stats.refillCount},${stats.refillVolume},"${stats.drivingDuration}","${stats.nightDuration}","${stats.stopDuration}","${stats.maxSpeed}",${stats.decouchageCount}\n`;
-        } catch (e) {
-            console.error(e);
-            csv += `"${truck.name}","${startDate}","${endDate}",0,0,0,0,0,"Erreur Données","0","0",0,0\n`;
+    // Helper: find truck from any available cache
+    const findTruck = () => {
+      let t = null;
+      if (window.app && app.trucks) {
+        if (deviceId) {
+          t = app.trucks.get(String(deviceId));
+          if (!t) { for (const [, v] of app.trucks) { if (String(v.deviceId) === String(deviceId) || v.id === String(deviceId)) { t = v; break; } } }
         }
+        if (!t && truckName) { for (const [, v] of app.trucks) { if (v.name === truckName || v.name?.toLowerCase() === truckName?.toLowerCase()) { t = v; break; } } }
+      }
+      // Fallback to AlgeriaMap truckDataCache
+      if (!t && window.AlgeriaMap?.truckDataCache?.length) {
+        const cache = window.AlgeriaMap.truckDataCache;
+        if (deviceId) t = cache.find(v => String(v.id) === String(deviceId) || String(v.deviceId) === String(deviceId));
+        if (!t && truckName) t = cache.find(v => v.name === truckName);
+      }
+      return t;
+    };
+
+    // STEP 1: Switch to map tab
+    const mapNavBtn = document.querySelector('[data-tab="byWilaya"]');
+    if (mapNavBtn) mapNavBtn.click();
+    else this.switchTab('byWilaya');
+    if (this.zoneGroupingMode !== 'map') this.setZoneGrouping('map');
+
+    // STEP 2: Scroll to top so map is visible
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // STEP 3: Retry until truck & GPS coords are available (up to 8s for fresh-page-load)
+    const MAX_ATTEMPTS = 20;
+    const RETRY_MS = 400;
+    const histCoords = this._historyFocusCoords;
+    this._historyFocusCoords = null;
+
+    const attemptFly = (attempt) => {
+      const truck = findTruck();
+      const am = window.AlgeriaMap;
+
+      if (!am || !am.map) {
+        if (attempt < MAX_ATTEMPTS) setTimeout(() => attemptFly(attempt + 1), RETRY_MS);
+        return;
+      }
+      try { am.map.resize(); } catch(err) {}
+      const canvas = am.map.getCanvas();
+      if (!canvas || canvas.width === 0) {
+        if (attempt < MAX_ATTEMPTS) setTimeout(() => attemptFly(attempt + 1), RETRY_MS);
+        return;
+      }
+
+      // If truck not found yet, keep retrying (page may still be loading data)
+      if (!truck && !histCoords) {
+        if (attempt < MAX_ATTEMPTS) setTimeout(() => attemptFly(attempt + 1), RETRY_MS);
+        else if (window.showToast) showToast('⚠️ Camion introuvable sur la carte.', 'warning');
+        return;
+      }
+
+      const targetLat = histCoords ? histCoords.lat : (truck?.coordinates?.lat || truck?.lat || null);
+      const targetLng = histCoords ? histCoords.lng : (truck?.coordinates?.lng || truck?.lng || null);
+      const truckId = truck?.id || deviceId;
+
+      if (!targetLat || !targetLng) {
+        // No GPS but truck found — isolate it anyway
+        if (truckId && am.selectTruckById) am.selectTruckById(truckId);
+        return;
+      }
+
+      // Fly then isolate
+      am.map.flyTo({ center: [targetLng, targetLat], zoom: 16, essential: true, duration: 2000 });
+      setTimeout(() => {
+        if (am.selectTruckById) am.selectTruckById(truckId);
+      }, 1300);
+    };
+
+    // Give switchTab 600ms to initialize the map before first attempt
+    setTimeout(() => attemptFly(0), 600);
+  }
+
+async loadZoneHistory() {
+  const container = document.getElementById('zoneHistoryTable');
+  const statsBar = document.getElementById('zrStatsBar');
+  if (!container) return;
+  container.innerHTML = '<div class="zr-empty">⏳ Chargement...</div>';
+
+  const zone = document.getElementById('zrFilterZone')?.value || '';
+  const truck = document.getElementById('zrFilterTruck')?.value || '';
+  const start = document.getElementById('zrFilterStart')?.value || '';
+  const end = document.getElementById('zrFilterEnd')?.value || '';
+
+  let url = `${FLEET_CONFIG.API.baseUrl}/api/zone-events?limit=2000`;
+  if (zone) url += `&zone=${encodeURIComponent(zone)}`;
+  if (truck) url += `&truck=${encodeURIComponent(truck)}`;
+  if (start) url += `&start=${new Date(start).toISOString()}`;
+  if (end) url += `&end=${new Date(end).toISOString()}`;
+
+  try {
+    const res = await fetch(url, { headers: { 'x-access-code': this.currentCode } });
+    const raw = await res.json();
+    const data = Array.isArray(raw) ? raw : (raw && raw.data ? raw.data : []);
+    this._zoneData = data;
+
+    if (!data.length) {
+      container.innerHTML = '<div class="zr-empty">Aucun événement trouvé</div>';
+      if (statsBar) statsBar.style.display = 'none';
+      return;
     }
 
-    if(btn) btn.innerHTML = originalText;
-    this._downloadCSV(csv, `AUDIT_GLOBAL_${new Date().toISOString().slice(0,10)}.csv`);
+    // Stats
+    const closed = data.filter(e => e.status === 'closed');
+    const avgDur = closed.length ? Math.round(closed.reduce((s,e) => s + (e.durationMinutes||0), 0) / closed.length) : 0;
+    if (statsBar) {
+      statsBar.style.display = 'grid';
+      statsBar.innerHTML = [
+        { val: data.length, label: 'Visites', color: '#818cf8' },
+        { val: new Set(data.map(e=>e.truckName)).size, label: 'Camions', color: '#38bdf8' },
+        { val: new Set(data.map(e=>e.zoneName)).size, label: 'Zones', color: '#fb923c' },
+        { val: avgDur + ' min', label: 'Durée Moy.', color: '#4ade80' }
+      ].map(s => `<div class="zr-stat"><div class="zr-stat-val" style="color:${s.color};">${s.val}</div><div class="zr-stat-label">${s.label}</div></div>`).join('');
+    }
+
+    // Table
+    container.innerHTML = `<table class="zr-table">
+      <thead><tr><th>Date</th><th>Camion</th><th>Zone</th><th>Entrée</th><th>Sortie</th><th>Durée</th><th>Statut</th></tr></thead>
+      <tbody>${data.map(e => {
+        const dt = new Date(e.entryTime);
+        const durH = Math.floor((e.durationMinutes||0)/60);
+        const durM = (e.durationMinutes||0)%60;
+        const dur = e.durationMinutes != null ? (durH > 0 ? `${durH}h ${durM}m` : `${durM}m`) : '—';
+        const badge = e.status === 'open'
+          ? `<span class="zr-op-status arrived">En cours</span>`
+          : `<span class="zr-op-status completed">Terminé</span>`;
+        const eJson = JSON.stringify({
+          deviceId: e.deviceId, truckName: e.truckName, zoneName: e.zoneName,
+          entryLat: e.entryLat, entryLng: e.entryLng, exitLat: e.exitLat, exitLng: e.exitLng,
+          entryTime: e.entryTime, exitTime: e.exitTime, durationMinutes: e.durationMinutes,
+          recapImmobilisationMin: e.recapImmobilisationMin, clientName: e.clientName, finalClientName: e.finalClientName
+        }).replace(/'/g, "\\'");
+        return `<tr style="cursor:pointer;" onclick="ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'})" title="Cliquer pour voir sur la carte">
+          <td>${dt.toLocaleDateString('fr-FR')}</td>
+          <td style="font-weight:600;color:#38bdf8;">${e.truckName}</td>
+          <td style="color:#818cf8;">${e.zoneName}</td>
+          <td>${dt.toLocaleTimeString('fr-FR')}</td>
+          <td>${e.exitTime ? new Date(e.exitTime).toLocaleTimeString('fr-FR') : '—'}</td>
+          <td class="zr-dur">${dur}</td>
+          <td>${badge}</td>
+          <td><button onclick="event.stopPropagation();ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'})" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-crosshairs" style="margin-right:3px;"></i>Voir</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } catch (e) {
+    container.innerHTML = `<div class="zr-empty" style="color:var(--color-error);">Erreur: ${e.message}</div>`;
+  }
 }
 
-// 2. DETAILED DECOUCHAGE (Unified with exact-location logic)
-async generateDetailedDecouchageReport(selectedIds, startDate, endDate) {
-    const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
-    const originalText = btn ? btn.innerHTML : 'Rapport';
-    if (btn) btn.innerHTML = `<i class="fa-solid fa-moon fa-spin"></i> Analyse Nuits...`;
+exportZoneCSV() {
+  const data = this._zoneData || [];
+  if (!data.length) { alert('Aucune donnée à exporter.'); return; }
+  let csv = '\uFEFFDate,Camion,Zone,Type Zone,Entrée,Sortie,Durée (min),Durée (h),Statut,Source\n';
+  data.forEach(e => {
+    csv += `"${e.entryTime?.slice(0,10)}","${e.truckName}","${e.zoneName}","${e.zoneType}","${e.entryTime}","${e.exitTime||''}","${e.durationMinutes||''}","${e.durationHours||''}","${e.status}","${e.source}"\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `RAPPORT_ZONE_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+}
 
-    let csv = "Date (Nuit du),Heure Detection,Camion,Statut,Lieu Exact,Coordonnées\n";
-    const logs = await this.generateExactDecouchageDataset(selectedIds, startDate, endDate, ({ done, total, truckName }) => {
-        if (btn) btn.innerHTML = `<i class="fa-solid fa-moon fa-spin"></i> Analyse ${done}/${total}<br><span style="font-size:11px;">${truckName}</span>`;
+async runZoneHistoryScan() {
+  const btn = document.getElementById('btnZoneScan');
+  const status = document.getElementById('zoneScanStatus');
+  const start = document.getElementById('zoneScanStart')?.value;
+  const end = document.getElementById('zoneScanEnd')?.value;
+  if (!start || !end) { alert('Sélectionnez une période'); return; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Scan...'; }
+  if (status) status.textContent = 'Scan en cours...';
+  try {
+    const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/zone-events/scan-history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+      body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end).toISOString() })
     });
-
-    logs.forEach(log => {
-        const detectedAt = new Date(log.detectedAt);
-        const timeStr = detectedAt.toLocaleTimeString('fr-FR');
-        const lat = log.locationAtMidnight?.lat ?? '';
-        const lng = log.locationAtMidnight?.lng ?? '';
-        csv += `"${log.date}","${timeStr}","${log.truckName}","DECOUCHAGE","${log.locationName || ''}","${lat},${lng}"\n`;
-    });
-
-    if (btn) btn.innerHTML = originalText;
-    if (logs.length === 0) alert("Aucun découchage trouvé (Tous les camions étaient sur site).");
-    else this._downloadCSV(csv, `RAPPORT_NUITS_${new Date().toISOString().slice(0,10)}.csv`);
-}
-
-// 3. DETAILED REFILL REPORT (STRONG AUDIT LOGIC)
-async generateDetailedRefillReport(selectedIds, startDate, endDate) {
-    const btn = document.querySelector('button[onclick="ui.openReportModal()"]');
-    if(btn) btn.innerHTML = `<i class="fa-solid fa-calculator fa-spin"></i> Audit en cours...`;
-
-    let csv = "Date,Heure,Camion,Volume Réel (L),Min (L),Max (L),Durée (min),Lieu,GoogleMaps\n";
-    let eventsFound = 0;
-
-    for (const id of selectedIds) {
-        const truck = app.trucks.get(id);
-        if(!truck) continue;
-        const truckConfig = getTruckConfig(truck.id);
-
-        try {
-            const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${truck.id}&start=${startDate}&end=${endDate}`);
-            if (!res.ok) continue;
-
-            const json = await res.json();
-            let rawPoints = [];
-            if (Array.isArray(json)) rawPoints = json;
-            else if (json && Array.isArray(json.messages)) rawPoints = json.messages;
-
-            // Sort by time
-            let points = rawPoints.map(p => {
-                const params = (p[6] && typeof p[6] === 'object') ? p[6] : ((p[7] && typeof p[7] === 'object') ? p[7] : {});
-                return {
-                    time: new Date(p[0]).getTime(),
-                    lat: parseFloat(p[1]),
-                    lng: parseFloat(p[2]),
-                    speed: parseInt(p[5]),
-                    liters: calculateFuelMetricsFromParams(params, truckConfig).liters
-                };
-            }).sort((a,b) => a.time - b.time);
-
-            if (points.length === 0) continue;
-
-            // --- THE AUDIT LOOP ---
-            let isStopped = false;
-            let minFuel = 9999;
-            let maxFuel = -1;
-            let stopStartTime = 0;
-            let stopLat = 0, stopLng = 0;
-
-            for (const p of points) {
-                // We use Speed < 4 to treat it as a STOP (ignoring engine status)
-                if (p.speed < 4) {
-                    if (!isStopped) {
-                        // Start of Window
-                        isStopped = true;
-                        minFuel = p.liters;
-                        maxFuel = p.liters;
-                        stopStartTime = p.time;
-                        stopLat = p.lat;
-                        stopLng = p.lng;
-                    } else {
-                        // Expand Window (Monitor All Time)
-                        if (p.liters < minFuel) minFuel = p.liters;
-                        if (p.liters > maxFuel) maxFuel = p.liters;
-                    }
-                } else {
-                    // End of Window (Truck Moving)
-                    if (isStopped) {
-                        const durationMins = Math.round((p.time - stopStartTime) / 60000);
-                        const realDiff = maxFuel - minFuel; // The Magic Calculation
-
-	                        // Filter: ignore minor refills of 50L or below
-	                        if (realDiff > 50) {
-                            eventsFound++;
-                            const address = await this.resolveLocationNameAsync(stopLat, stopLng);
-                            const dateStr = new Date(stopStartTime).toLocaleDateString();
-                            const timeStr = new Date(stopStartTime).toLocaleTimeString();
-                            
-                            csv += `"${dateStr}","${timeStr}","${truck.name}",${realDiff},${minFuel},${maxFuel},${durationMins},"${address}","${stopLat},${stopLng}"\n`;
-                        }
-                        
-                        isStopped = false;
-                    }
-                }
-            }
-
-        } catch (e) { console.error("Report Error:", e); }
-    }
-
-    if(btn) btn.innerHTML = 'Rapport';
-    if(eventsFound === 0) alert("Aucun remplissage > 50L détecté.");
-    else this._downloadCSV(csv, `AUDIT_CARBURANT_${new Date().toISOString().slice(0,10)}.csv`);
+    const d = await res.json();
+    if (status) status.textContent = `\u2705 ${d.summary?.created || 0} événements`;
+    if (typeof showToast !== 'undefined') showToast(`\u2705 ${d.summary?.created || 0} événements zone créés`, 'success');
+    this.loadZoneHistory();
+  } catch (e) {
+    if (status) status.textContent = `❌ ${e.message}`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-radar"></i> Scanner'; }
+  }
 }
 
 
-// 4. HELPER: Async Location Resolver (Custom -> Cache -> API)
-async resolveLocationNameAsync(lat, lng) {
-    if(!lat || !lng) return "Inconnu";
-
-    // A. Check Custom Sites (Instant)
-    if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
-        for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
-            const dist = this.getDistKm(lat, lng, loc.lat, loc.lng);
-            if (dist <= (loc.radius ? loc.radius/1000 : 0.5)) return `🏢 ${loc.name}`;
-        }
-    }
-
-    // B. Check Cache (Instant)
-    if (typeof geocodeService !== 'undefined') {
-        const cached = geocodeService.checkCacheInstant(lat, lng);
-        if (cached) return `${cached.city}, ${cached.wilaya}`;
-    }
-
-    // C. Live Fetch (Slow but Exact)
-    try {
-        const res = await geocodeService.reverseGeocode(lat, lng);
-        return `${res.formatted || res.city}`;
-    } catch (e) {
-        return `${lat.toFixed(4)}, ${lng.toFixed(4)}`; // Fallback
-    }
-}
-
-// 5. HELPER: Distance
-getDistKm(lat1, lon1, lat2, lon2) {
+  getDistKm(lat1, lon1, lat2, lon2) {
     const R = 6371; 
     const dLat = (lat2-lat1) * Math.PI/180;
     const dLon = (lon2-lon1) * Math.PI/180;
@@ -4381,7 +4190,7 @@ getDistKm(lat1, lon1, lat2, lon2) {
           const safeInfo = this.getClosestDecouchageSafeZone(p.lat, p.lng);
           if (safeInfo.isSafe) continue;
 
-          const address = await this.resolveLocationNameAsync(p.lat, p.lng);
+          const address = await geocodeService.reverseGeocode(p.lat, p.lng);
           events.push({
               date: nightStr,
               detectedAt: p.dateObj.toISOString(),
@@ -4666,54 +4475,81 @@ getDistKm(lat1, lon1, lat2, lon2) {
   }
 
 // --- UPDATED HISTORY MODAL (DATE + TIME) ---
-  openHistoryModal(imei, name) {
-      if (document.getElementById('historyModal')) document.getElementById('historyModal').remove();
+  openHistoryModal(imei, name, prefillDate, startISO, endISO) {
+    // ── Step 1: check if metadata already stored by BroadcastChannel handler ──
+    let _existingMeta = null;
+    try { _existingMeta = JSON.parse(localStorage.getItem('fleet_gps_verify_meta') || 'null'); } catch(_) {}
+    const _metaIsForThisTruck = _existingMeta && _existingMeta.imei === String(imei) && Date.now()-(_existingMeta.ts||0) < 30000;
 
-      // Defaults: Today 00:00 to Today 23:59
-      const now = new Date();
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
-      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59);
-      
-      // Helper to format for input type="datetime-local" (YYYY-MM-DDTHH:MM)
-      const toInput = (d) => {
-          const pad = (n) => n.toString().padStart(2, '0');
-          return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    // ── Step 2: resolve time window ──
+    const resolvedStart = startISO || (_metaIsForThisTruck ? _existingMeta.startISO : null);
+    const resolvedEnd   = endISO   || (_metaIsForThisTruck ? _existingMeta.endISO   : null);
+
+    // ── Step 3: update metadata in localStorage (BC handler may have already set it) ──
+    // Use any fresh meta that exists, or create minimal one
+    const _existingFresh = _existingMeta && Date.now()-(_existingMeta.ts||0) < 30000;
+    if (_existingFresh) {
+      // Merge: keep exitTime/zoneName from handler, update times if provided
+      try {
+        _existingMeta.startISO = resolvedStart || _existingMeta.startISO;
+        _existingMeta.endISO   = resolvedEnd   || _existingMeta.endISO;
+        localStorage.setItem('fleet_gps_verify_meta', JSON.stringify(_existingMeta));
+      } catch(_) {}
+    } else {
+      try {
+        localStorage.setItem('fleet_gps_verify_meta', JSON.stringify({
+          truckName: name || String(imei),
+          imei:      String(imei),
+          zoneName:  '',
+          exitTime:  null,
+          startISO:  resolvedStart,
+          endISO:    resolvedEnd,
+          ts:        Date.now()
+        }));
+      } catch(_) {}
+    }
+
+    // ── Step 4: build the time range (never show a modal) ──
+    let start, end;
+    if (resolvedStart && resolvedEnd) {
+      // Exact window from zone event — convert UTC ISO → local time string
+      // (API expects local time, ISO strings are UTC — Algeria = UTC+1)
+      const fmtLocal = (iso) => {
+        const d = new Date(iso);
+        const offsetMs = d.getTimezoneOffset() * 60000; // negative for UTC+1
+        const local = new Date(d.getTime() - offsetMs);
+        return local.toISOString().slice(0, 16).replace('T', ' ') + ':00';
       };
+      start = fmtLocal(resolvedStart);
+      end   = fmtLocal(resolvedEnd);
+    } else {
+      // Default: today 00:00 → now
+      const pad = (n) => String(n).padStart(2, '0');
+      const now  = new Date();
+      const base = prefillDate ? new Date(prefillDate) : now;
+      start = `${base.getFullYear()}-${pad(base.getMonth()+1)}-${pad(base.getDate())} 00:00:00`;
+      end   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:00`;
+      // (meta will be built in step 5 from _storedMeta or defaults)
+    }
 
-      const div = document.createElement('div');
-      div.id = 'historyModal';
-      div.className = 'modal-overlay';
-      div.style.display = 'flex';
-      
-      div.innerHTML = `
-          <div class="modal-box" style="width: 400px; max-width:90vw; background:white; padding:20px; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.4);">
-              <h3 style="margin-top:0; color:var(--teal); text-align:center;">
-                  <i class="fa-solid fa-clock-rotate-left"></i> Machine à Remonter le Temps
-              </h3>
-              <p style="text-align:center; color:#666; font-size:14px; margin-bottom:20px;">
-                  Camion: <strong>${name}</strong>
-              </p>
-              
-              <div style="background:#f8f9fa; padding:15px; border-radius:8px; border:1px solid #eee;">
-                  <div style="margin-bottom:15px;">
-                      <label style="font-size:12px; font-weight:bold; color:#555;">Début (Date & Heure)</label>
-                      <input type="datetime-local" id="histStart" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; margin-top:5px;" value="${toInput(todayStart)}">
-                  </div>
-                  <div>
-                      <label style="font-size:12px; font-weight:bold; color:#555;">Fin (Date & Heure)</label>
-                      <input type="datetime-local" id="histEnd" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; margin-top:5px;" value="${toInput(todayEnd)}">
-                  </div>
-              </div>
-
-              <div style="text-align:center; margin-top:20px; display:flex; gap:10px; justify-content:center;">
-                  <button class="btn-secondary" onclick="document.getElementById('historyModal').remove()">Annuler</button>
-                  <button class="btn-primary" onclick="ui.submitHistory('${imei}')" style="background:var(--teal); border:none; padding:10px 20px;">
-                      <i class="fa-solid fa-play"></i> Lancer Lecture
-                  </button>
-              </div>
-          </div>
-      `;
-      document.body.appendChild(div);
+    // ── Step 5: set in-memory recap metadata then go straight to visual history ──
+    // Priority: 1) Already set by window.opener (most fresh, direct injection)
+    //           2) From fleet_gps_verify_meta (set by BC handler)
+    //           3) Fallback with no exitTime
+    const _alreadySet = window._histRecapMeta && window._histRecapMeta.imei === String(imei);
+    if (!_alreadySet) {
+      const _storedMeta = (() => { try { return JSON.parse(localStorage.getItem('fleet_gps_verify_meta') || 'null'); } catch(_) { return null; } })();
+      const _metaFresh = _storedMeta && Date.now()-(_storedMeta.ts||0) < 30000;
+      window._histRecapMeta = {
+        truckName: name || (_metaFresh && _storedMeta.truckName) || String(imei),
+        imei:      String(imei),
+        zoneName:  _metaFresh ? (_storedMeta.zoneName || '') : '',
+        exitTime:  _metaFresh ? (_storedMeta.exitTime || null) : null,
+        startISO:  resolvedStart,
+        endISO:    resolvedEnd || null
+      };
+    }
+    this.loadVisualHistory(imei, start, end);
   }
 
   // --- SUBMIT ACTION ---
@@ -4750,16 +4586,21 @@ getDistKm(lat1, lon1, lat2, lon2) {
           let rawPoints = json.messages || json;
 
           if(!rawPoints || !Array.isArray(rawPoints) || rawPoints.length < 5) {
-              alert("⚠️ Aucun historique trouvé pour cette période.");
               if(btn) btn.innerHTML = originalText;
+              // Show friendly toast instead of alert
+              const _errToast = document.createElement('div');
+              _errToast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--bg-elevated, #1e293b);color:#f8fafc;padding:12px 20px;border-radius:10px;border:1px solid rgba(248,113,113,0.4);font-family:Inter,sans-serif;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.4);display:flex;align-items:center;gap:8px;';
+              _errToast.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f87171;"></i> Aucun historique GPS trouvé pour cette période.';
+              document.body.appendChild(_errToast);
+              setTimeout(() => _errToast.remove(), 4000);
               return;
           }
 
           // 3. Normalize & Sort Data
-          const points = rawPoints.map(p => {
+          let points = rawPoints.map(p => {
               if (Array.isArray(p)) {
                   return { 
-                      time: new Date(p[0]).getTime(), // Convert to Timestamp Number
+                      time: new Date(p[0]).getTime(),
                       lat: parseFloat(p[1]), 
                       lng: parseFloat(p[2]), 
                       speed: parseInt(p[5]), 
@@ -4768,6 +4609,13 @@ getDistKm(lat1, lon1, lat2, lon2) {
               }
               return p;
           }).sort((a,b) => a.time - b.time);
+
+          // Downsample very large datasets (>4000 pts) to prevent browser OOM
+          if (points.length > 4000) {
+            const step = Math.ceil(points.length / 4000);
+            points = points.filter((_, i) => i % step === 0 || i === points.length - 1);
+            console.log(`⚡ Downsampled to ${points.length} pts (step=${step})`);
+          }
 
           const coords = [];
           const stops = [];
@@ -4868,7 +4716,17 @@ getDistKm(lat1, lon1, lat2, lon2) {
               return Number.isFinite(decTime) && decTime >= stop.startTime && decTime <= stop.endTime;
           }));
 
-          if(window.AlgeriaMap && window.AlgeriaMap.drawRoute) {
+          // Wait for map to be ready before drawing (map may still be initializing)
+          const _waitForMap = async () => {
+            let _retries = 0;
+            while ((!window.AlgeriaMap || !window.AlgeriaMap.drawRoute || !window.AlgeriaMap.map) && _retries < 30) {
+              await new Promise(r => setTimeout(r, 500));
+              _retries++;
+            }
+          };
+          await _waitForMap();
+
+          if(window.AlgeriaMap && window.AlgeriaMap.drawRoute && window.AlgeriaMap.map) {
               window.AlgeriaMap.drawRoute(points, coords);
               window.AlgeriaMap.addRefillMarkers(refills);
               window.AlgeriaMap.addStopMarkers(filteredStops);
@@ -4884,14 +4742,107 @@ getDistKm(lat1, lon1, lat2, lon2) {
 
               const toast = document.createElement('div');
               toast.className = 'map-toast-msg';
-              toast.innerHTML = `✅ Chargé: ${points.length} points | ${totalDist.toFixed(1)} km | 🌙 ${exactDecouchages.length}`;
+              toast.innerHTML = `\u2705 Chargé: ${points.length} points | ${totalDist.toFixed(1)} km | 🌙 ${exactDecouchages.length}`;
               document.getElementById('map-wrapper').appendChild(toast);
               setTimeout(()=>toast.remove(), 3000);
+
+              // ── FLOATING RECAP PANEL ─────────────────────────────────
+              (() => {
+                // Read from in-memory object set directly by openHistoryModal — no localStorage race
+                const _meta = window._histRecapMeta || null;
+                const _tName = (_meta && _meta.truckName) || (typeof app !== 'undefined' && app.trucks && app.trucks.get(imei) ? app.trucks.get(imei).name : imei);
+                const _zoneName = (_meta && _meta.zoneName) || '';
+                // exitTime present and not empty → truck left (Terminé); else → encore là
+                const _exitT = _meta && _meta.exitTime && _meta.exitTime !== '' && _meta.exitTime !== 'null' ? _meta.exitTime : null;
+                const _isStillIn = !_exitT;
+
+                // ── Use ZONE EVENT times for display (exact), GPS points only for route ──
+                // Zone detection is precise; GPS samples lag 10-30+ minutes
+                const _pt0 = points[0];
+                const _ptN = points[points.length - 1];
+                const _gpsT0 = _pt0 ? new Date(_pt0.time) : null;
+                const _gpsTN = _ptN ? new Date(_ptN.time) : null;
+
+                // Prefer zone event metadata; fall back to GPS point times
+                const _t0 = (_meta && _meta.startISO) ? new Date(_meta.startISO) : _gpsT0;
+                const _tN = _exitT
+                  ? new Date(_exitT)
+                  : (_meta && _meta.endISO && !_isStillIn ? new Date(_meta.endISO) : _gpsTN);
+
+                const _durMs = (_t0 && _tN) ? (_tN - _t0) : 0;
+                const _dH = Math.floor(_durMs / 3600000);
+                const _dM = Math.floor((_durMs % 3600000) / 60000);
+                const _durStr = _durMs ? (_dH > 0 ? _dH+'h '+_dM+'m' : _dM+' min') : '—';
+                const _maxSpd = points.reduce((mx, p) => Math.max(mx, p.speed || 0), 0);
+                const _fmt = (d) => d ? d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
+                const _fmtD = (d) => d ? d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'}) : '—';
+
+                document.getElementById('histRecapPanel')?.remove();
+                const _panel = document.createElement('div');
+                _panel.id = 'histRecapPanel';
+                _panel.style.cssText = 'position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:9999;min-width:360px;max-width:92vw;background:#ffffff;border:1px solid var(--text-primary, #e2e8f0);border-radius:14px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.18);font-family:Inter,sans-serif;pointer-events:all;';
+                _panel.innerHTML = `
+                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                    <div style="display:flex;align-items:center;gap:9px;">
+                      <div style="width:32px;height:32px;background:linear-gradient(135deg,#38bdf8,#0284c7);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        <i class="fa-solid fa-clock-rotate-left" style="color:white;font-size:13px;"></i>
+                      </div>
+                      <div>
+                        <div style="font-size:13px;font-weight:700;color:var(--bg-surface, #0f172a);">${_tName}</div>
+                        ${_zoneName ? '<div style="font-size:11px;color:#0284c7;font-weight:600;">📍 '+_zoneName+'</div>' : ''}
+                      </div>
+                    </div>
+                    <button onclick="document.getElementById('histRecapPanel').remove()" style="background:#f1f5f9;border:1px solid var(--text-primary, #e2e8f0);color:#475569;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:13px;">✕</button>
+                  </div>
+                  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-bottom:10px;align-items:center;">
+                    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px;text-align:center;">
+                      <div style="font-size:9px;color:#6b7280;text-transform:uppercase;font-weight:700;margin-bottom:2px;">Entrée</div>
+                      <div style="font-size:15px;font-weight:700;color:#4ade80;">${_fmt(_t0)}</div>
+                      <div style="font-size:10px;color:var(--text-muted, #64748b);">${_fmtD(_t0)}</div>
+                    </div>
+                    <div style="font-size:18px;color:var(--text-muted, #94a3b8);text-align:center;">→</div>
+                    <div style="background:${_isStillIn?'#fff7ed':'#fff1f2'};border:1px solid ${_isStillIn?'#fed7aa':'#fecdd3'};border-radius:8px;padding:8px;text-align:center;">
+                      <div style="font-size:9px;color:var(--text-muted, #64748b);text-transform:uppercase;font-weight:700;margin-bottom:2px;">Sortie</div>
+                      ${_isStillIn
+                        ? '<div style="font-size:11px;font-weight:700;color:#fb923c;">📍 Encore là</div><div style="font-size:9px;color:var(--text-muted, #64748b);">En cours</div>'
+                        : '<div style="font-size:15px;font-weight:700;color:#f87171;">'+_fmt(_tN)+'</div><div style="font-size:10px;color:var(--text-muted, #64748b);">'+_fmtD(_tN)+'</div>'
+                      }
+                    </div>
+                  </div>
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
+                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
+                      <div style="font-size:14px;font-weight:700;color:#38bdf8;">${_durStr}</div>
+                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Durée</div>
+                    </div>
+                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
+                      <div style="font-size:14px;font-weight:700;color:#a78bfa;">${totalDist.toFixed(0)}<span style="font-size:9px;"> km</span></div>
+                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Distance</div>
+                    </div>
+                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
+                      <div style="font-size:14px;font-weight:700;color:#f59e0b;">${filteredStops.length}</div>
+                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Arrêts</div>
+                    </div>
+                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
+                      <div style="font-size:14px;font-weight:700;color:#34d399;">${_maxSpd}<span style="font-size:9px;"> km/h</span></div>
+                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Vit. Max</div>
+                    </div>
+                  </div>
+                  ${exactDecouchages.length > 0 ? '<div style="margin-top:8px;background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:6px 10px;font-size:11px;color:#dc2626;font-weight:700;">🌙 '+exactDecouchages.length+' découchage'+(exactDecouchages.length>1?'s':'')+' détecté'+(exactDecouchages.length>1?'s':'')+'</div>' : ''}
+                  <div style="margin-top:6px;font-size:10px;color:var(--text-muted, #94a3b8);text-align:right;">${points.length} points GPS analysés</div>
+                `;
+                const _mw = document.getElementById('map-wrapper');
+                if (_mw) { _mw.style.position = 'relative'; _mw.appendChild(_panel); }
+              })();
           }
 
       } catch (e) {
           console.error("History Error:", e);
-          alert("Erreur lors de l'analyse visuelle.");
+          // Show friendly toast instead of blocking alert
+          const _errToast = document.createElement('div');
+          _errToast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:99999;background:var(--bg-elevated, #1e293b);color:#f8fafc;padding:12px 24px;border-radius:10px;border:1px solid rgba(248,113,113,0.4);font-family:Inter,sans-serif;font-size:13px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,0.4);display:flex;align-items:center;gap:8px;';
+          _errToast.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f87171;"></i> Erreur analyse: ' + (e.message || 'Vérifiez la période sélectionnée.');
+          document.body.appendChild(_errToast);
+          setTimeout(() => _errToast.remove(), 5000);
       } finally {
           if(btn) btn.innerHTML = originalText;
       }
@@ -4901,7 +4852,7 @@ getDistKm(lat1, lon1, lat2, lon2) {
   async generateSuperReportCSV() {
       if(!app || !app.trucks) return;
 
-      // ⚠️ AUTO-FETCH: Download Decouchage data if it's not loaded yet
+      // \u26a0\ufe0f AUTO-FETCH: Download Decouchage data if it's not loaded yet
       if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
           try {
               // Update button text to show activity
@@ -4975,12 +4926,12 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   // NEW: Restore Backup to Server
   async restoreBackup() {
       if(!this.restoreFileInput || !this.restoreFileInput.files[0]) {
-          alert('⚠️ Sélectionnez un fichier JSON de sauvegarde.');
+          alert('\u26a0\ufe0f Sélectionnez un fichier JSON de sauvegarde.');
           return;
       }
       
       const file = this.restoreFileInput.files[0];
-      if (!confirm(`⚠️ ATTENTION : Cela va remplacer/mettre à jour votre base de données avec le fichier "${file.name}". Continuer ?`)) {
+      if (!confirm(`\u26a0\ufe0f ATTENTION : Cela va remplacer/mettre à jour votre base de données avec le fichier "${file.name}". Continuer ?`)) {
           return;
       }
 
@@ -5004,7 +4955,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
               const result = await res.json();
               
               if(res.ok) {
-                  alert("✅ Restauration réussie ! La page va s'actualiser.");
+                  alert("\u2705 Restauration réussie ! La page va s'actualiser.");
                   location.reload();
               } else {
                   alert("❌ Erreur: " + result.error);
@@ -5034,7 +4985,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
   // ============================================================
-  // ✅ ALERTS SYSTEM (Overspeed + Route Deviation)
+  // \u2705 ALERTS SYSTEM (Overspeed + Route Deviation)
   // ============================================================
 
   openSpeedRescanModal() {
@@ -5169,7 +5120,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   async generateSuperReportCSV() {
       if(!app || !app.trucks) return;
 
-      // ⚠️ AUTO-FETCH: Download Decouchage data if it's not loaded yet
+      // \u26a0\ufe0f AUTO-FETCH: Download Decouchage data if it's not loaded yet
       if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
           try {
               // Update button text to show activity
@@ -5243,12 +5194,12 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   // NEW: Restore Backup to Server
   async restoreBackup() {
       if(!this.restoreFileInput || !this.restoreFileInput.files[0]) {
-          alert('⚠️ Sélectionnez un fichier JSON de sauvegarde.');
+          alert('\u26a0\ufe0f Sélectionnez un fichier JSON de sauvegarde.');
           return;
       }
       
       const file = this.restoreFileInput.files[0];
-      if (!confirm(`⚠️ ATTENTION : Cela va remplacer/mettre à jour votre base de données avec le fichier "${file.name}". Continuer ?`)) {
+      if (!confirm(`\u26a0\ufe0f ATTENTION : Cela va remplacer/mettre à jour votre base de données avec le fichier "${file.name}". Continuer ?`)) {
           return;
       }
 
@@ -5272,7 +5223,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
               const result = await res.json();
               
               if(res.ok) {
-                  alert("✅ Restauration réussie ! La page va s'actualiser.");
+                  alert("\u2705 Restauration réussie ! La page va s'actualiser.");
                   location.reload();
               } else {
                   alert("❌ Erreur: " + result.error);
@@ -5302,7 +5253,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
   // ============================================================
-  // ✅ ALERTS SYSTEM (Overspeed + Route Deviation)
+  // \u2705 ALERTS SYSTEM (Overspeed + Route Deviation)
   // ============================================================
 
   openSpeedRescanModal() {
@@ -5551,7 +5502,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     FLEET_CONFIG.SPEED_LIMIT = val;
     localStorage.setItem('fleetSpeedLimit', val); // fallback
     this.saveSettingsToCloud();
-    alert(`✅ Limite de vitesse sauvegardée: ${val} km/h`);
+    alert(`\u2705 Limite de vitesse sauvegardée: ${val} km/h`);
     this.refreshAlerts();
   }
 
@@ -5592,7 +5543,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       container.innerHTML = `
         <div style="grid-column:1/-1; text-align:center; padding:30px; color:var(--success);">
           <i class="fa-solid fa-shield-check" style="font-size:40px; display:block; margin-bottom:10px;"></i>
-          <div style="font-size:14px; font-weight:700;">✅ Aucun excès de vitesse détecté</div>
+          <div style="font-size:14px; font-weight:700;">\u2705 Aucun excès de vitesse détecté</div>
           <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Tous les ${trucks.length} camions respectent la limite de ${speedLimit} km/h</div>
         </div>`;
       return;
@@ -5620,7 +5571,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       const badge = severity === 'critical' 
         ? '<span class="maint-status-badge badge-urgent">🚨 CRITIQUE</span>'
         : severity === 'warning' 
-        ? '<span class="maint-status-badge badge-en-cours">⚠️ EXCESSIF</span>'
+        ? '<span class="maint-status-badge badge-en-cours">\u26a0\ufe0f EXCESSIF</span>'
         : '<span class="maint-status-badge" style="background:var(--warning-subtle); color:#c2410c;">📢 LÉGER</span>';
       
       const locText = t.location?.city ? `${t.location.city}, ${t.location.wilaya || ''}` : 'Inconnue';
@@ -5638,7 +5589,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
             <div><i class="fa-solid fa-road" style="color:var(--text-muted); width:16px;"></i> ${t.odometer.toLocaleString()} km</div>
           </div>
           <div style="margin-top:8px;">
-            <button class="btn-secondary" onclick="ui.viewOnMap(${t.coordinates?.lat || 0}, ${t.coordinates?.lng || 0})" style="font-size:11px; padding:4px 10px;">
+            <button class="btn-secondary" onclick="ui.viewOnMap(${t.coordinates?.lat || 0}, ${t.coordinates?.lng || 0}, '${t.id}')" style="font-size:11px; padding:4px 10px;">
               <i class="fa-solid fa-map-location-dot"></i> Voir sur carte
             </button>
           </div>
@@ -5778,6 +5729,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
         modal.id = 'watchedLocationsModal';
         modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999999; display:flex; justify-content:center; align-items:center;';
         document.body.appendChild(modal);
+    if(typeof this.detectPotentialZones==='function') this.detectPotentialZones();
     }
     
     let locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
@@ -5833,7 +5785,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
 
     if (customLocs.length === 0) {
       container.innerHTML = `
-        <div style="grid-column:1/-1; text-align:center; padding:30px; color:#94a3b8;">
+        <div style="grid-column:1/-1; text-align:center; padding:30px; color:var(--text-muted, #94a3b8);">
           <i class="fa-solid fa-circle-info" style="font-size:36px; display:block; margin-bottom:10px; opacity:0.4;"></i>
           <div style="font-size:13px; font-weight:600;">Aucune zone personnalisée configurée</div>
           <div style="font-size:12px; margin-top:4px;">Ajoutez des zones dans Paramètres → Zones Personnalisées pour activer la détection de déviation</div>
@@ -5872,8 +5824,8 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       container.innerHTML = `
         <div style="grid-column:1/-1; text-align:center; padding:30px; color:#22c55e;">
           <i class="fa-solid fa-route" style="font-size:40px; display:block; margin-bottom:10px;"></i>
-          <div style="font-size:14px; font-weight:700;">✅ Tous les camions en mouvement sont dans les zones habituelles</div>
-          <div style="font-size:12px; color:#64748b; margin-top:4px;">${customLocs.length} zones surveillées • Seuil: ${maxDistanceKm} km</div>
+          <div style="font-size:14px; font-weight:700;">\u2705 Tous les camions en mouvement sont dans les zones habituelles</div>
+          <div style="font-size:12px; color:var(--text-muted, #64748b); margin-top:4px;">${customLocs.length} zones surveillées • Seuil: ${maxDistanceKm} km</div>
         </div>`;
       return;
     }
@@ -5889,17 +5841,17 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       html += `
         <div style="background:#faf5ff; border:1px solid #ddd6fe; border-left:5px solid #7c3aed; border-radius:10px; padding:14px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div style="font-size:16px; font-weight:800; color:#0f172a;">${truck.name}</div>
+            <div style="font-size:16px; font-weight:800; color:var(--bg-surface, #0f172a);">${truck.name}</div>
             <span class="maint-status-badge" style="background:#f5f3ff; color:#7c3aed; border:1px solid #ddd6fe;">🔀 DÉVIATION</span>
           </div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:12px;">
             <div><i class="fa-solid fa-location-dot" style="color:#7c3aed; width:16px;"></i> ${locText}</div>
-            <div><i class="fa-solid fa-gauge-high" style="color:#64748b; width:16px;"></i> ${truck.speed} km/h</div>
+            <div><i class="fa-solid fa-gauge-high" style="color:var(--text-muted, #64748b); width:16px;"></i> ${truck.speed} km/h</div>
             <div><i class="fa-solid fa-arrows-left-right" style="color:#dc2626; width:16px;"></i> <strong style="color:#dc2626;">${nearestDist} km</strong> de la zone la plus proche</div>
-            <div><i class="fa-solid fa-map-pin" style="color:#64748b; width:16px;"></i> Zone: ${nearestZone?.name || 'N/A'}</div>
+            <div><i class="fa-solid fa-map-pin" style="color:var(--text-muted, #64748b); width:16px;"></i> Zone: ${nearestZone?.name || 'N/A'}</div>
           </div>
           <div style="margin-top:8px;">
-            <button class="btn-secondary" onclick="ui.viewOnMap(${truck.coordinates?.lat || 0}, ${truck.coordinates?.lng || 0})" style="font-size:11px; padding:4px 10px;">
+            <button class="btn-secondary" onclick="ui.viewOnMap(${truck.coordinates?.lat || 0}, ${truck.coordinates?.lng || 0}, '${truck.id}')" style="font-size:11px; padding:4px 10px;">
               <i class="fa-solid fa-map-location-dot"></i> Localiser
             </button>
           </div>
@@ -5939,7 +5891,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
   // ============================================================
-  // ✅ SETTINGS: Truck Metadata Editor
+  // \u2705 SETTINGS: Truck Metadata Editor
   // ============================================================
 
   async populateSettingsTruckSelect() {
@@ -5981,7 +5933,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        alert('✅ Fiche véhicule enregistrée !');
+        alert('\u2705 Fiche véhicule enregistrée !');
         await this.loadTruckDbCache();
         this.renderSettingsTruckMetaList();
       } else { alert('Erreur serveur.'); }
@@ -5993,18 +5945,23 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     if (!container) return;
     const entries = this.truckDbCache.filter(d => d.chassisNumber || d.immatriculation || d.carteNaftal);
     if (entries.length === 0) {
-      container.innerHTML = '<div style="text-align:center; color:#94a3b8; padding:16px; font-size:12px;">Aucune fiche véhicule renseignée. Sélectionnez un camion et remplissez les champs.</div>';
+      container.innerHTML = '<div style="text-align:center; color:var(--text-muted, #94a3b8); padding:16px; font-size:12px;">Aucune fiche véhicule renseignée. Sélectionnez un camion et remplissez les champs.</div>';
       return;
     }
-    let html = '<table style="width:100%; border-collapse:collapse; font-size:12px; background:white; border-radius:8px; overflow:hidden;">';
-    html += '<thead><tr style="background:#f8fafc; color:#475569; border-bottom:2px solid #e2e8f0;"><th style="padding:8px; text-align:left;">Camion</th><th style="padding:8px;">Immatriculation</th><th style="padding:8px;">Châssis</th><th style="padding:8px;">Carte Naftal</th></tr></thead><tbody>';
+    let html = `<table style="width:100%;border-collapse:collapse;font-size:12px;border-radius:8px;overflow:hidden;border:1px solid var(--border);">`;
+    html += `<thead><tr style="background:var(--bg-elevated);border-bottom:2px solid var(--border);">
+      <th style="padding:10px 12px;text-align:left;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Camion</th>
+      <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Immatriculation</th>
+      <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Châssis</th>
+      <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Carte Naftal</th>
+    </tr></thead><tbody>`;
     entries.forEach((d, i) => {
-      const bg = i % 2 === 0 ? '#fff' : '#f8fafc';
-      html += `<tr style="background:${bg}; border-bottom:1px solid #f1f5f9;">
-        <td style="padding:8px; font-weight:700;">${d.truckName || d.deviceId}</td>
-        <td style="padding:8px; text-align:center;">${d.immatriculation ? `<span class="truck-meta-tag imm">${d.immatriculation}</span>` : '<em style="color:#ccc;">—</em>'}</td>
-        <td style="padding:8px; text-align:center;">${d.chassisNumber ? `<span class="truck-meta-tag chassis">${d.chassisNumber}</span>` : '<em style="color:#ccc;">—</em>'}</td>
-        <td style="padding:8px; text-align:center;">${d.carteNaftal ? `<span class="truck-meta-tag naftal">${d.carteNaftal}</span>` : '<em style="color:#ccc;">—</em>'}</td>
+      const bg = i % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-elevated)';
+      html += `<tr style="background:${bg};border-bottom:1px solid var(--border);transition:background 0.15s;" onmouseover="this.style.background='var(--bg-card-hover,rgba(56,189,248,0.05))'" onmouseout="this.style.background='${bg}'">
+        <td style="padding:10px 12px;font-weight:700;color:var(--text-primary);">${d.truckName || d.deviceId}</td>
+        <td style="padding:10px 12px;text-align:center;">${d.immatriculation ? `<span class="truck-meta-tag imm">${d.immatriculation}</span>` : '<em style="color:var(--text-dim);">—</em>'}</td>
+        <td style="padding:10px 12px;text-align:center;">${d.chassisNumber ? `<span class="truck-meta-tag chassis">${d.chassisNumber}</span>` : '<em style="color:var(--text-dim);">—</em>'}</td>
+        <td style="padding:10px 12px;text-align:center;">${d.carteNaftal ? `<span class="truck-meta-tag naftal">${d.carteNaftal}</span>` : '<em style="color:var(--text-dim);">—</em>'}</td>
       </tr>`;
     });
     html += '</tbody></table>';
@@ -6012,7 +5969,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
   // ============================================================
-  // ✅ NAFTAL DASHBOARD PANEL
+  // \u2705 NAFTAL DASHBOARD PANEL
   // ============================================================
   renderNaftalDashboardPanel() {
     const panel = this.naftalDashboardPanel;
@@ -6069,7 +6026,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       const lastText = last
         ? `⛽ ${Math.round(last.addedLiters || 0)}L · ${new Date(last.timestamp).toLocaleDateString('fr-FR')}`
         : 'Aucun ravitaillement externe';
-      const statusDot = truck.speed >= 1 ? '#22c55e' : '#94a3b8';
+      const statusDot = truck.speed >= 1 ? '#22c55e' : 'var(--text-muted, #94a3b8)';
       return `
         <div class="naftal-card-chip" onclick="ui.toggleReportView('naftal'); ui.switchTab('reports');" title="Rapport Naftal de ${truck.name}">
           <div style="position:relative;">
@@ -6120,7 +6077,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
   // ============================================================
-  // ✅ NAFTAL PER-CARD REPORT
+  // \u2705 NAFTAL PER-CARD REPORT
   // ============================================================
   async generateNaftalCardReport() {
     const container = document.getElementById('naftalReportContainer');
@@ -6191,7 +6148,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       this.naftalReportLogs = cardFilter;
 
       if (cardFilter.length === 0) {
-        container.innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;"><i class="fa-solid fa-credit-card" style="font-size:36px; opacity:0.3; display:block; margin-bottom:10px;"></i>Aucun remplissage externe trouvé pour cette période.</div>';
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted, #94a3b8);"><i class="fa-solid fa-credit-card" style="font-size:36px; opacity:0.3; display:block; margin-bottom:10px;"></i>Aucun remplissage externe trouvé pour cette période.</div>';
         if (exportBtn) exportBtn.style.display = 'none';
         return;
       }
@@ -6235,11 +6192,11 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
           </tr>`).join('');
 
         html += `
-          <div style="background:white; border:1px solid #e9d5ff; border-left:5px solid ${isNoCard ? '#f59e0b' : '#7e22ce'}; border-radius:10px; overflow:hidden;">
+          <div style="background:#1a2332; border:1px solid rgba(139,92,246,0.3); border-left:5px solid ${isNoCard ? '#f59e0b' : '#7e22ce'}; border-radius:10px; overflow:hidden;">
             <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 16px; background:#fdf4ff; cursor:pointer;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
               <div>
                 <div style="font-size:15px; font-weight:900; color:${isNoCard ? '#b45309' : '#581c87'};">
-                  <i class="fa-solid fa-credit-card"></i>&nbsp; ${isNoCard ? '⚠️ Sans Carte Naftal' : `N° ${card.cardNum}`}
+                  <i class="fa-solid fa-credit-card"></i>&nbsp; ${isNoCard ? '\u26a0\ufe0f Sans Carte Naftal' : `N° ${card.cardNum}`}
                 </div>
                 <div style="font-size:11px; color:#9333ea; margin-top:2px;">${card.truckName} · ${card.events.length} remplissage${card.events.length > 1 ? 's' : ''}</div>
               </div>
@@ -6309,7 +6266,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
   // ============================================================
-  // ✅ ITINERARY ENGINE
+  // \u2705 ITINERARY ENGINE
   // ============================================================
 
   // Detect stops ≥ minStopMinutes from GPS points
@@ -6379,7 +6336,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     const primaryMonthKey = startVal.slice(0, 7);
 
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyse...'; }
-    container.innerHTML = '<div style="text-align:center; padding:30px; color:#1d4ed8;"><i class="fa-solid fa-spinner fa-spin" style="font-size:32px;"></i><div style="margin-top:12px; font-weight:700;">Analyse GPS en cours — accumulation cumulative dans MongoDB...</div><div style="font-size:11px; color:#64748b; margin-top:6px;">Chaque analyse ajoute des données sans effacer les précédentes</div></div>';
+    container.innerHTML = '<div style="text-align:center; padding:30px; color:#1d4ed8;"><i class="fa-solid fa-spinner fa-spin" style="font-size:32px;"></i><div style="margin-top:12px; font-weight:700;">Analyse GPS en cours — accumulation cumulative dans MongoDB...</div><div style="font-size:11px; color:var(--text-muted, #64748b); margin-top:6px;">Chaque analyse ajoute des données sans effacer les précédentes</div></div>';
 
     const trucks = app.getAllTrucks();
     const segmentsToSave = [];
@@ -6435,7 +6392,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
           body: JSON.stringify({ segments: segmentsToSave })
         });
         const saveData = await saveRes.json();
-        console.log(`✅ Itinerary: ${saveData.updated} routes updated in MongoDB`);
+        console.log(`\u2705 Itinerary: ${saveData.updated} routes updated in MongoDB`);
       } catch (e) { console.warn('Itinerary save failed:', e); }
     }
 
@@ -6443,8 +6400,8 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
 
     // Show summary toast
     const toast = document.createElement('div');
-    toast.style.cssText = 'position:fixed; top:80px; right:20px; z-index:99999; background:#0f172a; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; box-shadow:0 8px 24px rgba(0,0,0,0.3); border-left:4px solid #22c55e; animation:slideDown 0.3s ease;';
-    toast.innerHTML = `✅ Analyse terminée — ${segmentsToSave.length} routes enregistrées · ${totalStopsFound} arrêts détectés`;
+    toast.style.cssText = 'position:fixed; top:80px; right:20px; z-index:99999; background:var(--bg-surface, #0f172a); color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; box-shadow:0 8px 24px rgba(0,0,0,0.3); border-left:4px solid #22c55e; animation:slideDown 0.3s ease;';
+    toast.innerHTML = `\u2705 Analyse terminée — ${segmentsToSave.length} routes enregistrées · ${totalStopsFound} arrêts détectés`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 4000);
 
@@ -6506,11 +6463,11 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
               const first = doc.waypoints[0];
               const last = doc.waypoints[doc.waypoints.length - 1];
               const [nameA, nameB] = await Promise.all([
-                this.resolveLocationNameAsync(first.lat, first.lng),
-                this.resolveLocationNameAsync(last.lat, last.lng)
+                geocodeService.reverseGeocode(first.lat, first.lng),
+                geocodeService.reverseGeocode(last.lat, last.lng)
               ]);
-              const cleanA = nameA.replace(/^[🏢📍]\s*/, '').split(',')[0].trim();
-              const cleanB = nameB.replace(/^[🏢📍]\s*/, '').split(',')[0].trim();
+              const cleanA = nameA.replace(/^[🏢\ud83d\udccd]\s*/, '').split(',')[0].trim();
+              const cleanB = nameB.replace(/^[🏢\ud83d\udccd]\s*/, '').split(',')[0].trim();
               await fetch(`${FLEET_CONFIG.API.baseUrl}/api/itinerary/set-names`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
@@ -6535,7 +6492,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
 
     if (docs.length === 0) {
       container.innerHTML = `
-        <div style="text-align:center; padding:40px; color:#94a3b8;">
+        <div style="text-align:center; padding:40px; color:var(--text-muted, #94a3b8);">
           <i class="fa-solid fa-route" style="font-size:40px; display:block; margin-bottom:12px; opacity:0.3;"></i>
           <div style="font-size:14px; font-weight:700;">Aucun itinéraire en base</div>
           <div style="font-size:12px; margin-top:6px;">Sélectionnez une période puis cliquez "Analyser la Flotte".</div>
@@ -6561,7 +6518,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
         </div>
         <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:12px; text-align:center;">
           <div style="font-size:26px; font-weight:900; color:#166534;">${qualified.length}</div>
-          <div style="font-size:10px; color:#15803d; font-weight:700; text-transform:uppercase;">✅ Validées</div>
+          <div style="font-size:10px; color:#15803d; font-weight:700; text-transform:uppercase;">\u2705 Validées</div>
         </div>
         <div style="background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:12px; text-align:center;">
           <div style="font-size:26px; font-weight:900; color:#c2410c;">${pending.length}</div>
@@ -6579,14 +6536,14 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
         const nameA = doc.nameStart || `${(doc.waypoints[0]||{}).lat?.toFixed(2)},${(doc.waypoints[0]||{}).lng?.toFixed(2)}`;
         const nameB = doc.nameEnd || `${(doc.waypoints[doc.waypoints.length-1]||{}).lat?.toFixed(2)},${(doc.waypoints[doc.waypoints.length-1]||{}).lng?.toFixed(2)}`;
         
-        html += `<div style="background:white; border:1.5px solid #c7d2fe; border-left:5px solid #4f46e5; border-radius:12px; padding:16px; box-shadow:0 2px 8px rgba(79,70,229,0.08);">
+        html += `<div style="background:#1a2332; border:1.5px solid rgba(99,102,241,0.3); border-left:5px solid #4f46e5; border-radius:12px; padding:16px; box-shadow:0 2px 8px rgba(79,70,229,0.08);">
           <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:10px;">
             <div style="flex:1;">
-              <div style="font-size:15px; font-weight:900; color:#0f172a; margin-bottom:3px;">
+              <div style="font-size:15px; font-weight:900; color:var(--bg-surface, #0f172a); margin-bottom:3px;">
                 <i class="fa-solid fa-route" style="color:#4f46e5;"></i>
                 ${nameA} <span style="color:#4f46e5; font-weight:700;">→</span> ${nameB}
               </div>
-              <div style="font-size:10px; color:#64748b;">
+              <div style="font-size:10px; color:var(--text-muted, #64748b);">
                 ${doc.waypoints.length} waypoints de précision
               </div>
             </div>
@@ -6630,19 +6587,19 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
         const trucks = doc.allTrucks || [];
         const bestMonthStr = doc.bestMonth ? `Meilleur mois: ${doc.bestMonth} (${doc.bestCount} trucks)` : '';
 
-        html += `<div style="background:white; border:1.5px solid #bbf7d0; border-left:5px solid #16a34a; border-radius:12px; padding:16px; box-shadow:0 2px 8px rgba(22,163,74,0.08);">
+        html += `<div style="background:#1a2332; border:1.5px solid rgba(16,185,129,0.3); border-left:5px solid #16a34a; border-radius:12px; padding:16px; box-shadow:0 2px 8px rgba(22,163,74,0.08);">
           <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:10px;">
             <div style="flex:1;">
-              <div style="font-size:15px; font-weight:900; color:#0f172a; margin-bottom:3px;">
+              <div style="font-size:15px; font-weight:900; color:var(--bg-surface, #0f172a); margin-bottom:3px;">
                 <i class="fa-solid fa-route" style="color:#16a34a;"></i>
                 ${nameA} <span style="color:#16a34a; font-weight:700;">→</span> ${nameB}
               </div>
-              <div style="font-size:10px; color:#64748b;">
+              <div style="font-size:10px; color:var(--text-muted, #64748b);">
                 ${doc.waypoints.length} waypoints · ${doc.totalObservations||0} observations · ${bestMonthStr}
               </div>
             </div>
             <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-              <span style="background:#dcfce7; color:#166534; padding:4px 12px; border-radius:20px; font-size:10px; font-weight:800;">✅ VALIDÉ</span>
+              <span style="background:#dcfce7; color:#166534; padding:4px 12px; border-radius:20px; font-size:10px; font-weight:800;">\u2705 VALIDÉ</span>
               <span style="font-size:10px; color:#475569;">🚛 ${trucks.length} camion${trucks.length>1?'s':''} uniques</span>
             </div>
           </div>
@@ -6659,7 +6616,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
             <button onclick="ui.deleteItinerary(${idx})" class="btn-secondary" style="font-size:11px; padding:6px 10px; border-color:#fecaca; color:#dc2626;">
               <i class="fa-solid fa-trash"></i>
             </button>
-            <span style="margin-left:auto; font-size:10px; color:#94a3b8;">
+            <span style="margin-left:auto; font-size:10px; color:var(--text-muted, #94a3b8);">
               <i class="fa-solid fa-shield-check" style="color:#16a34a;"></i> Surveillance déviation: ±700m actif
             </span>
           </div>
@@ -6715,8 +6672,8 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     const first = doc.waypoints[0];
     const last = doc.waypoints[doc.waypoints.length - 1];
     const [nameA, nameB] = await Promise.all([
-      this.resolveLocationNameAsync(first.lat, first.lng),
-      this.resolveLocationNameAsync(last.lat, last.lng)
+      geocodeService.reverseGeocode(first.lat, first.lng),
+      geocodeService.reverseGeocode(last.lat, last.lng)
     ]);
     await fetch(`${FLEET_CONFIG.API.baseUrl}/api/itinerary/set-names`, {
       method: 'PATCH',
@@ -6726,7 +6683,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     await this.loadItineraryFromDB(parseInt(document.getElementById('itineraryMinTrucks')?.value)||4);
   }
 
-  // ✅ Manual rename itinerary
+  // \u2705 Manual rename itinerary
   async manualRenameItinerary(idx) {
     const doc = (this._dbItineraries || [])[idx];
     if (!doc) return;
@@ -6746,7 +6703,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     } catch (e) { alert('Erreur: ' + e.message); }
   }
 
-  // ✅ Delete single itinerary
+  // \u2705 Delete single itinerary
   async deleteItinerary(idx) {
     const doc = (this._dbItineraries || [])[idx];
     if (!doc) return;
@@ -6763,7 +6720,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     } catch (e) { alert('Erreur: ' + e.message); }
   }
 
-  // ✅ Auto-fill truck info in maintenance modal from DB cache
+  // \u2705 Auto-fill truck info in maintenance modal from DB cache
   _autoFillTruckInfoInModal(deviceId) {
     if (!deviceId) return;
     const db = (this.truckDbCache || []).find(d => String(d.deviceId) === String(deviceId));
@@ -6801,13 +6758,13 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
           <i class="fa-solid fa-id-card"></i> Fiche Véhicule — Remplissage Auto
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; font-size:11px;">
-          <div style="background:white; padding:6px 8px; border-radius:6px; border:1px solid #fde68a;">
+          <div style="background:#1a1000; padding:6px 8px; border-radius:6px; border:1px solid #fde68a;">
             <div style="color:#92400e; font-weight:600; font-size:9px;">IMMATRICULATION</div>
-            <div style="font-weight:800; color:#0f172a;">${imm || '<em style="color:#ccc;">—</em>'}</div>
+            <div style="font-weight:800; color:var(--bg-surface, #0f172a);">${imm || '<em style="color:#ccc;">—</em>'}</div>
           </div>
-          <div style="background:white; padding:6px 8px; border-radius:6px; border:1px solid #fde68a;">
+          <div style="background:#1a1000; padding:6px 8px; border-radius:6px; border:1px solid #fde68a;">
             <div style="color:#92400e; font-weight:600; font-size:9px;">N° CHÂSSIS</div>
-            <div style="font-weight:800; color:#0f172a; font-family:monospace; font-size:10px;">${chassis || '<em style="color:#ccc;">—</em>'}</div>
+            <div style="font-weight:800; color:var(--bg-surface, #0f172a); font-family:monospace; font-size:10px;">${chassis || '<em style="color:#ccc;">—</em>'}</div>
           </div>
           <div style="background:${naftal ? 'linear-gradient(135deg,#581c87,#7e22ce)' : 'white'}; padding:6px 8px; border-radius:6px; border:1px solid ${naftal ? '#7e22ce' : '#fde68a'};">
             <div style="color:${naftal ? '#ddd6fe' : '#92400e'}; font-weight:600; font-size:9px;">CARTE NAFTAL</div>
@@ -6815,32 +6772,32 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
           </div>
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:6px; font-size:11px; margin-top:6px;">
-          <div style="background:white; padding:5px 8px; border-radius:6px; border:1px solid #e5e7eb;">
-            <div style="color:#64748b; font-size:9px;">COMPTEUR</div>
+          <div style="background:#1a2332; padding:5px 8px; border-radius:6px; border:1px solid var(--border, rgba(255,255,255,0.1));">
+            <div style="color:var(--text-muted, #64748b); font-size:9px;">COMPTEUR</div>
             <div style="font-weight:700;">${odo}</div>
           </div>
-          <div style="background:white; padding:5px 8px; border-radius:6px; border:1px solid #e5e7eb;">
-            <div style="color:#64748b; font-size:9px;">CARBURANT</div>
+          <div style="background:#1a2332; padding:5px 8px; border-radius:6px; border:1px solid var(--border, rgba(255,255,255,0.1));">
+            <div style="color:var(--text-muted, #64748b); font-size:9px;">CARBURANT</div>
             <div style="font-weight:700;">${fuel}</div>
           </div>
-          <div style="background:white; padding:5px 8px; border-radius:6px; border:1px solid #e5e7eb;">
-            <div style="color:#64748b; font-size:9px;">POSITION</div>
+          <div style="background:#1a2332; padding:5px 8px; border-radius:6px; border:1px solid var(--border, rgba(255,255,255,0.1));">
+            <div style="color:var(--text-muted, #64748b); font-size:9px;">POSITION</div>
             <div style="font-weight:600; font-size:10px;">${loc}</div>
           </div>
-          <div style="background:white; padding:5px 8px; border-radius:6px; border:1px solid #e5e7eb;">
-            <div style="color:#64748b; font-size:9px;">VITESSE</div>
+          <div style="background:#1a2332; padding:5px 8px; border-radius:6px; border:1px solid var(--border, rgba(255,255,255,0.1));">
+            <div style="color:var(--text-muted, #64748b); font-size:9px;">VITESSE</div>
             <div style="font-weight:700;">${speed}</div>
           </div>
         </div>
         ${vidangeInfo ? `<div style="margin-top:6px; font-size:11px;">${vidangeInfo}</div>` : ''}
-        <div style="margin-top:6px; font-size:10px; color:#64748b; border-top:1px solid #fde68a; padding-top:5px;">
+        <div style="margin-top:6px; font-size:10px; color:var(--text-muted, #64748b); border-top:1px solid #fde68a; padding-top:5px;">
           <i class="fa-solid fa-clock-rotate-left"></i> Dernière maintenance: <strong>${lastMaintText}</strong>
         </div>
       </div>`;
   }
 
   async clearItineraryDB() {
-    if (!confirm('⚠️ Supprimer TOUS les itinéraires enregistrés en MongoDB ?')) return;
+    if (!confirm('\u26a0\ufe0f Supprimer TOUS les itinéraires enregistrés en MongoDB ?')) return;
     await fetch(`${FLEET_CONFIG.API.baseUrl}/api/itinerary/clear`, { method: 'DELETE' });
     this._dbItineraries = [];
     this._resolvedItineraries = [];
@@ -6885,7 +6842,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     }
 
     const customItems = customMatches.map(l => ({
-      name: `📍 ${l.name} (${l.wilaya || ''})`,
+      name: `\ud83d\udccd ${l.name} (${l.wilaya || ''})`,
       coords: [l.lng, l.lat],
       type: 'custom'
     }));
@@ -6909,7 +6866,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     // Fill the text input
     const inputId = dropdownId === 'itinOriginDropdown' ? 'itinOriginInput' : 'itinDestInput';
     const textInput = document.getElementById(inputId);
-    if (textInput) textInput.value = name.replace(/^📍 /, '');
+    if (textInput) textInput.value = name.replace(/^\ud83d\udccd /, '');
     if (coordInput) coordInput.value = JSON.stringify(coords);
     if (dropdown) dropdown.style.display = 'none';
 
@@ -6950,7 +6907,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
 
     if (!originCoord || !destCoord) {
       document.getElementById('manualItinStatus').style.display = 'block';
-      document.getElementById('manualItinStatus').innerHTML = '⚠️ Saisissez et sélectionnez un départ ET une arrivée dans les listes déroulantes.';
+      document.getElementById('manualItinStatus').innerHTML = '\u26a0\ufe0f Saisissez et sélectionnez un départ ET une arrivée dans les listes déroulantes.';
       return;
     }
 
@@ -7027,7 +6984,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       document.getElementById('itinPreviewPts').textContent = coords.length.toLocaleString();
       document.getElementById('itinPreviewInfo').style.display = 'block';
 
-      statusEl.innerHTML = `✅ Route tracée — ${distKm} km en ${durText} (${coords.length.toLocaleString()} points de précision)`;
+      statusEl.innerHTML = `\u2705 Route tracée — ${distKm} km en ${durText} (${coords.length.toLocaleString()} points de précision)`;
       previewBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Re-calculer';
       previewBtn.disabled = false;
       document.getElementById('btnSaveManualItin').style.display = 'inline-flex';
@@ -7141,9 +7098,9 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
         body: JSON.stringify({ key, nameStart, nameEnd })
       });
       if (window.showToast) {
-        showToast(`✅ Itinéraire "${routeName}" enregistré — ${distKm} km, ${waypoints.length.toLocaleString()} points de précision`, 'success', 5000);
+        showToast(`\u2705 Itinéraire "${routeName}" enregistré — ${distKm} km, ${waypoints.length.toLocaleString()} points de précision`, 'success', 5000);
       } else {
-        alert(`✅ Itinéraire "${routeName}" enregistré!\n📏 ${distKm} km\n📍 ${waypoints.length.toLocaleString()} points de précision routière`);
+        alert(`\u2705 Itinéraire "${routeName}" enregistré!\n📏 ${distKm} km\n\ud83d\udccd ${waypoints.length.toLocaleString()} points de précision routière`);
       }
       this.cancelDrawingItinerary();
       this.toggleAlertSubTab('itinerary');
@@ -7263,7 +7220,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
           'text-offset': [0, 1.8], 'text-anchor': 'top',
           'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold']
         },
-        paint: { 'text-color': '#1e293b', 'text-halo-color': '#fff', 'text-halo-width': 2 }
+        paint: { 'text-color': 'var(--bg-elevated, #1e293b)', 'text-halo-color': '#fff', 'text-halo-width': 2 }
       });
       this.itineraryMapLayerIds.push(stopSrc, stopSrc + '_circles', stopSrc + '_labels');
 
@@ -7272,7 +7229,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       const lats = coords.map(c => c[1]);
       map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 80, duration: 1400 });
 
-      if (window.showToast) showToast(`✅ ${nameA} → ${nameB} | 📏 ${distKm} km | ⏱ ${durText} | 🚛 ${(r.allTrucks||[]).length} camions`, 'success', 6000);
+      if (window.showToast) showToast(`\u2705 ${nameA} → ${nameB} | 📏 ${distKm} km | ⏱ ${durText} | 🚛 ${(r.allTrucks||[]).length} camions`, 'success', 6000);
 
       // Mark as active deviation monitoring route
       this._activeDeviationItinerary = { key: r.key, coords, nameA, nameB, distKm, toleranceM: 700 };
@@ -7305,7 +7262,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     const buildOpts = (el) => {
       el.innerHTML = '<option value="">— Sélectionner une zone —</option>';
       locs.forEach((loc, i) => {
-        const icon = loc.type === 'client' ? '🏢' : loc.type === 'maintenance' ? '🔧' : loc.type === 'site' ? '🏭' : '📍';
+        const icon = loc.type === 'client' ? '🏢' : loc.type === 'maintenance' ? '🔧' : loc.type === 'site' ? '🏭' : '\ud83d\udccd';
         el.innerHTML += `<option value="${i}">${icon} ${loc.name} (${loc.lat.toFixed(3)}, ${loc.lng.toFixed(3)})</option>`;
       });
       // Add "Point personnalisé" option
@@ -7444,19 +7401,19 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     return `
       <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px; margin-bottom:14px;">
         <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px; margin-bottom:10px;">
-          <div style="background:white; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
+          <div style="background:#1a2332; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
             <div style="font-size:20px; font-weight:900; color:#92400e;">${logs.length}</div>
             <div style="font-size:9px; color:#b45309; font-weight:700;">TOTAL</div>
           </div>
-          <div style="background:white; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
+          <div style="background:#1a2332; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
             <div style="font-size:20px; font-weight:900; color:#16a34a;">${thisMonth}</div>
             <div style="font-size:9px; color:#15803d; font-weight:700;">CE MOIS</div>
           </div>
-          <div style="background:white; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
+          <div style="background:#1a2332; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
             <div style="font-size:20px; font-weight:900; color:#dc2626;">${urgentCount}</div>
             <div style="font-size:9px; color:#ef4444; font-weight:700;">URGENTES</div>
           </div>
-          <div style="background:white; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
+          <div style="background:#1a2332; padding:8px; border-radius:8px; text-align:center; border:1px solid #fde68a;">
             <div style="font-size:20px; font-weight:900; color:#7e22ce;">${totalCost.toLocaleString()} DA</div>
             <div style="font-size:9px; color:#9333ea; font-weight:700;">COÛT TOTAL</div>
           </div>
@@ -7535,7 +7492,7 @@ exportMaintenanceCSV() {
   }
 
   // ============================================================
-  // ✅ MAINTENANCE FOLLOW-UP SYSTEM (NEW)
+  // \u2705 MAINTENANCE FOLLOW-UP SYSTEM (NEW)
   // ============================================================
 
   async loadTruckDbCache() {
@@ -7577,7 +7534,7 @@ exportMaintenanceCSV() {
     }).slice(0, 10);
 
     if (results.length === 0) {
-      this.maintTruckSearchResults.innerHTML = '<div style="padding:12px; color:#94a3b8; text-align:center; font-size:12px;">Aucun résultat</div>';
+      this.maintTruckSearchResults.innerHTML = '<div style="padding:12px; color:var(--text-muted, #94a3b8); text-align:center; font-size:12px;">Aucun résultat</div>';
       this.maintTruckSearchResults.classList.add('show');
       return;
     }
@@ -7591,12 +7548,12 @@ exportMaintenanceCSV() {
       html += `
         <div class="maint-search-item" onclick="ui.selectMaintTruck('${t.id}')">
           <div>
-            <div style="font-weight:700; color:#0f172a;">${t.name}</div>
+            <div style="font-weight:700; color:var(--bg-surface, #0f172a);">${t.name}</div>
             <div style="display:flex; gap:4px; margin-top:3px; flex-wrap:wrap;">${tags.join('')}</div>
           </div>
           <div style="text-align:right;">
-            <div style="font-size:11px; color:#64748b;">${t.odometer.toLocaleString()} km</div>
-            <div style="font-size:10px; color:${t.speed > 0 ? '#16a34a' : '#94a3b8'};">${t.speed > 0 ? '🟢 En route' : '🔴 Arrêt'}</div>
+            <div style="font-size:11px; color:var(--text-muted, #64748b);">${t.odometer.toLocaleString()} km</div>
+            <div style="font-size:10px; color:${t.speed > 0 ? '#16a34a' : 'var(--text-muted, #94a3b8)'};">${t.speed > 0 ? '🟢 En route' : '🔴 Arrêt'}</div>
           </div>
         </div>`;
     });
@@ -7634,10 +7591,10 @@ exportMaintenanceCSV() {
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-road"></i> Compteur</span><span class="truck-info-value">${truck.odometer.toLocaleString()} km</span></div>
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-gas-pump"></i> Carburant</span><span class="truck-info-value">${truck.fuelLiters} L (${truck.fuelPercentage}%)</span></div>
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-location-dot"></i> Position</span><span class="truck-info-value">${truck.location.city || 'Inconnue'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-hashtag"></i> Châssis</span><span class="truck-info-value">${db.chassisNumber || '<em style="color:#94a3b8;">Non renseigné</em>'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-id-badge"></i> Immatriculation</span><span class="truck-info-value">${db.immatriculation || '<em style="color:#94a3b8;">Non renseigné</em>'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-credit-card"></i> Carte Naftal</span><span class="truck-info-value">${db.carteNaftal || '<em style="color:#94a3b8;">Non renseigné</em>'}</span></div>
-          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-oil-can"></i> Vidange</span><span class="truck-info-value" style="color:${truck.vidange.alert ? '#ef4444' : '#22c55e'};">${truck.vidange.alert ? '⚠️ ' + truck.vidange.kmUntilNext + ' km' : '✅ OK (' + truck.vidange.kmUntilNext + ' km)'}</span></div>
+          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-hashtag"></i> Châssis</span><span class="truck-info-value">${db.chassisNumber || '<em style="color:var(--text-muted, #94a3b8);">Non renseigné</em>'}</span></div>
+          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-id-badge"></i> Immatriculation</span><span class="truck-info-value">${db.immatriculation || '<em style="color:var(--text-muted, #94a3b8);">Non renseigné</em>'}</span></div>
+          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-credit-card"></i> Carte Naftal</span><span class="truck-info-value">${db.carteNaftal || '<em style="color:var(--text-muted, #94a3b8);">Non renseigné</em>'}</span></div>
+          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-oil-can"></i> Vidange</span><span class="truck-info-value" style="color:${truck.vidange.alert ? '#ef4444' : '#22c55e'};">${truck.vidange.alert ? '\u26a0\ufe0f ' + truck.vidange.kmUntilNext + ' km' : '\u2705 OK (' + truck.vidange.kmUntilNext + ' km)'}</span></div>
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-signal"></i> Vitesse</span><span class="truck-info-value">${truck.speed} km/h</span></div>
         </div>
       </div>`;
@@ -7668,7 +7625,7 @@ exportMaintenanceCSV() {
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        alert('✅ Fiche véhicule sauvegardée !');
+        alert('\u2705 Fiche véhicule sauvegardée !');
         await this.loadTruckDbCache();
         this.renderTruckInfoPanel(this.selectedMaintTruckId);
       } else { alert('Erreur serveur.'); }
@@ -7679,7 +7636,7 @@ exportMaintenanceCSV() {
     if (!this.activeOrdersDashboard) return;
     if (!this.activeMaintenanceOrders.length) {
       this.activeOrdersDashboard.innerHTML = `
-        <div style="grid-column: 1/-1; text-align:center; padding:40px; color:#94a3b8;">
+        <div style="grid-column: 1/-1; text-align:center; padding:40px; color:var(--text-muted, #94a3b8);">
           <i class="fa-solid fa-clipboard-check" style="font-size:40px; margin-bottom:12px; display:block; opacity:0.4;"></i>
           <div style="font-size:14px; font-weight:600;">Aucun ordre de maintenance actif</div>
           <div style="font-size:12px; margin-top:4px;">Les ordres apparaîtront ici automatiquement lorsqu'un camion entre en zone de maintenance</div>
@@ -7712,20 +7669,20 @@ exportMaintenanceCSV() {
         <div class="maint-card ${priorityClass}">
           <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
             <div>
-              <div style="font-size:16px; font-weight:800; color:#0f172a;">${order.truckName}</div>
+              <div style="font-size:16px; font-weight:800; color:var(--bg-surface, #0f172a);">${order.truckName}</div>
               <div style="display:flex; gap:4px; margin-top:3px; flex-wrap:wrap;">${metaTags.join('')}</div>
             </div>
             ${statusBadge}
           </div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:12px; margin-top:10px;">
             <div><i class="fa-solid fa-wrench" style="color:#f59e0b; width:16px;"></i> <strong>${order.type}</strong></div>
-            <div><i class="fa-solid fa-clock" style="color:#64748b; width:16px;"></i> ${durationText}</div>
+            <div><i class="fa-solid fa-clock" style="color:var(--text-muted, #64748b); width:16px;"></i> ${durationText}</div>
             <div><i class="fa-solid fa-map-pin" style="color:#ef4444; width:16px;"></i> ${order.location || 'N/A'}</div>
             <div><i class="fa-solid fa-road" style="color:#3b82f6; width:16px;"></i> ${(order.odometer || 0).toLocaleString()} km</div>
             ${order.technician ? `<div><i class="fa-solid fa-user-gear" style="color:#7e22ce; width:16px;"></i> ${order.technician}</div>` : ''}
             ${order.cost ? `<div><i class="fa-solid fa-coins" style="color:#f59e0b; width:16px;"></i> ${order.cost.toLocaleString()} DA</div>` : ''}
           </div>
-          ${order.note ? `<div style="font-size:11px; color:#64748b; margin-top:8px; font-style:italic; padding:6px; background:#f8fafc; border-radius:4px;">"${order.note}"</div>` : ''}
+          ${order.note ? `<div style="font-size:11px; color:var(--text-muted, #64748b); margin-top:8px; font-style:italic; padding:6px; background:#f8fafc; border-radius:4px;">"${order.note}"</div>` : ''}
           <div style="display:flex; gap:6px; margin-top:10px; justify-content:flex-end;">
             <button onclick="ui.cancelMaintenanceOrder('${order.id}')" class="btn-secondary" style="font-size:11px; padding:4px 10px; border-color:#fecaca; color:#dc2626;">
               <i class="fa-solid fa-ban"></i> Annuler
@@ -7750,7 +7707,7 @@ exportMaintenanceCSV() {
         body: JSON.stringify({ id })
       });
       if (res.ok) {
-        alert('✅ Ordre clôturé !');
+        alert('\u2705 Ordre clôturé !');
         this.refreshMaintenanceFollowup();
         this.fetchAndRenderMaintenance();
       } else { alert('Erreur serveur.'); }
@@ -7758,13 +7715,13 @@ exportMaintenanceCSV() {
   }
 
   async cancelMaintenanceOrder(id) {
-    if (!confirm('⚠️ ANNULER cet ordre de maintenance ?\n\nCette action est irréversible. L\'ordre sera marqué comme annulé.')) return;
+    if (!confirm('\u26a0\ufe0f ANNULER cet ordre de maintenance ?\n\nCette action est irréversible. L\'ordre sera marqué comme annulé.')) return;
     try {
       const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/${id}/cancel`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }
       });
       if (res.ok) {
-        alert('✅ Ordre annulé avec succès.');
+        alert('\u2705 Ordre annulé avec succès.');
         this.refreshMaintenanceFollowup();
         this.fetchAndRenderMaintenance();
       } else { alert('Erreur serveur.'); }
@@ -7785,7 +7742,7 @@ exportMaintenanceCSV() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }
       });
       if (res.ok) {
-        alert('✅ Articles par défaut créés ! (Vidange, Freins, Pneus, Filtres, Batterie, Embrayage, Clim, Suspension, Divers)');
+        alert('\u2705 Articles par défaut créés ! (Vidange, Freins, Pneus, Filtres, Batterie, Embrayage, Clim, Suspension, Divers)');
         await this.loadMaintenanceArticles();
       }
     } catch (e) { alert('Erreur: ' + e.message); }
@@ -7882,14 +7839,14 @@ exportMaintenanceCSV() {
     const container = document.getElementById('forfaitsContainer');
     if (!container) return;
     if (forfaits.length === 0) {
-      container.innerHTML = `<div style="text-align:center;padding:30px;color:#94a3b8;font-size:13px;">
+      container.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text-muted, #94a3b8);font-size:13px;">
         <i class="fa-solid fa-oil-can" style="font-size:32px;display:block;margin-bottom:10px;opacity:0.3;"></i>
         Aucun forfait défini. Utilisez les boutons ci-dessus pour en ajouter.</div>`;
       return;
     }
     let html = '<div style="display:grid;gap:10px;">';
     forfaits.forEach((f, i) => {
-      html += `<div style="background:white;border:1px solid #fed7aa;border-left:4px solid #f59e0b;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
+      html += `<div style="background:#1a2332;border:1px solid rgba(245,158,11,0.3);border-left:4px solid #f59e0b;border-radius:10px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
         <div>
           <div style="font-weight:800;color:#92400e;font-size:13px;">${f.name} <span style="font-size:10px;font-weight:600;background:#fef3c7;color:#b45309;padding:2px 8px;border-radius:10px;margin-left:6px;">${f.code}</span></div>
           <div style="font-size:11px;color:#78716c;margin-top:4px;">${f.description || ''}</div>
@@ -7919,7 +7876,7 @@ exportMaintenanceCSV() {
         body: JSON.stringify(article)
       });
       if (res.ok) {
-        if (window.showToast) showToast(`✅ Forfait "${name}" ajouté au catalogue`, 'success');
+        if (window.showToast) showToast(`\u2705 Forfait "${name}" ajouté au catalogue`, 'success');
         await this.loadMaintenanceArticles();
         this._loadForfaits();
         this._populateArticleDropdown();
@@ -7934,7 +7891,7 @@ exportMaintenanceCSV() {
     const labor = parseInt(document.getElementById('forfaitLabor')?.value) || 0;
     const duration = document.getElementById('forfaitDuration')?.value?.trim();
     const componentsRaw = document.getElementById('forfaitComponents')?.value?.trim();
-    if (!code || !name) { if (window.showToast) showToast('⚠️ Code et Nom requis', 'warning'); return; }
+    if (!code || !name) { if (window.showToast) showToast('\u26a0\ufe0f Code et Nom requis', 'warning'); return; }
     const components = componentsRaw
       ? componentsRaw.split(',').map(c => ({ name: c.trim(), quantity: 1, unitCost: 0 }))
       : [];
@@ -7950,7 +7907,7 @@ exportMaintenanceCSV() {
       filtreGasoil: { km: parseInt(document.getElementById('intFiltreGasoilKm')?.value)||15000 }
     };
     localStorage.setItem('fleet_maintenance_intervalles', JSON.stringify(intervalles));
-    if (window.showToast) showToast('✅ Intervalles d\'entretien sauvegardés', 'success');
+    if (window.showToast) showToast('\u2705 Intervalles d\'entretien sauvegardés', 'success');
   }
 
   _renderArticlesCatalog() {
@@ -7958,10 +7915,10 @@ exportMaintenanceCSV() {
     if (!container) return;
     const articles = this._maintenanceArticles || [];
     if (articles.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:30px;color:#94a3b8;"><i class="fa-solid fa-box-open" style="font-size:36px;display:block;margin-bottom:10px;opacity:0.4;"></i><div style="font-size:13px;">Aucun article configuré. Cliquez "Créer Articles Par Défaut" pour commencer.</div></div>';
+      container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted, #94a3b8);"><i class="fa-solid fa-box-open" style="font-size:36px;display:block;margin-bottom:10px;opacity:0.4;"></i><div style="font-size:13px;">Aucun article configuré. Cliquez "Créer Articles Par Défaut" pour commencer.</div></div>';
       return;
     }
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;color:#475569;"><th style="padding:8px;text-align:left;">Code</th><th style="padding:8px;text-align:left;">Nom</th><th style="padding:8px;">Catégorie</th><th style="padding:8px;">Prix (DA)</th><th style="padding:8px;">Pièces</th><th style="padding:8px;">Actions</th></tr></thead><tbody>';
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;border-bottom:2px solid var(--text-primary, #e2e8f0);color:#475569;"><th style="padding:8px;text-align:left;">Code</th><th style="padding:8px;text-align:left;">Nom</th><th style="padding:8px;">Catégorie</th><th style="padding:8px;">Prix (DA)</th><th style="padding:8px;">Pièces</th><th style="padding:8px;">Actions</th></tr></thead><tbody>';
     articles.forEach((art, i) => {
       const bg = i % 2 === 0 ? '#fff' : '#fdf4ff';
       const partsCount = (art.components || []).length;
@@ -8005,7 +7962,7 @@ exportMaintenanceCSV() {
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        alert('✅ Article enregistré !');
+        alert('\u2705 Article enregistré !');
         ['artCode','artName','artCategory','artDescription','artPrice','artLabor','artDuration'].forEach(id => {
           const el = document.getElementById(id); if (el) el.value = '';
         });
@@ -8024,7 +7981,7 @@ exportMaintenanceCSV() {
       locs.filter(l => l.type === 'maintenance').forEach(l => {
         locSelect.innerHTML += `<option value="${l.name}">🔧 ${l.name}</option>`;
       });
-      locSelect.innerHTML += '<option value="Entrée Manuelle">📍 Entrée Manuelle</option>';
+      locSelect.innerHTML += '<option value="Entrée Manuelle">\ud83d\udccd Entrée Manuelle</option>';
     }
 
     // Load articles catalog and populate dropdown
@@ -8334,6 +8291,48 @@ exportMaintenanceCSV() {
       console.warn('Failed to load vehicle references:', e.message);
       this._vehicleRefs = [];
     }
+    this.loadDocExpiryWidget();
+  }
+
+  loadDocExpiryWidget() {
+    this.filterDocs('all');
+  }
+
+  filterDocs(filter) {
+    const list = document.getElementById('docExpiryList');
+    const countEl = document.getElementById('docExpiryCount');
+    if (!list) return;
+    const refs = this._vehicleRefs || [];
+    if (!refs.length) { list.innerHTML = '<div style="text-align:center;padding:15px;color:var(--text-muted);">Aucun document enregistré</div>'; return; }
+    const now = new Date();
+    const enriched = refs.map(r => {
+      const exp = new Date(r.expiryDate);
+      const days = Math.ceil((exp - now) / 86400000);
+      let status, color, icon;
+      if (days < 0) { status = 'expired'; color = '#f87171'; icon = '🔴'; }
+      else if (days <= (r.reminderDays || 30)) { status = 'soon'; color = '#fb923c'; icon = '🟠'; }
+      else { status = 'valid'; color = '#4ade80'; icon = '🟢'; }
+      return { ...r, days, status, color, icon, expDate: exp };
+    }).sort((a,b) => a.days - b.days);
+
+    const filtered = filter === 'all' ? enriched : enriched.filter(r => r.status === filter);
+    const expiredCount = enriched.filter(r => r.status === 'expired').length;
+    const soonCount = enriched.filter(r => r.status === 'soon').length;
+    if (countEl) countEl.textContent = `${enriched.length} docs • ${expiredCount} expiré${expiredCount>1?'s':''} • ${soonCount} bientôt`;
+
+    if (!filtered.length) { list.innerHTML = '<div style="text-align:center;padding:15px;color:var(--text-muted);">Aucun document dans cette catégorie</div>'; return; }
+
+    list.innerHTML = filtered.map(r => {
+      const label = r.days < 0 ? `Expiré il y a ${Math.abs(r.days)}j` : r.days === 0 ? "Expire aujourd'hui" : `${r.days}j restants`;
+      return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--border);border-radius:4px;">
+        <span style="font-size:12px;">${r.icon}</span>
+        <span style="font-weight:700;min-width:80px;">${r.truckName || '—'}</span>
+        <span style="color:var(--text-muted);flex:1;">${r.refName}</span>
+        <span style="font-size:10px;color:var(--text-muted);">${r.refNumber || ''}</span>
+        <span style="font-weight:600;color:${r.color};font-size:10px;min-width:90px;text-align:right;">${label}</span>
+        <span style="font-size:9px;color:var(--text-muted);">${r.expDate.toLocaleDateString('fr-FR')}</span>
+      </div>`;
+    }).join('');
   }
 
   getRefsForTruck(deviceId) {
@@ -8458,8 +8457,8 @@ exportMaintenanceCSV() {
         this.renderTrucks();
         document.getElementById('refNumber').value = '';
         document.getElementById('refNotes').value = '';
-        if (window.showToast) showToast('✅ Document enregistré !', 'success');
-        else alert('✅ Document enregistré !');
+        if (window.showToast) showToast('\u2705 Document enregistré !', 'success');
+        else alert('\u2705 Document enregistré !');
       } else { alert('Erreur serveur.'); }
     } catch (e) { alert('Erreur connexion: ' + e.message); }
   }
@@ -8473,6 +8472,592 @@ exportMaintenanceCSV() {
       this.renderTrucks();
     } catch (e) { alert('Erreur: ' + e.message); }
   }
+
+
+  // ─── IMMOBILISATION ALERT SYSTEM ──────────────────────────────────
+  // Rules: FLEET_CONFIG.IMMOBIL_RULES = [{id, zoneName, minMinutes, enabled}]
+
+  openImmobilRuleEditor(editIdx) {
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    const rules = FLEET_CONFIG.IMMOBIL_RULES || [];
+    const existing = (editIdx !== undefined) ? rules[editIdx] : null;
+    document.getElementById('immobilEditorModal')?.remove();
+
+    const zoneOpts = locs.map(z =>
+      `<option value="${z.name}"${existing && existing.zoneName === z.name ? ' selected' : ''}>${z.name}</option>`
+    ).join('');
+
+    const fld = 'width:100%;background:var(--bg-elevated,var(--bg-elevated, #1e293b));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:8px;padding:10px 12px;color:var(--text-primary,var(--text-primary, #e2e8f0));font-size:13px;box-sizing:border-box;outline:none;';
+    const lbl = 'font-size:11px;font-weight:800;color:var(--text-muted,var(--text-muted, #64748b));text-transform:uppercase;display:block;margin-bottom:5px;';
+
+    const m = document.createElement('div');
+    m.id = 'immobilEditorModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(10px);';
+    m.innerHTML = `<div style="background:var(--bg-surface,var(--bg-elevated, #1e293b));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:16px;width:430px;max-width:94vw;padding:24px;box-shadow:0 24px 64px rgba(0,0,0,0.5);">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">
+        <div style="width:38px;height:38px;background:rgba(249,115,22,0.15);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#f97316;font-size:17px;"><i class="fa-solid fa-parking"></i></div>
+        <div style="flex:1;">
+          <div style="font-weight:800;font-size:15px;color:var(--text-primary,var(--text-primary, #e2e8f0));">${existing ? 'Modifier' : 'Nouvelle'} Alerte Immobilisation</div>
+          <div style="font-size:11px;color:var(--text-muted,var(--text-muted, #64748b));margin-top:2px;">Notification si un camion reste trop longtemps dans une zone</div>
+        </div>
+        <button onclick="document.getElementById('immobilEditorModal').remove()" style="background:none;border:none;color:var(--text-muted,var(--text-muted, #64748b));font-size:18px;cursor:pointer;">&#x2715;</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:13px;">
+        <div>
+          <label style="${lbl}">Zone a surveiller *</label>
+          <select id="immobil_zone" style="${fld}">
+            <option value="">-- Choisir une zone --</option>${zoneOpts}
+          </select>
+        </div>
+        <div>
+          <label style="${lbl}">Duree minimum avant alerte (minutes) *</label>
+          <input id="immobil_min" type="number" min="5" max="1440" value="${existing ? existing.minMinutes : 30}" style="${fld}">
+          <div style="font-size:10px;color:var(--text-muted,var(--text-muted, #64748b));margin-top:4px;"><i class="fa-solid fa-circle-info" style="margin-right:3px;"></i> Ex: 30 = alerte si un camion est dans la zone depuis plus de 30 min</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="immobil_enabled" ${!existing || existing.enabled ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;accent-color:#f97316;">
+          <label for="immobil_enabled" style="font-size:13px;color:var(--text-primary,var(--text-primary, #e2e8f0));cursor:pointer;font-weight:600;">Regle active</label>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:20px;">
+        <button onclick="document.getElementById('immobilEditorModal').remove()" style="flex:1;background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-secondary,var(--text-muted, #94a3b8));border-radius:9px;padding:11px;font-size:13px;font-weight:700;cursor:pointer;">Annuler</button>
+        <button onclick="ui._saveImmobilRule(${editIdx !== undefined ? editIdx : 'undefined'})" style="flex:2;background:linear-gradient(135deg,#f97316,#ea580c);color:white;border:none;border-radius:9px;padding:11px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(249,115,22,0.3);"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Enregistrer</button>
+      </div>
+    </div>`;
+    document.body.appendChild(m);
+    m.addEventListener('click', e => { if (e.target === m) m.remove(); });
+  }
+
+  _saveImmobilRule(editIdx) {
+    const zoneName   = document.getElementById('immobil_zone')?.value;
+    const minMinutes = parseInt(document.getElementById('immobil_min')?.value) || 30;
+    const enabled    = document.getElementById('immobil_enabled')?.checked !== false;
+    if (!zoneName) return alert('Veuillez choisir une zone.');
+    if (!FLEET_CONFIG.IMMOBIL_RULES) FLEET_CONFIG.IMMOBIL_RULES = [];
+    const rule = { id: 'ir_' + Date.now(), zoneName, minMinutes, enabled };
+    if (editIdx !== undefined && FLEET_CONFIG.IMMOBIL_RULES[editIdx]) {
+      FLEET_CONFIG.IMMOBIL_RULES[editIdx] = { ...FLEET_CONFIG.IMMOBIL_RULES[editIdx], ...rule };
+    } else {
+      FLEET_CONFIG.IMMOBIL_RULES.push(rule);
+    }
+    this.saveSettingsToCloud();
+    this.renderImmobilRules();
+    document.getElementById('immobilEditorModal')?.remove();
+    if (window.showToast) showToast('Regle immobilisation sauvegardee', 'success');
+    this.startImmobilPoller();
+  }
+
+  renderImmobilRules() {
+    const list = document.getElementById('immobilRulesList');
+    if (!list) return;
+    const rules = FLEET_CONFIG.IMMOBIL_RULES || [];
+    if (!rules.length) {
+      list.innerHTML = '<div style="font-size:11px;color:var(--text-muted,var(--text-muted, #64748b));text-align:center;padding:8px 0;">Aucune regle definie.</div>';
+      return;
+    }
+    list.innerHTML = rules.map((r, i) =>
+      `<div style="background:var(--bg-elevated,var(--bg-elevated, rgba(255,255,255,0.04)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));border-radius:8px;padding:9px 12px;display:flex;align-items:center;gap:8px;font-size:12px;opacity:${r.enabled ? 1 : 0.5};">
+        <i class="fa-solid fa-parking" style="color:#f97316;flex-shrink:0;font-size:14px;"></i>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;color:var(--text-primary,var(--text-primary, #e2e8f0));overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.zoneName}</div>
+          <div style="font-size:10px;color:var(--text-muted,var(--text-muted, #64748b));">Alerte apres <b style="color:#f97316;">${r.minMinutes} min</b>${r.enabled ? '' : ' <em>(desactivee)</em>'}</div>
+        </div>
+        <button onclick="ui.openImmobilRuleEditor(${i})" title="Modifier" style="background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);color:#38bdf8;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:10px;flex-shrink:0;"><i class="fa-solid fa-pen"></i></button>
+        <button onclick="FLEET_CONFIG.IMMOBIL_RULES.splice(${i},1);ui.saveSettingsToCloud();ui.renderImmobilRules();" title="Supprimer" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:10px;flex-shrink:0;"><i class="fa-solid fa-trash"></i></button>
+      </div>`
+    ).join('');
+  }
+
+  startImmobilPoller() {
+    if (this._immobilPollerInterval) clearInterval(this._immobilPollerInterval);
+    if (!this._immobilFiredCache) this._immobilFiredCache = new Map();
+    const INTERVAL_MS = 5 * 60 * 1000;
+    const REFIRE_COOLDOWN = 60 * 60 * 1000; // 1 hour between same alerts
+
+    const check = async () => {
+      const rules = (FLEET_CONFIG.IMMOBIL_RULES || []).filter(r => r.enabled);
+      if (!rules.length) return;
+      
+      try {
+        const res = await fetch(FLEET_CONFIG.API.baseUrl + '/api/zone-events/active', { headers: { 'x-access-code': this.currentCode || localStorage.getItem('fleetAccessCode') || '' }});
+        if (!res.ok) return;
+        const data = await res.json();
+        const activeEvents = data.activeEvents || [];
+        if (!activeEvents.length) return;
+        
+        rules.forEach(rule => {
+          // Find all trucks currently occupying this rule's zone
+          const trucksInZone = activeEvents.filter(e => e.zoneName === rule.zoneName);
+          
+          trucksInZone.forEach(evt => {
+            if (!evt.entryTime) return;
+            const entryMs = new Date(evt.entryTime).getTime();
+            const dwellMs = Date.now() - entryMs;
+            const dwellMin = dwellMs / 60000;
+            
+            if (dwellMin < rule.minMinutes) return;
+
+            // Rate-limit per truck+zone pair
+            const cacheKey = String(evt.deviceId || evt.truckName) + '||' + rule.zoneName;
+            const lastFire = this._immobilFiredCache.get(cacheKey) || 0;
+            if (Date.now() - lastFire < REFIRE_COOLDOWN) return;
+            this._immobilFiredCache.set(cacheKey, Date.now());
+
+            const h = Math.floor(dwellMin / 60);
+            const m = Math.round(dwellMin % 60);
+            const durStr = h > 0 ? `${h}h${String(m).padStart(2,'0')}min` : `${Math.round(dwellMin)} min`;
+            const severity = dwellMin > rule.minMinutes * 3 ? 'critical' : 'warning';
+
+            if (window.pushNotification) {
+              window.pushNotification('immobilisation', {
+                title: `\u23f1\ufe0f Immobilisation: ${evt.truckName}`,
+                body: `${evt.truckName} est immobile dans "${rule.zoneName}" depuis ${durStr}`,
+                severity,
+                truckName: evt.truckName,
+                deviceId: evt.deviceId,
+                meta: { zone: rule.zoneName, dwell: durStr }
+              });
+            }
+            if (window.showToast) showToast(`\u23f1\ufe0f ${evt.truckName} immobile dans ${rule.zoneName} (${durStr})`, severity === 'critical' ? 'error' : 'warning', 9000);
+          });
+        });
+      } catch(e) { console.error('ImmobilPoller Error:', e.message); }
+    };
+
+    check();
+    this._immobilPollerInterval = setInterval(check, INTERVAL_MS);
+  }
+
+  // ─── CLIENT EDITOR POPUP ─────────────────────────────────────────────────
+  openClientEditorModal(clientIdx) {
+    document.getElementById('clientEditorModal')?.remove();
+    if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+    const isNew = (clientIdx === undefined || clientIdx === null);
+    const client = isNew
+      ? { id: 'co_' + Date.now(), name: '', color: '#3b82f6', finalClients: [] }
+      : JSON.parse(JSON.stringify(FLEET_CONFIG.CLIENTS[clientIdx]));
+    if (!client.finalClients) client.finalClients = [];
+    const fld = 'width:100%;background:var(--bg-elevated,var(--bg-elevated, #1e293b));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:8px;padding:10px 12px;color:var(--text-primary,var(--text-primary, #e2e8f0));font-size:13px;box-sizing:border-box;outline:none;';
+    const lbl = 'font-size:10px;font-weight:800;color:var(--text-muted,var(--text-muted, #64748b));text-transform:uppercase;display:block;margin-bottom:5px;';
+
+    const renderFCList = () => {
+      const el = document.getElementById('ceFCList'); if (!el) return;
+      if (!client.finalClients.length) {
+        el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted,var(--text-muted, #64748b));font-size:12px;"><i class="fa-solid fa-users" style="display:block;font-size:22px;margin-bottom:8px;opacity:0.3;"></i>Aucun client final. Cliquez + pour en ajouter.</div>';
+        return;
+      }
+      el.innerHTML = client.finalClients.map((fc, j) => {
+        const dot = fc.color || client.color || '#3b82f6';
+        return '<div style="display:flex;align-items:center;gap:8px;padding:9px 11px;background:var(--bg-elevated,var(--bg-elevated, rgba(255,255,255,0.04)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));border-radius:8px;margin-bottom:5px;">' +
+          '<span class="ceColorDot" style="width:10px;height:10px;border-radius:50%;background:' + dot + ';flex-shrink:0;"></span>' +
+          '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:12px;color:var(--text-primary,var(--text-primary, #e2e8f0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + fc.name + '</div>' +
+          (fc.lat ? '<div style="font-size:10px;color:var(--text-muted,var(--text-muted, #64748b));">' + fc.lat.toFixed(5) + ', ' + fc.lng.toFixed(5) + '</div>' : '') + '</div>' +
+          '<button onclick="ui._cePickFCLocation(' + j + ')" title="Pointer sur carte" style="background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);color:#38bdf8;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:11px;flex-shrink:0;"><i class="fa-solid fa-crosshairs"></i></button>' +
+          '<button onclick="ui._ceRemoveFC(' + j + ')" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:11px;flex-shrink:0;"><i class="fa-solid fa-trash"></i></button></div>';
+      }).join('');
+    };
+
+    const m = document.createElement('div');
+    m.id = 'clientEditorModal';
+    m.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(12px);padding:16px;';
+    const idxStr = String(isNew ? 'null' : clientIdx);
+    m.innerHTML = '<div style="background:var(--bg-surface,var(--bg-elevated, #1e293b));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:18px;width:560px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,0.5);">' +
+      '<div style="padding:18px 20px;border-bottom:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));display:flex;align-items:center;gap:10px;flex-shrink:0;background:var(--bg-elevated,rgba(0,0,0,0.1));">' +
+        '<div style="width:38px;height:38px;background:linear-gradient(135deg,#3b82f6,#6366f1);border-radius:10px;display:flex;align-items:center;justify-content:center;"><i class="fa-solid fa-building" style="color:white;font-size:17px;"></i></div>' +
+        '<div style="flex:1;"><div style="font-weight:800;font-size:15px;color:var(--text-primary,var(--text-primary, #e2e8f0));">' + (isNew ? 'Nouveau Client' : 'Modifier Client') + '</div>' +
+        '<div style="font-size:11px;color:var(--text-muted,var(--text-muted, #64748b));margin-top:2px;">La couleur s\'applique au client et ses clients finaux</div></div>' +
+        '<button onclick="document.getElementById(\'clientEditorModal\').remove()" style="background:none;border:none;color:var(--text-muted,var(--text-muted, #64748b));font-size:18px;cursor:pointer;">\u00d7</button>' +
+      '</div>' +
+      '<div style="flex:1;overflow-y:auto;padding:18px 20px;">' +
+        '<div style="display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:16px;align-items:end;">' +
+          '<div><label style="' + lbl + '">Nom du Client *</label><input id="ce_name" value="' + client.name.replace(/"/g, '&quot;') + '" placeholder="Ex: Sonatrach" style="' + fld + '"></div>' +
+          '<div><label style="' + lbl + '">Couleur</label><div style="display:flex;align-items:center;gap:8px;">' +
+            '<input id="ce_color" type="color" value="' + (client.color || '#3b82f6') + '" oninput="document.querySelectorAll(\'.ceColorDot\').forEach(d=>d.style.background=this.value)" style="width:42px;height:42px;border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:9px;cursor:pointer;padding:3px;background:var(--bg-elevated,var(--bg-elevated, #1e293b));">' +
+            '<span class="ceColorDot" style="width:14px;height:14px;border-radius:50%;background:' + (client.color || '#3b82f6') + ';"></span></div></div>' +
+        '</div>' +
+        '<div style="border-top:1px solid rgba(255,255,255,0.07);margin:12px 0 8px;"></div>' +
+        '<div style="font-size:10px;font-weight:800;color:var(--text-muted, #64748b);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;">Icone & Identite</div>' +
+        '<div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:10px;margin-bottom:12px;align-items:end;">' +
+          '<div><label style="' + lbl + '">Icone</label>' +
+          '<div id="ce_icon_grid" style="display:flex;flex-wrap:wrap;gap:4px;padding:6px;background:rgba(0,0,0,0.2);border-radius:7px;border:1px solid var(--border, rgba(255,255,255,0.08));width:112px;">' +
+          '<button class="ce-icn-btn" data-icon="fa-user-tie" title="fa-user-tie" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-user-tie"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-building" title="fa-building" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-building"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-industry" title="fa-industry" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-industry"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-truck" title="fa-truck" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-truck"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-handshake" title="fa-handshake" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-handshake"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-oil-well" title="fa-oil-well" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-oil-well"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-gas-pump" title="fa-gas-pump" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-gas-pump"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-warehouse" title="fa-warehouse" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-warehouse"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-star" title="fa-star" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-star"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-bolt" title="fa-bolt" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-bolt"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-boxes-stacked" title="fa-boxes-stacked" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-boxes-stacked"></i></button>' +
+          '<button class="ce-icn-btn" data-icon="fa-gear" title="fa-gear" style="width:26px;height:26px;border-radius:5px;border:1px solid var(--border, rgba(255,255,255,0.1));background:var(--bg-elevated, rgba(255,255,255,0.04));color:var(--text-muted, #94a3b8);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;"><i class="fa-solid fa-gear"></i></button>' +
+          '<input type="hidden" id="ce_icon_val" value="' + (client.icon||'fa-user-tie') + '">' +
+          '</div></div>' +
+          '<div style="width:60px;"><label style="' + lbl + '">Emoji</label><input id="ce_emoji" value="' + (client.iconEmoji||'') + '" maxlength="4" style="' + fld + 'text-align:center;font-size:18px;"></div>' +
+          '<div style="width:70px;"><label style="' + lbl + '">Sigle 2L</label><input id="ce_logo" value="' + (client.logoText||'') + '" maxlength="2" style="' + fld + 'text-align:center;font-size:18px;font-weight:800;text-transform:uppercase;"></div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">' +
+          '<div><label style="' + lbl + '">Secteur</label><input id="ce_industry" value="' + (client.industry||'') + '" placeholder="Batiment, petrole..." style="' + fld + '"></div>' +
+          '<div><label style="' + lbl + '">Telephone</label><input id="ce_phone" value="' + (client.phone||'') + '" placeholder="+213..." style="' + fld + '"></div>' +
+          '<div><label style="' + lbl + '">Email</label><input id="ce_email" value="' + (client.email||'') + '" placeholder="contact@..." style="' + fld + '"></div>' +
+          '<div><label style="' + lbl + '">Adresse</label><input id="ce_address" value="' + (client.address||'') + '" placeholder="Wilaya, ville..." style="' + fld + '"></div>' +
+        '</div>' +
+        '<div style="margin-bottom:10px;"><label style="' + lbl + '">Notes</label><textarea id="ce_notes" rows="2" style="' + fld + 'resize:none;">' + (client.notes||'') + '</textarea></div>' +
+        '<div style="border-top:1px solid rgba(255,255,255,0.07);margin:10px 0;"></div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">' +
+          '<div style="font-size:11px;font-weight:800;color:var(--text-muted,var(--text-muted, #64748b));text-transform:uppercase;">Clients Finaux</div>' +
+          '<button onclick="ui._ceAddFC()" style="background:linear-gradient(135deg,#8b5cf6,#6366f1);color:white;border:none;border-radius:7px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:5px;"><i class="fa-solid fa-plus"></i> Ajouter</button>' +
+        '</div>' +
+        '<div id="ceFCList" style="max-height:260px;overflow-y:auto;"></div>' +
+      '</div>' +
+      '<div style="padding:14px 20px;border-top:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));display:flex;gap:8px;flex-shrink:0;">' +
+        '<button onclick="document.getElementById(\'clientEditorModal\').remove()" style="flex:1;background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-secondary,var(--text-muted, #94a3b8));border-radius:9px;padding:11px;font-weight:700;cursor:pointer;font-size:13px;">Annuler</button>' +
+        '<button onclick="ui._saveClientEditor(' + idxStr + ')" style="flex:2;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:9px;padding:11px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 4px 14px rgba(59,130,246,0.3);"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Enregistrer</button>' +
+      '</div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', e => { if (e.target === m) m.remove(); });
+    // Icon grid click delegation (avoids inline onclick quoting issues)
+    const _ceGrid = m.querySelector('#ce_icon_grid');
+    if (_ceGrid) _ceGrid.addEventListener('click', e => {
+      const btn = e.target.closest('.ce-icn-btn');
+      if (btn) this._cePick(btn, btn.dataset.icon);
+    });
+    this._ceClient = client;
+    this._ceClientIdx = isNew ? null : clientIdx;
+    this._ceRenderFCList = renderFCList;
+    renderFCList();
+  }
+
+  _addCompany() { this.openClientEditorModal(null); }
+
+  _cePick(btn, icon) {
+    if (!icon && btn && btn.dataset) icon = btn.dataset.icon;
+    if (!icon) return;
+    const modal = document.getElementById('clientEditorModal');
+    const inp = modal ? modal.querySelector('#ce_icon_val') : document.getElementById('ce_icon_val');
+    if (inp) inp.value = icon;
+    const grid = modal ? modal.querySelector('#ce_icon_grid') : document.getElementById('ce_icon_grid');
+    if (grid) grid.querySelectorAll('.ce-icn-btn').forEach(b => {
+      const s = b.dataset.icon === icon;
+      b.style.border = s ? '2px solid #3b82f6' : '1px solid var(--border, rgba(255,255,255,0.1))';
+      b.style.background = s ? 'rgba(59,130,246,0.2)' : 'var(--bg-elevated, rgba(255,255,255,0.04))';
+      b.style.color = s ? '#60a5fa' : 'var(--text-muted, #94a3b8)';
+    });
+  }
+
+  _ceAddFC() {
+    const name = prompt('Nom du client final :');
+    if (!name || !name.trim()) return;
+    this._ceClient.finalClients.push({ id: 'fc_' + Date.now(), name: name.trim(), color: this._ceClient.color || '#3b82f6', lat: null, lng: null });
+    if (this._ceRenderFCList) this._ceRenderFCList();
+  }
+
+  _ceRemoveFC(j) {
+    if (!confirm('Supprimer ce client final ?')) return;
+    this._ceClient.finalClients.splice(j, 1);
+    if (this._ceRenderFCList) this._ceRenderFCList();
+  }
+
+  _cePickFCLocation(j) {
+    this._mapPickerOpts = { forFC: true, fcIdx: j };
+    document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display = 'none');
+    this._startZoneMapPicker({ forFC: true, fcIdx: j });
+  }
+
+  _saveClientEditor(idx) {
+    const name      = document.getElementById('ce_name')?.value?.trim();
+    const color     = document.getElementById('ce_color')?.value || '#3b82f6';
+    const icon      = document.getElementById('ce_icon_val')?.value || 'fa-user-tie';
+    const iconEmoji = (document.getElementById('ce_emoji')?.value || '').trim();
+    const logoText  = (document.getElementById('ce_logo')?.value || '').trim().substring(0,2).toUpperCase();
+    const industry  = (document.getElementById('ce_industry')?.value || '').trim();
+    const phone     = (document.getElementById('ce_phone')?.value || '').trim();
+    const email     = (document.getElementById('ce_email')?.value || '').trim();
+    const address   = (document.getElementById('ce_address')?.value || '').trim();
+    const notes     = (document.getElementById('ce_notes')?.value || '').trim();
+    if (!name) return alert('Nom requis.');
+    if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+    const fcs = (this._ceClient.finalClients || []).map(fc => ({ ...fc }));
+    const saved = { ...this._ceClient, name, color, icon, iconEmoji, logoText, industry, phone, email, address, notes, finalClients: fcs };
+    if (idx === null || idx === undefined || idx === 'null') {
+      FLEET_CONFIG.CLIENTS.push(saved);
+    } else {
+      FLEET_CONFIG.CLIENTS[parseInt(idx)] = saved;
+    }
+    this.saveSettingsToCloud();
+    if (window.showToast) showToast('Client sauvegard\u00e9', 'success');
+    document.getElementById('clientEditorModal')?.remove();
+    if (document.getElementById('zoneManagementModal')) this.openZoneManagementModal('clients');
+  }
+
+  // ─── HISTORY → MAP ISOLATION + RICH POPUP ────────────────────────────────
+  _focusHistoryEvent(evt) {
+    if (!evt) return;
+    if (typeof this.switchTab === 'function') this.switchTab('byWilaya');
+    // Store history coords so _zoneGoToMap can fly there even without live GPS
+    if (evt.entryLat && evt.entryLng) {
+      this._historyFocusCoords = { lat: evt.entryLat, lng: evt.entryLng };
+    }
+    setTimeout(() => {
+      if (typeof this._zoneGoToMap === 'function') this._zoneGoToMap(null, evt.deviceId, evt.truckName);
+      setTimeout(() => this._showHistoryPopup(evt), 900);
+    }, 300);
+  }
+
+  _showHistoryPopup(evt) {
+    if (window._currentHistoryPopup) window._currentHistoryPopup.remove();
+    document.getElementById('historyVisitPopup')?.remove();
+    const entry = evt.entryTime ? new Date(evt.entryTime) : null;
+    const exit  = evt.exitTime  ? new Date(evt.exitTime)  : null;
+    const dur   = evt.durationMinutes != null ? (Math.floor(evt.durationMinutes/60) + 'h ' + (evt.durationMinutes%60) + 'min') : '\u2014';
+    const immob = evt.recapImmobilisationMin ? (Math.floor(evt.recapImmobilisationMin/60) + 'h ' + (evt.recapImmobilisationMin%60) + 'min') : null;
+    const ft = d => d ? d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '\u2014';
+    const fd = d => d ? d.toLocaleDateString('fr-FR') : '\u2014';
+
+    const html =
+      '<div style="width:280px;background:var(--bg-surface,var(--bg-elevated, #1e293b));border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.5);">' +
+      '<div style="background:linear-gradient(135deg,rgba(56,189,248,0.12),rgba(99,102,241,0.08));padding:10px 14px;border-bottom:1px solid rgba(56,189,248,0.2);display:flex;align-items:center;gap:10px;">' +
+        '<div style="width:30px;height:30px;background:linear-gradient(135deg,#38bdf8,#6366f1);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-solid fa-clock-rotate-left" style="color:white;font-size:13px;"></i></div>' +
+        '<div style="flex:1;min-width:0;"><div style="font-weight:800;font-size:12px;color:var(--text-primary,var(--text-primary, #e2e8f0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (evt.truckName||'\u2014') + '</div>' +
+        '<div style="font-size:10px;color:#38bdf8;font-weight:600;">' + (evt.zoneName||'\u2014') + '</div></div>' +
+      '</div>' +
+      '<div style="padding:10px 14px;">' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">' +
+          '<div style="background:var(--bg-elevated,var(--bg-elevated, rgba(255,255,255,0.04)));border-radius:7px;padding:7px;">' +
+            '<div style="font-size:9px;color:var(--text-muted,var(--text-muted, #64748b));font-weight:700;text-transform:uppercase;">Entr\u00e9e</div>' +
+            '<div style="font-size:12px;font-weight:800;color:var(--text-primary,var(--text-primary, #e2e8f0));">' + ft(entry) + '</div>' +
+          '</div>' +
+          '<div style="background:var(--bg-elevated,var(--bg-elevated, rgba(255,255,255,0.04)));border-radius:7px;padding:7px;">' +
+            '<div style="font-size:9px;color:var(--text-muted,var(--text-muted, #64748b));font-weight:700;text-transform:uppercase;">Sortie</div>' +
+            (exit ? '<div style="font-size:12px;font-weight:800;color:var(--text-primary,var(--text-primary, #e2e8f0));">' + ft(exit) + '</div>'
+                  : '<div style="font-size:12px;font-weight:700;color:#22c55e;">En zone</div>') +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;margin-bottom:8px;">' +
+          '<div style="flex:1;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:7px;padding:6px;text-align:center;">' +
+            '<div style="font-size:9px;color:#22c55e;font-weight:700;text-transform:uppercase;">Dur\u00e9e</div>' +
+            '<div style="font-size:12px;font-weight:800;color:#22c55e;">' + dur + '</div>' +
+          '</div>' +
+          (immob ? '<div style="flex:1;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:7px;padding:6px;text-align:center;"><div style="font-size:9px;color:#f59e0b;font-weight:700;text-transform:uppercase;">Immobil.</div><div style="font-size:12px;font-weight:800;color:#f59e0b;">' + immob + '</div></div>' : '') +
+        '</div>' +
+        (evt.clientName ? '<div style="font-size:10px;color:var(--text-muted,var(--text-muted, #64748b));padding:4px 6px;background:var(--bg-elevated,rgba(255,255,255,0.03));border-radius:5px;"><i class="fa-solid fa-building" style="margin-right:4px;color:#6366f1;"></i>' + evt.clientName + (evt.finalClientName ? ' \u2192 ' + evt.finalClientName : '') + '</div>' : '') +
+      '</div></div>';
+
+    if (window.AlgeriaMap && AlgeriaMap.map && evt.entryLat && evt.entryLng) {
+      window._currentHistoryPopup = new mapboxgl.Popup({ closeButton: true, className: 'history-map-popup', maxWidth: '300px' })
+        .setLngLat([evt.entryLng, evt.entryLat])
+        .setHTML(html)
+        .addTo(window.AlgeriaMap.map);
+    }
+  }
+
+  // ─── MAP CIRCLE PICKER ────────────────────────────────────────────────────
+  _goToZoneMap(lat, lng, name, radius) {
+    document.getElementById('zoneManagementModal') && (document.getElementById('zoneManagementModal').style.display = 'none');
+    document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display = 'none');
+    document.getElementById('zmEditOverlay') && (document.getElementById('zmEditOverlay').style.display = 'none');
+    if (typeof this.switchTab === 'function') this.switchTab('byWilaya');
+    setTimeout(() => {
+      if (window.AlgeriaMap && window.AlgeriaMap.map) {
+         window.AlgeriaMap.map.resize();
+         window.AlgeriaMap.map.flyTo({ center: [lng, lat], zoom: 16, essential: true, duration: 1500 });
+         if (name) {
+             const html = '<div style="background:var(--bg-elevated);color:var(--text-primary);padding:5px 8px;border-radius:6px;font-size:11px;border:1px solid rgba(56,189,248,0.3);"><b>'+name+'</b></div>';
+             new mapboxgl.Popup({ closeButton: true, closeOnClick: true, offset: 15 })
+               .setLngLat([lng, lat])
+               .setHTML(html)
+               .addTo(window.AlgeriaMap.map);
+         } else {
+             new mapboxgl.Marker({ color: '#38bdf8' }).setLngLat([lng, lat]).addTo(window.AlgeriaMap.map);
+         }
+      }
+    }, 400);
+  }
+
+  _startZoneMapPicker(opts) {
+    opts = opts || {};
+    document.getElementById('zoneManagementModal') && (document.getElementById('zoneManagementModal').style.display = 'none');
+    document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display = 'none');
+    document.getElementById('mapPickerBanner')?.remove();
+    const banner = document.createElement('div');
+    banner.id = 'mapPickerBanner';
+    banner.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:999998;background:rgba(10,15,30,0.92);backdrop-filter:blur(12px);border:1px solid rgba(56,189,248,0.5);border-radius:14px;padding:13px 22px;color:#38bdf8;font-size:13px;font-weight:700;display:flex;align-items:center;gap:12px;box-shadow:0 8px 30px rgba(0,0,0,0.5);pointer-events:auto;';
+    banner.innerHTML = '<i class="fa-solid fa-crosshairs" style="font-size:18px;"></i><span id="mapPickerMsg">1er clic : d\u00e9finissez le <b>centre</b> du site</span><button onclick="ui._cancelMapPicker()" style="background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.4);color:#f87171;border-radius:8px;padding:5px 11px;cursor:pointer;font-size:12px;font-weight:700;margin-left:10px;">\u00d7 Annuler</button>';
+    document.body.appendChild(banner);
+    if (typeof this.switchTab === 'function') this.switchTab('byWilaya');
+    this._mapPickerMode = 'center';
+    this._mapPickerOpts = opts;
+    this._mapPickerCenter = null;
+    const tryBind = () => {
+      const m = (window.AlgeriaMap && window.AlgeriaMap.map) || (window.app && app.map);
+      if (!m) { setTimeout(tryBind, 400); return; }
+      m.getCanvas().style.cursor = 'crosshair';
+      const onClick = (ev) => {
+        if (this._mapPickerMode === 'center') {
+          this._mapPickerCenter = ev.lngLat;
+          this._drawPickerCircle(m, ev.lngLat.lat, ev.lngLat.lng, 500);
+          this._mapPickerMode = 'radius';
+          const msg = document.getElementById('mapPickerMsg');
+          if (msg) msg.innerHTML = '2\u00e8me clic : fixez le <b>rayon</b> du cercle';
+          this._mapPickerMoveH = (me) => {
+            if (!this._mapPickerCenter) return;
+            const R=6371000, c=this._mapPickerCenter;
+            const dLat=(me.lngLat.lat-c.lat)*Math.PI/180, dLng=(me.lngLat.lng-c.lng)*Math.PI/180;
+            const a=Math.sin(dLat/2)**2+Math.cos(c.lat*Math.PI/180)*Math.cos(me.lngLat.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+            this._drawPickerCircle(m, c.lat, c.lng, Math.max(Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))),30));
+          };
+          m.on('mousemove', this._mapPickerMoveH);
+        } else if (this._mapPickerMode === 'radius') {
+          const R=6371000, c=this._mapPickerCenter;
+          const dLat=(ev.lngLat.lat-c.lat)*Math.PI/180, dLng=(ev.lngLat.lng-c.lng)*Math.PI/180;
+          const a=Math.sin(dLat/2)**2+Math.cos(c.lat*Math.PI/180)*Math.cos(ev.lngLat.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+          const radius=Math.max(Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))),30);
+          m.off('click', onClick);
+          if (this._mapPickerMoveH) { m.off('mousemove', this._mapPickerMoveH); this._mapPickerMoveH=null; }
+          m.getCanvas().style.cursor='';
+          this._mapPickerMode='confirm';
+          document.getElementById('mapPickerBanner')?.remove();
+          this._showPickerConfirm(c.lat, c.lng, radius);
+        }
+      };
+      this._mapPickerClickH = onClick;
+      m.on('click', onClick);
+    };
+    tryBind();
+  }
+
+  _drawPickerCircle(m, lat, lng, radiusM) {
+    const pts=64, R=6371000, coords=[];
+    for(let i=0;i<=pts;i++){
+      const ang=(i/pts)*2*Math.PI;
+      const dLat=(radiusM/R)*(180/Math.PI), dLng=(radiusM/R)*(180/Math.PI)/Math.cos(lat*Math.PI/180);
+      coords.push([lng+dLng*Math.sin(ang), lat+dLat*Math.cos(ang)]);
+    }
+    const geo={type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'Polygon',coordinates:[coords]}}]};
+    try {
+      if(m.getSource('_picker_circle')){m.getSource('_picker_circle').setData(geo);}
+      else{
+        m.addSource('_picker_circle',{type:'geojson',data:geo});
+        m.addLayer({id:'_picker_circle_fill',type:'fill',source:'_picker_circle',paint:{'fill-color':'#38bdf8','fill-opacity':0.12}});
+        m.addLayer({id:'_picker_circle_line',type:'line',source:'_picker_circle',paint:{'line-color':'#38bdf8','line-width':2,'line-dasharray':[4,2]}});
+      }
+    } catch(e){}
+    this._lastPickerRadius=radiusM;
+  }
+
+  _showPickerConfirm(lat, lng, radius) {
+    document.getElementById('mapPickerConfirm')?.remove();
+    const d=document.createElement('div');
+    d.id='mapPickerConfirm';
+    d.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:var(--bg-surface,var(--bg-elevated, #1e293b));border:1px solid rgba(56,189,248,0.4);border-radius:16px;padding:24px;width:330px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.6);';
+    d.innerHTML='<div style="text-align:center;margin-bottom:18px;"><div style="width:52px;height:52px;background:rgba(56,189,248,0.15);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:24px;color:#38bdf8;"><i class="fa-solid fa-circle-check"></i></div>' +
+      '<div style="font-weight:800;font-size:16px;color:var(--text-primary,var(--text-primary, #e2e8f0));margin-bottom:6px;">Confirmer la position ?</div>' +
+      '<div style="font-size:12px;color:var(--text-muted,var(--text-muted, #64748b));"><span style="color:#38bdf8;font-weight:700;">'+lat.toFixed(6)+'</span>, <span style="color:#38bdf8;font-weight:700;">'+lng.toFixed(6)+'</span><br>Rayon : <span style="color:#22c55e;font-weight:700;">'+radius+' m</span></div></div>' +
+      '<div style="display:flex;gap:8px;"><button onclick="ui._cancelMapPicker(true)" style="flex:1;background:var(--bg-elevated,rgba(255,255,255,0.06));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-secondary,var(--text-muted, #94a3b8));border-radius:9px;padding:11px;font-weight:700;cursor:pointer;font-size:13px;">&#8634; R&eacute;init.</button>' +
+      '<button onclick="ui._confirmMapPick('+lat+','+lng+','+radius+')" style="flex:2;background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;border:none;border-radius:9px;padding:11px;font-weight:800;cursor:pointer;font-size:14px;box-shadow:0 4px 14px rgba(56,189,248,0.3);"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Confirmer</button></div>';
+    document.body.appendChild(d);
+  }
+
+  _confirmMapPick(lat, lng, radius) {
+    document.getElementById('mapPickerConfirm')?.remove();
+    const m=(window.AlgeriaMap&&window.AlgeriaMap.map)||(window.app&&app.map);
+    if(m){try{m.removeLayer('_picker_circle_fill');m.removeLayer('_picker_circle_line');m.removeSource('_picker_circle');}catch(e){}}
+    const opts=this._mapPickerOpts||{};
+    if(opts.forFC && this._ceClient && this._ceClient.finalClients[opts.fcIdx]!==undefined){
+      this._ceClient.finalClients[opts.fcIdx].lat=lat;
+      this._ceClient.finalClients[opts.fcIdx].lng=lng;
+      const ce=document.getElementById('clientEditorModal');
+      if(ce){ce.style.display='';}else{this.openClientEditorModal(this._ceClientIdx);}
+      if(this._ceRenderFCList)this._ceRenderFCList();
+    } else if (opts.editIndex !== undefined) {
+      // Called from the EDIT modal (openZoneClientModal)
+      const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+      if (locs[opts.editIndex]) {
+        locs[opts.editIndex].lat = lat;
+        locs[opts.editIndex].lng = lng;
+        locs[opts.editIndex].radius = radius;
+      }
+      const eo = document.getElementById('zmEditOverlay');
+      if (eo) {
+        eo.style.display = '';
+        // Update the fields in the edit modal
+        const latEl = document.getElementById('zme_lat');
+        const lngEl = document.getElementById('zme_lng');
+        const rEl = document.getElementById('zme_radius');
+        if (latEl) latEl.value = lat.toFixed(6);
+        if (lngEl) lngEl.value = lng.toFixed(6);
+        if (rEl) rEl.value = radius;
+        if (window.showToast) showToast('✅ Position mise à jour sur la carte', 'success');
+      } else {
+        this.openZoneClientModal(opts.editIndex);
+      }
+      // Also restore parent modal
+      const zm = document.getElementById('zoneManagementModal');
+      if (zm) zm.style.display = '';
+    } else {
+      const latEl=document.getElementById('zm_lat'),lngEl=document.getElementById('zm_lng'),rEl=document.getElementById('zm_radius');
+      if(latEl)latEl.value=lat.toFixed(6); if(lngEl)lngEl.value=lng.toFixed(6); if(rEl)rEl.value=radius;
+      const zm=document.getElementById('zoneManagementModal');
+      if(zm){zm.style.display='';}else{this.openZoneManagementModal('add');}
+    }
+  }
+
+  _zoneHistoryRowClick(deviceId, truckName, lat, lng) {
+    // Isolate the truck on map
+    const am = window.AlgeriaMap;
+    
+    // Switch to map
+    const mapNavBtn = document.querySelector('[data-tab="byWilaya"]');
+    if (mapNavBtn) mapNavBtn.click(); else this.switchTab('byWilaya');
+    if (this.zoneGroupingMode !== 'map') this.setZoneGrouping('map');
+
+    const doFly = (attempt) => {
+      if (!am || !am.map) { if(attempt < 15) setTimeout(() => doFly(attempt+1), 400); return; }
+      const canvas = am.map.getCanvas();
+      if (!canvas || canvas.width === 0) { if(attempt < 15) setTimeout(() => doFly(attempt+1), 400); return; }
+      try { am.map.resize(); } catch(e) {}
+
+      // Select truck to isolate it
+      if (am.selectTruckById) {
+        // Find by deviceId
+        let found = am.truckDataCache?.find(t => String(t.deviceId) === String(deviceId) || t.id === String(deviceId));
+        if (!found) found = am.truckDataCache?.find(t => t.name === truckName);
+        if (found) am.selectTruckById(found.id);
+      }
+
+      // Fly to the historical position
+      if (lat && lng) {
+        am.map.flyTo({ center: [lng, lat], zoom: 16, essential: true, duration: 1800 });
+        // Drop a temporary marker at the historical stop location
+        if (window._historyMarker) { window._historyMarker.remove(); }
+        window._historyMarker = new mapboxgl.Marker({ color: '#8b5cf6' })
+          .setLngLat([lng, lat])
+          .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML('<div style="color:var(--bg-surface, #0f172a);font-weight:700;font-size:12px;">📍 ' + truckName + '<br><span style=\"color:#6b7280;font-size:10px;\">Arrêt historique</span></div>'))
+          .addTo(am.map);
+        setTimeout(() => { if (window._historyMarker) { window._historyMarker.getPopup().addTo(am.map); } }, 1000);
+      }
+    };
+    setTimeout(() => doFly(0), 500);
+  }
+
+  _cancelMapPicker(reopen) {
+    document.getElementById('mapPickerBanner')?.remove();
+    document.getElementById('mapPickerConfirm')?.remove();
+    const m=(window.AlgeriaMap&&window.AlgeriaMap.map)||(window.app&&app.map);
+    if(m){
+      if(this._mapPickerClickH){m.off('click',this._mapPickerClickH);this._mapPickerClickH=null;}
+      if(this._mapPickerMoveH){m.off('mousemove',this._mapPickerMoveH);this._mapPickerMoveH=null;}
+      m.getCanvas().style.cursor='';
+      try{m.removeLayer('_picker_circle_fill');m.removeLayer('_picker_circle_line');m.removeSource('_picker_circle');}catch(e){}
+    }
+    this._mapPickerMode=null;
+    document.getElementById('zoneManagementModal') && (document.getElementById('zoneManagementModal').style.display='');
+    document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display='');
+    document.getElementById('zmEditOverlay') && (document.getElementById('zmEditOverlay').style.display='');
+    if(reopen===true)setTimeout(()=>this._startZoneMapPicker(this._mapPickerOpts||{}),100);
+  }
+
 
 }
 
@@ -8496,12 +9081,5 @@ window.setScheme = function(name) {
   if(scheme) scheme.classList.add('active');
   if(btn) btn.classList.add('active');
 };
-
-
-
-
-
-
-
 
 
