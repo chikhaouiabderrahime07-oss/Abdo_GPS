@@ -2036,7 +2036,6 @@ textarea {
 }
 
 /* Map extras bar */
-/* Map extras bar */
 .map-extras-bar {
   position: absolute;
   top: 80px;
@@ -2080,6 +2079,25 @@ textarea {
   z-index: 10;
   display: none;
 }
+
+/* CSS Tooltips */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute; right: 120%; top: 50%; transform: translateY(-50%);
+  background: rgba(15, 23, 42, 0.95); color: white; padding: 6px 12px;
+  border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap;
+  pointer-events: none; opacity: 0; visibility: hidden;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); z-index: 1000;
+}
+[data-tooltip]::before {
+  content: ''; position: absolute; right: calc(120% - 4px); top: 50%; transform: translateY(-50%);
+  border-width: 4px; border-style: solid; border-color: transparent transparent transparent rgba(15, 23, 42, 0.95);
+  pointer-events: none; opacity: 0; visibility: hidden; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); z-index: 1000;
+}
+[data-tooltip]:hover::after, [data-tooltip]:hover::before { opacity: 1; visibility: visible; right: 130%; }
+[data-tooltip]:hover::before { right: calc(130% - 8px); }
 
 .route-info-panel.visible { display: block; animation: fadeSlideIn 0.3s var(--ease); }
 

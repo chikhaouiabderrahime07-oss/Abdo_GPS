@@ -2284,26 +2284,49 @@ exportDecouchageCSV() {
         Object.keys(groups).sort().forEach(groupName => {
             let trucks = groups[groupName];
             trucks = this.filterBySearch(trucks);
+            
+            if (this.currentFilter === 'critical') trucks = trucks.filter(t => t.isCriticalFuel);
+            else if (this.currentFilter === 'low_fuel') trucks = trucks.filter(t => t.isLowFuel);
+            else if (this.currentFilter === 'vidange') trucks = trucks.filter(t => t.vidange?.alert);
+            else if (this.currentFilter === 'moving') trucks = trucks.filter(t => t.speed >= 1);
+            else if (this.currentFilter === 'stopped') trucks = trucks.filter(t => t.speed < 1);
+            else if (this.currentFilter === 'gps_cut') trucks = trucks.filter(t => t.isGpsCut);
+
             if (trucks.length === 0) return; 
 
             let displayLabel = groupName;
             if (this.zoneGroupingMode === 'city' && trucks.length > 0) {
                  const wilaya = trucks[0].location.wilaya || 'Algérie';
                  if(wilaya !== 'Inconnu' && !displayLabel.includes(wilaya)) {
-                     displayLabel = `${groupName} <span style="font-weight:normal; font-size:0.9em; color:#666;">- ${wilaya}</span>`;
+                     displayLabel = `${groupName} <span style="font-weight:600; font-size:11px; color:var(--text-muted); text-transform:uppercase; margin-left:6px;">— ${wilaya}</span>`;
                  }
             }
-            if(isCustom) displayLabel += `<span class="custom-zone-badge">ZONE DÉFINIE</span>`;
 
             const div = document.createElement('div');
-            div.className = 'accordion-header';
-            div.style.borderLeft = isCustom ? '4px solid #166534' : '4px solid #ddd';
+            div.style.cssText = `
+                background: var(--bg-elevated);
+                border: 1px solid var(--border-light);
+                border-radius: var(--radius-lg);
+                padding: 12px 16px;
+                margin-bottom: 8px;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                transition: var(--transition);
+                border-left: 4px solid ${isCustom ? 'var(--success)' : 'var(--primary)'};
+            `;
+            div.onmouseover = () => div.style.background = 'var(--bg-hover)';
+            div.onmouseout = () => div.style.background = 'var(--bg-elevated)';
+
             div.innerHTML = `
-                  <div style="display:flex; align-items:center; gap: 10px;">
-                    <i class="${this.zoneGroupingMode === 'city' ? 'fa-solid fa-location-dot' : 'fa-solid fa-map-pin'}" style="color:${isCustom ? '#166534' : 'var(--teal)'};"></i>
-                    <strong>${displayLabel}</strong> 
+                  <div style="display:flex; align-items:center; gap: 12px;">
+                    <div style="width:32px;height:32px;border-radius:8px;background:${isCustom ? 'var(--success-subtle)' : 'var(--primary-subtle)'};display:flex;align-items:center;justify-content:center;">
+                        <i class="${this.zoneGroupingMode === 'city' ? 'fa-solid fa-location-dot' : 'fa-solid fa-map-pin'}" style="color:${isCustom ? 'var(--success)' : 'var(--primary)'}; font-size:14px;"></i>
+                    </div>
+                    <strong style="color:var(--text-primary); font-size:14px;">${displayLabel}</strong> 
                   </div>
-                  <span style="background: #eee; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: bold;">${trucks.length}</span>
+                  <span style="background:var(--bg-surface); padding:4px 12px; border-radius:var(--radius-full); border:1px solid var(--border); font-size:12px; font-weight:var(--weight-black); color:var(--text-primary);">${trucks.length}</span>
             `;
               
             div.onclick = () => {
@@ -2321,37 +2344,50 @@ exportDecouchageCSV() {
             const defaultOpen = isCustom || !!this.searchQuery;
             const isOpen = savedState !== undefined ? savedState : defaultOpen;
             grid.style.display = isOpen ? 'grid' : 'none'; 
-            grid.style.marginTop = '10px';
-            grid.style.marginBottom = '20px';
-            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(250px, 1fr))';
+            grid.style.gap = '12px';
+            grid.style.padding = '8px 4px 20px 4px';
+            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
               
             trucks.forEach(t => {
                  let isMoving = t.speed >= 1;
                  let statusHtml = isMoving 
-                    ? `<span class="status-badge moving">EN ROUTE</span>` 
-                    : `<span class="status-badge stopped">À L'ARRÊT</span>`;
+                    ? `<span style="background:var(--success-subtle); color:var(--success); border:1px solid rgba(16,185,129,0.2); padding:3px 8px; border-radius:4px; font-size:10px; font-weight:800; display:flex; align-items:center; gap:4px;"><i class="fa-solid fa-play"></i> EN ROUTE</span>` 
+                    : `<span style="background:var(--danger-subtle); color:var(--danger); border:1px solid rgba(239,68,68,0.2); padding:3px 8px; border-radius:4px; font-size:10px; font-weight:800; display:flex; align-items:center; gap:4px;"><i class="fa-solid fa-stop"></i> À L'ARRÊT</span>`;
                  
                  // Handle GPS CUT in Wilaya View too
                  if (t.isGpsCut) {
-                     statusHtml = `<span class="status-badge gps-cut">COUPURE GPS</span>`;
+                     statusHtml = `<span style="background:var(--warning-subtle); color:var(--warning); border:1px solid rgba(245,158,11,0.2); padding:3px 8px; border-radius:4px; font-size:10px; font-weight:800; display:flex; align-items:center; gap:4px;"><i class="fa-solid fa-satellite-dish"></i> COUPURE GPS</span>`;
                  }
 
                  const card = document.createElement('div');
-                 card.className = 'truck-card';
-                 card.style.padding = '15px';
-                 const fuelColor = t.isCriticalFuel ? 'var(--red)' : t.isLowFuel ? 'var(--orange)' : 'var(--green)';
+                 card.style.cssText = `
+                    background: var(--bg-surface);
+                    border: 1px solid var(--border-strong);
+                    border-radius: var(--radius-lg);
+                    padding: 16px;
+                    transition: var(--transition);
+                    cursor: pointer;
+                 `;
+                 card.onmouseover = () => card.style.borderColor = 'var(--primary)';
+                 card.onmouseout = () => card.style.borderColor = 'var(--border-strong)';
+                 card.onclick = () => { if(window.AlgeriaMap) window.AlgeriaMap.selectTruckById(t.id); };
+
+                 const fuelColor = t.isCriticalFuel ? 'var(--danger)' : t.isLowFuel ? 'var(--warning)' : 'var(--success)';
 
                  card.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
-                        <strong>${t.name}</strong>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <i class="fa-solid fa-truck" style="color:var(--text-secondary); font-size:14px;"></i>
+                            <strong style="color:var(--text-primary); font-size:14px;">${t.name}</strong>
+                        </div>
                         ${statusHtml}
                     </div>
-                    <div style="display:flex; justify-content:space-between; align-items:center; font-size: 13px;">
-                        <span style="color: #666;"><i class="fa-solid fa-gas-pump"></i> Carburant:</span>
-                        <strong style="color: ${fuelColor};">${t.fuelLiters} L</strong>
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated); padding:8px 12px; border-radius:6px; margin-bottom:10px;">
+                        <span style="color:var(--text-muted); font-size:12px; font-weight:600;"><i class="fa-solid fa-gas-pump" style="margin-right:4px;"></i> Carburant</span>
+                        <strong style="color: ${fuelColor}; font-size:14px;">${t.fuelLiters} L</strong>
                     </div>
-                    <div style="margin-top: 8px; font-size: 11px; color: #888; border-top: 1px solid #eee; padding-top: 5px;">
-                        ${t.location.city}
+                    <div style="font-size:11px; color:var(--text-muted); border-top:1px dashed var(--border); padding-top:8px; display:flex; align-items:center; gap:6px;">
+                        <i class="fa-solid fa-location-crosshairs"></i> ${t.location.city || t.location.wilaya || 'Algérie'}
                     </div>
                  `;
                  grid.appendChild(card);
@@ -4748,8 +4784,11 @@ async runZoneHistoryScan() {
 
               // ── FLOATING RECAP PANEL ─────────────────────────────────
               (() => {
-                // Read from in-memory object set directly by openHistoryModal — no localStorage race
-                const _meta = window._histRecapMeta || null;
+                // Read from in-memory object or fallback to localStorage (for window.opener case)
+                let _meta = window._histRecapMeta || null;
+                if (!_meta) {
+                  try { _meta = JSON.parse(localStorage.getItem('fleet_gps_verify_meta') || 'null'); } catch(_) {}
+                }
                 const _tName = (_meta && _meta.truckName) || (typeof app !== 'undefined' && app.trucks && app.trucks.get(imei) ? app.trucks.get(imei).name : imei);
                 const _zoneName = (_meta && _meta.zoneName) || '';
                 // exitTime present and not empty → truck left (Terminé); else → encore là
@@ -8618,7 +8657,7 @@ exportMaintenanceCSV() {
                 meta: { zone: rule.zoneName, dwell: durStr }
               });
             }
-            if (window.showToast) showToast(`\u23f1\ufe0f ${evt.truckName} immobile dans ${rule.zoneName} (${durStr})`, severity === 'critical' ? 'error' : 'warning', 9000);
+            // Toast handled by pushNotification
           });
         });
       } catch(e) { console.error('ImmobilPoller Error:', e.message); }
@@ -9056,6 +9095,139 @@ exportMaintenanceCSV() {
     document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display='');
     document.getElementById('zmEditOverlay') && (document.getElementById('zmEditOverlay').style.display='');
     if(reopen===true)setTimeout(()=>this._startZoneMapPicker(this._mapPickerOpts||{}),100);
+  }
+
+
+  // ══════════════════════════════════════════════════════════════
+  // 🔧 MAINTENANCE MODAL — open/close
+  // ══════════════════════════════════════════════════════════════
+  openMaintenanceModal(entryData = null) {
+    const modal = document.getElementById('maintenanceModal');
+    if (!modal) { console.warn('maintenanceModal not found in DOM'); return; }
+    if (entryData && entryData._id) {
+      this._editingMaintenanceId = entryData._id;
+      const t = document.getElementById('modalMaintTitle');
+      if (t) t.textContent = 'Modifier l\'Ordre de Réparation';
+      const fill = { modalMaintTruck: entryData.truckName, modalMaintType: entryData.type,
+        modalMaintLocation: entryData.location, modalMaintNote: entryData.note, modalMaintOdo: entryData.odometer };
+      for (const [id, val] of Object.entries(fill)) {
+        const el = document.getElementById(id);
+        if (el && val != null) el.value = val;
+      }
+    } else {
+      this._editingMaintenanceId = null;
+      const t = document.getElementById('modalMaintTitle');
+      if (t) t.textContent = 'Ordre de Réparation';
+      // Reset wizard to step 1
+      if (typeof this.setMaintWizardStep === 'function') this.setMaintWizardStep(1);
+    }
+    modal.style.display = 'flex';
+  }
+
+  closeMaintenanceModal() {
+    const modal = document.getElementById('maintenanceModal');
+    if (modal) modal.style.display = 'none';
+    this._editingMaintenanceId = null;
+  }
+
+  // ── Maintenance list helpers ────────────────────────────────
+  renderMaintenanceList() {
+    if (typeof this.applyMaintenanceHistoryFilters === 'function') {
+      this.applyMaintenanceHistoryFilters();
+    } else if (typeof this.fetchAndRenderMaintenance === 'function') {
+      this.fetchAndRenderMaintenance();
+    }
+  }
+
+  _renderMaintenanceRows(logs) {
+    if (!logs || logs.length === 0) {
+      return '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted)"><i class="fa-solid fa-wrench" style="opacity:0.3;font-size:28px;display:block;margin-bottom:8px;"></i>Aucun enregistrement</td></tr>';
+    }
+    const prioColors = { urgent:'#ef4444', normal:'#3b82f6', low:'#22c55e' };
+    return logs.map(item => {
+      const d = new Date(item.date || item.createdAt);
+      const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+      const prio = item.priority || 'normal';
+      const cost = item.cost ? Number(item.cost).toLocaleString('fr-FR') + ' DA' : '—';
+      const status = item.status || 'done';
+      const statusBadge = status === 'done' || status === 'completed'
+        ? '<span style="background:rgba(34,197,94,.15);color:#22c55e;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">Terminé</span>'
+        : '<span style="background:rgba(245,158,11,.15);color:#f59e0b;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">En cours</span>';
+      return `<tr>
+        <td class="mono" style="font-size:11px;">${dateStr}</td>
+        <td style="font-weight:700;color:#60a5fa;">${item.truckName||'—'}</td>
+        <td><span style="background:rgba(245,158,11,.15);color:#f59e0b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">${item.type||'—'}</span></td>
+        <td class="mono">${item.odometer ? Number(item.odometer).toLocaleString()+' km':'—'}</td>
+        <td style="font-size:11px;">${item.location||'—'}</td>
+        <td style="font-size:11px;color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.note||'—'}</td>
+        <td><span style="color:${prioColors[prio]||'#6b7280'};font-weight:700;font-size:11px;">${prio}</span></td>
+        <td style="color:var(--success);font-weight:700;">${cost}</td>
+        <td>${statusBadge}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  async loadMaintenanceArticles() {
+    if (this._maintenanceArticlesLoaded && this._maintenanceArticles && this._maintenanceArticles.length > 0) {
+      return this._maintenanceArticles;
+    }
+    try {
+      const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-articles`, {
+        headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const json = await r.json();
+      this._maintenanceArticles = Array.isArray(json) ? json : (json.data || []);
+      this._maintenanceArticlesLoaded = true;
+      return this._maintenanceArticles;
+    } catch(e) {
+      console.warn('loadMaintenanceArticles:', e.message);
+      this._maintenanceArticles = this._maintenanceArticles || [];
+      return this._maintenanceArticles;
+    }
+  }
+
+  // ── Utility methods (button event stubs) ────────────────────
+  addCustomLocation() {
+    if (typeof this.openZoneManagementModal === 'function') {
+      this.openZoneManagementModal();
+    } else {
+      if (window.showToast) showToast('Ouvrez la carte → Zones pour ajouter un emplacement', 'info');
+    }
+  }
+
+  addClient() {
+    if (typeof this.openClientEditorModal === 'function') {
+      this.openClientEditorModal(null);
+    } else if (typeof this.openZoneManagementModal === 'function') {
+      this.openZoneManagementModal();
+      setTimeout(() => { const tabs = document.querySelectorAll('.zmTab'); if (tabs[2]) tabs[2].click(); }, 120);
+    }
+  }
+
+  exportCSV() {
+    const trucks = (app && typeof app.getAllTrucks === 'function') ? app.getAllTrucks() : [];
+    if (!trucks.length) { alert('Aucune donnée camion disponible.'); return; }
+    let csv = 'Camion,IMEI,Vitesse (km/h),Carburant (L),Latitude,Longitude,Mise à jour\n';
+    trucks.forEach(t => {
+      csv += [`"${t.name}"`, `"${t.id}"`, t.speed||0, t.fuelLevel||0, t.lat||0, t.lng||0,
+        `"${new Date(t.lastUpdate||Date.now()).toLocaleString('fr-FR')}"`].join(',') + '\n';
+    });
+    const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url;
+    a.download = `fleet_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  exportJSON() {
+    const trucks = (app && typeof app.getAllTrucks === 'function') ? app.getAllTrucks() : [];
+    if (!trucks.length) { alert('Aucune donnée camion disponible.'); return; }
+    const blob = new Blob([JSON.stringify(trucks, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url;
+    a.download = `fleet_${new Date().toISOString().slice(0,10)}.json`;
+    a.click(); URL.revokeObjectURL(url);
   }
 
 

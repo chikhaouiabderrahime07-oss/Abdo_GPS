@@ -596,6 +596,9 @@
            ============================================================ -->
       <div id="gpsMapLayout" style="display:none;height:82vh;min-height:560px;border-radius:12px;overflow:hidden;box-shadow:var(--shadow-xl,0 20px 60px rgba(0,0,0,0.4));border:1px solid var(--border,rgba(255,255,255,0.1));margin-top:15px;position:relative;align-items:stretch;">
 
+        <!-- Floating Button to Show Left Panel -->
+        <button id="showPanelBtn" onclick="window.AlgeriaMap.togglePanel()" data-tooltip="Afficher le panneau" style="display:none; position:absolute; left:0; top:50%; transform:translateY(-50%); z-index:40; background:rgba(15,23,42,0.95); border:1px solid rgba(255,255,255,0.15); border-left:none; padding:15px 8px; border-radius:0 8px 8px 0; color:#38bdf8; cursor:pointer; box-shadow:4px 0 15px rgba(0,0,0,0.5); transition:all 0.2s;"><i class="fa-solid fa-chevron-right"></i></button>
+
         <!-- LEFT PANEL (GPS sidebar) -->
         <div id="mapLeftPanel" style="width:290px;flex-shrink:0;background:var(--bg-surface,#1a2035);display:flex;flex-direction:column;border-right:1px solid var(--border,rgba(255,255,255,0.08));z-index:10;overflow:hidden;">
 
@@ -756,12 +759,7 @@
             <button onclick="window.AlgeriaMap.clearHistoryLayers()" style="background:rgba(239,68,68,0.2);border:1px solid rgba(239,68,68,0.3);color:#f87171;width:28px;height:28px;border-radius:50%;cursor:pointer;margin-left:8px;"><i class="fa-solid fa-times"></i></button>
           </div>
 
-          <!-- Truck selector (appears when truck clicked) -->
-          <div id="mapTruckSelectBar" style="display:none;position:absolute;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,0.95);border:1px solid rgba(59,130,246,0.3);border-radius:20px;padding:8px 16px;display:none;align-items:center;gap:12px;z-index:20;backdrop-filter:blur(8px);">
-            <span id="mapSelectedTruckName" style="font-weight:700;font-size:13px;color:#e2e8f0;"></span>
-            <button onclick="window.AlgeriaMap.showTruckHistory()" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.3);color:#60a5fa;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px;" data-tooltip="Historique du trajet"><i class="fa-solid fa-clock-rotate-left"></i></button>
-            <button onclick="window.AlgeriaMap.deselectTruck()" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:8px;padding:5px 8px;cursor:pointer;font-size:11px;" data-tooltip="Désélectionner"><i class="fa-solid fa-xmark"></i></button>
-          </div>
+          <!-- mapTruckSelectBar removed -->
 
           <!-- Bottom zone activity bar -->
           <div id="zoneActivityBar" style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(0deg,rgba(15,23,42,0.95),rgba(15,23,42,0.7));padding:8px 12px;display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;z-index:10;border-top:1px solid rgba(255,255,255,0.06);">
@@ -1956,19 +1954,34 @@ window.addEventListener('unhandledrejection', function(e) {
         { key: 'route_deviation', label: '🗺️ Déviation route', icon: 'fa-route' },
         { key: 'plaquettes_predicted', label: '🔴 Prédiction freins', icon: 'fa-circle-stop' },
         { key: 'geofence', label: '📌 Entrée/Sortie zone (Global)', icon: 'fa-draw-polygon' },
+        { key: 'immobilisation', label: '⏱️ Immobilisation', icon: 'fa-clock' }
       ];
       const prefs = JSON.parse(localStorage.getItem('fleet_notif_prefs') || '{}');
       
-      let html = `<div style="grid-column: 1 / -1; font-size: 11px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;">Catégories d'alertes</div>`;
+      let html = `<div style="grid-column: 1 / -1; font-size: 11px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 4px; display:flex; justify-content:space-between; align-items:center;">
+        <span>Catégories d'alertes</span>
+        
+        <!-- Sound Profile Selector -->
+        <select onchange="localStorage.setItem('fleet_notif_sound', this.value); if(window.FleetNotifications && this.value !== 'none') window.FleetNotifications.playSound('info');" 
+          style="background:var(--bg-card); color:var(--text-primary); border:1px solid var(--border); border-radius:4px; font-size:10px; padding:2px 5px;">
+            <option value="beep" ${localStorage.getItem('fleet_notif_sound') === 'beep' || !localStorage.getItem('fleet_notif_sound') ? 'selected' : ''}>Son: Bip Standard</option>
+            <option value="chime" ${localStorage.getItem('fleet_notif_sound') === 'chime' ? 'selected' : ''}>Son: Carillon Doux</option>
+            <option value="pulse" ${localStorage.getItem('fleet_notif_sound') === 'pulse' ? 'selected' : ''}>Son: Impulsion Alerte</option>
+            <option value="none" ${localStorage.getItem('fleet_notif_sound') === 'none' ? 'selected' : ''}>Son: Muet</option>
+        </select>
+      </div>`;
       
       html += types.map(t => {
-        const enabled = prefs[t.key] !== false;
+        // Backwards compatibility: if it's 'popup' or true -> checked. If 'disabled' or false -> unchecked.
+        const val = prefs[t.key];
+        const enabled = (val === undefined) ? true : (val === true || val === 'popup');
+        
         return `<label style="display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:var(--radius-md); 
           background:${enabled ? 'var(--primary-subtle)' : 'var(--bg-elevated)'}; border:1px solid ${enabled ? 'var(--border-primary)' : 'var(--border)'}; 
           cursor:pointer; font-size:11px; color:var(--text-primary); transition:all 0.15s;">
-          <input type="checkbox" ${enabled ? 'checked' : ''} onchange="setNotifPref('${t.key}', this.checked)" 
+          <input type="checkbox" ${enabled ? 'checked' : ''} onchange="setNotifPref('${t.key}', this.checked ? 'popup' : 'disabled')" 
             style="accent-color:var(--primary); width:14px; height:14px;">
-          ${t.label}
+          <span style="display:flex;align-items:center;gap:6px;"><i class="fa-solid ${t.icon}"></i> ${t.label}</span>
         </label>`;
       }).join('');
       
@@ -2197,9 +2210,7 @@ window.addEventListener('unhandledrejection', function(e) {
       while (history.length > 200) history.shift();
       localStorage.setItem('fleet_notif_history', JSON.stringify(history));
       updateNotifBadge();
-      // Show toast too
-      const severityMap = { critical: 'error', warning: 'warning', info: 'info' };
-      window.showToast(data.title || 'Notification', severityMap[data.severity] || 'info');
+      // Toast handled natively by notifications.js
     };
 
     // Init badge on load

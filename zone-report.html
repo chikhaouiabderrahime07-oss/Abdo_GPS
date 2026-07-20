@@ -560,6 +560,7 @@
     <div class="hdr-right">
       <div class="live-badge"><div class="live-dot"></div>LIVE</div>
       <span id="lastRefreshTime" style="font-size:10px;color:var(--text-3);"></span>
+      <button class="hdr-btn" onclick="window.location.href='/'" title="Retourner à la carte principale"><i class="fa-solid fa-arrow-left"></i></button>
       <button class="hdr-btn" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
       <button class="hdr-btn" onclick="ZMC.toggleTheme()" id="themeBtn" title="Changer thème"><i class="fa-solid fa-circle-half-stroke"></i></button>
       <button class="hdr-btn" onclick="ZMC.refreshAll()" title="Actualiser tout"><i class="fa-solid fa-rotate-right"></i></button>
@@ -658,7 +659,7 @@
           <i class="fa-solid fa-database"></i> Power BI
         </div>
         <div class="top-tab" data-tab="gps" onclick="ZMC.switchTab('gps')" style="margin-left:auto;border:1px solid rgba(45,212,191,0.3);">
-          <i class="fa-solid fa-satellite-dish" style="color:var(--teal);"></i> GPS Scan
+          <i class="fa-solid fa-satellite-dish" style="color:var(--teal);"></i> Radar GPS
         </div>
       </div>
 
@@ -678,6 +679,7 @@
               <option value="long">> 2h en zone</option>
               <option value="late">> 4h (retard)</option>
             </select>
+            <button id="btnForceGlobalSync" class="hdr-btn" style="background-color: var(--orange); color: #000;" onclick="ZMC.forceGlobalSync()"><i class="fa-solid fa-bolt"></i> Forcer Sync Live (24h)</button>
             <button class="hdr-btn" onclick="ZMC.refreshLive()"><i class="fa-solid fa-arrows-rotate"></i> Actualiser</button>
             <button class="hdr-btn" onclick="ZMC.exportLiveCSV()"><i class="fa-solid fa-file-arrow-down"></i> CSV</button>
           </div>
@@ -739,8 +741,21 @@
             </select>
             <input type="date" id="histStart" class="sb-input" style="width:auto;padding:5px 8px;">
             <input type="date" id="histEnd" class="sb-input" style="width:auto;padding:5px 8px;">
-            <button class="hdr-btn accent" onclick="ZMC.loadHistory()"><i class="fa-solid fa-magnifying-glass"></i> Rechercher</button>
-            <button class="hdr-btn" onclick="ZMC.exportHistoryCSV()" title="Exporte TOUT le résultat (pas uniquement la page affichée). Par défaut = aujourd hui. Sélectionnez une période pour filtrer."><i class="fa-solid fa-file-arrow-down"></i> Export CSV Complet</button>
+            <!-- Sort order -->
+            <select id="histSortOrder" class="sb-select" style="width:auto;" onchange="ZMC.loadHistory(1)" title="Ordre de tri">
+              <option value="desc">↓ Plus récent</option>
+              <option value="asc">↑ Plus ancien</option>
+            </select>
+            <!-- Results per page -->
+            <select id="histLimit" class="sb-select" style="width:auto;" onchange="ZMC.loadHistory(1)" title="Résultats par page">
+              <option value="25">25 / page</option>
+              <option value="50" selected>50 / page</option>
+              <option value="100">100 / page</option>
+              <option value="200">200 / page</option>
+              <option value="500">500 / page</option>
+            </select>
+            <button class="hdr-btn accent" onclick="ZMC.loadHistory(1)"><i class="fa-solid fa-magnifying-glass"></i> Rechercher</button>
+            <button class="hdr-btn" onclick="ZMC.exportHistoryCSV()" title="Exporte TOUT le résultat (pas uniquement la page affichée). Par défaut = aujourd hui. Sélectionnez une période pour filtrer."><i class="fa-solid fa-file-arrow-down"></i> Export CSV</button>
           </div>
         </div>
         <div class="kpi-strip" id="histStats" style="display:none;">
@@ -755,21 +770,43 @@
           <div class="full-wrap">
             <table class="data-table" id="histTable">
               <thead>
-                <tr>
-                  <th>Date</th><th>Camion</th><th>Zone</th><th>Entrée</th><th>Sortie</th>
-                  <th>Durée</th><th>Arrivée Planifiée</th><th>Écart Arrivée</th>
+                <tr id="histHeaderRow">
+                  <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('entryTime')">Date <span id="hSort_entryTime"></span></th>
+                  <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('truckName')">Camion <span id="hSort_truckName"></span></th>
+                  <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('zoneName')">Zone <span id="hSort_zoneName"></span></th>
+                  <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('entryTime')">Entrée <span id="hSort_entry"></span></th>
+                  <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('exitTime')">Sortie <span id="hSort_exitTime"></span></th>
+                  <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('durationMinutes')">Durée <span id="hSort_durationMinutes"></span></th>
+                  <th>Arrivée Planifiée</th>
+                  <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('engagementMinutes')">Écart Arrivée <span id="hSort_engagementMinutes"></span></th>
                   <th>Recap Immob.</th><th>Type</th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
                 </tr>
               </thead>
               <tbody id="histBody"><tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-3);">Sélectionnez vos filtres puis cliquez Rechercher</td></tr></tbody>
             </table>
           </div>
-          <!-- Pagination -->
-          <div id="histPagination" style="display:none;padding:10px 0;display:flex;align-items:center;justify-content:center;gap:8px;">
-            <button class="hdr-btn" onclick="ZMC.histPrevPage()" id="histPrevBtn" disabled><i class="fa-solid fa-chevron-left"></i></button>
-            <span id="histPageInfo" style="font-size:12px;color:var(--text-2);">Page 1/1</span>
-            <button class="hdr-btn" onclick="ZMC.histNextPage()" id="histNextBtn" disabled><i class="fa-solid fa-chevron-right"></i></button>
-            <span id="histTotalInfo" style="font-size:11px;color:var(--text-3);margin-left:12px;"></span>
+          <!-- Pagination — enhanced -->
+          <div id="histPagination" style="display:none;padding:12px 0;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;">
+            <!-- First / Prev -->
+            <button class="hdr-btn" onclick="ZMC.loadHistory(1)" id="histFirstBtn" disabled title="Première page"><i class="fa-solid fa-angles-left"></i></button>
+            <button class="hdr-btn" onclick="ZMC.histPrevPage()" id="histPrevBtn" disabled title="Page précédente"><i class="fa-solid fa-chevron-left"></i></button>
+
+            <!-- Jump to page input -->
+            <div style="display:flex;align-items:center;gap:5px;background:var(--bg-2);border:1px solid var(--border-1);border-radius:8px;padding:3px 8px;">
+              <span style="font-size:11px;color:var(--text-2);">Page</span>
+              <input type="number" id="histPageJump" min="1" value="1"
+                style="width:52px;background:transparent;border:none;color:var(--text-1);font-size:12px;font-weight:700;text-align:center;outline:none;"
+                onkeydown="if(event.key==='Enter'){const v=parseInt(this.value);if(v>0)ZMC.loadHistory(v);}"
+                title="Entrez un numéro de page et appuyez sur Entrée">
+              <span id="histPageInfo" style="font-size:11px;color:var(--text-2);">/ 1</span>
+            </div>
+
+            <!-- Next / Last -->
+            <button class="hdr-btn" onclick="ZMC.histNextPage()" id="histNextBtn" disabled title="Page suivante"><i class="fa-solid fa-chevron-right"></i></button>
+            <button class="hdr-btn" onclick="ZMC.histLastPage()" id="histLastBtn" disabled title="Dernière page"><i class="fa-solid fa-angles-right"></i></button>
+
+            <!-- Results count -->
+            <span id="histTotalInfo" style="font-size:11px;color:var(--text-3);margin-left:6px;"></span>
           </div>
         </div>
       </div>
@@ -832,10 +869,18 @@
       <div class="tab-pane" id="tabAnalytics">
         <div class="pane-header">
           <div>
-            <div class="pane-title"><i class="fa-solid fa-chart-column" style="color:var(--green);"></i> Analytiques & Classement</div>
-            <div class="pane-sub">Performances flotte — 30 derniers jours — données pour réunions</div>
+            <div class="pane-title"><i class="fa-solid fa-chart-column" style="color:var(--teal);"></i> Analytiques & Rapports</div>
+            <div class="pane-sub">Performances de la flotte et temps d'immobilisation (30 derniers jours)</div>
           </div>
-          <div class="pane-actions">
+          <div class="pane-actions" style="display:flex; align-items:center; gap:10px;">
+            <select id="analyticsPeriodFilter" class="form-control" style="width:160px; padding:6px 10px;" onchange="ZMC.filterAnalytics()">
+              <option value="30">30 derniers jours</option>
+              <option value="7">7 derniers jours</option>
+              <option value="1">24 dernières heures</option>
+            </select>
+            <select id="analyticsZoneFilter" class="form-control" style="width:200px; padding:6px 10px;" onchange="ZMC.filterAnalytics()">
+              <option value="">Toutes les zones</option>
+            </select>
             <button class="hdr-btn" onclick="ZMC.exportAllChartsPNG()" title="Télécharger tous les graphiques"><i class="fa-solid fa-images"></i> Export PNG</button>
             <button class="hdr-btn" onclick="ZMC.exportAnalyticsCSV()" title="Exporter données CSV"><i class="fa-solid fa-file-csv"></i> CSV</button>
             <button class="hdr-btn" onclick="ZMC.printAnalytics()" title="Imprimer le rapport complet"><i class="fa-solid fa-print"></i> Imprimer</button>
@@ -843,37 +888,7 @@
           </div>
         </div>
         <div class="pane-scroll">
-          <div id="analyticsContent"><div class="charts-grid mt-16">
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-ranking-star" style="color:var(--teal);"></i> Top Camions — Visites Zone<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartTopTrucks','Top Camions')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
-              <div class="chart-wrap"><canvas id="chartTopTrucks"></canvas></div>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-pie" style="color:var(--purple);"></i> Temps Total par Zone (heures)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartZonePie','Temps Zone')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
-              <div class="chart-wrap"><canvas id="chartZonePie"></canvas></div>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-chart-line" style="color:var(--teal);"></i> Visites Journalières (30j)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartDaily','Visites Jour')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
-              <div class="chart-wrap"><canvas id="chartDaily"></canvas></div>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-clock" style="color:var(--orange);"></i> Heures de Pointe — Trafic par Heure<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartRushHours','Rush Hours')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
-              <div class="chart-wrap"><canvas id="chartRushHours"></canvas></div>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-hourglass-half" style="color:var(--red);"></i> Immobilisation Moyenne par Zone (min)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartImmoByZone','Immobilisation')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
-              <div class="chart-wrap"><canvas id="chartImmoByZone"></canvas></div>
-            </div>
-            <div class="chart-card">
-              <div class="chart-title"><i class="fa-solid fa-calendar-week" style="color:var(--blue);"></i> Activité par Jour de la Semaine<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartWeekday','Activité Semaine')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div>
-              <div class="chart-wrap"><canvas id="chartWeekday"></canvas></div>
-            </div>
-            <div class="chart-card" style="grid-column:span 2;">
-              <div class="chart-title">🏆 Classement Camions — Visites &amp; Immobilisation</div>
-              <div class="ranking-list" id="rankingList"><div class="empty-state" style="padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i></div></div>
-            </div>
-          </div>
-          </div><!-- /analyticsContent -->
+          <div id="analyticsContent"></div>
         </div>
       </div>
 
@@ -881,91 +896,136 @@
       <div class="tab-pane" id="tabPowerbi">
         <div class="pane-header">
           <div>
-            <div class="pane-title">📊 Power BI — Générateur API</div>
-            <div class="pane-sub">Créez votre URL personnalisée et connectez Power BI en quelques clics</div>
-            <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
-              <span class="pulse-dot" id="pbPulse"></span>
-              <span style="font-size:10px;color:#22c55e;font-weight:700;" id="pbFreshness">Données en temps réel</span>
-              <span style="font-size:10px;color:var(--text-3);margin-left:6px;" id="pbLastRefresh"></span>
+            <div class="pane-title">📊 Power BI — Hub d'Intégration API</div>
+            <div class="pane-sub">Gérez vos flux de données, générez des URL sur mesure et contrôlez les accès.</div>
+            <div id="pbHints" style="margin-top:12px;padding:12px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius);font-size:12px;color:var(--text-1);transition:opacity 0.3s, max-height 0.3s;max-height:200px;overflow:hidden;">
+              <strong>💡 Comment ça marche ?</strong> 
+              <p style="margin:4px 0 0 0;color:var(--text-2);">Ce module vous permet de connecter vos données en direct à Power BI. <br>1. Créez une <b>Clé API</b> dans le panneau de droite.<br>2. Sélectionnez vos options dans le Constructeur d'URL (laissez "Tous les camions" pour exporter toute la flotte).<br>3. Copiez l'URL générée et collez-la dans Power BI via <b>"Obtenir les données > Web"</b>.</p>
             </div>
           </div>
         </div>
         <div class="pane-scroll">
+          
+          <div style="display:grid;grid-template-columns:minmax(0, 1.2fr) minmax(0, 1fr);gap:24px;align-items:start;">
+            
+            <!-- LEFT COLUMN: URL Builder & Endpoints -->
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              
+              <!-- URL BUILDER -->
+              <div class="pb-section">
+                <div class="pb-section-title"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--teal);"></i> Constructeur d'URL Sur Mesure</div>
+                <div class="pb-filter-grid" style="grid-template-columns:1fr 1fr;">
+                  <div class="form-group" style="margin:0;">
+                    <label class="form-label">Type de données</label>
+                    <select id="pbType" class="form-control" onchange="ZMC.onPBTypeChange()">
+                      <option value="zone-events/powerbi">📚 Mouvements & Historique (Toutes les entrées/sorties)</option>
+                      <option value="zone-events/powerbi-live">🟢 Statut Live (Uniquement les camions à l'intérieur MAINTENANT)</option>
+                      <option value="zone-operations/powerbi">📍 Opérations (Suivi des missions planifiées)</option>
+                      <option value="zone-events/powerbi-zones">🗺️ Référentiel (Liste des zones existantes)</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin:0;">
+                    <label class="form-label">Zone ciblée</label>
+                    <select id="pbZone" class="form-control" onchange="ZMC.buildPBUrl()">
+                      <option value="">Toutes les zones</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin:0;" id="pbTruckWrapper">
+                    <label class="form-label">Camion ciblé</label>
+                    <select id="pbTruck" class="form-control" onchange="ZMC.buildPBUrl()">
+                      <option value="">Tous les camions</option>
+                    </select>
+                  </div>
+                  <div class="form-group" style="margin:0;" id="pbPeriodWrapper">
+                    <label class="form-label">Période d'analyse</label>
+                    <select id="pbPeriod" class="form-control" onchange="ZMC.onPBPeriodChange()">
+                      <option value="today">📅 Aujourd'hui uniquement (Depuis 00h00)</option>
+                      <option value="custom">📆 Période sur mesure (Choisir les dates)</option>
+                      <option value="all" selected>🗄️ Tout l'historique disponible</option>
+                    </select>
+                  </div>
+                  <div class="form-group" id="pbCustomDates" style="margin:0;display:none;grid-column:1/-1;">
+                    <label class="form-label">Dates (Du / Au)</label>
+                    <div style="display:flex;gap:8px;">
+                      <input type="date" id="pbStart" class="form-control" onchange="ZMC.buildPBUrl()" style="flex:1;">
+                      <input type="date" id="pbEnd" class="form-control" onchange="ZMC.buildPBUrl()" style="flex:1;">
+                    </div>
+                  </div>
+                  <div class="form-group" style="margin:0;grid-column:1/-1;">
+                    <label class="form-label">Clé d'Accès (Token)</label>
+                    <select id="pbToken" class="form-control" onchange="ZMC.buildPBUrl()">
+                      <!-- Populated automatically -->
+                    </select>
+                  </div>
+                </div>
+                
+                <div class="pb-url-box" id="pbUrlBox" style="margin-top:20px;padding:16px;background:linear-gradient(to right, rgba(45,212,191,0.05), transparent);border:1px solid rgba(45,212,191,0.3);border-radius:var(--radius);display:flex;flex-direction:column;gap:12px;">
+                  <label class="form-label" style="color:var(--teal);"><i class="fa-solid fa-link"></i> URL Power BI Générée :</label>
+                  <div style="display:flex;gap:10px;">
+                    <input type="text" id="pbUrl" class="form-control" readonly placeholder="— sélectionnez les options —" style="font-family:var(--mono);color:var(--teal);background:var(--bg-1);border-color:rgba(45,212,191,0.2);flex:1;font-size:12px;">
+                    <button class="pb-copy-btn hdr-btn accent" onclick="ZMC.copyPBUrl()" style="min-width:100px;justify-content:center;"><i class="fa-solid fa-copy"></i> Copier</button>
+                  </div>
+                </div>
+              </div>
 
-          <!-- URL BUILDER -->
-          <div class="pb-section mt-16">
-            <div class="pb-section-title"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--teal);"></i> Constructeur d'URL</div>
-            <div class="pb-filter-grid">
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Zone</label>
-                <select id="pbZone" class="form-control" onchange="ZMC.buildPBUrl()">
-                  <option value="">Toutes les zones</option>
-                </select>
+              <!-- ALL ENDPOINTS -->
+              <div class="pb-section">
+                <div class="pb-section-title"><i class="fa-solid fa-plug" style="color:var(--purple);"></i> Points de terminaison natifs</div>
+                <div class="pb-endpoint-list" id="pbEndpoints" style="display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px;"></div>
               </div>
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Camion</label>
-                <select id="pbTruck" class="form-control" onchange="ZMC.buildPBUrl()">
-                  <option value="">Tous les camions</option>
-                </select>
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Type de données</label>
-                <select id="pbType" class="form-control" onchange="ZMC.buildPBUrl()">
-                  <option value="powerbi">📋 Historique complet</option>
-                  <option value="powerbi-live">🟢 Live (en zone maintenant)</option>
-                  <option value="powerbi-zones">🗺️ Liste des zones</option>
-                  <option value="zone-operations/powerbi">📍 Opérations planifiées</option>
-                  <option value="realtime">🔴 Temps réel (jour en cours)</option>
-                </select>
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Période début</label>
-                <input type="date" id="pbStart" class="form-control" onchange="ZMC.buildPBUrl()">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Période fin</label>
-                <input type="date" id="pbEnd" class="form-control" onchange="ZMC.buildPBUrl()">
-              </div>
-              <div class="form-group" style="margin:0;">
-                <label class="form-label">Token</label>
-                <input type="text" id="pbToken" class="form-control" value="fleet_powerbi_2025" onchange="ZMC.buildPBUrl()">
-              </div>
-            </div>
-            <div class="pb-url-box" id="pbUrlBox">
-              <span id="pbUrlText">— sélectionnez les options —</span>
-              <button class="pb-copy-btn" onclick="ZMC.copyPBUrl()"><i class="fa-solid fa-copy"></i> Copier</button>
-            </div>
-          </div>
 
-          <!-- HOW TO CONNECT POWER BI -->
-          <div class="pb-section">
-            <div class="pb-section-title"><i class="fa-solid fa-circle-question" style="color:var(--blue);"></i> Comment connecter Power BI (mode débutant)</div>
-            <div class="pb-how-grid">
-              <div class="pb-how-card">
-                <div class="pb-how-num">01</div>
-                <div class="pb-how-title">Copier l'URL</div>
-                <div class="pb-how-desc">Utilisez le constructeur ci-dessus, choisissez zone + type de données, puis copiez l'URL générée.</div>
-              </div>
-              <div class="pb-how-card">
-                <div class="pb-how-num">02</div>
-                <div class="pb-how-title">Importer dans Power BI</div>
-                <div class="pb-how-desc"><strong>Obtenir des données → Web → coller l'URL → OK</strong>. Power BI charge automatiquement les données JSON.</div>
-              </div>
-              <div class="pb-how-card">
-                <div class="pb-how-num">03</div>
-                <div class="pb-how-title">Actualisation auto</div>
-                <div class="pb-how-desc">Dans Power BI Service → <strong>Paramètres du jeu de données → Actualisation planifiée</strong>. Gratuit = jusqu'à 8×/jour.</div>
-              </div>
             </div>
-            <div style="margin-top:12px;padding:10px 14px;background:var(--teal-dim);border:1px solid rgba(45,212,191,.2);border-radius:var(--radius-sm);font-size:11px;color:var(--teal);">
-              <strong>💡 Astuce :</strong> Pour une mise à jour en quelques secondes (streaming réel), configurez <code>POWERBI_PUSH_URL</code> dans Render → les données sont envoyées dès qu'un camion entre/sort d'une zone, sans aucune attente.
-            </div>
-          </div>
 
-          <!-- ALL ENDPOINTS -->
-          <div class="pb-section">
-            <div class="pb-section-title"><i class="fa-solid fa-plug" style="color:var(--purple);"></i> Tous les endpoints disponibles</div>
-            <div class="pb-endpoint-list" id="pbEndpointList"></div>
+            <!-- RIGHT COLUMN: API Keys & Help -->
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              
+              <!-- API KEYS MANAGER -->
+              <div class="pb-section" style="border:1px solid var(--border-2);background:var(--bg-card);box-shadow:0 4px 20px rgba(0,0,0,0.15);">
+                <div class="pb-section-title" style="border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:16px;"><i class="fa-solid fa-shield-halved" style="color:var(--orange);"></i> Contrôle d'Accès & Clés API</div>
+                
+                <div style="font-size:12px;color:var(--text-2);margin-bottom:16px;line-height:1.5;">
+                  Générez des clés uniques pour vos différents tableaux de bord. Si une clé est compromise, supprimez-la ici pour couper instantanément l'accès aux données.
+                </div>
+
+                <div style="display:flex;gap:10px;margin-bottom:20px;">
+                  <input type="text" id="newKeyName" class="form-control" placeholder="Nom (ex: Dashboard Direction)" style="flex:1;">
+                  <button class="sb-btn" onclick="ZMC.createApiKey()" style="margin:0;width:auto;padding:0 20px;background:var(--orange);color:#000;"><i class="fa-solid fa-plus"></i> Créer</button>
+                </div>
+                
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin-bottom:8px;">Clés Actives</div>
+                <div id="apiKeysList" style="display:grid;gap:8px;max-height:300px;overflow-y:auto;padding-right:4px;"></div>
+              </div>
+
+              <!-- HOW TO CONNECT POWER BI -->
+              <div class="pb-section">
+                <div class="pb-section-title"><i class="fa-solid fa-graduation-cap" style="color:var(--blue);"></i> Guide de Connexion</div>
+                <div class="pb-how-grid" style="display:flex;flex-direction:column;gap:12px;margin-top:10px;">
+                  <div class="pb-how-card" style="padding:12px 16px;background:var(--bg-3);border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:var(--radius);display:flex;align-items:center;gap:16px;">
+                    <div class="pb-how-num" style="font-size:20px;font-weight:900;color:var(--blue);opacity:0.5;">1</div>
+                    <div>
+                      <div class="pb-how-title" style="font-weight:700;color:var(--text-1);margin-bottom:2px;font-size:13px;">Copier l'URL Générée</div>
+                      <div class="pb-how-desc" style="font-size:11px;color:var(--text-2);">Utilisez le constructeur à gauche pour préparer votre URL et cliquez sur Copier.</div>
+                    </div>
+                  </div>
+                  <div class="pb-how-card" style="padding:12px 16px;background:var(--bg-3);border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:var(--radius);display:flex;align-items:center;gap:16px;">
+                    <div class="pb-how-num" style="font-size:20px;font-weight:900;color:var(--blue);opacity:0.5;">2</div>
+                    <div>
+                      <div class="pb-how-title" style="font-weight:700;color:var(--text-1);margin-bottom:2px;font-size:13px;">Importer dans Power BI</div>
+                      <div class="pb-how-desc" style="font-size:11px;color:var(--text-2);">Dans PBI Desktop : <strong>Obtenir les données → Web</strong>. Collez l'URL. Le JSON sera traité.</div>
+                    </div>
+                  </div>
+                  <div class="pb-how-card" style="padding:12px 16px;background:var(--bg-3);border:1px solid var(--border);border-left:3px solid var(--blue);border-radius:var(--radius);display:flex;align-items:center;gap:16px;">
+                    <div class="pb-how-num" style="font-size:20px;font-weight:900;color:var(--blue);opacity:0.5;">3</div>
+                    <div>
+                      <div class="pb-how-title" style="font-weight:700;color:var(--text-1);margin-bottom:2px;font-size:13px;">Actualisation Planifiée</div>
+                      <div class="pb-how-desc" style="font-size:11px;color:var(--text-2);">Configurez PBI Service pour actualiser automatiquement (jusqu'à 8×/jour gratuit).</div>
+                    </div>
+                  </div>
+                </div>
+                
+              </div>
+
+            </div>
           </div>
 
         </div>
@@ -975,13 +1035,13 @@
       <div class="tab-pane" id="tabGps">
         <div class="pane-header">
           <div>
-            <div class="pane-title"><i class="fa-solid fa-satellite-dish" style="color:var(--teal);"></i> Scanner GPS — Reconstruction Historique</div>
-            <div class="pane-sub">Relit les positions GPS de chaque camion et recrée les événements zone manquants</div>
+            <div class="pane-title"><i class="fa-solid fa-satellite-dish" style="color:var(--teal);"></i> 🛰️ Radar GPS — Reconstruction de Trajectoire</div>
+            <div class="pane-sub">Analyse les traces GPS de chaque véhicule et reconstitue les événements de zone avec précision</div>
           </div>
         </div>
         <div class="pane-scroll" style="padding:20px;">
           <!-- Config panel -->
-          <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:16px;align-items:end;padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:20px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1.5fr auto;gap:16px;align-items:end;padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:20px;">
             <div>
               <label style="font-size:11px;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px;">📅 Date début</label>
               <input type="date" id="gpsStart" class="sb-input" style="padding:10px;font-size:13px;box-sizing:border-box;width:100%;">
@@ -990,8 +1050,31 @@
               <label style="font-size:11px;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px;">📅 Date fin</label>
               <input type="date" id="gpsEnd" class="sb-input" style="padding:10px;font-size:13px;box-sizing:border-box;width:100%;">
             </div>
+            <div style="position:relative;">
+              <label style="font-size:11px;font-weight:700;color:var(--text-2);display:block;margin-bottom:6px;">🚛 Camions</label>
+              <div id="gpsTrucksBtn" onclick="ZMC.toggleGpsTruckSelect()" class="sb-input" style="padding:10px;font-size:13px;box-sizing:border-box;width:100%;cursor:pointer;display:flex;justify-content:space-between;align-items:center;background:var(--bg-1);">
+                 <span id="gpsTrucksBtnText" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Tous les camions</span>
+                 <i class="fa-solid fa-chevron-down" style="color:var(--text-3);font-size:10px;margin-left:8px;"></i>
+              </div>
+              <div id="gpsTrucksDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;margin-top:4px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:0 10px 25px -5px rgba(0,0,0,0.4);z-index:100;max-height:350px;overflow-y:hidden;display:none;flex-direction:column;">
+                <div style="padding:10px;border-bottom:1px solid var(--border);background:var(--bg-1);">
+                  <div style="position:relative;margin-bottom:8px;">
+                    <i class="fa-solid fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-3);font-size:12px;"></i>
+                    <input type="text" id="gpsTruckSearch" placeholder="Rechercher un camion..." onkeyup="ZMC.filterGpsTrucks()" style="width:100%;background:var(--bg-body);border:1px solid var(--border);border-radius:6px;padding:8px 10px 8px 30px;color:var(--text-1);font-size:12px;outline:none;box-sizing:border-box;">
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;">Sélection rapide</span>
+                    <div style="display:flex;gap:12px;">
+                      <span onclick="ZMC.checkAllGpsTrucks(true)" style="font-size:11px;color:var(--teal);cursor:pointer;font-weight:700;transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--teal)'"><i class="fa-solid fa-check-double"></i> Tous</span>
+                      <span onclick="ZMC.checkAllGpsTrucks(false)" style="font-size:11px;color:var(--red);cursor:pointer;font-weight:700;transition:0.2s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--red)'"><i class="fa-solid fa-xmark"></i> Aucun</span>
+                    </div>
+                  </div>
+                </div>
+                <div id="gpsTrucksList" style="padding:6px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px;"></div>
+              </div>
+            </div>
             <button onclick="ZMC.reloadGPSHistory()" id="reloadGpsBtn" style="padding:10px 24px;font-size:13px;font-weight:700;background:linear-gradient(135deg,#2dd4bf,#0d9488);color:white;border:none;border-radius:8px;cursor:pointer;white-space:nowrap;">
-              <i class="fa-solid fa-satellite-dish"></i> Scanner tous les camions
+              <i class="fa-solid fa-satellite-dish"></i> 🚀 Lancer le Scan Radar
             </button>
           </div>
           <!-- Progress + Results -->
@@ -1244,12 +1327,37 @@ const ZMC = (() => {
     document.querySelectorAll('.top-tab').forEach(n => n.classList.remove('active'));
     document.getElementById(`tab${tab.charAt(0).toUpperCase()+tab.slice(1)}`)?.classList.add('active');
     document.querySelector(`.top-tab[data-tab="${tab}"]`)?.classList.add('active');
+    
+    if (tab === 'powerbi') {
+        const pane = document.querySelector('#tabPowerbi .pane-scroll');
+        const hints = document.getElementById('pbHints');
+        if (pane && hints && !pane.dataset.scrollBound) {
+            pane.dataset.scrollBound = 'true';
+            pane.addEventListener('scroll', () => {
+                if (pane.scrollTop > 10) {
+                    hints.style.opacity = '0';
+                    hints.style.maxHeight = '0px';
+                    hints.style.padding = '0px 12px';
+                    hints.style.borderWidth = '0px';
+                    hints.style.marginTop = '0px';
+                    hints.style.marginBottom = '0px';
+                } else {
+                    hints.style.opacity = '1';
+                    hints.style.maxHeight = '200px';
+                    hints.style.padding = '12px';
+                    hints.style.borderWidth = '1px';
+                    hints.style.marginTop = '12px';
+                    hints.style.marginBottom = '12px';
+                }
+            });
+        }
+    }
 
     if (tab === 'fleet') loadFleetData();
     if (tab === 'operations') loadOperations();
     if (tab === 'history') loadHistory();
     if (tab === 'analytics') loadAnalytics();
-    if (tab === 'powerbi') { buildPBUrl(); checkPBFreshness(); }
+    if (tab === 'powerbi') { loadApiKeys(); buildPBUrl(); checkPBFreshness(); }
   }
 
   // ── FILTERS ──
@@ -1735,10 +1843,12 @@ const ZMC = (() => {
 
   // ── HISTORY ──
   let histPage = 1;
+  let histSortField = 'entryTime';  // active sort column
+  let histSortDir   = 'desc';       // 'asc' | 'desc'
   async function loadHistory(page) {
     if (page) histPage = page;
     const tbody = document.getElementById('histBody');
-    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>';
 
     // Build URL from inline filters (header bar)
     const zone = document.getElementById('histZoneFilter')?.value || state.filters.zone || '';
@@ -1746,17 +1856,22 @@ const ZMC = (() => {
     const status = document.getElementById('histStatusFilter')?.value || '';
     const start = document.getElementById('histStart')?.value || state.filters.start || '';
     const end = document.getElementById('histEnd')?.value || state.filters.end || '';
+    const limit = parseInt(document.getElementById('histLimit')?.value || '50');
+    // Sync sort direction from the dropdown (if user changed it manually)
+    const dropSort = document.getElementById('histSortOrder')?.value;
+    if (dropSort && dropSort !== histSortDir) { histSortDir = dropSort; histSortField = 'entryTime'; }
+    const sort = histSortDir;
 
     // Determine if the filter value is a deviceId (numeric) or a truck name
     const isDeviceId = truckVal && /^\d{8,}$/.test(truckVal.trim());
 
-    let url = `${state.base}/api/zone-events?limit=50&page=${histPage}`;
+    let url = `${state.base}/api/zone-events?limit=${limit}&page=${histPage}&sort=${sort}&sortField=${histSortField}`;
     if (zone) url += `&zone=${encodeURIComponent(zone)}`;
     if (truckVal) {
       if (isDeviceId) {
-        url += `&deviceId=${encodeURIComponent(truckVal)}`; // exact match by deviceId
+        url += `&deviceId=${encodeURIComponent(truckVal)}`;
       } else {
-        url += `&truck=${encodeURIComponent(truckVal)}`; // regex match by truck name
+        url += `&truck=${encodeURIComponent(truckVal)}`;
       }
     }
     if (status) url += `&status=${status}`;
@@ -1766,17 +1881,17 @@ const ZMC = (() => {
     try {
       const r = await fetch(url, { headers: headers() });
       const json = await r.json();
-      // Support both new {data,pagination} and old array format
       const data = json.data || json;
       const pag = json.pagination || { page: 1, totalPages: 1, total: data.length };
       state.histData = data;
       state.histPagination = pag;
       renderHistory(data, pag);
-    } catch(e) { tbody.innerHTML = `<tr><td colspan="12" style="text-align:center;color:var(--red);">Erreur: ${e.message}</td></tr>`; }
+    } catch(e) { tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;color:var(--red);">Erreur: ${e.message}</td></tr>`; }
   }
 
   function histPrevPage() { if (histPage > 1) loadHistory(histPage - 1); }
   function histNextPage() { if (state.histPagination && histPage < state.histPagination.totalPages) loadHistory(histPage + 1); }
+  function histLastPage() { if (state.histPagination) loadHistory(state.histPagination.totalPages); }
 
   function fmtMin(m) { if (m == null) return '—'; return m >= 60 ? `${Math.floor(m/60)}h${m%60}m` : `${m}m`; }
 
@@ -1836,23 +1951,34 @@ const ZMC = (() => {
     const pagDiv = document.getElementById('histPagination');
     if (pag && pag.totalPages > 1) {
       pagDiv.style.display = 'flex';
-      document.getElementById('histPageInfo').textContent = `Page ${pag.page} / ${pag.totalPages}`;
-      document.getElementById('histTotalInfo').textContent = `${pag.total} résultats`;
+      // Update pagination controls
+      const pageJump = document.getElementById('histPageJump');
+      if (pageJump) pageJump.value = pag.page;
+      const pageInfo = document.getElementById('histPageInfo');
+      if (pageInfo) pageInfo.textContent = '/ ' + pag.totalPages;
+      document.getElementById('histTotalInfo').textContent = `${pag.total?.toLocaleString('fr-FR')||0} résultats`;
       document.getElementById('histPrevBtn').disabled = pag.page <= 1;
+      document.getElementById('histFirstBtn').disabled = pag.page <= 1;
       document.getElementById('histNextBtn').disabled = pag.page >= pag.totalPages;
+      document.getElementById('histLastBtn').disabled = pag.page >= pag.totalPages;
     } else {
       pagDiv.style.display = pag ? 'flex' : 'none';
       if (pag) {
-        document.getElementById('histPageInfo').textContent = `Page 1 / 1`;
-        document.getElementById('histTotalInfo').textContent = `${pag.total || data.length} résultats`;
+        const pageJumpFb = document.getElementById('histPageJump');
+        if (pageJumpFb) pageJumpFb.value = 1;
+        const pageInfoFb = document.getElementById('histPageInfo');
+        if (pageInfoFb) pageInfoFb.textContent = '/ 1';
+        document.getElementById('histTotalInfo').textContent = `${(pag.total || data.length).toLocaleString('fr-FR')} résultats`;
         document.getElementById('histPrevBtn').disabled = true;
+        document.getElementById('histFirstBtn') && (document.getElementById('histFirstBtn').disabled = true);
         document.getElementById('histNextBtn').disabled = true;
+        document.getElementById('histLastBtn') && (document.getElementById('histLastBtn').disabled = true);
       }
     }
   }
 
   function openEditHistory(id) {
-    const e = (state.histData||[]).find(x => x._id === id);
+    const e = (state.histData||[]).find(x => String(x._id) === String(id));
     if (!e) { toast('Entrée introuvable', 'error'); return; }
     const existing = document.getElementById('editHistModal');
     if (existing) existing.remove();
@@ -1946,22 +2072,142 @@ const ZMC = (() => {
     const start = document.getElementById('sbStart').value;
     const end = document.getElementById('sbEnd').value;
     if (!start||!end) { toast('Sélectionnez une période','error'); return; }
+
     const btn = document.getElementById('scanHistBtn');
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scan...';
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scan en cours...';
     btn.disabled = true;
+
+    // Show progress bar
+    let progressEl = document.getElementById('scanProgressBar');
+    if (!progressEl) {
+      progressEl = document.createElement('div');
+      progressEl.id = 'scanProgressBar';
+      progressEl.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;';
+      progressEl.innerHTML = `
+        <div style="background:var(--bg-2);border-bottom:1px solid var(--border-1);padding:10px 20px;display:flex;flex-direction:column;gap:6px;box-shadow:0 4px 20px rgba(0,0,0,0.4);">
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:12px;font-weight:700;color:var(--text-1);display:flex;align-items:center;gap:8px;">
+              <i class="fa-solid fa-satellite-dish fa-spin" style="color:#3b82f6;"></i>
+              <span id="scanStatusText">Initialisation du scan GPS...</span>
+            </div>
+            <span id="scanPct" style="font-size:11px;font-weight:800;color:#3b82f6;">0%</span>
+          </div>
+          <div style="background:var(--bg-3);border-radius:4px;height:6px;overflow:hidden;">
+            <div id="scanProgressFill" style="height:100%;background:linear-gradient(90deg,#3b82f6,#0ea5e9);border-radius:4px;width:0%;transition:width 0.3s ease;"></div>
+          </div>
+          <div id="scanStepDetail" style="font-size:10px;color:var(--text-3);">Connexion au serveur...</div>
+        </div>`;
+      document.body.prepend(progressEl);
+    }
+
+    const setProgress = (pct, status, detail) => {
+      const fill = document.getElementById('scanProgressFill');
+      const pctEl = document.getElementById('scanPct');
+      const statusEl = document.getElementById('scanStatusText');
+      const detailEl = document.getElementById('scanStepDetail');
+      if (fill) fill.style.width = pct + '%';
+      if (pctEl) pctEl.textContent = pct + '%';
+      if (statusEl && status) statusEl.textContent = status;
+      if (detailEl && detail) detailEl.textContent = detail;
+    };
+
+    // Animate progress while waiting
+    let fakeProgress = 5;
+    setProgress(5, 'Envoi de la requête de scan...', "Connexion à l'API...");
+    const fakeTimer = setInterval(() => {
+      if (fakeProgress < 85) {
+        fakeProgress += Math.random() * 4;
+        const msgs = [
+          'Récupération des données GPS...',
+          'Analyse des points de passage...',
+          'Détection des entrées en zone...',
+          'Calcul des durées de visite...',
+          'Enregistrement des événements...',
+          'Traitement en cours...'
+        ];
+        setProgress(Math.min(fakeProgress, 85), 'Scan GPS en cours...', msgs[Math.floor(Math.random() * msgs.length)]);
+      }
+    }, 800);
+
     try {
+      const startTime = Date.now();
       const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
         method:'POST', headers:headers(),
         body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end+'T23:59:59').toISOString() })
       });
+      clearInterval(fakeTimer);
+
       const d = await r.json();
-      toast(`✅ ${d.summary?.created||0} événements créés`, 'success');
-      loadHistory();
-    } catch(e) { toast('Erreur scan: '+e.message,'error'); }
-    finally { btn.innerHTML='<i class="fa-solid fa-radar"></i> Scanner GPS'; btn.disabled=false; }
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+      const created = d.summary?.created || 0;
+      const trucks = d.summary?.trucks || 0;
+      const errors = d.summary?.errors?.length || 0;
+
+      setProgress(100, '✅ Scan terminé !',
+        `${created} événements créés · ${trucks} camions analysés · ${errors} erreurs · ${elapsed}s`);
+
+      setTimeout(() => { progressEl.remove(); }, 3500);
+
+      toast(`✅ Scan terminé: ${created} événements, ${trucks} camions (${elapsed}s)`, 'success');
+      loadHistory(1);
+    } catch(e) {
+      clearInterval(fakeTimer);
+      setProgress(0, '❌ Erreur scan', e.message);
+      setTimeout(() => { progressEl.remove(); }, 4000);
+      toast('Erreur scan: ' + e.message, 'error');
+    } finally {
+      btn.innerHTML = '<i class="fa-solid fa-radar"></i> Scanner GPS (Local)';
+      btn.disabled = false;
+    }
   }
 
+  // --- NEW: GLOBAL SYNC ---
+  async function forceGlobalSync() {
+    if (!confirm("Voulez-vous lancer un scan massif sur l'ensemble de la flotte (24h) ? Cela peut prendre 1 à 2 minutes.")) return;
+    
+    const btn = document.getElementById('btnForceGlobalSync');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Synchronisation Globale...';
+    }
+    toast('Synchronisation massive démarrée. Veuillez patienter...', 'info');
+
+    try {
+      const now = Date.now();
+      const startMs = now - (24 * 3600000); // last 24h
+      
+      const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers()
+        },
+        body: JSON.stringify({
+          start: new Date(startMs).toISOString(),
+          end: new Date(now).toISOString()
+        })
+      });
+      
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Erreur API');
+      
+      toast(`✅ Synchronisation 24h terminée avec succès !`, 'success');
+      // Refresh live grid
+      loadLive();
+    } catch(e) {
+      toast('Erreur Synchronisation Globale: ' + e.message, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Forcer Sync Live (24h)';
+      }
+    }
+  }
+
+
   // ── ANALYTICS ──
+  
   async function loadAnalytics() {
     const ac = document.getElementById('analyticsContent');
     if (ac) ac.innerHTML = '<div class="empty-state"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px;color:var(--teal);"></i><p>Calcul des analytiques...</p></div>';
@@ -1975,22 +2221,63 @@ const ZMC = (() => {
         if (ac) ac.innerHTML = '<div class="empty-state"><i class="fa-solid fa-chart-line"></i><p>Aucune donnée sur les 30 derniers jours</p></div>';
         return;
       }
-      if (ac) ac.innerHTML = `<div class="charts-grid mt-16">
-        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-ranking-star" style="color:var(--teal);"></i> Top Camions — Visites Zone<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartTopTrucks','Top Camions')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartTopTrucks"></canvas></div></div>
-        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-chart-pie" style="color:var(--purple);"></i> Temps Total par Zone (heures)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartZonePie','Temps Zone')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartZonePie"></canvas></div></div>
-        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-chart-area" style="color:var(--teal);"></i> Événements par Jour<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartDaily','Evenements Jour')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartDaily"></canvas></div></div>
-        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-clock" style="color:var(--orange);"></i> Heures de Pointe (entrées zone)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartRushHours','Heures Pointe')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartRushHours"></canvas></div></div>
-        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-hourglass-half" style="color:var(--red);"></i> Immobilisation Moyenne par Zone (min)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartImmoByZone','Immobilisation')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartImmoByZone"></canvas></div></div>
-        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-calendar-week" style="color:var(--blue);"></i> Activité par Jour de la Semaine<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartWeekday','Activité Semaine')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartWeekday"></canvas></div></div>
-        <div class="chart-card" style="grid-column:span 2;"><div class="chart-title">🏆 Classement Camions — Visites &amp; Immobilisation</div><div class="ranking-list" id="rankingList"><div class="empty-state" style="padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i></div></div></div>
-      </div>`;
-      state.analyticsData = data;
-      buildCharts(data);
+
+      state.fullAnalyticsData = data;
+      
+      // Populate zone filter if empty
+      const filterSelect = document.getElementById('analyticsZoneFilter');
+      if (filterSelect && filterSelect.options.length <= 1) {
+        const zones = [...new Set(data.map(d => d.zoneName).filter(Boolean))].sort();
+        zones.forEach(z => {
+           const opt = document.createElement('option');
+           opt.value = z; opt.textContent = z;
+           filterSelect.appendChild(opt);
+        });
+      }
+
+      filterAnalytics();
     } catch(e) {
       console.warn('Analytics load error:', e);
       const ac2 = document.getElementById('analyticsContent');
       if (ac2) ac2.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:var(--red);"></i><p>Erreur: ${e.message}</p></div>`;
     }
+  }
+
+  function filterAnalytics() {
+      const ac = document.getElementById('analyticsContent');
+      const filterSelect = document.getElementById('analyticsZoneFilter');
+      const periodSelect = document.getElementById('analyticsPeriodFilter');
+      const selectedZone = filterSelect ? filterSelect.value : '';
+      const selectedPeriod = periodSelect ? parseInt(periodSelect.value) : 30;
+
+      let data = state.fullAnalyticsData || [];
+      if (selectedZone) {
+          data = data.filter(d => d.zoneName === selectedZone);
+      }
+      if (selectedPeriod) {
+          const cutoff = Date.now() - (selectedPeriod * 24 * 60 * 60 * 1000);
+          data = data.filter(d => {
+              const dt = new Date(d.entryTime || d.createdAt).getTime();
+              return dt >= cutoff;
+          });
+      }
+
+      if (ac) ac.innerHTML = `<div class="charts-grid mt-16">
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-truck" style="color:var(--teal);"></i> Répartition des Visites par Camion<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartTopTrucks','Top Camions')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartTopTrucks"></canvas></div><div style="font-size:10px; color:var(--text-3); text-align:center; margin-top:8px;">Identifiez les camions avec le plus grand nombre d'entrées.</div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-chart-pie" style="color:var(--purple);"></i> Temps Total par Zone (heures)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartZonePie','Temps Zone')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartZonePie"></canvas></div><div style="font-size:10px; color:var(--text-3); text-align:center; margin-top:8px;">Cumul du temps passé par l'ensemble de la flotte par zone.</div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-chart-area" style="color:var(--teal);"></i> Évolution des Visites<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartDaily','Evenements Jour')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartDaily"></canvas></div><div style="font-size:10px; color:var(--text-3); text-align:center; margin-top:8px;">Tendance du nombre d'événements (entrées/sorties) au fil des jours.</div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-clock" style="color:var(--orange);"></i> Affluence par Heure<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartRushHours','Heures Pointe')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartRushHours"></canvas></div><div style="font-size:10px; color:var(--text-3); text-align:center; margin-top:8px;">Découvrez à quelle heure de la journée vos zones sont les plus fréquentées.</div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-hourglass-half" style="color:var(--red);"></i> Durée Moyenne par Visite (min)<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartImmoByZone','Immobilisation')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartImmoByZone"></canvas></div><div style="font-size:10px; color:var(--text-3); text-align:center; margin-top:8px;">Temps moyen qu'un camion passe à l'intérieur de chaque zone.</div></div>
+        <div class="chart-card"><div class="chart-title"><i class="fa-solid fa-calendar-week" style="color:var(--blue);"></i> Activité par Jour de la Semaine<button class="chart-dl-btn" onclick="ZMC.downloadChart('chartWeekday','Activité Semaine')" title="Télécharger PNG"><i class="fa-solid fa-download"></i></button></div><div class="chart-wrap"><canvas id="chartWeekday"></canvas></div><div style="font-size:10px; color:var(--text-3); text-align:center; margin-top:8px;">Répartition de la charge de travail globale sur la semaine.</div></div>
+        <div class="chart-card" style="grid-column:span 2;"><div class="chart-title"><i class="fa-solid fa-list-ol" style="color:var(--text-1);"></i> Classement Détaillé des Camions</div><div class="ranking-list" id="rankingList"><div class="empty-state" style="padding:20px;"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div style="font-size:10px; color:var(--text-3); text-align:center; margin-top:8px;">Classement individuel basé sur la durée totale d'immobilisation.</div></div>
+      </div>`;
+      
+      state.analyticsData = data;
+      if (data.length > 0) {
+        buildCharts(data);
+      } else {
+        if (ac) ac.innerHTML = '<div class="empty-state"><i class="fa-solid fa-chart-line"></i><p>Aucune donnée pour les critères sélectionnés</p></div>';
+      }
   }
 
   function buildCharts(data) {
@@ -2019,7 +2306,7 @@ const ZMC = (() => {
       },
       options: {
         indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} visites zone` } } },
+        plugins: { legend: { display: true, position: 'bottom' }, tooltip: { callbacks: { label: ctx => ` ${ctx.raw} visites zone` } } },
         scales: { x: { grid: { color: gridColor }, title: { display: true, text: 'Nombre de visites', color: textColor, font: { size: 10 } } }, y: { grid: { display: false } } }
       }
     });
@@ -2034,12 +2321,12 @@ const ZMC = (() => {
       type: 'doughnut',
       data: {
         labels: sortedZones.map(z=>z[0]),
-        datasets: [{ data: sortedZones.map(z=>Math.round(z[1]/60*10)/10), backgroundColor: pieColors, borderWidth: 0, hoverOffset: 8 }]
+        datasets: [{ label: 'Heures d\'immobilisation', data: sortedZones.map(z=>Math.round(z[1]/60*10)/10), backgroundColor: pieColors, borderWidth: 0, hoverOffset: 8 }]
       },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '60%',
         plugins: {
-          legend: { position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 11 } } },
+          legend: { display: true, position: 'right', labels: { boxWidth: 12, padding: 12, font: { size: 11 } } },
           tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}h` } }
         }
       }
@@ -2063,306 +2350,128 @@ const ZMC = (() => {
         labels: days.map(d => { const dt = new Date(d); return dt.toLocaleDateString('fr-FR', {day:'2-digit', month:'short'}); }),
         datasets: [{
           label: 'Événements/jour',
-          data: days.map(d=>dayMap[d]||0),
-          borderColor: '#2dd4bf', backgroundColor: gradient,
-          fill: true, tension: 0.4, pointRadius: 3, pointHoverRadius: 6,
-          pointBackgroundColor: '#2dd4bf', pointBorderColor: isDark ? '#1a1d24' : '#fff', pointBorderWidth: 2
+          data: days.map(d => dayMap[d]),
+          borderColor: '#2dd4bf', backgroundColor: gradient, fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointBackgroundColor: '#2dd4bf'
         }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.raw} événements` } } },
-        scales: { x: { grid: { color: gridColor } }, y: { grid: { color: gridColor }, beginAtZero: true, ticks: { stepSize: 1 } } }
+        plugins: { legend: { display: true, position: 'bottom' } },
+        scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } }
       }
     });
 
-    // 4. Rush hours — entries per hour of day
+    // 4. Rush hours — bar
     const hourMap = {};
     data.forEach(e => {
-      if (e.entryTime) { const h = new Date(e.entryTime).getHours(); hourMap[h] = (hourMap[h]||0)+1; }
+      if(e.entryTime) { const h = new Date(e.entryTime).getHours(); hourMap[h] = (hourMap[h]||0)+1; }
     });
-    const hours = Array.from({length:24},(_,i)=>i);
-    const hourData = hours.map(h=>hourMap[h]||0);
-    const peakHour = Math.max(...hourData);
-    const rushHourLabel = Object.entries(hourMap).sort((a,b)=>b[1]-a[1])[0];
-    if (state.charts.rushHours) state.charts.rushHours.destroy();
-    const rh = document.getElementById('chartRushHours');
-    if (rh) {
-      state.charts.rushHours = new Chart(rh, {
-        type:'bar',
-        data:{
-          labels:hours.map(h=>`${h}h`),
-          datasets:[{label:'Entrées en zone',data:hourData,
-            backgroundColor:hourData.map(v=>v===peakHour?'rgba(251,146,60,0.9)':'rgba(96,165,250,0.55)'),
-            borderColor:hourData.map(v=>v===peakHour?'#f97316':'#3b82f6'),
-            borderWidth:1,borderRadius:4
-          }]
-        },
-        options:{
-          responsive:true,maintainAspectRatio:false,
-          plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} entrées`}}},
-          scales:{x:{grid:{display:false}},y:{grid:{color:gridColor},beginAtZero:true,ticks:{stepSize:1}}}
-        }
-      });
-    }
+    const hours = Array.from({length:24}, (_,i)=>i);
+    if (state.charts.rush) state.charts.rush.destroy();
+    state.charts.rush = new Chart(document.getElementById('chartRushHours'), {
+      type: 'bar',
+      data: {
+        labels: hours.map(h => `${h}h`),
+        datasets: [{
+          label: 'Entrées',
+          data: hours.map(h => hourMap[h]||0),
+          backgroundColor: hours.map(h => (h>=8 && h<=17) ? 'rgba(251,146,60,0.8)' : 'rgba(96,165,250,0.6)'),
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom' } },
+        scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } }
+      }
+    });
 
-    // 5. Immobilization average by zone
-    const zoneImmoSum = {}, zoneImmoCount = {};
-    data.filter(e=>e.exitTime).forEach(e => {
-      const v = e.recapImmobilisationMin||e.durationMinutes||0;
-      if (v>0) { zoneImmoSum[e.zoneName]=(zoneImmoSum[e.zoneName]||0)+v; zoneImmoCount[e.zoneName]=(zoneImmoCount[e.zoneName]||0)+1; }
+    // 5. Avg Immobilization by Zone
+    const zoneImmo = {};
+    data.filter(e=>e.durationMinutes).forEach(e => {
+      if(!zoneImmo[e.zoneName]) zoneImmo[e.zoneName] = { total:0, count:0 };
+      zoneImmo[e.zoneName].total += e.durationMinutes;
+      zoneImmo[e.zoneName].count += 1;
     });
-    const zoneImmoData = Object.entries(zoneImmoSum).map(([z,tot])=>({zone:z,avg:Math.round(tot/(zoneImmoCount[z]||1))})).sort((a,b)=>b.avg-a.avg).slice(0,10);
-    if (state.charts.immoByZone) state.charts.immoByZone.destroy();
-    const iz = document.getElementById('chartImmoByZone');
-    if (iz) {
-      state.charts.immoByZone = new Chart(iz, {
-        type:'bar',
-        data:{
-          labels:zoneImmoData.map(z=>z.zone),
-          datasets:[{label:'Immob. moy (min)',data:zoneImmoData.map(z=>z.avg),
-            backgroundColor:zoneImmoData.map(z=>z.avg>240?'rgba(248,113,113,0.85)':z.avg>120?'rgba(251,146,60,0.85)':'rgba(74,222,128,0.85)'),
-            borderRadius:6
-          }]
-        },
-        options:{
-          indexAxis:'y',responsive:true,maintainAspectRatio:false,
-          plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} min`}}},
-          scales:{x:{grid:{color:gridColor}},y:{grid:{display:false}}}
-        }
-      });
-    }
+    const avgZones = Object.entries(zoneImmo).map(([z,v]) => ({ z, avg: Math.round(v.total/v.count) })).sort((a,b)=>b.avg-a.avg).slice(0,10);
+    if (state.charts.immo) state.charts.immo.destroy();
+    state.charts.immo = new Chart(document.getElementById('chartImmoByZone'), {
+      type: 'bar',
+      data: {
+        labels: avgZones.map(z=>z.z),
+        datasets: [{
+          label: 'Min moy.',
+          data: avgZones.map(z=>z.avg),
+          backgroundColor: 'rgba(248,113,113,0.8)', borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom' } },
+        scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } }
+      }
+    });
 
     // 6. Weekday activity
-    const weekdays = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
     const wdMap = {0:0,1:0,2:0,3:0,4:0,5:0,6:0};
-    data.forEach(e => { if (e.entryTime) wdMap[new Date(e.entryTime).getDay()]++; });
+    data.forEach(e => {
+      if(e.entryTime) { const d = new Date(e.entryTime).getDay(); wdMap[d] = (wdMap[d]||0)+1; }
+    });
+    const wdLabels = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
     if (state.charts.weekday) state.charts.weekday.destroy();
-    const wd = document.getElementById('chartWeekday');
-    if (wd) {
-      const wdGrad = wd.getContext('2d').createLinearGradient(0,0,0,150);
-      wdGrad.addColorStop(0,'rgba(167,139,250,0.85)');
-      wdGrad.addColorStop(1,'rgba(167,139,250,0.2)');
-      state.charts.weekday = new Chart(wd, {
-        type:'bar',
-        data:{labels:weekdays,datasets:[{label:'Visites',data:[0,1,2,3,4,5,6].map(d=>wdMap[d]),backgroundColor:wdGrad,borderRadius:6,borderWidth:0}]},
-        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.raw} visites`}}},scales:{x:{grid:{display:false}},y:{grid:{color:gridColor},beginAtZero:true}}}
-      });
-    }
-
-    // 7. Enhanced Ranking
-    const truckImmo = {};
-    data.forEach(e => {
-      const v = e.recapImmobilisationMin||e.durationMinutes||0;
-      if (v>0) truckImmo[e.truckName] = (truckImmo[e.truckName]||0)+v;
+    state.charts.weekday = new Chart(document.getElementById('chartWeekday'), {
+      type: 'bar',
+      data: {
+        labels: wdLabels,
+        datasets: [{
+          label: 'Visites',
+          data: [wdMap[0], wdMap[1], wdMap[2], wdMap[3], wdMap[4], wdMap[5], wdMap[6]],
+          backgroundColor: 'rgba(96,165,250,0.7)', borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom' } },
+        scales: { x: { grid: { display: false } }, y: { grid: { color: gridColor }, beginAtZero: true } }
+      }
     });
-    const top = sortedTrucks.slice(0,8);
-    const maxVal = top[0]?.[1] || 1;
-    const medals = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣'];
-    document.getElementById('rankingList').innerHTML = top.map((t,i) => {
-      const immoAvg = truckImmo[t[0]] ? Math.round(truckImmo[t[0]]/t[1]) : 0;
-      return `<div class="rank-row">
-        <div class="rank-num" style="${i<3?'font-size:16px;':''}">${medals[i]||i+1}</div>
-        <div class="rank-label" title="${t[0]}">${t[0]}</div>
-        <div class="rank-bar-wrap"><div class="rank-bar" style="width:${Math.round(t[1]/maxVal*100)}%;background:linear-gradient(90deg,${i===0?'var(--teal)':i===1?'var(--blue)':'var(--purple)'},transparent)"></div></div>
-        <div class="rank-val">${t[1]} visites</div>
-        <div style="font-size:10px;color:${immoAvg>120?'var(--red)':'var(--text-2)'};margin-left:8px;min-width:55px;">${immoAvg?immoAvg+'m moy':''}</div>
-      </div>`;
-    }).join('');
 
-    // KPI banner
-    const allImmo = data.filter(e=>e.exitTime).map(e=>e.recapImmobilisationMin||e.durationMinutes||0).filter(v=>v>0);
-    const avgImmoGlobal = allImmo.length ? Math.round(allImmo.reduce((a,b)=>a+b,0)/allImmo.length) : 0;
-    const kpiHtml = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:18px;">
-      <div style="background:linear-gradient(135deg,#2dd4bf,#0d9488);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Total Événements</div><div style="font-size:28px;font-weight:900;">${data.length}</div></div>
-      <div style="background:linear-gradient(135deg,#60a5fa,#2563eb);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Camions Actifs</div><div style="font-size:28px;font-weight:900;">${new Set(data.map(e=>e.truckName)).size}</div></div>
-      <div style="background:linear-gradient(135deg,#a78bfa,#7c3aed);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Zones Visitées</div><div style="font-size:28px;font-weight:900;">${new Set(data.map(e=>e.zoneName)).size}</div></div>
-      <div style="background:linear-gradient(135deg,#fb923c,#ea580c);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Immob. Moy.</div><div style="font-size:28px;font-weight:900;">${avgImmoGlobal}m</div></div>
-      <div style="background:linear-gradient(135deg,#f472b6,#db2777);border-radius:12px;padding:14px;color:white;"><div style="font-size:9px;font-weight:700;opacity:.8;text-transform:uppercase;">Heure de Pointe</div><div style="font-size:28px;font-weight:900;">${rushHourLabel?rushHourLabel[0]+'h':'—'}</div></div>
-    </div>`;
-    const ac = document.getElementById('analyticsContent');
-    if (ac && !document.getElementById('akpiStrip')) {
-      ac.insertAdjacentHTML('afterbegin', `<div id="akpiStrip">${kpiHtml}</div>`);
-    }
-  }
-
-  // ── POWER BI ──
-  function buildPBUrl() {
-    const zone = document.getElementById('pbZone')?.value || '';
-    const truck = document.getElementById('pbTruck')?.value || '';
-    const type = document.getElementById('pbType')?.value || 'powerbi';
-    const start = document.getElementById('pbStart')?.value || '';
-    const end = document.getElementById('pbEnd')?.value || '';
-    const token = document.getElementById('pbToken')?.value || 'fleet_powerbi_2025';
-
-    let resolvedBase = state.base;
-    if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      resolvedBase = window.location.origin;
-    }
-    let url = `${resolvedBase}/api/`;
-    const isLive = type === 'powerbi-live';
-    const isOps = type.includes('zone-operations');
-
-    const isRealtime = type === 'realtime';
-    if (isRealtime) {
-      url += 'zone-events/powerbi?token=' + token + '&start=' + new Date().toISOString().slice(0, 10);
-      if (zone) url += '&zone=' + encodeURIComponent(zone);
-      if (truck) url += '&truck=' + encodeURIComponent(truck);
-    } else if (isOps) {
-      url += type + '?token=' + token;
-    } else if (type === 'powerbi-zones') {
-      url += 'zone-events/powerbi-zones?token=' + token;
-    } else if (isLive) {
-      url += 'zone-events/powerbi-live';
-      if (zone) url += '/' + encodeURIComponent(zone);
-      url += '?token=' + token;
-      if (truck) url += '&truck=' + encodeURIComponent(truck);
+    // 7. Ranking list — Detailed
+    const tStats = {};
+    data.forEach(e => {
+      if(!tStats[e.truckName]) tStats[e.truckName] = { visits:0, min:0 };
+      tStats[e.truckName].visits += 1;
+      tStats[e.truckName].min += (e.durationMinutes||0);
+    });
+    const rList = Object.entries(tStats).map(([t,s]) => ({ t, v:s.visits, m:s.min })).sort((a,b)=>b.v-a.v);
+    const rlEl = document.getElementById('rankingList');
+    if (rList.length === 0) {
+      rlEl.innerHTML = '<div class="empty-state">Aucun camion.</div>';
     } else {
-      url += 'zone-events/powerbi';
-      if (zone) url += '/' + encodeURIComponent(zone);
-      url += '?token=' + token;
-      if (truck) url += '&truck=' + encodeURIComponent(truck);
-      if (start) url += '&start=' + encodeURIComponent(start);
-      if (end) url += '&end=' + encodeURIComponent(end);
+      rlEl.innerHTML = '<div style="display:grid;gap:6px;">' + rList.map((r, i) => {
+        const bg = isDark ? 'rgba(255,255,255,0.03)' : '#f9fafb';
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:${bg};border-radius:6px;border:1px solid var(--border-1);">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:24px;text-align:center;font-weight:800;color:var(--text-3);font-size:12px;">#${i+1}</div>
+            <div style="font-weight:700;color:var(--text-1);font-size:13px;">${r.t}</div>
+          </div>
+          <div style="display:flex;gap:20px;text-align:right;">
+            <div><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;">Visites</div><div style="font-weight:800;color:var(--teal);font-size:13px;">${r.v}</div></div>
+            <div style="min-width:60px;"><div style="font-size:10px;color:var(--text-3);text-transform:uppercase;">Immobilisé</div><div style="font-weight:700;color:var(--text-2);font-size:13px;">${r.m >= 60 ? Math.floor(r.m/60)+'h'+(r.m%60)+'m' : r.m+'m'}</div></div>
+          </div>
+        </div>`;
+      }).join('') + '</div>';
     }
-
-    document.getElementById('pbUrlText').textContent = url;
   }
 
-  function copyPBUrl() {
-    const url = document.getElementById('pbUrlText').textContent;
-    navigator.clipboard.writeText(url).then(() => toast('✅ URL copiée !','success'));
-  }
-
-  function buildPBEndpoints() {
-    const base = state.base;
-    const token = 'fleet_powerbi_2025';
-    const endpoints = [
-      { url: `/api/zone-events/powerbi?token=${token}`, desc: 'Tout l\'historique zone (toutes zones)' },
-      { url: `/api/zone-events/powerbi?token=${token}&start=${new Date().toISOString().slice(0,10)}`, desc: '🔴 Temps réel — jour en cours uniquement' },
-      { url: `/api/zone-events/powerbi/NOM_ZONE?token=${token}`, desc: 'Historique d\'une zone spécifique' },
-      { url: `/api/zone-events/powerbi?token=${token}&truck=T049`, desc: 'Historique d\'un camion spécifique' },
-      { url: `/api/zone-events/powerbi-live?token=${token}`, desc: 'Camions en zone EN CE MOMENT' },
-      { url: `/api/zone-events/powerbi-live/NOM_ZONE?token=${token}`, desc: 'Live — une zone spécifique' },
-      { url: `/api/zone-operations/powerbi?token=${token}`, desc: 'Opérations planifiées + ponctualité' },
-      { url: `/api/zone-events/powerbi-zones?token=${token}`, desc: 'Liste de toutes les zones disponibles' },
-    ];
-    const sigBanner = `<div style="padding:10px 14px;background:linear-gradient(135deg,rgba(45,212,191,.12),rgba(96,165,250,.08));border:1px solid rgba(45,212,191,.25);border-radius:var(--radius-sm);margin-bottom:12px;display:flex;align-items:center;gap:10px;">
-      <i class="fa-solid fa-certificate" style="color:var(--teal);font-size:16px;"></i>
-      <div>
-        <div style="font-size:12px;font-weight:700;color:var(--teal);">Données exportées depuis dedsite.online</div>
-        <div style="font-size:10px;color:var(--text-2);">Dev: Chikhaoui Abderrahime · Fleet Analytics v2.0 · Chaque ligne de données contient les champs <code>_Exported_From</code>, <code>_Dev</code>, <code>_Version</code></div>
-      </div>
-    </div>`;
-    document.getElementById('pbEndpointList').innerHTML = sigBanner + endpoints.map(ep => `
-      <div class="pb-endpoint-row">
-        <div class="pb-endpoint-method">GET</div>
-        <div class="pb-endpoint-url">${ep.url}</div>
-        <div class="pb-endpoint-desc">${ep.desc}</div>
-        <button class="pb-copy-small" onclick="navigator.clipboard.writeText('${base}${ep.url}').then(()=>ZMC.toast('Copié!','success'))"><i class="fa-solid fa-copy"></i></button>
-      </div>`).join('');
-  }
-
-  // ── EXPORT UTILITIES ──
-  function downloadChart(canvasId, name) {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) { toast('Graphique introuvable', 'error'); return; }
-    const link = document.createElement('a');
-    link.download = `fleet_${name.replace(/\s+/g,'_')}_${new Date().toISOString().slice(0,10)}.png`;
-    link.href = canvas.toDataURL('image/png', 1.0);
-    link.click();
-    toast('📥 ' + name + ' exporté', 'success');
-  }
-
-  function exportAllChartsPNG() {
-    const charts = ['chartTopTrucks','chartZonePie','chartDaily','chartRushHours','chartImmoByZone','chartWeekday'];
-    const names = ['Top_Camions','Temps_Zone','Visites_Jour','Rush_Hours','Immobilisation','Activité_Semaine'];
-    let count = 0;
-    charts.forEach((id, i) => {
-      const canvas = document.getElementById(id);
-      if (canvas) {
-        setTimeout(() => {
-          const link = document.createElement('a');
-          link.download = `fleet_${names[i]}_${new Date().toISOString().slice(0,10)}.png`;
-          link.href = canvas.toDataURL('image/png', 1.0);
-          link.click();
-          count++;
-        }, i * 300);
-      }
-    });
-    toast(`📥 ${charts.length} graphiques exportés`);
-  }
-
-  function exportAnalyticsCSV() {
-    const data = state.analyticsData;
-    if (!data || !data.length) { toast('Chargez les analytiques d abord', 'error'); return; }
-    let csv = '\uFEFFDate,Camion,Zone,Entrée,Sortie,Durée (min),Immobilisation (min),Type,Opération\n';
-    data.forEach(e => {
-      csv += `"${new Date(e.entryTime||e.createdAt).toLocaleDateString('fr-FR')}","${e.truckName}","${e.zoneName}","${e.entryTime||''}","${e.exitTime||''}","${e.durationMinutes||''}","${e.recapImmobilisationMin||''}","${e.operationSource||'auto'}","${e.operationName||''}"\n`;
-    });
-    const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `fleet_analytics_${new Date().toISOString().slice(0,10)}.csv`;
-    link.click();
-    toast('📥 CSV exporté avec ' + data.length + ' lignes');
-  }
-
-  function printAnalytics() {
-    const content = document.getElementById('analyticsContent');
-    if (!content) { toast('Chargez les analytiques d abord', 'error'); return; }
-    const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Rapport Analytique Fleet</title>
-    
-    <style>
-      body{font-family:Arial,sans-serif;padding:30px;color:#111;background:white}
-      h1{color:#0d9488;border-bottom:3px solid #0d9488;padding-bottom:10px}
-      .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:20px 0}
-      .kpi{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px;text-align:center}
-      .kpi-val{font-size:32px;font-weight:900;color:#0f172a}
-      .kpi-label{font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase}
-      .chart-img{max-width:48%;display:inline-block;margin:10px 1%;border:1px solid #e2e8f0;border-radius:8px;padding:10px}
-      .chart-img img{width:100%}
-      .footer{margin-top:40px;padding-top:12px;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;text-align:center}
-      @media print{@page{margin:10mm}button{display:none!important}}
-    </style></head><body>
-    <div style="display:flex;justify-content:space-between;align-items:start">
-      <div><h1>📊 Rapport Analytique Fleet</h1><div style="color:#64748b;font-size:13px;">Période: 30 derniers jours · Généré le ${new Date().toLocaleString('fr-FR')}</div></div>
-      <button onclick="window.print()" style="background:#0d9488;color:white;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;">🖨️ Imprimer</button>
-    </div>`);
-    // Export each chart as image
-    const chartIds = ['chartTopTrucks','chartZonePie','chartDaily','chartRushHours','chartImmoByZone','chartWeekday'];
-    const chartLabels = ['Top Camions — Visites','Temps par Zone','Visites Journalières','Heures de Pointe','Immobilisation par Zone','Activité par Semaine'];
-    w.document.write('<div style="margin-top:20px;">');
-    chartIds.forEach((id, i) => {
-      const canvas = document.getElementById(id);
-      if (canvas) {
-        w.document.write(`<div class="chart-img"><div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#334155;">${chartLabels[i]}</div><img src="${canvas.toDataURL('image/png')}" /></div>`);
-      }
-    });
-    w.document.write('</div>');
-    w.document.write(`<div class="footer">Fleet Analytics v2.0 · dedsite.online · Dev: Chikhaoui</div></body></html>`);
-    w.document.close();
-  }
-
-  // ── THEME ──
-  function toggleTheme() {
-    const html = document.documentElement;
-    const isDark = html.dataset.theme === 'dark';
-    html.dataset.theme = isDark ? 'light' : 'dark';
-    localStorage.setItem('zmc_theme', html.dataset.theme);
-    // Rebuild charts with new theme
-    if (document.querySelector('.top-tab[data-tab="analytics"].active')) loadAnalytics();
-  }
-
-  // ── UTILS ──
-  function toast(msg, type='success') {
-    const el = document.getElementById('toast');
-    el.textContent = msg; el.className = `show ${type}`;
-    setTimeout(() => el.className='', 2800);
-  }
-
-  function downloadCSV(csv, name) {
+    // ── UTILS ──
+    function toast(msg, type='success') {
+      const el = document.getElementById('toast');
+      el.textContent = msg; el.className = `show ${type}`;
+      setTimeout(() => el.className='', 2800);
+    }
+  
+    function downloadCSV(csv, name) {
     const blob = new Blob([csv],{type:'text/csv;charset=utf-8;'});
     const a = document.createElement('a'); a.href=URL.createObjectURL(blob);
     a.download=`${name}_${new Date().toISOString().slice(0,10)}.csv`; a.click();
@@ -2468,21 +2577,191 @@ const ZMC = (() => {
 
   async function reloadGPSHistory() {
     const btn = document.getElementById('reloadGpsBtn');
-    const start = document.getElementById('gpsStart')?.value || new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-    const end = document.getElementById('gpsEnd')?.value || new Date().toISOString().slice(0, 10);
+    const start = document.getElementById('gpsStart')?.value;
+    const end   = document.getElementById('gpsEnd')?.value;
     if (!start || !end) { toast('Sélectionnez une période pour le scan GPS', 'error'); return; }
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scan GPS...';
+
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scan en cours...';
     btn.disabled = true;
+
+    const resultsEl = document.getElementById('gpsScanResults');
+    const t0 = Date.now();
+
+    // Step 1: fetch truck list
+    resultsEl.innerHTML = '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;"><div style="display:flex;align-items:center;gap:10px;font-size:13px;font-weight:700;"><i class=\"fa-solid fa-spinner fa-spin\" style=\"color:#2dd4bf;\"></i>Récupération de la liste des camions...</div></div>';
+
+    let trucks = [];
     try {
-      const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
-        method: 'POST', headers: headers(),
-        body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end + 'T23:59:59').toISOString() })
-      });
-      const d = await r.json();
-      toast(`✅ ${d.summary?.created || 0} événements zone recréés`, 'success');
-      loadFleetData();
-    } catch (e) { toast('Erreur GPS: ' + e.message, 'error'); }
-    finally { btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Recharger GPS'; btn.disabled = false; }
+      const tr = await fetch(state.base + '/api/trucks', { headers: headers() });
+      const td = await tr.json();
+      // /api/trucks returns {deviceId: truckObj} map — normalize to array (same as loadFleetData)
+      if (Array.isArray(td)) {
+        trucks = td;
+      } else if (td && typeof td === 'object') {
+        trucks = Object.entries(td).map(([id, t]) => ({
+          deviceId: id,
+          name: (t && (t.truckName || t.name)) || id,
+          truckName: (t && (t.truckName || t.name)) || id
+        }));
+      }
+    } catch(e) {
+      toast('Erreur liste camions: ' + e.message, 'error');
+      btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> 🚀 Lancer le Scan Radar';
+      btn.disabled = false; return;
+    }
+    // Fallback: reuse already-loaded fleet data
+    if (!trucks.length && state.fleetData && state.fleetData.length) {
+      trucks = state.fleetData.map(t => ({
+        deviceId: t.deviceId || t.id,
+        name: t.truckName || t.name || t.deviceId,
+        truckName: t.truckName || t.name || t.deviceId
+      }));
+    }
+    if (!trucks.length) {
+      toast('Aucun camion trouvé — chargez la Flotte d\'abord', 'error');
+      btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> 🚀 Lancer le Scan Radar';
+      btn.disabled = false; return;
+    }
+
+    const checkboxes = document.querySelectorAll('.gps-truck-cb');
+    if (checkboxes.length > 0) {
+      const selectedDeviceIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+      if (selectedDeviceIds.length === 0) {
+        toast('Sélectionnez au moins un camion', 'error');
+        btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> 🚀 Lancer le Scan Radar';
+        btn.disabled = false; return;
+      }
+      if (selectedDeviceIds.length < checkboxes.length) {
+        trucks = trucks.filter(t => selectedDeviceIds.includes(String(t.deviceId || t.id)));
+      }
+    }
+
+    const total = trucks.length;
+    let done = 0, totalEvents = 0, totalErrors = 0;
+
+    // Elapsed timer
+    const elTimer = setInterval(() => {
+      const el = document.getElementById('scanElapsed');
+      if (el) el.textContent = ((Date.now()-t0)/1000).toFixed(0) + 's';
+    }, 500);
+
+    // Build truck rows HTML
+    const truckRowsHtml = trucks.map(function(t, i) {
+      const name = t.truckName || t.name || t.deviceId || ('Camion '+(i+1));
+      return '<div id="trow_'+i+'" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;background:var(--bg-3);border:1px solid var(--border);transition:all 0.3s;">'
+        + '<i id="tico_'+i+'" class="fa-solid fa-clock" style="color:#64748b;font-size:13px;flex-shrink:0;width:14px;text-align:center;"></i>'
+        + '<div style="flex:1;min-width:0;">'
+        + '<div style="font-weight:700;font-size:12px;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + name + '</div>'
+        + '<div id="tdet_'+i+'" style="font-size:10px;color:var(--text-3);margin-top:1px;">En attente...</div>'
+        + '</div>'
+        + '<div id="tbadge_'+i+'" style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:rgba(100,116,139,0.15);color:#64748b;white-space:nowrap;">—</div>'
+        + '</div>';
+    }).join('');
+
+    resultsEl.innerHTML = '<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;display:grid;gap:14px;">'
+      + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">'
+      + '<div style="display:flex;align-items:center;gap:10px;">'
+      + '<i class="fa-solid fa-satellite-dish fa-spin" id="scanMainIcon" style="color:#2dd4bf;font-size:18px;"></i>'
+      + '<div><div style="font-size:13px;font-weight:800;color:var(--text-1);" id="scanMainStatus">Scan GPS — 0 / ' + total + ' camions</div>'
+      + '<div style="font-size:10px;color:var(--text-3);" id="scanMainDetail">Initialisation...</div></div></div>'
+      + '<div style="display:flex;align-items:center;gap:16px;">'
+      + '<div style="text-align:center;"><div style="font-size:18px;font-weight:900;color:#2dd4bf;" id="scanEvtCount">0</div><div style="font-size:9px;color:var(--text-3);">Événements</div></div>'
+      + '<div style="text-align:center;"><div style="font-size:18px;font-weight:900;color:#f59e0b;" id="scanErrCount">0</div><div style="font-size:9px;color:var(--text-3);">Erreurs</div></div>'
+      + '<div style="text-align:center;"><div style="font-size:18px;font-weight:900;color:#94a3b8;" id="scanElapsed">0s</div><div style="font-size:9px;color:var(--text-3);">Durée</div></div>'
+      + '</div></div>'
+      + '<div><div style="background:var(--bg-3);border-radius:6px;height:6px;overflow:hidden;">'
+      + '<div id="scanGlobalFill" style="height:100%;width:0%;background:linear-gradient(90deg,#2dd4bf,#0ea5e9);border-radius:6px;transition:width 0.4s ease;"></div></div>'
+      + '<div style="display:flex;justify-content:space-between;margin-top:4px;">'
+      + '<span id="scanPctTxt" style="font-size:10px;color:var(--text-3);">0%</span>'
+      + '<span style="font-size:10px;color:var(--text-3);">' + total + ' camions · ' + start + ' → ' + end + '</span>'
+      + '</div></div>'
+      + '<div style="display:grid;gap:6px;max-height:360px;overflow-y:auto;padding-right:4px;">' + truckRowsHtml + '</div>'
+      + '</div>';
+
+    function setRow(i, icon, iconColor, bg, detail, badge, badgeColor) {
+      const row = document.getElementById('trow_'+i);
+      const ico = document.getElementById('tico_'+i);
+      const det = document.getElementById('tdet_'+i);
+      const bdg = document.getElementById('tbadge_'+i);
+      if (row) row.style.background = bg;
+      if (ico) { ico.className = 'fa-solid ' + icon; ico.style.color = iconColor; }
+      if (det) det.textContent = detail;
+      if (bdg) { bdg.textContent = badge; bdg.style.color = badgeColor; }
+    }
+
+    function setGlobal(pct, status, detail) {
+      const fill = document.getElementById('scanGlobalFill');
+      const pctTxt = document.getElementById('scanPctTxt');
+      const st = document.getElementById('scanMainStatus');
+      const dt = document.getElementById('scanMainDetail');
+      if (fill) fill.style.width = Math.min(pct,100) + '%';
+      if (pctTxt) pctTxt.textContent = Math.min(pct,100).toFixed(0) + '%';
+      if (st && status) st.textContent = status;
+      if (dt && detail) dt.textContent = detail;
+      const evtEl = document.getElementById('scanEvtCount');
+      const errEl = document.getElementById('scanErrCount');
+      if (evtEl) evtEl.textContent = totalEvents;
+      if (errEl) errEl.textContent = totalErrors;
+    }
+
+    // Step 2: scan truck by truck concurrently (25 at a time)
+    let currentIndex = 0;
+    async function worker() {
+      while (currentIndex < trucks.length) {
+        const i = currentIndex++;
+        const truck = trucks[i];
+        const name  = truck.truckName || truck.name || truck.deviceId || ('Camion '+(i+1));
+        const devId = String(truck.deviceId || truck.imei || truck.id || '');
+
+        setRow(i, 'fa-spinner fa-spin', '#2dd4bf', 'rgba(45,212,191,0.07)', 'Scan en cours...', '⟳', '#2dd4bf');
+        const rowEl = document.getElementById('trow_'+i);
+        if (rowEl) rowEl.scrollIntoView({ behavior:'smooth', block:'nearest' });
+
+        setGlobal(Math.round((done/total)*100), 'Scan GPS — '+done+' / '+total+' camions', 'Traitement: '+name);
+
+        const tTruck = Date.now();
+        try {
+          const r = await fetch(state.base + '/api/zone-events/scan-history', {
+            method: 'POST', headers: headers(),
+            body: JSON.stringify({
+              start: new Date(start).toISOString(),
+              end:   new Date(end + 'T23:59:59').toISOString(),
+              deviceIds: [devId]
+            })
+          });
+          const d = await r.json();
+          const created = d.summary?.created || 0;
+          const elapsed = ((Date.now()-tTruck)/1000).toFixed(1);
+          totalEvents += created;
+          done++;
+          setGlobal(Math.round((done/total)*100), 'Scan GPS — '+done+' / '+total+' camions', 'Traitement: '+name);
+          if (created > 0) {
+            setRow(i, 'fa-circle-check', '#22c55e', 'rgba(34,197,94,0.07)', created+' événements · '+elapsed+'s', '+'+created, '#22c55e');
+          } else {
+            setRow(i, 'fa-circle-minus', '#64748b', 'rgba(100,116,139,0.05)', 'Aucun passage · '+elapsed+'s', '0', '#64748b');
+          }
+        } catch(e) {
+          totalErrors++;
+          done++;
+          setGlobal(Math.round((done/total)*100), 'Scan GPS — '+done+' / '+total+' camions', 'Traitement: '+name);
+          setRow(i, 'fa-circle-xmark', '#ef4444', 'rgba(239,68,68,0.07)', 'Erreur: '+e.message, '!', '#ef4444');
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(25, trucks.length) }, () => worker()));
+
+    // Step 3: final summary
+    clearInterval(elTimer);
+    const elapsed = ((Date.now()-t0)/1000).toFixed(1);
+    const icon = document.getElementById('scanMainIcon');
+    if (icon) { icon.className = 'fa-solid fa-circle-check'; icon.style.color = '#22c55e'; icon.style.animation = 'none'; }
+    const fill = document.getElementById('scanGlobalFill');
+    if (fill) { fill.style.width = '100%'; fill.style.background = 'linear-gradient(90deg,#22c55e,#16a34a)'; }
+    setGlobal(100, '✅ Scan terminé — '+done+' / '+total+' camions', totalEvents+' événements créés · '+totalErrors+' erreur(s) · '+elapsed+'s');
+    toast('✅ Scan terminé: '+totalEvents+' événements, '+done+'/'+total+' camions ('+elapsed+'s)', 'success');
+    btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> 🚀 Lancer le Scan Radar';
+    btn.disabled = false;
+    loadFleetData();
   }
 
   function exportFleetCSV() {
@@ -2545,7 +2824,303 @@ const ZMC = (() => {
     }
 
     // ── EXPOSE ──
-  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, scanHistory, loadAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV };
+  
+  function histSortBy(field) {
+    if (histSortField === field) {
+      // same column → flip direction
+      histSortDir = histSortDir === 'desc' ? 'asc' : 'desc';
+    } else {
+      histSortField = field;
+      histSortDir = 'desc'; // always start desc on new column
+    }
+    // Update sort-order selector to stay in sync
+    const sel = document.getElementById('histSortOrder');
+    if (sel) sel.value = histSortDir;
+    // Update header indicators
+    document.querySelectorAll('#histHeaderRow span[id^="hSort_"]').forEach(el => el.textContent = '');
+    const ind = document.getElementById('hSort_' + field);
+    if (ind) ind.textContent = histSortDir === 'desc' ? ' ▼' : ' ▲';
+    histPage = 1;
+    loadHistory(1);
+  }
+
+  // Dropdown Logic for GPS Trucks
+  function toggleGpsTruckSelect() {
+    const dd = document.getElementById('gpsTrucksDropdown');
+    if (!dd) return;
+    if (dd.style.display === 'none') {
+      renderGpsTruckSelect();
+      dd.style.display = 'flex';
+      const search = document.getElementById('gpsTruckSearch');
+      if (search) { search.value = ''; search.focus(); filterGpsTrucks(); }
+    } else {
+      dd.style.display = 'none';
+    }
+  }
+
+  function filterGpsTrucks() {
+    const query = (document.getElementById('gpsTruckSearch')?.value || '').toLowerCase();
+    const items = document.querySelectorAll('.gps-truck-item');
+    items.forEach(item => {
+      const name = item.getAttribute('data-name');
+      if (name.includes(query)) item.style.display = 'flex';
+      else item.style.display = 'none';
+    });
+  }
+
+  function checkAllGpsTrucks(check) {
+    document.querySelectorAll('.gps-truck-cb').forEach(cb => cb.checked = check);
+    updateGpsTrucksBtnText();
+  }
+
+  function updateGpsTrucksBtnText() {
+    const checkboxes = document.querySelectorAll('.gps-truck-cb');
+    const checked = Array.from(checkboxes).filter(cb => cb.checked);
+    const txt = document.getElementById('gpsTrucksBtnText');
+    if (!txt) return;
+    if (checked.length === checkboxes.length) {
+      txt.textContent = 'Tous les camions';
+    } else if (checked.length === 0) {
+      txt.textContent = 'Aucun sélectionné';
+      txt.style.color = 'var(--red)';
+    } else {
+      txt.textContent = `${checked.length} camion(s) sélectionné(s)`;
+      txt.style.color = 'var(--text-1)';
+    }
+  }
+
+  async function renderGpsTruckSelect() {
+    const list = document.getElementById('gpsTrucksList');
+    if (!list || list.children.length > 0) return; 
+    
+    let trs = [];
+    if (state.fleetData && state.fleetData.length) {
+      trs = state.fleetData;
+    } else {
+      try {
+        const r = await fetch(state.base + '/api/trucks', { headers: headers() });
+        const d = await r.json();
+        if (Array.isArray(d)) trs = d;
+        else trs = Object.entries(d).map(([id, t]) => ({ deviceId: id, name: t.truckName || t.name || id, truckName: t.truckName || t.name || id }));
+      } catch(e) { console.error('Failed to load trucks for select', e); }
+    }
+    
+    trs.sort((a,b) => (a.name||a.truckName||'').localeCompare(b.name||b.truckName||''));
+    
+    list.innerHTML = trs.map(t => `
+      <label class="gps-truck-item" data-name="${(t.name || t.truckName || '').toLowerCase()}" style="display:flex;align-items:center;gap:10px;padding:8px;cursor:pointer;border-radius:6px;transition:background 0.2s;" onmouseover="this.style.background='var(--bg-3)'" onmouseout="this.style.background='transparent'">
+        <input type="checkbox" class="gps-truck-cb" value="${t.deviceId || t.id}" checked onchange="ZMC.updateGpsTrucksBtnText()" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer;">
+        <span style="font-size:13px;color:var(--text-1);font-weight:600;">${t.name || t.truckName}</span>
+      </label>
+    `).join('');
+    updateGpsTrucksBtnText();
+  }
+
+  function downloadChart(canvasId, name) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) { toast('Graphique non trouvé', 'error'); return; }
+    const link = document.createElement('a');
+    link.download = name + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  }
+
+  function exportAllChartsPNG() {
+    const charts = ['chartTopTrucks', 'chartZonePie', 'chartDaily', 'chartRushHours', 'chartImmoByZone', 'chartWeekday'];
+    charts.forEach(id => {
+      const canvas = document.getElementById(id);
+      if(canvas) {
+        const link = document.createElement('a');
+        link.download = id + '.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      }
+    });
+    toast('Exportation des graphiques lancée', 'success');
+  }
+
+  function exportAnalyticsCSV() {
+    if (!state.analyticsData || state.analyticsData.length === 0) {
+      toast('Aucune donnée à exporter', 'warning');
+      return;
+    }
+    let csv = '\uFEFFDate,Camion,Zone,Entrée,Sortie,Durée (min),Immobilisation (min),Type,Opération\n';
+    state.analyticsData.forEach(e => {
+      csv += `"${new Date(e.entryTime||e.createdAt).toLocaleDateString('fr-FR')}","${e.truckName}","${e.zoneName}","${e.entryTime||''}","${e.exitTime||''}","${e.durationMinutes||''}","${e.recapImmobilisationMin||''}","${e.operationSource||'auto'}","${e.operationName||''}"\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'analytics_zones.csv';
+    link.click();
+    toast('Export CSV réussi', 'success');
+  }
+
+  function printAnalytics() {
+    window.print();
+  }
+
+  function buildPBEndpoints() {
+    const epDiv = document.getElementById('pbEndpoints');
+    const token = document.getElementById('pbToken') ? document.getElementById('pbToken').value : '';
+    if (!epDiv) return;
+    
+    if (!token) {
+        epDiv.innerHTML = '<div style="font-size:11px; color:var(--text-3); text-align:center; padding:20px; border:1px dashed var(--border); border-radius:var(--radius-sm);">Veuillez créer et sélectionner une <b>Clé d\'Accès</b> dans le panneau de droite pour afficher les liens directs.</div>';
+        return;
+    }
+
+    const baseUrl = window.location.origin;
+    const endpoints = [
+      { name: 'Opérations & Missions', url: `${baseUrl}/api/zone-operations/powerbi?token=${token}` },
+      { name: 'Événements & Historique', url: `${baseUrl}/api/zone-events/powerbi?token=${token}` },
+      { name: 'Camions Actuellement en Zone (Live)', url: `${baseUrl}/api/zone-events/powerbi-live?token=${token}` },
+      { name: 'Liste des Zones (Référentiel)', url: `${baseUrl}/api/zone-events/powerbi-zones?token=${token}` }
+    ];
+
+    epDiv.innerHTML = endpoints.map((ep, i) => `
+      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:12px; display:flex; flex-direction:column; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+        <div style="font-size:11px; font-weight:800; color:var(--text-1); text-transform:uppercase;"><i class="fa-solid fa-bolt" style="color:var(--orange);margin-right:6px;"></i>${ep.name}</div>
+        <div style="display:flex; gap:8px; align-items:center; background:var(--bg-1); padding:6px 10px; border-radius:var(--radius-sm); border:1px solid rgba(45,212,191,0.2);">
+          <input type="text" id="pbEp${i}" value="${ep.url}" readonly style="flex:1; background:transparent; border:none; color:var(--teal); font-family:var(--mono); font-size:11px; outline:none;">
+          <button onclick="document.getElementById('pbEp${i}').select(); document.execCommand('copy'); ZMC.toast('Lien copié !', 'success');" style="background:var(--teal); border:none; color:#000; cursor:pointer; font-size:10px; font-weight:700; padding:4px 8px; border-radius:4px; text-transform:uppercase;" title="Copier"><i class="fa-solid fa-copy"></i> Copier</button>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  function buildPBUrl() {
+    const type = document.getElementById('pbType') ? document.getElementById('pbType').value : 'zone-events/powerbi';
+    const zone = document.getElementById('pbZone') ? document.getElementById('pbZone').value : '';
+    const truck = document.getElementById('pbTruck') ? document.getElementById('pbTruck').value : '';
+    const period = document.getElementById('pbPeriod') ? document.getElementById('pbPeriod').value : '24';
+    const start = document.getElementById('pbStart') ? document.getElementById('pbStart').value : '';
+    const end = document.getElementById('pbEnd') ? document.getElementById('pbEnd').value : '';
+    const key = document.getElementById('pbToken') ? document.getElementById('pbToken').value : '';
+    const el = document.getElementById('pbUrl');
+    
+    if(!key) { 
+      if(el) el.value = ''; 
+      buildPBEndpoints(); 
+      return; 
+    }
+    
+    let url = window.location.origin + '/api/' + type;
+    
+    if (zone && (type === 'zone-events/powerbi' || type === 'zone-events/powerbi-live')) {
+        url += '/' + encodeURIComponent(zone);
+    }
+    
+    url += '?token=' + key;
+    
+    if (period === 'today') {
+        url += '&period=today';
+    } else if (period === 'custom') {
+        if (start) url += '&start=' + start;
+        if (end) url += '&end=' + end;
+    }
+    
+    if (truck && type !== 'zone-events/powerbi-zones') {
+        url += '&truck=' + encodeURIComponent(truck);
+    }
+    
+    if(el) { el.value = url; }
+    buildPBEndpoints();
+  }
+
+  function copyPBUrl() {
+    const el = document.getElementById('pbUrl');
+    if(!el || !el.value) return;
+    el.select();
+    document.execCommand('copy');
+    toast('URL copiée', 'success');
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.dataset.theme;
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('zmc_theme', next);
+  }
+
+  function onPBTypeChange() {
+    const t = document.getElementById('pbType') ? document.getElementById('pbType').value : '';
+    const c = document.getElementById('pbPeriodContainer');
+    if(c) c.style.display = (t === 'history') ? 'block' : 'none';
+    buildPBUrl();
+  }
+
+  function onPBPeriodChange() { buildPBUrl(); }
+
+  async function loadApiKeys() {
+    try {
+      const accessCode = state.accessCode || localStorage.getItem('fleetAccessCode') || '';
+      const res = await fetch('/api/keys', { headers: { 'x-access-code': accessCode } });
+      if (!res.ok) throw new Error("Erreur serveur");
+      let keys = await res.json();
+      
+      const list = document.getElementById('apiKeysList');
+      if (list) {
+        if (keys.length === 0) {
+            list.innerHTML = '<div style="color:var(--text-3); font-size:11px;">Aucune clé API active.</div>';
+        } else {
+            list.innerHTML = keys.map(k => `
+              <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px;display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                  <div style="font-size:12px;font-weight:600;color:var(--text-1);">${k.name}</div>
+                  <div style="font-size:10px;color:var(--text-3);font-family:var(--font-mono);margin-top:4px;user-select:all;"><i class="fa-solid fa-key"></i> ${k.token}</div>
+                </div>
+                <button class="sb-btn" onclick="ZMC.deleteApiKey('${k._id}')" style="margin:0;width:auto;padding:6px 10px;background:rgba(239,68,68,0.1);color:#ef4444;border:none;"><i class="fa-solid fa-trash"></i></button>
+              </div>
+            `).join('');
+        }
+      }
+
+      const select = document.getElementById('pbToken');
+      if (select) {
+        const currentVal = select.value;
+        select.innerHTML = keys.map(k => `<option value="${k.token}">${k.name}</option>`).join('');
+        if (keys.some(k => k.token === currentVal)) select.value = currentVal;
+      }
+      buildPBUrl();
+    } catch(e) { console.error('loadApiKeys:', e); }
+  }
+
+  async function createApiKey() {
+    const input = document.getElementById('newKeyName');
+    const name = input ? input.value.trim() : '';
+    if (!name) { toast('Veuillez entrer un nom pour la clé', 'warning'); return; }
+    
+    try {
+      const accessCode = state.accessCode || localStorage.getItem('fleetAccessCode') || '';
+      const res = await fetch('/api/keys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': accessCode },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) throw new Error("Non autorisé");
+      if (input) input.value = '';
+      toast('Clé API créée', 'success');
+      await loadApiKeys();
+    } catch(e) { toast('Erreur: ' + e.message, 'error'); }
+  }
+
+  async function deleteApiKey(id) {
+    if (!confirm("Voulez-vous vraiment supprimer cette clé ? Les intégrations PowerBI cesseront de fonctionner !")) return;
+    try {
+      const accessCode = state.accessCode || localStorage.getItem('fleetAccessCode') || '';
+      const res = await fetch(`/api/keys/${id}`, {
+        method: 'DELETE',
+        headers: { 'x-access-code': accessCode }
+      });
+      if (!res.ok) throw new Error("Erreur serveur");
+      toast('Clé API supprimée', 'success');
+      await loadApiKeys();
+    } catch(e) { toast('Erreur: ' + e.message, 'error'); }
+  }
+
+  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey };
 })();
 
 // ── BOOTSTRAP ──
@@ -2559,6 +3134,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Auto-connect — no login screen needed (reads code from localStorage / main app)
   ZMC.autoLogin();
+  ZMC.loadApiKeys(); // Populate API keys on startup
+
+  // Close GPS truck select when clicking outside
+  document.addEventListener('click', (e) => {
+    const btn = document.getElementById('gpsTrucksBtn');
+    const dd = document.getElementById('gpsTrucksDropdown');
+    if (dd && dd.style.display !== 'none' && btn && !btn.contains(e.target) && !dd.contains(e.target)) {
+      dd.style.display = 'none';
+    }
+  });
 });
 
   // Open truck in main map
@@ -2751,6 +3336,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const mainWin = window.open('./index.html#gpshistory:' + encodeURIComponent(deviceId) + ':' + encodeURIComponent(truckName) + ':' + dateStr, 'fleetMain');
     if (mainWin) mainWin.focus();
   }
+
+
 </script>
 </body>
 </html>

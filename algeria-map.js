@@ -764,7 +764,10 @@ addDecouchageMarker: function(s) {
 updateMarkers: function(trucks) {
     this.truckDataCache = trucks;
     this.populateTruckList();
-    this.updatePanelTruckList(trucks);
+    
+    // Filter trucks for panel based on active map filters
+    const filteredTrucks = trucks.filter(t => this.checkFilter(t));
+    this.updatePanelTruckList(filteredTrucks);
 
     // Live Counts
     const total = trucks.length;
@@ -1294,8 +1297,19 @@ deselectTruck: function() {
     setStyle: function(s) { const d=this.truckDataCache; this.map.setStyle('mapbox://styles/mapbox/'+s); this.map.once('style.load',()=>{this.addTerrainSource();this.renderCustomLocations();this.updateMarkers(d);}); },
     toggleFollowMode: function() { if(!this.selectedTruck){this.showToast("Sélectionnez un camion");return;} this.isFollowMode=!this.isFollowMode; document.getElementById('btnFollow').classList.toggle('active'); if(this.isFollowMode) this.map.flyTo({center:this.getCoordinates(this.selectedTruck), zoom:17, pitch:60}); },
     toggleBuildings: function() { this.isBuildingsOn=!this.isBuildingsOn; document.getElementById('btnBuild').classList.toggle('active'); if(this.isBuildingsOn) { if(!this.map.getLayer('3d-buildings')) this.map.addLayer({'id':'3d-buildings','source':'composite','source-layer':'building','filter':['==','extrude','true'],'type':'fill-extrusion','minzoom':13,'paint':{'fill-extrusion-color':'#aaa','fill-extrusion-height':['get','height'],'fill-extrusion-base':['get','min_height'],'fill-extrusion-opacity':0.6}}); this.map.flyTo({pitch:45}); } else { if(this.map.getLayer('3d-buildings')) this.map.removeLayer('3d-buildings'); } },
-    toggleFullscreen: function() { document.getElementById('map-wrapper').classList.toggle('fullscreen'); this.map.resize(); },
-    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); },
+    toggleFullscreen: function() { 
+        const elem = document.getElementById('map-wrapper');
+        if (!document.fullscreenElement) {
+            if (elem.requestFullscreen) { elem.requestFullscreen(); }
+            else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); }
+            else if (elem.msRequestFullscreen) { elem.msRequestFullscreen(); }
+        } else {
+            if (document.exitFullscreen) { document.exitFullscreen(); }
+            else if (document.webkitExitFullscreen) { document.webkitExitFullscreen(); }
+            else if (document.msExitFullscreen) { document.msExitFullscreen(); }
+        }
+        setTimeout(() => this.map.resize(), 200);
+    },    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); },
 
     toggleZoneCircles: function(btn) {
         this.zonesVisible = this.zonesVisible === false ? true : false;
@@ -1418,10 +1432,17 @@ deselectTruck: function() {
 
     togglePanel: function() {
         const panel = document.getElementById('mapLeftPanel');
+        const showBtn = document.getElementById('showPanelBtn');
         if (!panel) return;
         const isHidden = panel.style.width === '0px' || panel.style.display === 'none';
-        if (isHidden) { panel.style.width = '290px'; panel.style.display = 'flex'; }
-        else { panel.style.width = '0px'; panel.style.overflow = 'hidden'; }
+        if (isHidden) { 
+            panel.style.width = '290px'; panel.style.display = 'flex'; 
+            if(showBtn) showBtn.style.display = 'none';
+        }
+        else { 
+            panel.style.width = '0px'; panel.style.overflow = 'hidden'; 
+            if(showBtn) showBtn.style.display = 'block';
+        }
     },
 
     filterPanel: function(query) {

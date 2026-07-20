@@ -33,6 +33,9 @@ const TruckSchema = new mongoose.Schema({
   lastFuelLiters: Number,
   lastFuelPercent: Number,
   lat: Number, lng: Number, speed: Number,
+  lastMovementTime: Number,
+  lastHistoryScanTime: Number,
+  needsHistoryScan: { type: Boolean, default: false },
   zone: String, entryTime: Number,
   hasLogged: Boolean, logId: String,
   params: Object,
@@ -232,6 +235,13 @@ const ZoneEventSchema = new mongoose.Schema({
 ZoneEventSchema.index({ deviceId: 1, exitTime: 1 });
 ZoneEventSchema.index({ zoneName: 1, entryTime: -1 });
 const ZoneEvent = mongoose.model('ZoneEvent', ZoneEventSchema);
+
+const ApiKeySchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  token: { type: String, required: true, unique: true },
+  createdAt: { type: Date, default: Date.now }
+});
+const ApiKey = mongoose.model('ApiKey', ApiKeySchema);
 
 const ZoneOperationSchema = new mongoose.Schema({
   operationName:  { type: String, required: true },
@@ -1419,7 +1429,7 @@ function normalizeGpsHistoryMessages(rawMessages, deviceId, truckConfig) {
     const params = extractHistoryParams(message);
     const timeRaw = Array.isArray(message)
       ? (message[0] ?? message.timestamp ?? message.time)
-      : (message.timestamp ?? message.time ?? message.t);
+      : (message.timestamp ?? message.time ?? message.t ?? message.dt ?? message.servertime);
     const time = parseGpsDateTimeFlexible(timeRaw);
     const lat = Array.isArray(message) ? parseFloat(message[1]) : parseFloat(message && message.lat);
     const lng = Array.isArray(message) ? parseFloat(message[2]) : parseFloat(message && message.lng);
@@ -1446,7 +1456,7 @@ function normalizeGpsHistoryMessages(rawMessages, deviceId, truckConfig) {
   }).filter((point) => Number.isFinite(point.time)).sort((a, b) => a.time - b.time);
 }
 
-async function fetchGpsHistoryWindow(deviceId, start, end) {
+async function fetchGpsHistoryWindow(deviceId, start, end, retries = 5) {
   const safeStart = encodeGpsHistoryBoundary(start);
   const safeEnd = encodeGpsHistoryBoundary(end);
   if (!safeStart || !safeEnd) throw new Error('Période invalide pour l\'historique GPS');
@@ -1454,13 +1464,26 @@ async function fetchGpsHistoryWindow(deviceId, start, end) {
   const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${deviceId},${safeStart},${safeEnd}`;
   const https = require('https');
   const agent = new https.Agent({ rejectUnauthorized: false });
-  const response = await fetch(url, { agent });
-  const text = await response.text();
-  try {
-    const json = JSON.parse(text);
-    return json.messages || json.data || json;
-  } catch (error) {
-    throw new Error(`Provider Error: ${text}`);
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30 sec timeout per attempt
+    try {
+      const response = await fetch(url, { agent, signal: controller.signal });
+      clearTimeout(timeout);
+      const text = await response.text();
+      try {
+        const json = JSON.parse(text);
+        const pts = json.messages || json.data || json; 
+        return pts;
+      } catch (error) {
+        if (attempt === retries) throw new Error(`Provider Error: ${text.substring(0, 100)}...`);
+      }
+    } catch (error) {
+      clearTimeout(timeout);
+      if (attempt === retries) throw error;
+      await new Promise(r => setTimeout(r, 1000 * attempt)); // exponential backoff
+    }
   }
 }
 
@@ -3424,7 +3447,7 @@ app.post('/api/refuels/rebuild-bulk', checkAccess, async (req, res) => {
 
 app.get('/api/zone-events', checkAccess, async (req, res) => {
   try {
-    const { zone, truck, deviceId, start, end, status, limit: limitRaw, page: pageRaw } = req.query;
+    const { zone, truck, deviceId, start, end, status, limit: limitRaw, page: pageRaw, sort: sortParam } = req.query;
     const filter = {};
     if (zone) filter.zoneName = { $regex: zone, $options: 'i' };
     if (truck) filter.truckName = { $regex: truck, $options: 'i' };
@@ -3439,8 +3462,12 @@ app.get('/api/zone-events', checkAccess, async (req, res) => {
     const limit = Math.min(5000, parseInt(limitRaw, 10) || 50);
     const page = Math.max(1, parseInt(pageRaw, 10) || 1);
     const skip = (page - 1) * limit;
+    const sortDir = sortParam === 'asc' ? 1 : -1;  // default: newest first
+    // sortField: which field to sort by (entryTime, exitTime, durationMinutes, truckName, zoneName, engagementMinutes)
+    const SORTABLE = ['entryTime','exitTime','durationMinutes','truckName','zoneName','engagementMinutes'];
+    const sortField = SORTABLE.includes(req.query.sortField) ? req.query.sortField : 'entryTime';
     const total = await ZoneEvent.countDocuments(filter);
-    const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).skip(skip).limit(limit).lean();
+    const events = await ZoneEvent.find(filter).sort({ [sortField]: sortDir }).skip(skip).limit(limit).lean();
     const now = Date.now();
     const rows = events.map(e => {
       const durMin = e.exitTime ? e.durationMinutes : Math.round((now - e.entryTime) / 60000);
@@ -3530,38 +3557,171 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
     const { start, end, deviceIds } = req.body || {};
     if (!start || !end) return res.status(400).json({ error: 'start et end requis' });
     const startMs = new Date(start).getTime();
-    const endMs = new Date(end).getTime();
+    const endMs   = new Date(end).getTime();
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return res.status(400).json({ error: 'Dates invalides' });
 
     let trucks = [];
     if (Array.isArray(deviceIds) && deviceIds.length) {
-      trucks = await Truck.find({ deviceId: { $in: deviceIds.map(String) } }, 'deviceId truckName').lean();
+      trucks = await Truck.find({ deviceId: { $in: deviceIds.map(String) } }, 'deviceId truckName needsHistoryScan lastMovementTime lastHistoryScanTime').lean();
     } else {
-      trucks = await Truck.find({}, 'deviceId truckName').lean();
+      trucks = await Truck.find({}, 'deviceId truckName needsHistoryScan lastMovementTime lastHistoryScanTime').lean();
     }
 
+    // ── API QUOTA OPTIMIZATION ──
+    const isManualScan = Array.isArray(deviceIds) && deviceIds.length > 0;
+    const filteredTrucks = trucks.filter(t => {
+      if (isManualScan) return true; // Always scan if explicitly requested
+      if (t.needsHistoryScan) return true; // Flagged by live-bot (zone entry/exit)
+      if (t.lastMovementTime && (!t.lastHistoryScanTime || t.lastMovementTime > t.lastHistoryScanTime)) return true; // Truck moved since last scan
+      return false; // Skip API fetch, save quota!
+    });
+    
+    // Update summary with skipped count
+    const skippedCount = trucks.length - filteredTrucks.length;
+    trucks = filteredTrucks;
+
     const allZones = SYSTEM_SETTINGS.customLocations || [];
-    const summary = { trucks: trucks.length, zones: allZones.length, created: 0, errors: [] };
+    const summary  = { trucks: trucks.length, skipped: skippedCount, zones: allZones.length, created: 0, errors: [] };
 
-    for (const truck of trucks) {
+    // ── Chunked fetch: split the total window into 7-day slices ──────────
+    const CHUNK_MS = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+    const MIN_DWELL_MINUTES = 3; // ignore visits shorter than 3 min (drive-bys)
+
+    // Helper for concurrency
+    async function mapConcurrent(array, maxConcurrency, asyncFn) {
+      let index = 0;
+      async function worker() {
+        while (index < array.length) {
+          const i = index++;
+          await asyncFn(array[i]);
+        }
+      }
+      const workers = Array.from({ length: Math.min(maxConcurrency, array.length) }, () => worker());
+      await Promise.all(workers);
+    }
+
+    await mapConcurrent(trucks, 5, async (truck) => {
       try {
-        // Fetch GPS history for this truck in the window
-        const rawMessages = await fetchGpsHistoryWindow(String(truck.deviceId), startMs, endMs);
-        if (!Array.isArray(rawMessages) || rawMessages.length < 2) continue;
+        // ── 1. Collect all GPS points across every weekly chunk ──────────
+        let allPoints = [];
 
-        const points = normalizeGpsHistoryMessages(rawMessages, String(truck.deviceId), getTruckConfig(String(truck.deviceId)));
+        for (let chunkStart = startMs; chunkStart < endMs; chunkStart += CHUNK_MS) {
+          const chunkEnd = Math.min(chunkStart + CHUNK_MS, endMs);
+          try {
+            const raw = await fetchGpsHistoryWindow(String(truck.deviceId), chunkStart, chunkEnd);
+            if (!Array.isArray(raw) || raw.length === 0) continue;
+            const pts = normalizeGpsHistoryMessages(raw, String(truck.deviceId), getTruckConfig(String(truck.deviceId)));
+            const valid = pts.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time));
+            allPoints = allPoints.concat(valid);
+          } catch (chunkErr) {
+            console.warn(`[SCAN] ${truck.truckName} chunk ${new Date(chunkStart).toISOString()}: ${chunkErr.message}`);
+          }
+        }
 
-        // Delete existing scan events for this truck in this window (avoid duplicates)
+        if (allPoints.length < 2) return;
+
+        // Sort chronologically
+        allPoints.sort((a, b) => a.time - b.time);
+
+        // ── 2. Cache entryTime of open events before deletion ────
+        const openEventsToPreserve = await ZoneEvent.find({
+            deviceId: String(truck.deviceId),
+            exitTime: null
+        }).lean();
+        
+        const openEventCache = {};
+        for (const ev of openEventsToPreserve) {
+            openEventCache[ev.zoneName] = ev.entryTime;
+        }
+
+        // Cache all events we are about to delete so we can restore exact live-bot times
+        const eventsToDelete = await ZoneEvent.find({
+          deviceId:  String(truck.deviceId),
+          $or: [
+            { entryTime: { $gte: startMs, $lte: endMs } },
+            { exitTime: null }
+          ],
+          source: { $in: ['gps-history-scan', 'live-bot'] }
+        }).lean();
+
+        // ── 3. Now delete stale scan events for this window ────
         await ZoneEvent.deleteMany({
-          deviceId: String(truck.deviceId),
-          entryTime: { $gte: startMs, $lte: endMs },
-          source: 'gps-history-scan'
+          deviceId:  String(truck.deviceId),
+          $or: [
+            { entryTime: { $gte: startMs, $lte: endMs } },
+            { exitTime: null }
+          ],
+          source: { $in: ['gps-history-scan', 'live-bot'] }
         });
 
-        let currentZone = null;
-        let entryPoint = null;
+        // ── 3. Run zone detection across the merged, sorted point list ───
+        let currentZone    = null;
+        let entryPoint     = null;
+        let lastInsidePoint = null;
+        
+        // FIX: Restore true historical entry from DB cache without huge API calls
+          if (allPoints.length > 0) {
+             const firstPt = allPoints[0];
+             let firstZone = null;
+             for (const loc of allZones) {
+               const dist = calculateDistance(firstPt.lat, firstPt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
+               if (dist <= (loc.radius || 500)) { firstZone = loc; break; }
+             }
+             
+             if (firstZone && openEventCache[firstZone.name] && openEventCache[firstZone.name] < firstPt.time) {
+                 console.log(`[ScanHistory] Restoring true entry time for ${truck.truckName} from cached DB event: ${new Date(openEventCache[firstZone.name]).toISOString()}`);
+                 // Prepend a cloned point with the true historical time so the loop starts it correctly
+                 allPoints.unshift({ ...firstPt, time: openEventCache[firstZone.name] });
+             }
+          }
 
-        for (const pt of points) {
+        const saveEvent = async (zone, entry, exit, isStillInside = false) => {
+          let finalEntryTime = entry.time;
+          let finalExitTime = isStillInside ? null : exit.time;
+
+          // Preserve exact live-bot/manual entry times (fuzziness: 30 minutes)
+          if (eventsToDelete && eventsToDelete.length > 0) {
+            const matchedDeleted = eventsToDelete.find(e => 
+              e.zoneName === zone.name && 
+              Math.abs(e.entryTime - entry.time) < 30 * 60000
+            );
+            if (matchedDeleted) {
+              finalEntryTime = Math.min(matchedDeleted.entryTime, entry.time);
+              if (!isStillInside && matchedDeleted.exitTime && Math.abs(matchedDeleted.exitTime - exit.time) < 30 * 60000) {
+                finalExitTime = matchedDeleted.exitTime;
+              }
+            }
+          }
+
+          const durMins = isStillInside ? null : Math.round((finalExitTime - finalEntryTime) / 60000);
+          const minDwell = (zone.minDwellMinutes != null && zone.minDwellMinutes > 0) ? zone.minDwellMinutes : 5;
+          if (!isStillInside && durMins < minDwell) return; // drive-by — skip
+          
+          // CRITICAL FIX: Internal Validator against Race Conditions!
+          if (isStillInside) {
+            await ZoneEvent.deleteMany({ deviceId: String(truck.deviceId), exitTime: null });
+            // Also update truck's state so the live-bot knows it's here
+            await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { _zoneEventZone: zone.name });
+          }
+
+          await ZoneEvent.create({
+            deviceId:    String(truck.deviceId),
+            truckName:   truck.truckName,
+            zoneName:    zone.name,
+            zoneType:    zone.type || 'unknown',
+            entryTime:   finalEntryTime,
+            exitTime:    finalExitTime,
+            durationMinutes: durMins,
+            entryLat:    entry.lat, entryLng: entry.lng,
+            exitLat:     isStillInside ? null : exit.lat,
+            exitLng:     isStillInside ? null : exit.lng,
+            status:      isStillInside ? 'en cours' : 'terminé',
+            source:      'gps-history-scan'
+          });
+          summary.created++;
+        };
+
+        for (const pt of allPoints) {
           let inZone = null;
           for (const loc of allZones) {
             const dist = calculateDistance(pt.lat, pt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
@@ -3570,40 +3730,41 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
 
           if (inZone) {
             if (!currentZone || currentZone.name !== inZone.name) {
-              // Close previous zone if any
-              if (currentZone && entryPoint) {
-                const durMins = Math.round((pt.time - entryPoint.time) / 60000);
-                await ZoneEvent.create({
-                  deviceId: String(truck.deviceId), truckName: truck.truckName,
-                  zoneName: currentZone.name, zoneType: currentZone.type || 'unknown',
-                  entryTime: entryPoint.time, exitTime: pt.time, durationMinutes: durMins,
-                  entryLat: entryPoint.lat, entryLng: entryPoint.lng,
-                  exitLat: pt.lat, exitLng: pt.lng, source: 'gps-history-scan'
-                });
-                summary.created++;
+              // Entering a different zone — close previous
+              if (currentZone && entryPoint && lastInsidePoint) {
+                await saveEvent(currentZone, entryPoint, pt, false);
               }
-              currentZone = inZone;
-              entryPoint = pt;
+              currentZone     = inZone;
+              entryPoint      = pt;
+              lastInsidePoint = pt;
+            } else {
+              lastInsidePoint = pt; // still inside same zone
             }
           } else {
-            if (currentZone && entryPoint) {
-              const durMins = Math.round((pt.time - entryPoint.time) / 60000);
-              await ZoneEvent.create({
-                deviceId: String(truck.deviceId), truckName: truck.truckName,
-                zoneName: currentZone.name, zoneType: currentZone.type || 'unknown',
-                entryTime: entryPoint.time, exitTime: pt.time, durationMinutes: durMins,
-                entryLat: entryPoint.lat, entryLng: entryPoint.lng,
-                exitLat: pt.lat, exitLng: pt.lng, source: 'gps-history-scan'
-              });
-              summary.created++;
-              currentZone = null; entryPoint = null;
+            if (currentZone && entryPoint && lastInsidePoint) {
+              await saveEvent(currentZone, entryPoint, pt, false);
+              currentZone = null; entryPoint = null; lastInsidePoint = null;
             }
           }
         }
+
+        // Close any zone still open at end of history
+        if (currentZone && entryPoint && lastInsidePoint) {
+          const isCloseToNow = (Date.now() - lastInsidePoint.time) < (12 * 3600 * 1000);
+          await saveEvent(currentZone, entryPoint, lastInsidePoint, isCloseToNow);
+        }
+
+        // ✅ Mark truck as successfully scanned
+        await Truck.findOneAndUpdate(
+          { deviceId: String(truck.deviceId) },
+          { lastHistoryScanTime: Date.now(), needsHistoryScan: false }
+        );
+
       } catch (e) {
         summary.errors.push({ truck: truck.truckName, error: e.message });
       }
-    }
+    });
+
     res.json({ success: true, summary });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3682,6 +3843,59 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
   } catch (e) { console.error('logZoneEntry error:', e.message); }
 }
 
+
+async function autoRepairZoneExit(eventId, deviceId, startMs, endMs, zoneName) {
+  try {
+    const raw = await fetchGpsHistoryWindow(deviceId, startMs, endMs);
+    if (!Array.isArray(raw) || raw.length === 0) return;
+    
+    const pts = normalizeGpsHistoryMessages(raw, deviceId, getTruckConfig(deviceId));
+    const valid = pts.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time));
+    valid.sort((a, b) => a.time - b.time);
+    
+    const allZones = SYSTEM_SETTINGS.customLocations || [];
+    const zone = allZones.find(z => z.name === zoneName);
+    if (!zone) return;
+    
+    let trueExitTime = null;
+    let trueExitLat = null;
+    let trueExitLng = null;
+    for (const pt of valid) {
+      const dist = calculateDistance(pt.lat, pt.lng, parseFloat(zone.lat), parseFloat(zone.lng));
+      if (dist > (zone.radius || 500)) {
+        trueExitTime = pt.time;
+        trueExitLat = pt.lat;
+        trueExitLng = pt.lng;
+        break;
+      }
+    }
+    
+    if (trueExitTime && trueExitTime < endMs) {
+      const newDur = Math.round((trueExitTime - startMs) / 60000);
+      const oldDur = Math.round((endMs - startMs) / 60000);
+      const minDwell = (zone.minDwellMinutes != null && zone.minDwellMinutes > 0) ? zone.minDwellMinutes : 5;
+      
+      if (newDur < minDwell) {
+         await ZoneEvent.findByIdAndDelete(eventId);
+         console.log(`🗑️ [Auto-Repair] Deleted drive-by event for ${deviceId} in ${zoneName} (${newDur}m)`);
+      } else if (oldDur - newDur > 5) { // Only fix if difference is more than 5 minutes
+        const updated = await ZoneEvent.findByIdAndUpdate(eventId, {
+          exitTime: trueExitTime,
+          durationMinutes: newDur,
+          exitLat: trueExitLat,
+          exitLng: trueExitLng
+        }, { new: true });
+        console.log(`🛠️ [Auto-Repair] Fixed exit time for ${deviceId} in ${zoneName} to ${newDur}m`);
+        
+        // Push update to Power BI to correct the data
+        if (updated) pushToPowerBI(formatZoneEventForPowerBI(updated.toObject(), Date.now())).catch(() => {});
+      }
+    }
+  } catch(e) {
+    console.error('[Auto-Repair] Error:', e.message);
+  }
+}
+
 async function logZoneExit(deviceId, truckName, zoneName, lat, lng) {
   try {
     const openEvent = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName }).sort({ entryTime: -1 });
@@ -3696,6 +3910,9 @@ async function logZoneExit(deviceId, truckName, zoneName, lat, lng) {
         exitTime: now, exitLat: lat, exitLng: lng, durationMinutes, engagementMinutes
       }, { new: true });
       console.log(`🏁 [ZoneEvent] ${truckName} → SORTI de "${zoneName}" (${durationMinutes} min)`);
+        
+        // 🛡️ HOTFIX: Schedule an auto-repair to correct GPS connection delays (GSM loss)
+        setTimeout(() => autoRepairZoneExit(openEvent._id, deviceId, openEvent.entryTime, now, zoneName).catch(() => {}), 2000);
       // 🔴 Push completed row to Power BI
       if (updated) pushToPowerBI(formatZoneEventForPowerBI(updated.toObject(), now)).catch(() => {});
       // 🔗 Update operation stop on zone exit + auto-complete
@@ -3753,14 +3970,21 @@ async function runZoneEntryExitTracking(truck, dbTruck) {
       }
       await logZoneEntry(deviceId, truckName, currentZone, lat, lng);
       // Store current zone name in a separate field to avoid overwriting existing zone tracking
-      await Truck.findOneAndUpdate({ deviceId }, { _zoneEventZone: currentZone.name });
+      await Truck.findOneAndUpdate({ deviceId }, { _zoneEventZone: currentZone.name, needsHistoryScan: true });
+    } else {
+      // still in same zone, but check if an open event actually exists in DB (self-healing if deleted manually)
+      const hasOpen = await ZoneEvent.exists({ deviceId, exitTime: null, zoneName: currentZone.name });
+      if (!hasOpen) {
+        console.warn(`[Self-Heal] Truck ${truckName} in ${currentZone.name} missing open event. Recreating...`);
+        await logZoneEntry(deviceId, truckName, currentZone, lat, lng);
+        await Truck.findOneAndUpdate({ deviceId }, { needsHistoryScan: true });
+      }
     }
-    // else: still in same zone, nothing to do
   } else {
     if (prevZoneName) {
       // EXIT
       await logZoneExit(deviceId, truckName, prevZoneName, lat, lng);
-      await Truck.findOneAndUpdate({ deviceId }, { _zoneEventZone: null });
+      await Truck.findOneAndUpdate({ deviceId }, { _zoneEventZone: null, needsHistoryScan: true });
     }
   }
 }
@@ -3928,9 +4152,16 @@ app.delete('/api/zone-operations/:id', checkAccess, async (req, res) => {
 // ============================================================
 app.get('/api/zone-operations/powerbi', async (req, res) => {
   const tok = req.query.token || req.headers['x-access-code'];
-  if (tok !== POWERBI_TOKEN && tok !== process.env.ACCESS_CODE) return res.status(401).json({ error: 'Unauthorized' });
+  const isValidKey = (tok === POWERBI_TOKEN || tok === process.env.ACCESS_CODE) ? true : !!(await ApiKey.findOne({ token: tok }));
+  if (!isValidKey) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const { truck, status, start, end } = req.query;
+    let { truck, status, start, end, period } = req.query;
+      
+      if (period === 'today') {
+        const now = new Date();
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
+      }
     const filter = {};
     if (truck) filter.truckName = { $regex: truck, $options: 'i' };
     if (status) filter.status = status;
@@ -3992,20 +4223,60 @@ app.get('/api/zone-operations/powerbi', async (req, res) => {
 //   Every entry/exit is pushed automatically — Power BI updates in seconds.
 // ============================================================
 
+// ============================================================
+// 🔑 API KEYS (For Power BI & External integrations)
+// ============================================================
+app.get('/api/keys', checkAccess, async (req, res) => {
+  try {
+    const keys = await ApiKey.find().sort({ createdAt: -1 });
+    res.json(keys);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/keys', checkAccess, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Le nom de la clé est requis' });
+    const uuid = require('crypto').randomUUID().replace(/-/g, '') + Math.random().toString(36).substring(2, 8);
+    const newKey = new ApiKey({ name, token: 'pb_' + uuid });
+    await newKey.save();
+    res.json(newKey);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/keys/:id', checkAccess, async (req, res) => {
+  try {
+    await ApiKey.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Shared auth + query builder for PowerBI routes
-function powerbiAuth(req, res) {
+async function powerbiAuth(req, res) {
   const token = req.query.token;
-  if (!token || token !== POWERBI_TOKEN) {
-    res.status(403).json({ error: `Token invalide. Ajoutez ?token=${POWERBI_TOKEN} à l'URL.` });
+  if (!token) {
+    res.status(403).json({ error: "Token manquant. Ajoutez ?token=... à l'URL." });
+    return false;
+  }
+  if (token === POWERBI_TOKEN) return true; // Legacy token support
+  const keyDoc = await ApiKey.findOne({ token });
+  if (!keyDoc) {
+    res.status(403).json({ error: "Token invalide ou révoqué." });
     return false;
   }
   return true;
 }
 
 async function buildZoneFilter(req, zoneParam) {
-  const { start, end, truck } = req.query;
+  let { start, end, truck, period } = req.query;
   const filter = {};
-  // Zone from URL path takes priority, then query param
+  
+  if (period === 'today') {
+    const now = new Date();
+    start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
+  }
+
   const zoneName = zoneParam || req.query.zone;
   if (zoneName) filter.zoneName = { $regex: decodeURIComponent(zoneName).trim(), $options: 'i' };
   if (truck) filter.truckName = { $regex: truck, $options: 'i' };
@@ -4019,7 +4290,7 @@ async function buildZoneFilter(req, zoneParam) {
 
 // HISTORICAL — all zones
 app.get('/api/zone-events/powerbi', async (req, res) => {
-  if (!powerbiAuth(req, res)) return;
+  if (!(await powerbiAuth(req, res))) return;
   try {
     const filter = await buildZoneFilter(req, null);
     const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).limit(10000).lean();
@@ -4030,7 +4301,7 @@ app.get('/api/zone-events/powerbi', async (req, res) => {
 
 // HISTORICAL — specific zone in URL path (e.g. /powerbi/SITE_DED_BISKRA)
 app.get('/api/zone-events/powerbi/:zone', async (req, res) => {
-  if (!powerbiAuth(req, res)) return;
+  if (!(await powerbiAuth(req, res))) return;
   try {
     const filter = await buildZoneFilter(req, req.params.zone);
     const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).limit(10000).lean();
@@ -4041,7 +4312,7 @@ app.get('/api/zone-events/powerbi/:zone', async (req, res) => {
 
 // LIVE — trucks currently inside, with real elapsed chargement time (no zone filter)
 app.get('/api/zone-events/powerbi-live', async (req, res) => {
-  if (!powerbiAuth(req, res)) return;
+  if (!(await powerbiAuth(req, res))) return;
   try {
     const filter = { exitTime: null };
     if (req.query.zone) filter.zoneName = { $regex: req.query.zone, $options: 'i' };
@@ -4053,7 +4324,7 @@ app.get('/api/zone-events/powerbi-live', async (req, res) => {
 
 // LIVE — specific zone in URL path
 app.get('/api/zone-events/powerbi-live/:zone', async (req, res) => {
-  if (!powerbiAuth(req, res)) return;
+  if (!(await powerbiAuth(req, res))) return;
   try {
     const filter = { exitTime: null, zoneName: { $regex: decodeURIComponent(req.params.zone).trim(), $options: 'i' } };
     const events = await ZoneEvent.find(filter).sort({ entryTime: -1 }).lean();
@@ -4064,7 +4335,7 @@ app.get('/api/zone-events/powerbi-live/:zone', async (req, res) => {
 
 // INFO — list all available zones (helps building Power BI URLs)
 app.get('/api/zone-events/powerbi-zones', async (req, res) => {
-  if (!powerbiAuth(req, res)) return;
+  if (!(await powerbiAuth(req, res))) return;
   try {
     const zones = await ZoneEvent.distinct('zoneName');
     res.json({
@@ -4873,6 +5144,46 @@ async function cleanupOldZoneEvents() {
 }
 // Run cleanup every 24h
 setInterval(cleanupOldZoneEvents, 24 * 3600000);
+
+// ── AUTO HISTORY SCANNER (12h) & RECONCILER (1h) ──
+function triggerBackgroundScan(hours) {
+    const http = require('http');
+    const data = JSON.stringify({
+        start: new Date(Date.now() - hours * 3600000).toISOString(),
+        end: new Date().toISOString()
+    });
+    
+    // Check if PORT is 3000 or from env
+    const targetPort = process.env.PORT || 3000;
+    
+    const req = http.request({
+        hostname: '127.0.0.1',
+        port: targetPort,
+        path: '/api/zone-events/scan-history',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(data),
+            'x-access-code': SYSTEM_SETTINGS.adminCode || '12345'
+        }
+    });
+    req.on('error', e => console.error(`[AutoScan] Request failed: ${e.message}`));
+    req.write(data);
+    req.end();
+}
+
+// 12-hour global history check
+setInterval(() => {
+    console.log('[AutoScan] Triggering 12-hour global history sync...');
+    triggerBackgroundScan(24);
+}, 12 * 3600000);
+
+// 1-hour reconciler
+setInterval(() => {
+    console.log('[AutoScan] Triggering 1-hour history reconciliation...');
+    triggerBackgroundScan(3); // Scan last 3 hours to fix short gaps
+}, 3600000);
+
 
 // ── STARTUP BANNER ──
 console.log('\n╔════════════════════════════════════════════════╗');
