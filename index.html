@@ -898,7 +898,7 @@
               <div style="margin-left: auto; display:flex; gap:8px;">
                   <button class="btn-secondary" id="applyMaintFiltersBtn"><i class="fa-solid fa-filter"></i> Filtrer</button>
                   <button class="btn-primary" id="exportMaintBtn" style="background: var(--danger); border:none;"><i class="fa-solid fa-file-excel"></i> Exporter</button>
-                  <button class="btn-primary" onclick="if(window.FleetPDF){FleetPDF.generateFleetReport(window._lastTruckData||[], [])}" style="background: var(--primary); border:none;"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                  <button class="btn-primary" onclick="if(window.FleetPDF){FleetPDF.generateMaintenanceHistoryReport(window.ui.allMaintenanceLogs||[])}" style="background: var(--primary); border:none;"><i class="fa-solid fa-file-pdf"></i> PDF</button>
               </div>
         </div>
 

@@ -149,6 +149,41 @@
       window.showToast && window.showToast('📄 PDF généré avec succès', 'success');
     }
 
+    // ─── Generate Maintenance History PDF ───
+    generateMaintenanceHistoryReport(logs) {
+      const JSPDF = getJsPDF();
+      if (!JSPDF) { alert('jsPDF non chargé'); return; }
+
+      const doc = new JSPDF();
+      let y = this._addHeader(doc, 'HISTORIQUE DE MAINTENANCE');
+
+      const totalCost = logs.reduce((s, l) => s + (l.cost || 0), 0);
+      doc.setFontSize(10);
+      doc.text(`Total interventions: ${logs.length}`, 15, y);
+      doc.text(`Coût total: ${totalCost.toLocaleString('fr-FR')} DA`, 15, y + 6);
+      y += 16;
+
+      doc.autoTable({
+        startY: y,
+        head: [['Date', 'Camion', 'Type', 'Compteur', 'Lieu', 'Coût']],
+        body: logs.map(l => [
+          l.date ? new Date(l.date).toLocaleDateString('fr-FR') : '—',
+          l.truckName || '—',
+          l.type || '—',
+          (l.odometer || 0) + ' km',
+          l.location || '—',
+          (l.cost || 0).toLocaleString('fr-FR') + ' DA'
+        ]),
+        theme: 'striped',
+        headStyles: { fillColor: [56, 189, 248], textColor: [255, 255, 255], fontSize: 8 },
+        bodyStyles: { fontSize: 7 },
+        margin: { left: 10, right: 10 }
+      });
+
+      doc.save(`historique_maintenance_${new Date().toISOString().slice(0,10)}.pdf`);
+      window.showToast && window.showToast('📄 Historique maintenance généré', 'success');
+    }
+
     // ─── Generate Fleet Report PDF ───
     generateFleetReport(trucks, predictions) {
       const JSPDF = getJsPDF();

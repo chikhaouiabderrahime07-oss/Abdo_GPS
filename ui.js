@@ -3071,17 +3071,20 @@ exportRefuelCSV() {
         });
 
         // Client Header Card
-        treeHtml += '<div class="zm-tree-group" data-search="'+client.name.toLowerCase()+' client" style="margin-bottom:14px;background:var(--bg-elevated,rgba(255,255,255,0.02));border:1px solid var(--border,var(--border, rgba(255,255,255,0.05)));border-radius:12px;overflow:hidden;">';
+        treeHtml += '<div class="zm-tree-group" data-search="'+client.name.toLowerCase()+' client" style="margin-bottom:14px;background:var(--bg-elevated,rgba(255,255,255,0.02));border:1px solid var(--border,var(--border, rgba(255,255,255,0.05)));border-radius:12px;overflow:hidden;box-shadow:0 4px 15px rgba(0,0,0,0.05);transition:box-shadow 0.2s;" onmouseover="this.style.boxShadow=\'0 6px 20px rgba(0,0,0,0.1)\'" onmouseout="this.style.boxShadow=\'0 4px 15px rgba(0,0,0,0.05)\'">';
         
-        treeHtml += '<div class="zm-client-card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border,rgba(255,255,255,0.03));background:linear-gradient(to right, '+clientCol+'10, transparent); border-left:4px solid '+clientCol+';">' +
-          '<div style="width:36px;height:36px;border-radius:10px;background:'+clientCol+';display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px '+clientCol+'40;">' +
+        treeHtml += '<div class="zm-client-card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border,rgba(255,255,255,0.05));background:linear-gradient(90deg, '+clientCol+'20 0%, transparent 100%); border-left:4px solid '+clientCol+';">' +
+          '<div style="width:36px;height:36px;border-radius:10px;background:'+clientCol+';display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px '+clientCol+'60;flex-shrink:0;">' +
             (client.iconEmoji ? '<span style="font-size:18px;">'+client.iconEmoji+'</span>' : '<i class="fa-solid '+(client.icon||'fa-building')+'" style="color:white;font-size:16px;"></i>') +
           '</div>' +
           '<div style="flex:1;min-width:0;">' +
             '<div style="font-weight:800;font-size:14px;color:var(--text-primary,var(--text-primary, #e2e8f0));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+client.name+'</div>' +
-            '<div style="font-size:10px;color:var(--text-muted,#888);margin-top:2px;">'+(client.industry||'Client')+' &bull; '+(client.finalClients?.length||0)+' Sous-clients &bull; '+directSites.length+' Sites</div>' +
+            '<div style="font-size:10px;font-weight:600;color:var(--text-muted,#888);margin-top:2px;">'+(client.industry||'Client')+' &bull; '+(client.finalClients?.length||0)+' Sous-clients &bull; '+directSites.length+' Sites</div>' +
           '</div>' +
-          '<button onclick="ui.openClientEditorModal('+clientIdx+')" style="background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-muted,var(--text-muted, #94a3b8));border-radius:8px;width:30px;height:30px;cursor:pointer;transition:all 0.2s;flex-shrink:0;" onmouseover="this.style.color=\''+clientCol+'\';this.style.borderColor=\''+clientCol+'40\'"><i class="fa-solid fa-pencil"></i></button>' +
+          '<div style="display:flex;gap:4px;flex-shrink:0;">' +
+            '<button onclick="ui.openClientEditorModal('+clientIdx+')" style="background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-muted,var(--text-muted, #94a3b8));border-radius:8px;width:30px;height:30px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.color=\'white\';this.style.background=\''+clientCol+'\';this.style.borderColor=\''+clientCol+'\'" onmouseout="this.style.color=\'var(--text-muted, #94a3b8)\';this.style.background=\'var(--bg-elevated,rgba(255,255,255,0.05))\';this.style.borderColor=\'var(--border, rgba(255,255,255,0.1))\'"><i class="fa-solid fa-pencil"></i></button>' +
+            '<button onclick="if(confirm(\'Supprimer ce client ?\')) { ui._deleteClientEditor('+clientIdx+'); }" style="background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-muted,var(--text-muted, #94a3b8));border-radius:8px;width:30px;height:30px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.color=\'white\';this.style.background=\'#ef4444\';this.style.borderColor=\'#ef4444\'" onmouseout="this.style.color=\'var(--text-muted, #94a3b8)\';this.style.background=\'var(--bg-elevated,rgba(255,255,255,0.05))\';this.style.borderColor=\'var(--border, rgba(255,255,255,0.1))\'"><i class="fa-solid fa-trash"></i></button>' +
+          '</div>' +
         '</div>';
 
         // Direct Sites
@@ -3514,8 +3517,12 @@ exportRefuelCSV() {
         <div style="display:grid;grid-template-columns:auto auto 1fr;gap:14px;align-items:start;margin-bottom:10px;">
           <div>
             <label style="${lbl}">Couleur zone</label>
-            <input id="zme_color" type="color" value="${loc.color||'#3b82f6'}" style="width:54px;height:42px;border:2px solid rgba(255,255,255,0.15);border-radius:8px;cursor:pointer;padding:2px;background:var(--bg-elevated, #1e293b);display:block;margin-bottom:5px;">
-            <div style="display:flex;gap:3px;flex-wrap:wrap;width:54px;">${['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#f97316','#14b8a6','#6b7280','var(--text-primary, #e2e8f0)','var(--bg-elevated, #1e293b)'].map(c=>`<span onclick="document.getElementById('zme_color').value='${c}'" style="width:15px;height:15px;border-radius:3px;background:${c};cursor:pointer;border:1px solid rgba(255,255,255,0.2);display:inline-block;" title="${c}"></span>`).join('')}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">
+              <input id="zme_color_custom" type="checkbox" ${loc.color?'checked':''} onchange="document.getElementById('zme_color').disabled=!this.checked;" style="accent-color:#3b82f6;">
+              <span style="font-size:11px;color:var(--text-primary);">Personnalisée</span>
+            </div>
+            <input id="zme_color" type="color" value="${loc.color||'#3b82f6'}" ${loc.color?'':'disabled'} style="width:54px;height:42px;border:2px solid rgba(255,255,255,0.15);border-radius:8px;cursor:pointer;padding:2px;background:var(--bg-elevated, #1e293b);display:block;margin-bottom:5px;">
+            <div style="display:flex;gap:3px;flex-wrap:wrap;width:54px;">${['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#ec4899','#f97316','#14b8a6','#6b7280','var(--text-primary, #e2e8f0)','var(--bg-elevated, #1e293b)'].map(c=>`<span onclick="if(!document.getElementById('zme_color_custom').checked){document.getElementById('zme_color_custom').checked=true;document.getElementById('zme_color').disabled=false;};document.getElementById('zme_color').value='${c}'" style="width:15px;height:15px;border-radius:3px;background:${c};cursor:pointer;border:1px solid rgba(255,255,255,0.2);display:inline-block;" title="${c}"></span>`).join('')}</div>
           </div>
           <div>
             <label style="${lbl}">Bordure</label>
@@ -3603,9 +3610,11 @@ exportRefuelCSV() {
     if (!c) { if(fw) fw.style.display = 'none'; return; }
     if (fw) fw.style.display = '';
     if (sel) sel.innerHTML = '<option value="">— Aucun —</option>' + (c.finalClients||[]).map(fc => `<option value="${fc.id}">${fc.name}</option>`).join('');
-    // Sync color
+    // Sync color visually but uncheck custom color so it inherits
     const col = document.getElementById('zme_color');
+    const chk = document.getElementById('zme_color_custom');
     if (col && c.color) col.value = c.color;
+    if (chk) { chk.checked = false; if(col) col.disabled = true; }
   }
 
   _saveEditedSite(index) {
@@ -3622,8 +3631,11 @@ exportRefuelCSV() {
     const type   = document.getElementById('zme_type')?.value || 'other';
     const clientId = document.getElementById('zme_client')?.value || null;
     if (!name) return alert('\u26a0\ufe0f Le nom est requis.');
-    const color         = document.getElementById('zme_color')?.value || locToEdit.color || '#3b82f6';
-    const strokeColor   = document.getElementById('zme_color_stroke')?.value || color;
+    
+    // Check if custom color is enabled. If not, color is null to allow client/type inheritance
+    const isCustomColor = document.getElementById('zme_color_custom')?.checked || false;
+    const color         = isCustomColor ? (document.getElementById('zme_color')?.value || '#3b82f6') : null;
+    const strokeColor   = document.getElementById('zme_color_stroke')?.value || color || '#3b82f6';
     const opacity       = parseFloat(document.getElementById('zme_opacity')?.value ?? 0.15);
     const icon          = document.getElementById('zme_icon')?.value || 'fa-building';
     const iconEmoji     = (document.getElementById('zme_emoji')?.value || '').trim();
@@ -4200,7 +4212,7 @@ async loadZoneHistory() {
           entryTime: e.entryTime, exitTime: e.exitTime, durationMinutes: e.durationMinutes,
           recapImmobilisationMin: e.recapImmobilisationMin, clientName: e.clientName, finalClientName: e.finalClientName
         }).replace(/'/g, "\\'");
-        return `<tr style="cursor:pointer;" onclick="ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'})" title="Cliquer pour voir sur la carte">
+        return `<tr style="cursor:pointer;" onclick="ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'},'${e.entryTime}','${e.exitTime||''}')" title="Cliquer pour voir sur la carte">
           <td>${dt.toLocaleDateString('fr-FR')}</td>
           <td style="font-weight:600;color:#38bdf8;">${e.truckName}</td>
           <td style="color:#818cf8;">${e.zoneName}</td>
@@ -4208,7 +4220,7 @@ async loadZoneHistory() {
           <td>${e.exitTime ? new Date(e.exitTime).toLocaleTimeString('fr-FR') : '—'}</td>
           <td class="zr-dur">${dur}</td>
           <td>${badge}</td>
-          <td><button onclick="event.stopPropagation();ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'})" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-crosshairs" style="margin-right:3px;"></i>Voir</button></td>
+          <td><button onclick="event.stopPropagation();ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'},'${e.entryTime}','${e.exitTime||''}')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-crosshairs" style="margin-right:3px;"></i>Voir</button></td>
         </tr>`;
       }).join('')}</tbody>
     </table>`;
@@ -8940,9 +8952,10 @@ exportMaintenanceCSV() {
         '</div>' +
         '<div id="ceFCList" style="max-height:260px;overflow-y:auto;"></div>' +
       '</div>' +
-      '<div style="padding:14px 20px;border-top:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));display:flex;gap:8px;flex-shrink:0;">' +
-        '<button onclick="document.getElementById(\'clientEditorModal\').remove()" style="flex:1;background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-secondary,var(--text-muted, #94a3b8));border-radius:9px;padding:11px;font-weight:700;cursor:pointer;font-size:13px;">Annuler</button>' +
-        '<button onclick="ui._saveClientEditor(' + idxStr + ')" style="flex:2;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:9px;padding:11px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 4px 14px rgba(59,130,246,0.3);"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Enregistrer</button>' +
+      '<div style="padding:14px 20px;border-top:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));display:flex;gap:8px;flex-shrink:0;background:var(--bg-surface,rgba(0,0,0,0.2));">' +
+        (!isNew ? '<button onclick="ui._deleteClientEditor(' + idxStr + ')" style="background:rgba(239,68,68,0.1);color:#f87171;border:1px solid rgba(239,68,68,0.25);border-radius:9px;padding:11px;font-weight:700;cursor:pointer;font-size:13px;flex-shrink:0;width:44px;display:flex;align-items:center;justify-content:center;transition:all 0.2s;" onmouseover="this.style.background=\'#ef4444\';this.style.color=\'white\'" onmouseout="this.style.background=\'rgba(239,68,68,0.1)\';this.style.color=\'#f87171\'" title="Supprimer ce client"><i class="fa-solid fa-trash"></i></button>' : '') +
+        '<button onclick="document.getElementById(\'clientEditorModal\').remove()" style="flex:1;background:var(--bg-elevated,var(--border, rgba(255,255,255,0.05)));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-secondary,var(--text-muted, #94a3b8));border-radius:9px;padding:11px;font-weight:700;cursor:pointer;font-size:13px;transition:background 0.2s;" onmouseover="this.style.background=\'rgba(255,255,255,0.1)\'" onmouseout="this.style.background=\'var(--bg-elevated,rgba(255,255,255,0.05))\'">Annuler</button>' +
+        '<button onclick="ui._saveClientEditor(' + idxStr + ')" style="flex:2;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:9px;padding:11px;font-weight:800;cursor:pointer;font-size:13px;box-shadow:0 4px 14px rgba(59,130,246,0.3);transition:transform 0.1s;" onmousedown="this.style.transform=\'scale(0.98)\'" onmouseup="this.style.transform=\'scale(1)\'"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Enregistrer</button>' +
       '</div></div>';
     document.body.appendChild(m);
     m.addEventListener('click', e => { if (e.target === m) m.remove(); });
@@ -8973,6 +8986,28 @@ exportMaintenanceCSV() {
       b.style.background = s ? 'rgba(59,130,246,0.2)' : 'var(--bg-elevated, rgba(255,255,255,0.04))';
       b.style.color = s ? '#60a5fa' : 'var(--text-muted, #94a3b8)';
     });
+  }
+
+  _deleteClientEditor(idx) {
+    if(idx === null || idx === undefined) return;
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    if(!clients[idx]) return;
+    if(!confirm('Êtes-vous sûr de vouloir supprimer définitivement le client : ' + clients[idx].name + ' ?\n\nAttention : Tous ses sous-clients seront également supprimés. Les sites associés perdront leur affiliation.')) return;
+    
+    const id = clients[idx].id;
+    clients.splice(idx, 1);
+    
+    // Detach from custom locations
+    if (FLEET_CONFIG.CUSTOM_LOCATIONS) {
+        FLEET_CONFIG.CUSTOM_LOCATIONS.forEach(z => { 
+            if(z.clientId === id){ z.clientId = null; z.finalClientId = null; } 
+        });
+    }
+    
+    this.saveSettingsToCloud();
+    document.getElementById('clientEditorModal')?.remove();
+    this.openZoneManagementModal('clients');
+    if (window.showToast) showToast('Client supprimé avec succès', 'success');
   }
 
   _ceAddFC() {
@@ -9232,42 +9267,52 @@ exportMaintenanceCSV() {
     }
   }
 
-  _zoneHistoryRowClick(deviceId, truckName, lat, lng) {
-    // Isolate the truck on map
-    const am = window.AlgeriaMap;
-    
+  _zoneHistoryRowClick(deviceId, truckName, lat, lng, entryTime, exitTime) {
     // Switch to map
     const mapNavBtn = document.querySelector('[data-tab="byWilaya"]');
     if (mapNavBtn) mapNavBtn.click(); else this.switchTab('byWilaya');
     if (this.zoneGroupingMode !== 'map') this.setZoneGrouping('map');
 
-    const doFly = (attempt) => {
-      if (!am || !am.map) { if(attempt < 15) setTimeout(() => doFly(attempt+1), 400); return; }
-      const canvas = am.map.getCanvas();
-      if (!canvas || canvas.width === 0) { if(attempt < 15) setTimeout(() => doFly(attempt+1), 400); return; }
-      try { am.map.resize(); } catch(e) {}
-
-      // Select truck to isolate it
-      if (am.selectTruckById) {
-        // Find by deviceId
-        let found = am.truckDataCache?.find(t => String(t.deviceId) === String(deviceId) || t.id === String(deviceId));
-        if (!found) found = am.truckDataCache?.find(t => t.name === truckName);
-        if (found) am.selectTruckById(found.id);
+    if (entryTime && entryTime !== 'undefined' && entryTime !== 'null') {
+      // Find IMEI from deviceId
+      const am = window.AlgeriaMap;
+      let imei = deviceId;
+      if (am && am.truckDataCache) {
+        const found = am.truckDataCache.find(t => String(t.deviceId) === String(deviceId) || String(t.id) === String(deviceId) || t.name === truckName);
+        if (found && found.id) imei = found.id;
       }
+      
+      const start = entryTime.replace('T', ' ').substring(0, 19);
+      const end = exitTime && exitTime !== 'undefined' && exitTime !== 'null' ? exitTime.replace('T', ' ').substring(0, 19) : new Date().toISOString().replace('T', ' ').substring(0, 19);
+      
+      this.loadVisualHistory(imei, start, end);
+    } else {
+      // Legacy behavior: just fly to position
+      const am = window.AlgeriaMap;
+      const doFly = (attempt) => {
+        if (!am || !am.map) { if(attempt < 15) setTimeout(() => doFly(attempt+1), 400); return; }
+        const canvas = am.map.getCanvas();
+        if (!canvas || canvas.width === 0) { if(attempt < 15) setTimeout(() => doFly(attempt+1), 400); return; }
+        try { am.map.resize(); } catch(e) {}
 
-      // Fly to the historical position
-      if (lat && lng) {
-        am.map.flyTo({ center: [lng, lat], zoom: 16, essential: true, duration: 1800 });
-        // Drop a temporary marker at the historical stop location
-        if (window._historyMarker) { window._historyMarker.remove(); }
-        window._historyMarker = new mapboxgl.Marker({ color: '#8b5cf6' })
-          .setLngLat([lng, lat])
-          .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML('<div style="color:var(--bg-surface, #0f172a);font-weight:700;font-size:12px;">📍 ' + truckName + '<br><span style=\"color:#6b7280;font-size:10px;\">Arrêt historique</span></div>'))
-          .addTo(am.map);
-        setTimeout(() => { if (window._historyMarker) { window._historyMarker.getPopup().addTo(am.map); } }, 1000);
-      }
-    };
-    setTimeout(() => doFly(0), 500);
+        if (am.selectTruckById) {
+          let found = am.truckDataCache?.find(t => String(t.deviceId) === String(deviceId) || t.id === String(deviceId));
+          if (!found) found = am.truckDataCache?.find(t => t.name === truckName);
+          if (found) am.selectTruckById(found.id);
+        }
+
+        if (lat && lng) {
+          am.map.flyTo({ center: [lng, lat], zoom: 16, essential: true, duration: 1800 });
+          if (window._historyMarker) { window._historyMarker.remove(); }
+          window._historyMarker = new mapboxgl.Marker({ color: '#8b5cf6' })
+            .setLngLat([lng, lat])
+            .setPopup(new mapboxgl.Popup({ offset: 25 }).setHTML('<div style="color:var(--bg-surface, #0f172a);font-weight:700;font-size:12px;">📍 ' + truckName + '<br><span style=\"color:#6b7280;font-size:10px;\">Arrêt historique</span></div>'))
+            .addTo(am.map);
+          setTimeout(() => { if (window._historyMarker) { window._historyMarker.getPopup().addTo(am.map); } }, 1000);
+        }
+      };
+      setTimeout(() => doFly(0), 500);
+    }
   }
 
   _cancelMapPicker(reopen) {
