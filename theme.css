@@ -8,6 +8,7 @@
 
 /* ─── 2. DESIGN TOKENS ─── */
 :root {
+  color-scheme: dark;
   /* Background layers */
   --bg-deep:        #060910;
   --bg-base:        #0a0e17;
@@ -273,6 +274,7 @@
 
 html {
   font-size: 16px;
+  color-scheme: dark;
   -webkit-text-size-adjust: 100%;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -3632,6 +3634,13 @@ span.speed-badge-over {
 
 /* --- Wizard Steps --- */
 .maint-wizard { display: flex; flex-direction: column; gap: 0; }
+.maint-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 640px) { .maint-form-grid { grid-template-columns: 1fr; } }
 .maint-wizard-nav { display: flex; gap: 0; margin-bottom: 20px; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); }
 .maint-wizard-nav button {
   flex: 1; padding: 12px 8px; border: none; background: var(--bg-elevated); color: var(--text-muted);
@@ -3654,6 +3663,51 @@ span.speed-badge-over {
 .maint-wizard-step { display: none; animation: fadeSlideIn 0.3s ease; }
 .maint-wizard-step.active { display: block; }
 @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Maintenance Modal: force dark on all form controls ──
+   Without color-scheme:dark, Chrome renders native inputs light even if
+   background is overridden — this block enforces correct dark appearance.
+*/
+#maintenanceModal {
+  color-scheme: dark;
+}
+#maintenanceModal input,
+#maintenanceModal select,
+#maintenanceModal textarea {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: var(--radius-md) !important;
+  color-scheme: dark;
+}
+#maintenanceModal input::placeholder,
+#maintenanceModal textarea::placeholder {
+  color: var(--text-dim) !important;
+  opacity: 1;
+}
+#maintenanceModal input:focus,
+#maintenanceModal select:focus,
+#maintenanceModal textarea:focus {
+  border-color: var(--warning) !important;
+  box-shadow: 0 0 0 3px rgba(245,158,11,0.18) !important;
+  background: var(--bg-surface) !important;
+  outline: none !important;
+}
+#maintenanceModal select option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+#maintenanceModal label {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  color: var(--text-muted) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin-bottom: 6px !important;
+}
 
 /* --- Parts Picker --- */
 .parts-picker { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }

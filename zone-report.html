@@ -9,77 +9,80 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <style>
     /* ═══════════════════════════════════════════
-       DESIGN SYSTEM — TOKENS
+       BRAND NEW DESIGN SYSTEM — THE TIMELINE
     ═══════════════════════════════════════════ */
     :root {
       --font: 'Inter', -apple-system, sans-serif;
       --mono: 'JetBrains Mono', monospace;
 
-      /* Dark theme (default) */
-      --bg:       #0f1117;
-      --bg-2:     #161920;
-      --bg-3:     #1e2028;
-      --bg-card:  #1a1d24;
-      --border:   rgba(255,255,255,0.07);
-      --border-2: rgba(255,255,255,0.12);
-      --text:     #e8eaf0;
-      --text-2:   #8b90a0;
-      --text-3:   #555a6a;
+      /* Premium Light Theme (Default now) */
+      --bg:       #f8fafc;
+      --bg-2:     #ffffff;
+      --bg-3:     #f1f5f9;
+      --bg-card:  #ffffff;
+      --border:   #e2e8f0;
+      --border-2: #cbd5e1;
+      --text:     #0f172a;
+      --text-2:   #334155;
+      --text-3:   #64748b;
 
-      --teal:     #2dd4bf;
-      --teal-dim: rgba(45,212,191,0.12);
-      --blue:     #60a5fa;
-      --blue-dim: rgba(96,165,250,0.12);
-      --green:    #4ade80;
-      --green-dim:rgba(74,222,128,0.12);
-      --orange:   #fb923c;
-      --orange-dim:rgba(251,146,60,0.12);
-      --red:      #f87171;
-      --red-dim:  rgba(248,113,113,0.12);
-      --purple:   #a78bfa;
-      --purple-dim:rgba(167,139,250,0.12);
+      --teal:     #0ea5e9; /* Changed to an energetic sky blue */
+      --teal-dim: rgba(14, 165, 233, 0.1);
+      --blue:     #3b82f6;
+      --blue-dim: rgba(59, 130, 246, 0.1);
+      --green:    #10b981;
+      --green-dim:rgba(16, 185, 129, 0.1);
+      --orange:   #f59e0b;
+      --orange-dim:rgba(245, 158, 11, 0.1);
+      --red:      #ef4444;
+      --red-dim:  rgba(239, 68, 68, 0.1);
+      --purple:   #8b5cf6;
+      --purple-dim:rgba(139, 92, 246, 0.1);
 
-      --radius:   10px;
-      --radius-sm:6px;
-      --shadow:   0 4px 24px rgba(0,0,0,0.4);
-      --shadow-sm:0 2px 8px rgba(0,0,0,0.3);
+      --radius:   12px;
+      --radius-sm:8px;
+      --shadow:   0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+      --shadow-sm:0 4px 6px -1px rgba(0, 0, 0, 0.05);
 
-      --sidebar-w: 260px;
-      --header-h:  56px;
+      --sidebar-w: 0px; /* Sidebar removed */
+      --header-h:  64px;
     
-    /* ── compat vars used in zone history (zone-report + ui.js) ── */
-    --color-info:      #38bdf8;
-    --color-primary:   #818cf8;
-    --color-warning:   #fb923c;
-    --color-success:   #4ade80;
-    --color-danger:    #f87171;
-    --font-weight-semibold: 600;
+      /* ── compat vars used in zone history (zone-report + ui.js) ── */
+      --color-info:      #38bdf8;
+      --color-primary:   #818cf8;
+      --color-warning:   #fb923c;
+      --color-success:   #4ade80;
+      --color-danger:    #f87171;
+      --font-weight-semibold: 600;
     }
 
-    [data-theme="light"] {
-      --bg:       #f0f2f5;
-      --bg-2:     #ffffff;
-      --bg-3:     #f7f8fa;
-      --bg-card:  #ffffff;
-      --border:   rgba(0,0,0,0.08);
-      --border-2: rgba(0,0,0,0.14);
-      --text:     #111827;
-      --text-2:   #6b7280;
-      --text-3:   #9ca3af;
-      --teal:     #0d9488;
-      --teal-dim: rgba(13,148,136,0.1);
-      --blue:     #2563eb;
-      --blue-dim: rgba(37,99,235,0.1);
-      --green:    #16a34a;
-      --green-dim:rgba(22,163,74,0.1);
-      --orange:   #ea580c;
-      --orange-dim:rgba(234,88,12,0.1);
-      --red:      #dc2626;
-      --red-dim:  rgba(220,38,38,0.1);
-      --purple:   #7c3aed;
-      --purple-dim:rgba(124,58,237,0.1);
-      --shadow:   0 4px 24px rgba(0,0,0,0.1);
-      --shadow-sm:0 2px 8px rgba(0,0,0,0.06);
+    [data-theme="dark"] {
+      /* Premium Dark Theme */
+      --bg:       #020617;
+      --bg-2:     #0f172a;
+      --bg-3:     #1e293b;
+      --bg-card:  #0f172a;
+      --border:   rgba(255,255,255,0.08);
+      --border-2: rgba(255,255,255,0.15);
+      --text:     #f8fafc;
+      --text-2:   #cbd5e1;
+      --text-3:   #94a3b8;
+      
+      --teal:     #38bdf8;
+      --teal-dim: rgba(56, 189, 248, 0.15);
+      --blue:     #60a5fa;
+      --blue-dim: rgba(96, 165, 250, 0.15);
+      --green:    #34d399;
+      --green-dim:rgba(52, 211, 153, 0.15);
+      --orange:   #fbbf24;
+      --orange-dim:rgba(251, 191, 36, 0.15);
+      --red:      #f87171;
+      --red-dim:  rgba(248, 113, 113, 0.15);
+      --purple:   #a78bfa;
+      --purple-dim:rgba(167, 139, 250, 0.15);
+      
+      --shadow:   0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      --shadow-sm:0 4px 6px -1px rgba(0, 0, 0, 0.3);
     }
 
     /* ═══════════════════════════════════════════
@@ -363,25 +366,31 @@
     .modal-btn.ghost { background: transparent; color: var(--text-2); }
     .modal-btn.ghost:hover { color: var(--text); background: var(--bg-3); }
 
-    /* TABLE */
-    .data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    /* TABLE (Modern Data Grid) */
+    .data-table { width: 100%; border-collapse: separate; border-spacing: 0 4px; font-size: 13px; }
     .data-table th {
-      padding: 8px 12px; text-align: left; font-size: 10px; font-weight: 700;
-      color: var(--text-3); text-transform: uppercase; letter-spacing: .6px;
-      border-bottom: 1px solid var(--border); background: var(--bg-3); white-space: nowrap;
+      padding: 12px 16px; text-align: left; font-size: 11px; font-weight: 700;
+      color: var(--text-3); text-transform: uppercase; letter-spacing: 0.8px;
+      border: none; background: transparent; white-space: nowrap;
     }
-    .data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: middle; }
-    .data-table tr:hover td { background: var(--bg-3); }
-    .data-table .mono { font-family: var(--mono); font-weight: 600; }
+    .data-table td { 
+      padding: 14px 16px; background: var(--bg-card); color: var(--text); vertical-align: middle; 
+      border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+    }
+    .data-table td:first-child { border-left: 1px solid var(--border); border-top-left-radius: var(--radius-sm); border-bottom-left-radius: var(--radius-sm); }
+    .data-table td:last-child { border-right: 1px solid var(--border); border-top-right-radius: var(--radius-sm); border-bottom-right-radius: var(--radius-sm); }
+    .data-table tr:hover td { background: var(--bg-3); box-shadow: var(--shadow-sm); transform: translateY(-1px); transition: all 0.2s; }
+    
+    .data-table .mono { font-family: var(--mono); font-weight: 600; font-size: 12px; }
     .data-table .tag {
-      display: inline-flex; padding: 2px 8px; border-radius: 99px;
-      font-size: 10px; font-weight: 700;
+      display: inline-flex; padding: 4px 10px; border-radius: 99px;
+      font-size: 11px; font-weight: 700;
     }
-    .tag.green  { background: var(--green-dim);  color: var(--green); }
-    .tag.teal   { background: var(--teal-dim);   color: var(--teal); }
-    .tag.orange { background: var(--orange-dim); color: var(--orange); }
-    .tag.red    { background: var(--red-dim);    color: var(--red); }
-    .tag.blue   { background: var(--blue-dim);   color: var(--blue); }
+    .tag.green  { background: var(--green-dim);  color: var(--green); border: 1px solid rgba(16,185,129,0.2); }
+    .tag.teal   { background: var(--teal-dim);   color: var(--teal); border: 1px solid rgba(14,165,233,0.2); }
+    .tag.orange { background: var(--orange-dim); color: var(--orange); border: 1px solid rgba(245,158,11,0.2); }
+    .tag.red    { background: var(--red-dim);    color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+    .tag.blue   { background: var(--blue-dim);   color: var(--blue); border: 1px solid rgba(59,130,246,0.2); }
     .tag.gray   { background: var(--bg-3);       color: var(--text-3); border: 1px solid var(--border); }
 
     /* CHARTS */
@@ -570,74 +579,64 @@
   <!-- BODY -->
   <div id="body">
 
-    <!-- SIDEBAR -->
-    <nav id="sidebar">
-      <!-- FILTERS -->
-      <div class="sb-section">
-        <div class="sb-label">Filtres Globaux</div>
-        <div class="sb-filter" style="border-left:3px solid #3b82f6;padding-left:8px;">
-          <label style="color:#3b82f6;font-weight:700;">👤 Client</label>
-          <select id="sbClient" class="sb-select" onchange="ZMC.applyFilters()">
-            <option value="">— Tous Clients —</option>
-          </select>
-        </div>
-        <div class="sb-filter" style="padding-left:8px;">
-          <label style="color:#64748b;font-size:10px;">↳ Client Final</label>
-          <select id="sbFinalClient" class="sb-select" onchange="ZMC.applyFilters()">
-            <option value="">— Tous —</option>
-          </select>
-        </div>
-        <div class="sb-filter">
-          <label>Zone</label>
-          <select id="sbZone" class="sb-select" onchange="ZMC.applyFilters()">
-            <option value="">Toutes les zones</option>
-          </select>
-        </div>
-        <div class="sb-filter">
-          <label>Camion</label>
-          <select id="sbTruck" class="sb-select" onchange="ZMC.applyFilters()">
-            <option value="">Tous les camions</option>
-          </select>
-        </div>
-        <div class="sb-filter">
-          <label>Statut</label>
-          <select id="sbStatus" class="sb-select" onchange="ZMC.applyFilters()">
-            <option value="">Tous</option>
-            <option value="in-zone">🟢 En zone</option>
-            <option value="en-route">🚛 En route</option>
-            <option value="late">🔴 En retard</option>
-          </select>
-        </div>
-        <div class="sb-filter">
-          <label>Du</label>
-          <input type="date" id="sbStart" class="sb-input">
-        </div>
-        <div class="sb-filter">
-          <label>Au</label>
-          <input type="date" id="sbEnd" class="sb-input">
-        </div>
-        <button class="sb-btn" onclick="ZMC.applyFilters()" style="margin-top:4px;">
-          <i class="fa-solid fa-filter"></i> Appliquer
-        </button>
-        <button class="sb-btn ghost" onclick="ZMC.resetFilters()" style="margin-top:6px;">
-          <i class="fa-solid fa-xmark"></i> Réinitialiser
-        </button>
-      </div>
-
-
-
-
-      <div class="sb-footer">
-        <div class="sb-credit">
-          Fleet Analytics v2.0
-        </div>
-      </div>
-    </nav>
-
     <!-- MAIN CONTENT -->
     <main id="main">
+      <!-- TOP FILTER BAR (Replaces Sidebar) -->
+      <div id="filterBar" style="display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--bg-2);border-bottom:1px solid var(--border);overflow-x:auto;">
+        
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:0.5px;"><i class="fa-solid fa-filter"></i> Filtres</span>
+        </div>
+        
+        <div style="height:24px;width:1px;background:var(--border);margin:0 4px;"></div>
+
+        <select id="sbClient" class="sb-select" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <option value="">— Tous Clients —</option>
+        </select>
+        
+        <select id="sbFinalClient" class="sb-select" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <option value="">— Client Final —</option>
+        </select>
+
+        <select id="sbZone" class="sb-select" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <option value="">Toutes les zones</option>
+        </select>
+
+        <select id="sbTruck" class="sb-select" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <option value="">Tous les camions</option>
+        </select>
+
+        <select id="sbStatus" class="sb-select" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <option value="">Tous les statuts</option>
+          <option value="in-zone">🟢 En zone</option>
+          <option value="en-route">🚛 En route</option>
+          <option value="late">🔴 En retard</option>
+        </select>
+
+        <div style="display:flex;align-items:center;gap:4px;">
+          <input type="date" id="sbStart" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <span style="color:var(--text-3);font-size:11px;">→</span>
+          <input type="date" id="sbEnd" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+        </div>
+
+        <button onclick="ZMC.resetFilters()" style="padding:6px 10px;border:none;background:transparent;color:var(--red);font-size:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:4px;margin-left:auto;">
+          <i class="fa-solid fa-xmark"></i> Reset
+        </button>
+      </div>
+
       <!-- TOP TAB BAR -->
       <div class="top-tabs" id="topTabs">
+        <!-- BACK BUTTON: returns to main fleet dashboard -->
+        <a href="/" id="backToDashBtn" title="Retour au tableau de bord principal"
+           style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;margin-right:6px;
+                  background:rgba(45,212,191,0.10);border:1px solid rgba(45,212,191,0.25);
+                  border-radius:8px;color:var(--teal);font-size:12px;font-weight:700;
+                  text-decoration:none;cursor:pointer;transition:all 0.2s;white-space:nowrap;
+                  align-self:center;"
+           onmouseover="this.style.background='rgba(45,212,191,0.22)';this.style.borderColor='var(--teal)';"
+           onmouseout="this.style.background='rgba(45,212,191,0.10)';this.style.borderColor='rgba(45,212,191,0.25)';">
+          <i class="fa-solid fa-arrow-left" style="font-size:11px;"></i> Retour
+        </a>
         <div class="top-tab active" data-tab="live" onclick="ZMC.switchTab('live')">
           <i class="fa-solid fa-tower-broadcast"></i> Live
           <span class="nav-badge" id="liveCount">0</span>
@@ -679,7 +678,11 @@
               <option value="long">> 2h en zone</option>
               <option value="late">> 4h (retard)</option>
             </select>
-            <button id="btnForceGlobalSync" class="hdr-btn" style="background-color: var(--orange); color: #000;" onclick="ZMC.forceGlobalSync()"><i class="fa-solid fa-bolt"></i> Forcer Sync Live (24h)</button>
+            <div style="display:flex;align-items:center;background:var(--bg-3);border-radius:6px;padding:0 8px;border:1px solid var(--border-1);">
+              <span style="font-size:11px;font-weight:700;color:var(--text-2);margin-right:8px;" title="Scan autonome toutes les 30 min"><i class="fa-solid fa-robot"></i> Auto-Scan: <span id="systemStatusBadge" style="color:var(--teal);font-family:monospace;font-size:12px;">—</span></span>
+              <button id="btnInitSystem" class="hdr-btn" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:4px;margin:4px 0;padding:4px 12px;font-weight:700;" onclick="ZMC.initializeSystem()"><i class="fa-solid fa-rocket"></i> Initialiser</button>
+              <button id="btnForceGlobalSync" class="hdr-btn" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;border:none;border-radius:4px;margin:4px 0;padding:4px 12px;font-weight:700;" onclick="ZMC.forceGlobalSync()" title="Synchronisation forcée: scanne les 48 dernières heures pour tous les camions + ferme les événements périmés"><i class="fa-solid fa-rotate"></i> Force Sync</button>
+            </div>
             <button class="hdr-btn" onclick="ZMC.refreshLive()"><i class="fa-solid fa-arrows-rotate"></i> Actualiser</button>
             <button class="hdr-btn" onclick="ZMC.exportLiveCSV()"><i class="fa-solid fa-file-arrow-down"></i> CSV</button>
           </div>
@@ -1358,6 +1361,14 @@ const ZMC = (() => {
     if (tab === 'history') loadHistory();
     if (tab === 'analytics') loadAnalytics();
     if (tab === 'powerbi') { loadApiKeys(); buildPBUrl(); checkPBFreshness(); }
+    // GPS tab: always refresh fleet data so truck list is up-to-date
+    if (tab === 'gps') {
+      loadFleetData().then(() => {
+        // If the dropdown is already visible, refresh it now
+        const dd = document.getElementById('gpsTrucksDropdown');
+        if (dd && dd.style.display !== 'none') renderGpsTruckSelect();
+      }).catch(() => {});
+    }
   }
 
   // ── FILTERS ──
@@ -1926,23 +1937,23 @@ const ZMC = (() => {
       const recapColor = (e.recapImmobilisationMin||0) > 240 ? 'var(--red)' : (e.recapImmobilisationMin||0) > 120 ? 'var(--orange)' : 'var(--green)';
       const evtDataKey = 'histEvt_' + (e._id || Date.now());
       try { sessionStorage.setItem(evtDataKey, JSON.stringify({ _id: e._id, truckName: e.truckName, deviceId: e.deviceId, zoneName: e.zoneName, zoneType: e.zoneType, entryTime: e.entryTime, exitTime: e.exitTime, durationMinutes: e.durationMinutes, entryLat: e.entryLat, entryLng: e.entryLng, clientName: e.clientName, finalClientName: e.finalClientName, recapImmobilisationMin: e.recapImmobilisationMin })); } catch(_) {}
-      return `<tr>
-        <td>${entry.toLocaleDateString('fr-FR')}</td>
-        <td style="font-weight:700;color:#60a5fa;"><i class="fa-solid fa-truck" style="font-size:10px;margin-right:4px;color:#38bdf8;"></i>${e.truckName}</td>
-        <td style="color:var(--teal);">${e.zoneName}</td>
-        <td class="mono">${entry.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
-        <td class="mono">${exit ? exit.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '<span class="tag teal">En zone</span>'}</td>
-        <td class="mono" style="color:var(--green);">${dur}</td>
-        <td class="mono">${planned}</td>
+      return `<tr style="transition:all 0.2s;">
+        <td style="color:var(--text-2);font-weight:500;">${entry.toLocaleDateString('fr-FR')}</td>
+        <td style="font-weight:800;color:var(--text);"><i class="fa-solid fa-truck" style="font-size:11px;margin-right:6px;color:var(--blue);"></i>${e.truckName}</td>
+        <td style="font-weight:700;color:var(--teal);">${e.zoneName}</td>
+        <td class="mono" style="color:var(--text-2);"><i class="fa-solid fa-arrow-right-to-bracket" style="font-size:10px;margin-right:4px;color:var(--text-3);"></i>${entry.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
+        <td class="mono" style="color:var(--text-2);">${exit ? `<i class="fa-solid fa-arrow-right-from-bracket" style="font-size:10px;margin-right:4px;color:var(--text-3);"></i>${exit.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}` : '<span class="tag teal"><i class="fa-solid fa-spinner fa-spin" style="margin-right:4px;"></i>En zone</span>'}</td>
+        <td class="mono" style="font-weight:700;color:var(--text);">${dur}</td>
+        <td class="mono" style="color:var(--text-3);">${planned}</td>
         <td class="mono">${diff}</td>
-        <td class="mono" style="font-weight:700;color:${recapColor};">${recap}</td>
+        <td class="mono" style="font-weight:800;color:${recapColor};">${recap}</td>
         <td>${typeBadge}</td>
-        <td style="color:var(--purple);font-size:11px;">${e.operationName||'—'}</td>
+        <td style="color:var(--purple);font-size:11px;font-weight:600;">${e.operationName||'—'}</td>
         <td>${badge}</td>
-        <td style="display:flex;gap:5px;align-items:center;padding:4px 6px;">
-           <button onclick="openGPSHistory('${e.deviceId}','${e.truckName}','${e.entryTime}','${e.exitTime||''}')" title="Voir le trajet GPS de ce camion pendant cette visite (entrée → sortie)" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:white;border:none;border-radius:6px;padding:4px 9px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;"><i class="fa-solid fa-clock-rotate-left"></i> Vérifier</button>
-           <button onclick="openInMapLive('${e.truckName}','${e.deviceId}',${e.entryLat||'null'},${e.entryLng||'null'})" title="Voir position live du camion sur la carte" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;border:none;border-radius:6px;padding:4px 9px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;"><i class="fa-solid fa-location-dot"></i> Live</button>
-           <button onclick="ZMC.openEditHistory('${e._id}')" style="background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:white;border:none;border-radius:6px;padding:4px 8px;font-size:10px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;"><i class="fa-solid fa-pen"></i></button>
+        <td style="display:flex;gap:6px;align-items:center;justify-content:flex-end;padding-right:16px;">
+           <button onclick="openGPSHistory('${e.deviceId}','${e.truckName}','${e.entryTime}','${e.exitTime||''}')" title="Trajet GPS (entrée → sortie)" style="background:var(--blue-dim);color:var(--blue);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-map-location-dot"></i> GPS</button>
+           <button onclick="openInMapLive('${e.truckName}','${e.deviceId}',${e.entryLat||'null'},${e.entryLng||'null'})" title="Position live" style="background:var(--red-dim);color:var(--red);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-location-crosshairs"></i> Live</button>
+           <button onclick="ZMC.openEditHistory('${e._id}')" title="Modifier" style="background:var(--bg-3);color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;transition:all 0.2s;" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--text-3)'" onmouseout="this.style.color='var(--text-2)';this.style.borderColor='var(--border)'"><i class="fa-solid fa-pen"></i></button>
          </td>
       </tr>`;
     }).join('');
@@ -1976,6 +1987,8 @@ const ZMC = (() => {
       }
     }
   }
+
+
 
   function openEditHistory(id) {
     const e = (state.histData||[]).find(x => String(x._id) === String(id));
@@ -2131,25 +2144,51 @@ const ZMC = (() => {
 
     try {
       const startTime = Date.now();
-      const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
-        method:'POST', headers:headers(),
-        body: JSON.stringify({ start: new Date(start).toISOString(), end: new Date(end+'T23:59:59').toISOString() })
-      });
+      
+      // Get all trucks to batch them
+      const rTrucks = await fetch(`${state.base}/api/trucks/db`, { headers: headers() });
+      const trucksList = await rTrucks.json();
+      
+      let totalCreated = 0;
+      let totalSkipped = 0;
+      let allErrors = [];
+      const BATCH_SIZE = 5; // Process 5 trucks at a time to prevent server timeout
+      
       clearInterval(fakeTimer);
 
-      const d = await r.json();
+      for (let i = 0; i < trucksList.length; i += BATCH_SIZE) {
+        const batch = trucksList.slice(i, i + BATCH_SIZE).map(t => t.deviceId);
+        const pct = Math.round((i / trucksList.length) * 100);
+        setProgress(pct, `Scan en cours... (${i}/${trucksList.length})`, `Traitement du lot de camions...`);
+        
+        try {
+          const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
+            method:'POST', headers:headers(),
+            body: JSON.stringify({ 
+              start: new Date(start).toISOString(), 
+              end: new Date(end+'T23:59:59').toISOString(), 
+              deviceIds: batch 
+            })
+          });
+          const d = await r.json();
+          if (d.summary) {
+            totalCreated += d.summary.created || 0;
+            totalSkipped += d.summary.skipped || 0;
+            if (d.summary.errors) allErrors.push(...d.summary.errors);
+          }
+        } catch (err) {
+          allErrors.push({ truck: 'Batch Error', error: err.message });
+        }
+      }
+
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-      const created = d.summary?.created || 0;
-      const trucks = d.summary?.trucks || 0;
-      const errors = d.summary?.errors?.length || 0;
-
       setProgress(100, '✅ Scan terminé !',
-        `${created} événements créés · ${trucks} camions analysés · ${errors} erreurs · ${elapsed}s`);
+        `${totalCreated} créés · ${trucksList.length} analysés (${totalSkipped} ignorés/quota) · ${allErrors.length} erreurs · ${elapsed}s`);
 
       setTimeout(() => { progressEl.remove(); }, 3500);
 
-      toast(`✅ Scan terminé: ${created} événements, ${trucks} camions (${elapsed}s)`, 'success');
+      toast(`✅ Scan terminé: ${totalCreated} événements, ${trucksList.length} camions (${elapsed}s)`, 'success');
       loadHistory(1);
     } catch(e) {
       clearInterval(fakeTimer);
@@ -2162,51 +2201,254 @@ const ZMC = (() => {
     }
   }
 
-  // --- NEW: GLOBAL SYNC ---
-  async function forceGlobalSync() {
-    if (!confirm("Voulez-vous lancer un scan massif sur l'ensemble de la flotte (24h) ? Cela peut prendre 1 à 2 minutes.")) return;
-    
+  // ═══════════════════════════════════════════════════════════════
+  // FORCE SYNC — Full GPS reconciliation for all trucks
+  // Calls /api/admin/force-sync: scans last N hours, closes stale
+  // open events, syncs _zoneEventZone for every truck from DB truth.
+  // ═══════════════════════════════════════════════════════════════
+  async function forceGlobalSync(hours = 48, isSilent = false) {
     const btn = document.getElementById('btnForceGlobalSync');
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Synchronisation Globale...';
+    if (btn && btn.disabled) return; // already running
+
+    if (!isSilent) {
+      const h = prompt(
+        '🔄 FORCE SYNC\n\n' +
+        'Scanne l\'historique GPS de TOUS les camions, ferme les événements périmés\n' +
+        'et resynchronise toute la base de données en temps réel.\n\n' +
+        'Combien d\'heures d\'historique couvrir ?\n(48 = recommandé, 168 = 7 jours max)',
+        String(hours)
+      );
+      if (h === null) return;
+      hours = Math.min(Math.max(parseInt(h) || 48, 1), 168);
     }
-    toast('Synchronisation massive démarrée. Veuillez patienter...', 'info');
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sync...'; }
+    toast(`🔄 Force Sync démarré — ${hours}h × tous les camions. Patientez 1 à 3 min...`, 'info');
 
     try {
-      const now = Date.now();
-      const startMs = now - (24 * 3600000); // last 24h
-      
-      const r = await fetch(`${state.base}/api/zone-events/scan-history`, {
+      const r = await fetch(`${state.base}/api/admin/force-sync`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers()
-        },
-        body: JSON.stringify({
-          start: new Date(startMs).toISOString(),
-          end: new Date(now).toISOString()
-        })
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify({ hours })
       });
-      
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Erreur API');
-      
-      toast(`✅ Synchronisation 24h terminée avec succès !`, 'success');
-      // Refresh live grid
-      loadLive();
+      if (!r.ok) throw new Error(d.error || 'Erreur serveur');
+
+      // Show a countdown banner so user knows it's working in background
+      showSyncCountdown(hours, d.trucksTotal || '?');
+
     } catch(e) {
-      toast('Erreur Synchronisation Globale: ' + e.message, 'error');
+      toast('Erreur Force Sync: ' + e.message, 'error');
     } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Forcer Sync Live (24h)';
-      }
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Force Sync'; }
     }
   }
 
+  function showSyncCountdown(hours, trucksTotal) {
+    // Remove old banner
+    const old = document.getElementById('syncCountdownBanner');
+    if (old) old.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'syncCountdownBanner';
+    banner.style.cssText = `
+      position:fixed;bottom:24px;right:24px;z-index:99999;
+      background:var(--bg-card);border:1px solid var(--teal);
+      border-radius:12px;padding:16px 20px;min-width:320px;
+      box-shadow:0 8px 32px rgba(0,0,0,0.3);font-family:var(--font);
+    `;
+    const estSecs = Math.min(trucksTotal * 3, 180); // ~3s/truck estimate
+    let remaining = estSecs;
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <i class="fa-solid fa-rotate fa-spin" style="color:var(--teal);font-size:18px;"></i>
+        <div>
+          <div style="font-weight:800;color:var(--text);font-size:13px;">Force Sync en cours</div>
+          <div style="font-size:11px;color:var(--text-3);">${trucksTotal} camions × dernières ${hours}h</div>
+        </div>
+        <button onclick="document.getElementById('syncCountdownBanner').remove()" style="margin-left:auto;background:none;border:none;color:var(--text-3);cursor:pointer;font-size:16px;">✕</button>
+      </div>
+      <div style="background:var(--bg-3);border-radius:6px;height:6px;overflow:hidden;margin-bottom:8px;">
+        <div id="syncBannerFill" style="height:100%;background:linear-gradient(90deg,var(--teal),var(--blue));border-radius:6px;width:0%;transition:width 1s linear;"></div>
+      </div>
+      <div id="syncBannerText" style="font-size:11px;color:var(--text-3);text-align:center;">~<span id="syncBannerSecs">${remaining}</span>s restantes...</div>
+    `;
+    document.body.appendChild(banner);
+
+    const tick = setInterval(() => {
+      remaining = Math.max(0, remaining - 1);
+      const pct = Math.round(((estSecs - remaining) / estSecs) * 100);
+      const fill = document.getElementById('syncBannerFill');
+      const secs = document.getElementById('syncBannerSecs');
+      if (fill) fill.style.width = pct + '%';
+      if (secs) secs.textContent = remaining;
+      if (remaining <= 0) {
+        clearInterval(tick);
+        const bannerText = document.getElementById('syncBannerText');
+        if (bannerText) bannerText.innerHTML = '<span style="color:var(--green);font-weight:700;">✅ Sync terminée — données rafraîchies</span>';
+        // Auto-refresh all data
+        refreshAll();
+        setTimeout(() => { const b = document.getElementById('syncCountdownBanner'); if (b) b.remove(); }, 4000);
+      }
+    }, 1000);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // SYSTEM STATUS BADGE — polls every 5s
+  // ═══════════════════════════════════════════════════════
+  async function refreshSystemStatus() {
+    try {
+      const r = await fetch(`${state.base}/api/admin/init-status`, { headers: headers() });
+      if (!r.ok) return;
+      const d = await r.json();
+      const badge = document.getElementById('systemStatusBadge');
+      if (!badge) return;
+      if (d.initialized) {
+        badge.style.color = 'var(--teal)';
+        badge.textContent = '✅ Actif';
+        const btn = document.getElementById('btnInitSystem');
+        if (btn) { btn.style.opacity = '0.5'; btn.title = 'Déjà initialisé. Cliquer pour réinitialiser.'; }
+      } else if (d.status === 'running') {
+        badge.style.color = 'var(--orange)';
+        badge.textContent = `⏳ ${d.progress.done}/${d.progress.total}`;
+      } else {
+        badge.style.color = 'var(--red)';
+        badge.textContent = '⚠️ Non initialisé';
+      }
+    } catch(e) {}
+  }
+  setInterval(refreshSystemStatus, 5000);
+  refreshSystemStatus();
+
+  // ═══════════════════════════════════════════════════════
+  // INITIALIZE SYSTEM — one-time deep GPS scan
+  // ═══════════════════════════════════════════════════════
+  async function initializeSystem() {
+    // Check current status first
+    let currentStatus;
+    try {
+      const r = await fetch(`${state.base}/api/admin/init-status`, { headers: headers() });
+      currentStatus = await r.json();
+    } catch(e) { toast('Erreur connexion serveur', 'error'); return; }
+
+    if (currentStatus.status === 'running') {
+      toast('Initialisation déjà en cours...', 'info');
+      showInitProgressModal();
+      return;
+    }
+
+    // Ask for scan depth
+    const days = prompt(
+      '🚀 INITIALISATION DU SYSTÈME\n\n' +
+      'Cela va scanner l\'historique GPS de toute la flotte et construire\n' +
+      'la base de données de présence depuis zéro.\n\n' +
+      '⚠️ ASSUREZ-VOUS D\'AVOIR VIDÉ LA COLLECTION zoneevents AVANT.\n\n' +
+      'Combien de jours d\'historique GPS scanner ?\n' +
+      '(90 = recommandé, max dépend de votre abonnement Wialon)',
+      '90'
+    );
+    if (days === null) return; // cancelled
+    const daysNum = parseInt(days);
+    if (isNaN(daysNum) || daysNum < 1 || daysNum > 365) {
+      toast('Valeur invalide. Entrez un nombre entre 1 et 365.', 'error');
+      return;
+    }
+
+    // Start initialization
+    const btn = document.getElementById('btnInitSystem');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Démarrage...'; }
+
+    try {
+      const r = await fetch(`${state.base}/api/admin/initialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: JSON.stringify({ days: daysNum })
+      });
+      const d = await r.json();
+      if (!r.ok) { toast('Erreur: ' + (d.error || 'Inconnue'), 'error'); return; }
+      toast(`✅ Initialisation démarrée (${daysNum} jours). Suivi en cours...`, 'success');
+      showInitProgressModal();
+    } catch(e) {
+      toast('Erreur démarrage: ' + e.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Initialiser'; }
+    }
+  }
+
+  // Progress modal
+  function showInitProgressModal() {
+    // Remove old modal if exists
+    const old = document.getElementById('initProgressModal');
+    if (old) old.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'initProgressModal';
+    modal.style.cssText = `
+      position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.85);
+      display:flex;align-items:center;justify-content:center;z-index:99999;
+      font-family:'Inter',sans-serif;
+    `;
+    modal.innerHTML = `
+      <div style="background:#1a1a2e;border:1px solid #7c3aed;border-radius:16px;padding:32px;min-width:480px;max-width:600px;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+          <span style="font-size:28px;">🚀</span>
+          <div>
+            <div style="font-size:18px;font-weight:800;color:#fff;">Initialisation du Système</div>
+            <div style="font-size:12px;color:#a78bfa;">Scan GPS en cours — ne fermez pas cette fenêtre</div>
+          </div>
+        </div>
+        <div style="background:#0f0f1a;border-radius:8px;padding:16px;margin-bottom:16px;">
+          <div id="initTruckName" style="font-size:13px;color:#e2e8f0;margin-bottom:10px;">Chargement...</div>
+          <div style="background:#1e1e3f;border-radius:6px;overflow:hidden;height:10px;">
+            <div id="initProgressBar" style="height:100%;background:linear-gradient(90deg,#7c3aed,#4f46e5);width:0%;transition:width 0.3s ease;"></div>
+          </div>
+          <div id="initProgressText" style="font-size:11px;color:#94a3b8;margin-top:6px;">0 / 0 camions</div>
+        </div>
+        <div id="initErrorList" style="font-size:11px;color:#f87171;max-height:80px;overflow-y:auto;"></div>
+        <div id="initDoneMsg" style="display:none;text-align:center;padding:12px;">
+          <div style="font-size:32px;margin-bottom:8px;">✅</div>
+          <div style="font-size:16px;font-weight:700;color:#34d399;">Système Initialisé !</div>
+          <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Le Live-Bot est maintenant actif. Rafraîchissez le rapport.</div>
+          <button onclick="document.getElementById('initProgressModal').remove();ZMC.refreshAll();" style="margin-top:16px;padding:8px 24px;background:#7c3aed;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;">Fermer & Rafraîchir</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Poll every 1.5 seconds
+    const poller = setInterval(async () => {
+      try {
+        const r = await fetch(`${state.base}/api/admin/init-status`, { headers: headers() });
+        const d = await r.json();
+        const pct = d.progress.total > 0 ? Math.round((d.progress.done / d.progress.total) * 100) : 0;
+
+        document.getElementById('initProgressBar').style.width = pct + '%';
+        document.getElementById('initProgressText').textContent = `${d.progress.done} / ${d.progress.total} camions (${pct}%)`;
+        document.getElementById('initTruckName').textContent = `📡 En cours : ${d.progress.currentTruck || '...'}`;
+
+        if (d.progress.errors && d.progress.errors.length > 0) {
+          document.getElementById('initErrorList').innerHTML = d.progress.errors.map(e =>
+            `⚠️ ${e.truck}: ${e.error}`
+          ).join('<br>');
+        }
+
+        if (d.status === 'done' || d.status === 'error') {
+          clearInterval(poller);
+          document.getElementById('initProgressBar').style.width = '100%';
+          document.getElementById('initProgressBar').style.background = d.status === 'done' ? '#34d399' : '#f87171';
+          document.getElementById('initDoneMsg').style.display = 'block';
+          document.getElementById('initTruckName').style.display = 'none';
+          refreshSystemStatus();
+        }
+      } catch(e) { console.warn('Init poll error:', e); }
+    }, 1500);
+  }
+
+  // (forceGlobalSync is now the unified implementation above — this stub is removed)
+
 
   // ── ANALYTICS ──
+
   
   async function loadAnalytics() {
     const ac = document.getElementById('analyticsContent');
@@ -2726,7 +2968,8 @@ const ZMC = (() => {
             body: JSON.stringify({
               start: new Date(start).toISOString(),
               end:   new Date(end + 'T23:59:59').toISOString(),
-              deviceIds: [devId]
+              deviceIds: [devId],
+              forceAll: true
             })
           });
           const d = await r.json();
@@ -2807,6 +3050,8 @@ const ZMC = (() => {
       </tr>`;
     }).join('');
     if (!filtered.length) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-3);">Aucun camion trouvé avec ces filtres</td></tr>';
+    // Apply sortable after every render so new rows are included
+    makeSortable('fleetTable');
   }
 
     // ── CLIENT CHANGE HANDLER ──
@@ -2891,28 +3136,52 @@ const ZMC = (() => {
 
   async function renderGpsTruckSelect() {
     const list = document.getElementById('gpsTrucksList');
-    if (!list || list.children.length > 0) return; 
+    if (!list) return;
+    // Always refresh the list — never skip based on existing children
     
     let trs = [];
+
+    // 1. Prefer already-loaded fleet data
     if (state.fleetData && state.fleetData.length) {
       trs = state.fleetData;
     } else {
+      // 2. Try to load from API
       try {
         const r = await fetch(state.base + '/api/trucks', { headers: headers() });
         const d = await r.json();
-        if (Array.isArray(d)) trs = d;
-        else trs = Object.entries(d).map(([id, t]) => ({ deviceId: id, name: t.truckName || t.name || id, truckName: t.truckName || t.name || id }));
-      } catch(e) { console.error('Failed to load trucks for select', e); }
+        if (Array.isArray(d)) {
+          trs = d;
+        } else if (d && typeof d === 'object') {
+          trs = Object.entries(d).map(([id, t]) => ({
+            deviceId: id,
+            name: (t && (t.truckName || t.name)) || id,
+            truckName: (t && (t.truckName || t.name)) || id
+          }));
+        }
+      } catch(e) {
+        console.error('[GPS Scan] Failed to load trucks for select:', e);
+      }
+    }
+
+    if (!trs.length) {
+      list.innerHTML = '<div style="padding:16px;color:var(--text-3);text-align:center;font-size:12px;"><i class="fa-solid fa-triangle-exclamation"></i> Aucun camion disponible — chargez la Flotte d\'abord</div>';
+      updateGpsTrucksBtnText();
+      return;
     }
     
     trs.sort((a,b) => (a.name||a.truckName||'').localeCompare(b.name||b.truckName||''));
     
-    list.innerHTML = trs.map(t => `
-      <label class="gps-truck-item" data-name="${(t.name || t.truckName || '').toLowerCase()}" style="display:flex;align-items:center;gap:10px;padding:8px;cursor:pointer;border-radius:6px;transition:background 0.2s;" onmouseover="this.style.background='var(--bg-3)'" onmouseout="this.style.background='transparent'">
-        <input type="checkbox" class="gps-truck-cb" value="${t.deviceId || t.id}" checked onchange="ZMC.updateGpsTrucksBtnText()" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer;">
-        <span style="font-size:13px;color:var(--text-1);font-weight:600;">${t.name || t.truckName}</span>
+    list.innerHTML = trs.map(t => {
+      const name = t.name || t.truckName || t.deviceId || '?';
+      const devId = t.deviceId || t.id || '';
+      return `
+      <label class="gps-truck-item" data-name="${name.toLowerCase()}" style="display:flex;align-items:center;gap:10px;padding:8px;cursor:pointer;border-radius:6px;transition:background 0.2s;" onmouseover="this.style.background='var(--bg-3)'" onmouseout="this.style.background='transparent'">
+        <input type="checkbox" class="gps-truck-cb" value="${devId}" checked onchange="ZMC.updateGpsTrucksBtnText()" style="accent-color:var(--teal);width:16px;height:16px;cursor:pointer;">
+        <i class="fa-solid fa-truck" style="font-size:10px;color:var(--teal);"></i>
+        <span style="font-size:13px;color:var(--text);font-weight:600;">${name}</span>
+        <span style="margin-left:auto;font-size:10px;color:var(--text-3);font-family:monospace;">${devId.slice(0,12)}</span>
       </label>
-    `).join('');
+    `}).join('');
     updateGpsTrucksBtnText();
   }
 
@@ -3120,7 +3389,103 @@ const ZMC = (() => {
     } catch(e) { toast('Erreur: ' + e.message, 'error'); }
   }
 
-  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey };
+  // ════════════════════════════════════════════════════════════
+  // 🔃 MAKE ANY TABLE SORTABLE — universal utility
+  // Call once after rendering any <table>.
+  // Attaches click handlers to all <th> elements.
+  // Clicking the same header toggles asc ↔ desc.
+  // Works with numbers (parsed) and strings (localeCompare).
+  // ════════════════════════════════════════════════════════════
+  function makeSortable(tableId) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const headers = table.querySelectorAll('thead th');
+    headers.forEach((th, colIdx) => {
+      // Skip columns that already have custom sort handlers
+      if (th.dataset.sortBound) return;
+      th.dataset.sortBound = '1';
+      th.style.cursor = 'pointer';
+      th.style.userSelect = 'none';
+      th.title = 'Cliquer pour trier';
+      th._sortDir = null; // null | 'asc' | 'desc'
+
+      th.addEventListener('click', () => {
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (rows.length < 2) return;
+
+        // Toggle direction
+        const prevDir = th._sortDir;
+        // Reset all headers
+        headers.forEach(h => {
+          h._sortDir = null;
+          const arrow = h.querySelector('.sort-arrow');
+          if (arrow) arrow.textContent = '';
+        });
+        th._sortDir = prevDir === 'asc' ? 'desc' : 'asc';
+
+        // Add/update arrow indicator
+        let arrow = th.querySelector('.sort-arrow');
+        if (!arrow) {
+          arrow = document.createElement('span');
+          arrow.className = 'sort-arrow';
+          arrow.style.cssText = 'margin-left:4px;font-size:10px;color:var(--teal);';
+          th.appendChild(arrow);
+        }
+        arrow.textContent = th._sortDir === 'asc' ? ' ▲' : ' ▼';
+
+        // Sort rows
+        rows.sort((a, b) => {
+          const aCell = a.querySelectorAll('td')[colIdx];
+          const bCell = b.querySelectorAll('td')[colIdx];
+          const aText = (aCell ? aCell.textContent : '').trim().replace(/[^0-9.,]/g, '');
+          const bText = (bCell ? bCell.textContent : '').trim().replace(/[^0-9.,]/g, '');
+          const aNum = parseFloat(aText.replace(',', '.'));
+          const bNum = parseFloat(bText.replace(',', '.'));
+          let cmp;
+          if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+            cmp = aNum - bNum;
+          } else {
+            const aRaw = (aCell ? aCell.textContent : '').trim();
+            const bRaw = (bCell ? bCell.textContent : '').trim();
+            cmp = aRaw.localeCompare(bRaw, 'fr', { sensitivity: 'base' });
+          }
+          return th._sortDir === 'asc' ? cmp : -cmp;
+        });
+
+        // Re-append sorted rows
+        rows.forEach(r => tbody.appendChild(r));
+      });
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // ⬅️ goBack — navigate back to the main history/live view
+  // Shows a floating back button when in truck-specific view.
+  // ════════════════════════════════════════════════════════════
+  function goBack() {
+    // Try to navigate to the history tab (most common "back" action)
+    const histTab = document.querySelector('[data-tab="tabHistory"]');
+    if (histTab) {
+      switchTab('tabHistory');
+      return;
+    }
+    // Fallback: go back in browser history
+    if (window.history.length > 1) window.history.back();
+    else switchTab('tabLive');
+  }
+
+  // Apply makeSortable to fleet and ops tables after first load
+  // (history table already has histSortBy, we only need the generic ones)
+  document.addEventListener('DOMContentLoaded', () => {
+    // Small delay to allow initial renders to complete
+    setTimeout(() => {
+      makeSortable('fleetTable');
+    }, 2000);
+  });
+
+  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey, forceGlobalSync, initializeSystem, refreshSystemStatus, makeSortable, goBack };
 })();
 
 // ── BOOTSTRAP ──

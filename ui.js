@@ -1,22 +1,37 @@
 /**
- * 🔒 GATEKEEPER INTERCEPTOR (Fixed for Mapbox)
+ * 🔒 GATEKEEPER INTERCEPTOR (CORS-Safe — Fixed for Mapbox)
  * Automatically injects the Access Code into every API request.
- * Handles both String URLs and Request Objects to prevent Mapbox crashes.
+ * CRITICAL: Only injects into same-origin requests, NEVER into external APIs
+ * (Mapbox, Geoapify, etc.) to prevent CORS preflight failures.
  */
 const originalFetch = window.fetch;
 
 window.fetch = async function(url, options) {
-    // 1. Handle URL input (Mapbox sends Objects, not always strings)
+    // 1. Normalize URL to string (Mapbox sends Request Objects, not always strings)
     let urlString = url;
-    if (typeof url !== 'string' && url.url) {
+    if (typeof url !== 'string' && url && url.url) {
         urlString = url.url;
     }
 
-    // 2. Retrieve Code
+    // 2. Retrieve Access Code
     const code = localStorage.getItem('fleetAccessCode');
-    
-    // 3. Inject Header ONLY for our API (Safe check)
-    if (urlString && typeof urlString === 'string' && urlString.includes('/api/')) {
+
+    // 3. CORS-SAFE: Inject header ONLY for OUR OWN server API
+    //    Rules:
+    //    - Relative paths starting with /api/ → always ours ✅
+    //    - Absolute URLs containing /api/ → only if same origin or localhost ✅
+    //    - https://api.mapbox.com/, https://api.geoapify.com/ → NEVER inject ❌
+    const isOwnApiRequest = urlString && typeof urlString === 'string' && (
+        urlString.startsWith('/api/') ||                                            // relative path
+        urlString.startsWith('/admin/') ||                                          // relative admin
+        (urlString.includes('/api/') && (
+            urlString.startsWith(window.location.origin) ||                         // same origin
+            urlString.startsWith('http://localhost') ||                             // localhost dev
+            urlString.startsWith('http://127.0.0.1')                               // loopback dev
+        ))
+    );
+
+    if (isOwnApiRequest) {
         if (!options) options = {};
         if (!options.headers) options.headers = {};
         if (code) options.headers['x-access-code'] = code;
@@ -26,14 +41,13 @@ window.fetch = async function(url, options) {
     try {
         const response = await originalFetch(url, options);
 
-        // 5. CHECK FOR REJECTION (401/403)
-        // Only react if the rejection comes from OUR server, not external APIs
-        if ((response.status === 401 || response.status === 403) && urlString && urlString.includes('/api/')) {
+        // 5. CHECK FOR REJECTION (401/403) — only from OUR server
+        if ((response.status === 401 || response.status === 403) && isOwnApiRequest) {
             console.warn("⛔ Access Revoked or Invalid Code");
             localStorage.removeItem('fleetAccessCode');
             // If we are not already on the lock screen
             if (document.getElementById('loginOverlay') && document.getElementById('loginOverlay').style.display === 'none') {
-                location.reload(); 
+                location.reload();
             }
         }
         return response;
@@ -41,6 +55,7 @@ window.fetch = async function(url, options) {
         throw e;
     }
 };
+
 
 /**
  * Fleet Tracker UI Controller - Cloud/Firebase Edition
@@ -3158,7 +3173,7 @@ exportRefuelCSV() {
     // ── MODAL ──
     const modal = document.createElement('div');
     modal.id = 'zoneManagementModal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:99999;var(--bg-overlay, rgba(0,0,0,0.75));display:flex;align-items:center;justify-content:center;backdrop-filter:blur(14px);padding:16px;';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--bg-overlay, rgba(0,0,0,0.75));display:flex;align-items:center;justify-content:center;backdrop-filter:blur(14px);padding:16px;';
     const totalFC = clients.reduce((s,c)=>s+(c.finalClients||[]).length,0);
     modal.innerHTML = `<div style="background:var(--bg-surface,var(--bg-elevated, #1e293b));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));border-radius:20px;width:1020px;max-width:96vw;height:88vh;max-height:860px;box-shadow:0 30px 80px rgba(0,0,0,0.5);display:flex;flex-direction:column;overflow:hidden;">
       <div style="padding:16px 22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border,var(--border, rgba(255,255,255,0.08)));flex-shrink:0;background:var(--bg-elevated,rgba(0,0,0,0.12));">
@@ -3456,7 +3471,7 @@ exportRefuelCSV() {
 
     const overlay = document.createElement('div');
     overlay.id = 'zmEditOverlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;var(--bg-overlay, rgba(0,0,0,0.75));display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);padding:16px;';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;background:var(--bg-overlay, rgba(0,0,0,0.75));display:flex;align-items:center;justify-content:center;backdrop-filter:blur(8px);padding:16px;';
     overlay.innerHTML = `<div style="background:var(--bg-surface, #0f172a);border:1px solid rgba(255,255,255,0.12);border-radius:18px;width:600px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 25px 60px rgba(0,0,0,0.6);">
       <div style="padding:20px 24px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
         <div style="display:flex;align-items:center;gap:10px;">
@@ -3749,22 +3764,117 @@ exportRefuelCSV() {
   // ── FIX: was called but never defined ──────────────────────
   // Fetches maintenance history from API and populates the maintenance history tab
   async fetchAndRenderMaintenance() {
-    const container = document.getElementById('maintenanceHistoryContainer');
+    // ✅ FIX: correct container ID is 'maintenanceListContainer' not 'maintenanceHistoryContainer'
+    const container = document.getElementById('maintenanceListContainer');
     if (!container) return;
+
+    container.innerHTML = `<div style="padding:30px;text-align:center;color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px;"></i><p>Chargement de l'historique...</p></div>`;
+
     try {
-      const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance?limit=500`, {
+      const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance?limit=1000`, {
         headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
       });
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const json = await r.json();
       const logs = Array.isArray(json) ? json : (json.data || []);
       this.allMaintenanceLogs = logs;
-      const filtersHtml = this.renderMaintenanceHistoryFilters ? this.renderMaintenanceHistoryFilters() : '';
-      if (filtersHtml) container.innerHTML = filtersHtml;
-      if (typeof this.applyMaintenanceHistoryFilters === 'function') this.applyMaintenanceHistoryFilters();
+
+      // KPI stats
+      const totalCost = logs.reduce((s, l) => s + (l.cost || 0), 0);
+      const urgentCount = logs.filter(l => l.priority === 'urgent').length;
+      const thisMonthKey = new Date().toISOString().slice(0, 7);
+      const thisMonth = logs.filter(l => new Date(l.date || l.createdAt).toISOString().slice(0, 7) === thisMonthKey).length;
+      const types = [...new Set(logs.map(l => l.type).filter(Boolean))].sort();
+      const trucks = [...new Set(logs.map(l => l.truckName).filter(Boolean))].sort();
+
+      // Populate existing HTML filter dropdowns
+      const typeSelect = document.getElementById('maintTypeFilter');
+      if (typeSelect) {
+        const extra = types.filter(t => !['Vidange','Plaquettes','Maintenance'].includes(t));
+        extra.forEach(t => { if (![...typeSelect.options].find(o => o.value === t)) { const o = document.createElement('option'); o.value = t; o.textContent = t; typeSelect.appendChild(o); } });
+      }
+
+      // Build full layout: KPI bar + table
+      container.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;">
+          <div class="maint-kpi-card" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow-sm);">
+            <div style="width:40px;height:40px;border-radius:var(--radius-md);background:var(--primary-subtle);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <i class="fa-solid fa-clipboard-list" style="color:var(--primary);font-size:16px;"></i>
+            </div>
+            <div>
+              <div style="font-size:24px;font-weight:800;color:var(--text-primary);line-height:1;">${logs.length}</div>
+              <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-top:3px;text-transform:uppercase;letter-spacing:0.5px;">Total</div>
+            </div>
+          </div>
+          <div class="maint-kpi-card" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow-sm);">
+            <div style="width:40px;height:40px;border-radius:var(--radius-md);background:var(--success-subtle);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <i class="fa-solid fa-calendar-check" style="color:var(--success);font-size:16px;"></i>
+            </div>
+            <div>
+              <div style="font-size:24px;font-weight:800;color:var(--text-primary);line-height:1;">${thisMonth}</div>
+              <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-top:3px;text-transform:uppercase;letter-spacing:0.5px;">Ce mois</div>
+            </div>
+          </div>
+          <div class="maint-kpi-card" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow-sm);">
+            <div style="width:40px;height:40px;border-radius:var(--radius-md);background:var(--danger-subtle);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <i class="fa-solid fa-triangle-exclamation" style="color:var(--danger);font-size:16px;"></i>
+            </div>
+            <div>
+              <div style="font-size:24px;font-weight:800;color:var(--text-primary);line-height:1;">${urgentCount}</div>
+              <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-top:3px;text-transform:uppercase;letter-spacing:0.5px;">Urgentes</div>
+            </div>
+          </div>
+          <div class="maint-kpi-card" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-lg);padding:14px 16px;display:flex;align-items:center;gap:12px;box-shadow:var(--shadow-sm);">
+            <div style="width:40px;height:40px;border-radius:var(--radius-md);background:rgba(139,92,246,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <i class="fa-solid fa-coins" style="color:#8b5cf6;font-size:16px;"></i>
+            </div>
+            <div style="min-width:0;">
+              <div style="font-size:18px;font-weight:800;color:var(--text-primary);line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${totalCost.toLocaleString('fr-FR')}&thinsp;DA</div>
+              <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-top:3px;text-transform:uppercase;letter-spacing:0.5px;">Coût total</div>
+            </div>
+          </div>
+        </div>
+        <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;box-shadow:var(--shadow-sm);">
+          <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:var(--font-sans,inherit);">
+            <thead>
+              <tr style="background:var(--bg-surface);border-bottom:1px solid var(--border-strong);">
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;white-space:nowrap;">Date</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Camion</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Type</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Compteur</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Lieu</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;max-width:200px;">Note / Technicien</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Priorité</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Coût</th>
+                <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Statut</th>
+                <th style="padding:10px 14px;text-align:center;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.6px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="maintenanceHistoryList">${this._renderMaintenanceRows(logs)}</tbody>
+          </table>
+        </div>`;
+
+      // Wire up existing HTML filter controls
+      const applyBtn = document.getElementById('applyMaintFiltersBtn');
+      if (applyBtn) applyBtn.onclick = () => this.applyMaintenanceHistoryFilters();
+      const exportBtn = document.getElementById('exportMaintBtn');
+      if (exportBtn) exportBtn.onclick = () => this.exportMaintenanceCSV();
+      const truckSearch = document.getElementById('maintTruckSearch');
+      if (truckSearch) truckSearch.oninput = () => this.applyMaintenanceHistoryFilters();
+      const typeF = document.getElementById('maintTypeFilter');
+      if (typeF) typeF.onchange = () => this.applyMaintenanceHistoryFilters();
+      const dateS = document.getElementById('maintDateStart');
+      if (dateS) dateS.onchange = () => this.applyMaintenanceHistoryFilters();
+      const dateE = document.getElementById('maintDateEnd');
+      if (dateE) dateE.onchange = () => this.applyMaintenanceHistoryFilters();
+
+      // Apply initial filters so the default 'today' dates are respected immediately
+      this.applyMaintenanceHistoryFilters();
+
+
     } catch(e) {
       console.warn('fetchAndRenderMaintenance failed:', e.message);
-      if (container) container.innerHTML = `<div style="padding:20px;color:#888;text-align:center;"><i class="fa-solid fa-triangle-exclamation"></i> Impossible de charger l'historique maintenance: ${e.message}</div>`;
+      if (container) container.innerHTML = `<div style="padding:30px;color:var(--danger,#ef4444);text-align:center;"><i class="fa-solid fa-triangle-exclamation" style="font-size:28px;display:block;margin-bottom:8px;"></i><strong>Impossible de charger l'historique maintenance</strong><br><span style="font-size:11px;color:var(--text-muted);">${e.message}</span><br><button class="btn-secondary" style="margin-top:12px;" onclick="ui.fetchAndRenderMaintenance()"><i class="fa-solid fa-rotate"></i> Réessayer</button></div>`;
     }
   }
 
@@ -7495,20 +7605,22 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
   applyMaintenanceHistoryFilters() {
-    const truckF = document.getElementById('maintHistoryTruckFilter')?.value || '';
-    const typeF = document.getElementById('maintHistoryTypeFilter')?.value || '';
-    const dateStart = document.getElementById('maintHistoryDateStart')?.value || '';
-    const dateEnd = document.getElementById('maintHistoryDateEnd')?.value || '';
-    const prioF = document.getElementById('maintHistoryPrioFilter')?.value || '';
-    
-    let filtered = [...(this.allMaintenanceLogs || [])];
-    if (truckF) filtered = filtered.filter(l => l.truckName === truckF);
-    if (typeF) filtered = filtered.filter(l => l.type === typeF);
-    if (prioF) filtered = filtered.filter(l => l.priority === prioF);
-    if (dateStart) filtered = filtered.filter(l => new Date(l.date) >= new Date(dateStart));
-    if (dateEnd) filtered = filtered.filter(l => new Date(l.date) <= new Date(dateEnd + 'T23:59:59'));
+    // Reads from BOTH the original HTML filter controls AND the dynamic ones
+    const truckF   = (document.getElementById('maintTruckSearch')?.value || '').toLowerCase().trim();
+    const typeF    = document.getElementById('maintTypeFilter')?.value || '';
+    const prioF    = document.getElementById('maintHistoryPrioFilter')?.value || '';
+    const dateStart = document.getElementById('maintDateStart')?.value ||
+                      document.getElementById('maintHistoryDateStart')?.value || '';
+    const dateEnd   = document.getElementById('maintDateEnd')?.value ||
+                      document.getElementById('maintHistoryDateEnd')?.value || '';
 
-    // Re-render just the list portion
+    let filtered = [...(this.allMaintenanceLogs || [])];
+    if (truckF)    filtered = filtered.filter(l => (l.truckName || '').toLowerCase().includes(truckF));
+    if (typeF && typeF !== 'all') filtered = filtered.filter(l => l.type === typeF);
+    if (prioF)     filtered = filtered.filter(l => l.priority === prioF);
+    if (dateStart) filtered = filtered.filter(l => new Date(l.date || l.createdAt) >= new Date(dateStart));
+    if (dateEnd)   filtered = filtered.filter(l => new Date(l.date || l.createdAt) <= new Date(dateEnd + 'T23:59:59'));
+
     const listEl = document.getElementById('maintenanceHistoryList');
     if (!listEl) return;
     listEl.innerHTML = this._renderMaintenanceRows(filtered);
@@ -7954,23 +8066,45 @@ exportMaintenanceCSV() {
     if (!container) return;
     const articles = this._maintenanceArticles || [];
     if (articles.length === 0) {
-      container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted, #94a3b8);"><i class="fa-solid fa-box-open" style="font-size:36px;display:block;margin-bottom:10px;opacity:0.4;"></i><div style="font-size:13px;">Aucun article configuré. Cliquez "Créer Articles Par Défaut" pour commencer.</div></div>';
+      container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted);">
+        <i class="fa-solid fa-box-open" style="font-size:40px;display:block;margin-bottom:12px;opacity:0.35;"></i>
+        <div style="font-weight:600;color:var(--text-primary);font-size:14px;">Aucun article configuré</div>
+        <div style="font-size:12px;margin-top:4px;">Cliquez "Créer Articles Par Défaut" pour commencer.</div>
+      </div>`;
       return;
     }
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;border-bottom:2px solid var(--text-primary, #e2e8f0);color:#475569;"><th style="padding:8px;text-align:left;">Code</th><th style="padding:8px;text-align:left;">Nom</th><th style="padding:8px;">Catégorie</th><th style="padding:8px;">Prix (DA)</th><th style="padding:8px;">Pièces</th><th style="padding:8px;">Actions</th></tr></thead><tbody>';
+    let html = `<div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;box-shadow:var(--shadow-sm);">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:var(--font-sans,inherit);">
+        <thead>
+          <tr style="background:var(--bg-surface);border-bottom:1px solid var(--border-strong);">
+            <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Code</th>
+            <th style="padding:10px 14px;text-align:left;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Nom</th>
+            <th style="padding:10px 14px;text-align:center;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Catégorie</th>
+            <th style="padding:10px 14px;text-align:center;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Prix (DA)</th>
+            <th style="padding:10px 14px;text-align:center;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Pièces</th>
+            <th style="padding:10px 14px;text-align:center;color:var(--text-muted);font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>`;
     articles.forEach((art, i) => {
-      const bg = i % 2 === 0 ? '#fff' : '#fdf4ff';
+      const rowBg = i % 2 === 0 ? '' : 'background:rgba(255,255,255,0.02);';
       const partsCount = (art.components || []).length;
-      html += `<tr style="background:${bg};border-bottom:1px solid #f1f5f9;">
-        <td style="padding:8px;font-weight:700;font-family:monospace;color:#7e22ce;">${art.code}</td>
-        <td style="padding:8px;font-weight:700;">${art.name}</td>
-        <td style="padding:8px;text-align:center;"><span style="background:#f5f3ff;color:#7e22ce;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;">${art.category}</span></td>
-        <td style="padding:8px;text-align:center;font-weight:700;color:#059669;">${(art.defaultPrice || 0).toLocaleString()}</td>
-        <td style="padding:8px;text-align:center;">${partsCount} pièce${partsCount > 1 ? 's' : ''}</td>
-        <td style="padding:8px;text-align:center;"><button onclick="ui.deleteArticle('${art.id}')" style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600;"><i class="fa-solid fa-trash"></i></button></td>
+      html += `<tr style="border-bottom:1px solid var(--border);${rowBg}" onmouseover="this.style.background='var(--bg-surface)'" onmouseout="this.style.background=''">
+        <td style="padding:10px 14px;font-weight:700;font-family:var(--font-mono,monospace);color:#a78bfa;">${art.code}</td>
+        <td style="padding:10px 14px;font-weight:600;color:var(--text-primary);">${art.name}</td>
+        <td style="padding:10px 14px;text-align:center;">
+          <span style="background:rgba(139,92,246,0.12);color:#a78bfa;padding:2px 10px;border-radius:var(--radius-full);font-size:10px;font-weight:700;">${art.category}</span>
+        </td>
+        <td style="padding:10px 14px;text-align:center;font-weight:700;color:var(--success);">${(art.defaultPrice || 0).toLocaleString('fr-FR')} DA</td>
+        <td style="padding:10px 14px;text-align:center;color:var(--text-muted);">${partsCount} pièce${partsCount > 1 ? 's' : ''}</td>
+        <td style="padding:10px 14px;text-align:center;">
+          <button onclick="ui.deleteArticle('${art.id}')" style="background:var(--danger-subtle);color:var(--danger);border:1px solid var(--danger-glow);border-radius:var(--radius-md);padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;font-family:inherit;">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
       </tr>`;
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     container.innerHTML = html;
   }
 
@@ -8011,8 +8145,55 @@ exportMaintenanceCSV() {
     } catch (e) { alert('Erreur: ' + e.message); }
   }
 
-  openNewMaintenanceOrder(truckId = null) {
-    // Populate the location dropdown from customLocations
+  async openNewMaintenanceOrder(truckId = null) {
+    // ── 1. Populate truck dropdown ────────────────────────────────
+    const truckSelect = document.getElementById('modalMaintTruck');
+    if (truckSelect) {
+      truckSelect.innerHTML = '<option value="">— Choisir un camion —</option>';
+      try {
+        // Try DB trucks first (full metadata: odometer, deviceId, name)
+        const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks/db`, {
+          headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
+        });
+        if (r.ok) {
+          const dbTrucks = await r.json();
+          const list = Array.isArray(dbTrucks) ? dbTrucks : Object.values(dbTrucks);
+          list.sort((a, b) => (a.truckName || a.name || '').localeCompare(b.truckName || b.name || ''));
+          list.forEach(t => {
+            const name = t.truckName || t.name || t.deviceId;
+            const odo  = t.odometer || t.lastOdometer || 0;
+            const did  = t.deviceId || t.id || '';
+            const opt  = document.createElement('option');
+            opt.value        = name;
+            opt.textContent  = name;
+            opt.dataset.id   = did;
+            opt.dataset.odo  = odo;
+            truckSelect.appendChild(opt);
+          });
+        }
+      } catch(e) {
+        // Fallback: live GPS trucks already in memory
+        const liveTrucks = (window.app && typeof window.app.getAllTrucks === 'function')
+          ? window.app.getAllTrucks() : [];
+        liveTrucks.forEach(t => {
+          const opt = document.createElement('option');
+          opt.value       = t.name;
+          opt.textContent = t.name;
+          opt.dataset.id  = t.id || '';
+          opt.dataset.odo = t.odometer || 0;
+          truckSelect.appendChild(opt);
+        });
+      }
+      // Auto-fill odometer when truck changes
+      truckSelect.onchange = () => {
+        const sel = truckSelect.options[truckSelect.selectedIndex];
+        const odoEl = document.getElementById('modalMaintOdo');
+        if (odoEl && sel && sel.dataset.odo) odoEl.value = sel.dataset.odo;
+        if (typeof this._onMaintTruckChange === 'function') this._onMaintTruckChange(sel);
+      };
+    }
+
+    // ── 2. Populate location dropdown ─────────────────────────────
     const locSelect = document.getElementById('modalMaintLocation');
     if (locSelect) {
       locSelect.innerHTML = '<option value="Atelier Douroub">🏭 Atelier Douroub</option>';
@@ -8020,26 +8201,35 @@ exportMaintenanceCSV() {
       locs.filter(l => l.type === 'maintenance').forEach(l => {
         locSelect.innerHTML += `<option value="${l.name}">🔧 ${l.name}</option>`;
       });
-      locSelect.innerHTML += '<option value="Entrée Manuelle">\ud83d\udccd Entrée Manuelle</option>';
+      locSelect.innerHTML += '<option value="Entrée Manuelle">📍 Entrée Manuelle</option>';
     }
 
-    // Load articles catalog and populate dropdown
-    this.loadMaintenanceArticles().then(() => this._populateArticleDropdown());
+    // ── 3. Default date/time to now ───────────────────────────────
+    const dateEl = document.getElementById('modalMaintDate');
+    if (dateEl && !dateEl.value) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+      dateEl.value = now.toISOString().slice(0, 16);
+    }
 
+    // ── 4. Load articles & open modal ────────────────────────────
+    this.loadMaintenanceArticles().then(() => this._populateArticleDropdown());
     this.openMaintenanceModal(null);
 
-    // Pre-select truck if provided
-    if (truckId) {
-      const select = document.getElementById('modalMaintTruck');
-      if (select) {
-        for (let i = 0; i < select.options.length; i++) {
-          if (select.options[i].dataset.id === truckId) {
-            select.selectedIndex = i;
-            document.getElementById('modalMaintOdo').value = select.options[i].dataset.odo;
-            break;
-          }
+    // ── 5. Pre-select truck if one was provided ───────────────────
+    if (truckId && truckSelect) {
+      // Wait one tick for options to be rendered
+      setTimeout(() => {
+        const opt = Array.from(truckSelect.options).find(o =>
+          String(o.dataset.id) === String(truckId) || o.value === truckId
+        );
+        if (opt) {
+          truckSelect.value = opt.value;
+          const odoEl = document.getElementById('modalMaintOdo');
+          if (odoEl && opt.dataset.odo) odoEl.value = opt.dataset.odo;
+          truckSelect.dispatchEvent(new Event('change'));
         }
-      }
+      }, 50);
     }
   }
 
@@ -9104,24 +9294,60 @@ exportMaintenanceCSV() {
   openMaintenanceModal(entryData = null) {
     const modal = document.getElementById('maintenanceModal');
     if (!modal) { console.warn('maintenanceModal not found in DOM'); return; }
+
     if (entryData && entryData._id) {
+      // ── EDIT mode: populate trucks first, then fill fields ──────
       this._editingMaintenanceId = entryData._id;
       const t = document.getElementById('modalMaintTitle');
       if (t) t.textContent = 'Modifier l\'Ordre de Réparation';
-      const fill = { modalMaintTruck: entryData.truckName, modalMaintType: entryData.type,
-        modalMaintLocation: entryData.location, modalMaintNote: entryData.note, modalMaintOdo: entryData.odometer };
-      for (const [id, val] of Object.entries(fill)) {
-        const el = document.getElementById(id);
-        if (el && val != null) el.value = val;
-      }
+
+      // Populate truck dropdown, then fill all fields
+      this.openNewMaintenanceOrder(null).then(() => {
+        const truckSel = document.getElementById('modalMaintTruck');
+        if (truckSel && entryData.truckName) {
+          // Try exact value match first
+          const opt = Array.from(truckSel.options).find(o =>
+            o.value === entryData.truckName || (o.dataset.id && String(o.dataset.id) === String(entryData.deviceId))
+          );
+          if (opt) { truckSel.value = opt.value; }
+          else {
+            // Add a temporary option if not found
+            const tmp = document.createElement('option');
+            tmp.value = entryData.truckName; tmp.textContent = entryData.truckName;
+            truckSel.appendChild(tmp); truckSel.value = entryData.truckName;
+          }
+        }
+        const fill = {
+          modalMaintType:        entryData.type,
+          modalMaintLocation:    entryData.location,
+          modalMaintNote:        entryData.note,
+          modalMaintDescription: entryData.description || entryData.note,
+          modalMaintOdo:         entryData.odometer,
+          modalMaintTechnician:  entryData.technician,
+          modalMaintLabor:       entryData.cost,
+          modalMaintPriority:    entryData.priority,
+        };
+        for (const [id, val] of Object.entries(fill)) {
+          const el = document.getElementById(id);
+          if (el && val != null) el.value = val;
+        }
+        if (entryData.date) {
+          const dateEl = document.getElementById('modalMaintDate');
+          if (dateEl) {
+            const d = new Date(entryData.date);
+            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+            dateEl.value = d.toISOString().slice(0, 16);
+          }
+        }
+      });
     } else {
+      // ── NEW mode: openNewMaintenanceOrder handles everything ─────
       this._editingMaintenanceId = null;
       const t = document.getElementById('modalMaintTitle');
       if (t) t.textContent = 'Ordre de Réparation';
-      // Reset wizard to step 1
       if (typeof this.setMaintWizardStep === 'function') this.setMaintWizardStep(1);
+      modal.style.display = 'flex';
     }
-    modal.style.display = 'flex';
   }
 
   closeMaintenanceModal() {
@@ -9141,28 +9367,85 @@ exportMaintenanceCSV() {
 
   _renderMaintenanceRows(logs) {
     if (!logs || logs.length === 0) {
-      return '<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted)"><i class="fa-solid fa-wrench" style="opacity:0.3;font-size:28px;display:block;margin-bottom:8px;"></i>Aucun enregistrement</td></tr>';
+      return `<tr><td colspan="10" style="text-align:center;padding:48px 20px;">
+        <i class="fa-solid fa-wrench" style="font-size:36px;color:var(--text-muted);opacity:0.35;display:block;margin-bottom:12px;"></i>
+        <div style="font-weight:600;color:var(--text-primary);font-size:14px;">Aucun enregistrement trouvé</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Ajoutez une entrée ou modifiez les filtres</div>
+      </td></tr>`;
     }
-    const prioColors = { urgent:'#ef4444', normal:'#3b82f6', low:'#22c55e' };
-    return logs.map(item => {
-      const d = new Date(item.date || item.createdAt);
-      const dateStr = d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-      const prio = item.priority || 'normal';
-      const cost = item.cost ? Number(item.cost).toLocaleString('fr-FR') + ' DA' : '—';
-      const status = item.status || 'done';
+    // Type → accent color (uses theme palette)
+    const typeStyle = {
+      'Vidange':              { bg: 'var(--warning-subtle)',  color: 'var(--warning)',  icon: 'fa-oil-can' },
+      'Plaquettes':           { bg: 'rgba(139,92,246,.1)',   color: '#a78bfa',         icon: 'fa-car-brake-drum' },
+      'Maintenance Générale': { bg: 'var(--primary-subtle)', color: 'var(--primary)',  icon: 'fa-wrench' },
+      'Maintenance':          { bg: 'var(--primary-subtle)', color: 'var(--primary)',  icon: 'fa-wrench' },
+    };
+    const prioStyle = {
+      urgent: { color: 'var(--danger)',   bg: 'var(--danger-subtle)',   dot: '#ef4444', label: 'Urgent' },
+      normal: { color: 'var(--primary)',  bg: 'var(--primary-subtle)',  dot: '#38bdf8', label: 'Normal' },
+      bas:    { color: 'var(--text-muted)', bg: 'var(--bg-surface)',    dot: '#64748b', label: 'Bas' },
+      low:    { color: 'var(--text-muted)', bg: 'var(--bg-surface)',    dot: '#64748b', label: 'Bas' },
+    };
+    return logs.map((item, idx) => {
+      const d       = new Date(item.date || item.createdAt);
+      const dateStr = d.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'2-digit' });
+      const timeStr = d.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
+      const prio    = item.priority || 'normal';
+      const ps      = prioStyle[prio] || prioStyle.normal;
+      const ts      = typeStyle[item.type] || { bg: 'var(--bg-surface)', color: 'var(--text-muted)', icon: 'fa-screwdriver-wrench' };
+      const cost    = item.cost ? Number(item.cost).toLocaleString('fr-FR') + '\u202fDA' : '—';
+      const status  = item.status || 'done';
+      const isAuto  = item.isAuto;
+      const noteText = item.description || item.note || '—';
+      const techText = item.technician
+        ? `<div style="font-size:10px;color:var(--text-muted);margin-top:2px;"><i class="fa-solid fa-user-gear" style="margin-right:3px;"></i>${item.technician}</div>` : '';
+
       const statusBadge = status === 'done' || status === 'completed'
-        ? '<span style="background:rgba(34,197,94,.15);color:#22c55e;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">Terminé</span>'
-        : '<span style="background:rgba(245,158,11,.15);color:#f59e0b;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;">En cours</span>';
-      return `<tr>
-        <td class="mono" style="font-size:11px;">${dateStr}</td>
-        <td style="font-weight:700;color:#60a5fa;">${item.truckName||'—'}</td>
-        <td><span style="background:rgba(245,158,11,.15);color:#f59e0b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">${item.type||'—'}</span></td>
-        <td class="mono">${item.odometer ? Number(item.odometer).toLocaleString()+' km':'—'}</td>
-        <td style="font-size:11px;">${item.location||'—'}</td>
-        <td style="font-size:11px;color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.note||'—'}</td>
-        <td><span style="color:${prioColors[prio]||'#6b7280'};font-weight:700;font-size:11px;">${prio}</span></td>
-        <td style="color:var(--success);font-weight:700;">${cost}</td>
-        <td>${statusBadge}</td>
+        ? `<span class="badge-termine" style="font-size:10px;padding:2px 8px;border-radius:var(--radius-full);"><i class="fa-solid fa-check" style="margin-right:3px;"></i>Terminé</span>`
+        : status === 'cancelled'
+          ? `<span class="badge-annule" style="font-size:10px;padding:2px 8px;border-radius:var(--radius-full);"><i class="fa-solid fa-ban" style="margin-right:3px;"></i>Annulé</span>`
+          : `<span class="badge-en-cours" style="font-size:10px;padding:2px 8px;border-radius:var(--radius-full);"><i class="fa-solid fa-spinner fa-spin" style="margin-right:3px;"></i>En cours</span>`;
+
+      const autoBadge = isAuto
+        ? `<span style="font-size:9px;background:var(--primary-subtle);color:var(--primary);padding:1px 5px;border-radius:var(--radius-full);margin-left:4px;font-weight:600;">AUTO</span>` : '';
+
+      const rowHover = `onmouseover="this.style.background='var(--bg-surface)'" onmouseout="this.style.background=''" `;
+      return `<tr style="border-bottom:1px solid var(--border);cursor:default;transition:background 0.15s;" ${rowHover}>
+        <td style="padding:10px 14px;">
+          <div style="font-weight:600;color:var(--text-primary);font-size:12px;">${dateStr}</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:1px;">${timeStr}</div>
+        </td>
+        <td style="padding:10px 14px;">
+          <span style="font-weight:700;color:var(--primary);font-size:13px;">${item.truckName || '—'}</span>${autoBadge}
+        </td>
+        <td style="padding:10px 14px;">
+          <span style="background:${ts.bg};color:${ts.color};padding:3px 10px;border-radius:var(--radius-full);font-size:11px;font-weight:700;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;">
+            <i class="fa-solid ${ts.icon}" style="font-size:10px;"></i>${item.type || '—'}
+          </span>
+        </td>
+        <td style="padding:10px 14px;font-family:var(--font-mono,monospace);font-size:12px;color:var(--text-primary);">
+          ${item.odometer ? '<span style="font-weight:600;">' + Number(item.odometer).toLocaleString('fr-FR') + '</span> <span style="font-size:10px;color:var(--text-muted);">km</span>' : '—'}
+        </td>
+        <td style="padding:10px 14px;font-size:12px;color:var(--text-primary);">${item.location || '—'}</td>
+        <td style="padding:10px 14px;max-width:200px;">
+          <div style="font-size:12px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(item.description || item.note || '').replace(/"/g, '&quot;')}">${noteText}</div>
+          ${techText}
+        </td>
+        <td style="padding:10px 14px;">
+          <span style="background:${ps.bg};color:${ps.color};padding:3px 10px;border-radius:var(--radius-full);font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:5px;">
+            <span style="width:6px;height:6px;border-radius:50%;background:${ps.dot};display:inline-block;"></span>${ps.label}
+          </span>
+        </td>
+        <td style="padding:10px 14px;font-weight:700;color:var(--success);font-size:13px;white-space:nowrap;">${cost}</td>
+        <td style="padding:10px 14px;">${statusBadge}</td>
+        <td style="padding:10px 14px;text-align:center;white-space:nowrap;">
+          <button onclick="ui.openEditMaintenanceModal('${item._id}')" class="btn-secondary" title="Modifier" style="padding:4px 10px;font-size:11px;border-radius:var(--radius-md);margin-right:4px;">
+            <i class="fa-solid fa-pen-to-square"></i>
+          </button>
+          <button onclick="ui.deleteMaintenanceEntry('${item._id}')" title="Supprimer" style="padding:4px 10px;font-size:11px;border-radius:var(--radius-md);background:var(--danger-subtle);border:1px solid var(--danger-glow);color:var(--danger);cursor:pointer;font-family:inherit;">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
       </tr>`;
     }).join('');
   }
@@ -9185,6 +9468,40 @@ exportMaintenanceCSV() {
       this._maintenanceArticles = this._maintenanceArticles || [];
       return this._maintenanceArticles;
     }
+  }
+
+  // ── Edit / Delete maintenance entry from history table ───────
+  async openEditMaintenanceModal(id) {
+    if (!id) return;
+    try {
+      // Find in cached logs first, fall back to a fresh fetch
+      let entry = (this.allMaintenanceLogs || []).find(l => String(l._id) === String(id));
+      if (!entry) {
+        const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance?limit=1000`, {
+          headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
+        });
+        const json = await r.json();
+        const logs = Array.isArray(json) ? json : (json.data || []);
+        entry = logs.find(l => String(l._id) === String(id));
+      }
+      if (!entry) return alert('Entrée introuvable.');
+      this.openMaintenanceModal(entry);
+    } catch(e) { alert('Erreur: ' + e.message); }
+  }
+
+  async deleteMaintenanceEntry(id) {
+    if (!id) return;
+    if (!confirm('Supprimer cet enregistrement de maintenance ? Cette action est irréversible.')) return;
+    try {
+      const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': localStorage.getItem('fleetAccessCode') || '' },
+        body: JSON.stringify({ id })
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (window.showToast) showToast('Enregistrement supprimé', 'success');
+      await this.fetchAndRenderMaintenance();
+    } catch(e) { alert('Erreur suppression: ' + e.message); }
   }
 
   // ── Utility methods (button event stubs) ────────────────────

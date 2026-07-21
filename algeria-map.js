@@ -134,6 +134,18 @@ fetchAddress: function(lat, lng, targetElement) {
 
     // 1. Draw Route & Setup
     drawRoute: function(points, coords) {
+        // ── STYLE GUARD: Mapbox style can take 30+ seconds to load.
+        // If drawRoute is called before the style is ready, defer and retry.
+        if (!this.map || !this.map.isStyleLoaded()) {
+            console.warn('[AlgeriaMap] Style not ready — deferring drawRoute...');
+            const _self = this;
+            this.map.once('style.load', function() {
+                console.log('[AlgeriaMap] Style loaded — executing deferred drawRoute.');
+                _self.drawRoute(points, coords);
+            });
+            return;
+        }
+
         this.clearHistory(); 
         this.clearPlanningRoute(); 
         this.hideAllLiveTrucks(); 
@@ -589,11 +601,14 @@ addDecouchageMarker: function(s) {
         this.historyPoints = [];
         this.stats = { distance: 0, fuel: 0, stopCount: 0, decouchageCount: 0 };
 
-        if (this.map.getLayer('history-route-arrows')) this.map.removeLayer('history-route-arrows');
-        if (this.map.getLayer('history-route-line')) this.map.removeLayer('history-route-line');
-        if (this.map.getSource('history-route')) this.map.removeSource('history-route');
+        // Guard: only touch map sources/layers if style is fully loaded
+        if (this.map && this.map.isStyleLoaded()) {
+            try { if (this.map.getLayer('history-route-arrows')) this.map.removeLayer('history-route-arrows'); } catch(e) {}
+            try { if (this.map.getLayer('history-route-line')) this.map.removeLayer('history-route-line'); } catch(e) {}
+            try { if (this.map.getSource('history-route')) this.map.removeSource('history-route'); } catch(e) {}
+        }
         
-        // Clear Arrays
+        // Clear Arrays (markers are DOM elements, safe to remove regardless)
         ['stops', 'refills', 'decouchages'].forEach(k => {
             this.historyLayers[k].forEach(m => m.remove());
             this.historyLayers[k] = [];
@@ -608,7 +623,7 @@ addDecouchageMarker: function(s) {
         if(styles) styles.remove();
         
         this.showAllLiveTrucks();
-        this.map.flyTo({zoom: 5});
+        if (this.map) this.map.flyTo({zoom: 5});
     },
 
     // Calculation Helpers
@@ -666,9 +681,9 @@ addDecouchageMarker: function(s) {
 
     // --- STANDARD ROUTING (Unchanged) ---
     clearPlanningRoute: function() {
-        if(this.map.getSource('route-source')) {
-            ['route-casing', 'route-main', 'route-alt'].forEach(l => { if(this.map.getLayer(l)) this.map.removeLayer(l); });
-            this.map.removeSource('route-source');
+        if(this.map && this.map.isStyleLoaded() && this.map.getSource('route-source')) {
+            try { ['route-casing', 'route-main', 'route-alt'].forEach(l => { if(this.map.getLayer(l)) this.map.removeLayer(l); }); } catch(e) {}
+            try { this.map.removeSource('route-source'); } catch(e) {}
         }
         const panel = document.getElementById('route-info-panel');
         if(panel) panel.style.display = 'none';
@@ -687,28 +702,17 @@ addDecouchageMarker: function(s) {
             if (!json.routes || json.routes.length === 0) { alert("Route introuvable."); return; }
             this.currentRoutes = json.routes; 
             this.clearPlanningRoute();
-            this.map.addSource('route-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-
-            this.map.addLayer({
-                id: 'route-alt', type: 'line', source: 'route-source',
-                filter: ['==', 'type', 'alt'],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#999999', 'line-width': 8, 'line-opacity': 0.6 }
-            });
-
-            this.map.addLayer({
-                id: 'route-casing', type: 'line', source: 'route-source',
-                filter: ['==', 'type', 'main'],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#ffffff', 'line-width': 10 }
-            });
-
-            this.map.addLayer({
-                id: 'route-main', type: 'line', source: 'route-source',
-                filter: ['==', 'type', 'main'],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#0084a7', 'line-width': 6 }
-            });
+            if (!this.map.isStyleLoaded()) {
+                console.warn('[AlgeriaMap] calculateRoute: style not ready, deferring...');
+                this.map.once('style.load', () => this.calculateRoute(start, end, destName));
+                return;
+            }
+            try {
+                this.map.addSource('route-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+                this.map.addLayer({ id: 'route-alt', type: 'line', source: 'route-source', filter: ['==', 'type', 'alt'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#999999', 'line-width': 8, 'line-opacity': 0.6 } });
+                this.map.addLayer({ id: 'route-casing', type: 'line', source: 'route-source', filter: ['==', 'type', 'main'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 10 } });
+                this.map.addLayer({ id: 'route-main', type: 'line', source: 'route-source', filter: ['==', 'type', 'main'], layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#0084a7', 'line-width': 6 } });
+            } catch(e) { console.error('[AlgeriaMap] calculateRoute addSource/addLayer error:', e); return; }
 
             this.selectRoute(0);
             const bounds = new mapboxgl.LngLatBounds();
@@ -1006,10 +1010,12 @@ updateMarkers: function(trucks) {
         this.customMarkers = [];
         
         // Clean up old circle layers
-        if (this.map.getLayer('zone-circles-fill')) this.map.removeLayer('zone-circles-fill');
-        if (this.map.getLayer('zone-circles-line')) this.map.removeLayer('zone-circles-line');
-        if (this.map.getLayer('zone-labels')) this.map.removeLayer('zone-labels');
-        if (this.map.getSource('zone-circles')) this.map.removeSource('zone-circles');
+        if (this.map && this.map.isStyleLoaded()) {
+            try { if (this.map.getLayer('zone-circles-fill')) this.map.removeLayer('zone-circles-fill'); } catch(e) {}
+            try { if (this.map.getLayer('zone-circles-line')) this.map.removeLayer('zone-circles-line'); } catch(e) {}
+            try { if (this.map.getLayer('zone-labels')) this.map.removeLayer('zone-labels'); } catch(e) {}
+            try { if (this.map.getSource('zone-circles')) this.map.removeSource('zone-circles'); } catch(e) {}
+        }
         
         if(!FLEET_CONFIG.CUSTOM_LOCATIONS || !FLEET_CONFIG.CUSTOM_LOCATIONS.length) return;
         
@@ -1166,44 +1172,32 @@ updateMarkers: function(trucks) {
             });
         });
         
-        // Add GeoJSON source with all circles
-        this.map.addSource('zone-circles', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: features }
-        });
-        
-        // Fill layer (translucent)
-        this.map.addLayer({
-            id: 'zone-circles-fill',
-            type: 'fill',
-            source: 'zone-circles',
-            paint: {
-                'fill-color': ['get', 'color'],
-                'fill-opacity': ['get', 'opacity']
-            }
-        });
-        
-        // Outline layer
-        this.map.addLayer({
-            id: 'zone-circles-line',
-            type: 'line',
-            source: 'zone-circles',
-            paint: {
-                'line-color': ['get', 'strokeColor'],
-                'line-width': 2.5,
-                'line-opacity': 0.85,
-                'line-dasharray': [4, 2]
-            }
-        });
+        // Add GeoJSON source with all circles (style-safe)
+        if (!this.map.isStyleLoaded()) {
+            this.map.once('style.load', () => this.renderCustomLocations());
+            return;
+        }
+        try {
+            this.map.addSource('zone-circles', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: features }
+            });
 
-        // Zone click → show history in left panel
-        this.map.on('click', 'zone-circles-fill', (e) => {
-            if (!e.features || !e.features[0]) return;
-            const props = e.features[0].properties;
-            this.showZoneHistoryPanel(props.name);
-        });
-        this.map.on('mouseenter', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = 'pointer'; });
-        this.map.on('mouseleave', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = ''; });
+            // Fill layer (translucent)
+            this.map.addLayer({ id: 'zone-circles-fill', type: 'fill', source: 'zone-circles', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['get', 'opacity'] } });
+
+            // Outline layer
+            this.map.addLayer({ id: 'zone-circles-line', type: 'line', source: 'zone-circles', paint: { 'line-color': ['get', 'strokeColor'], 'line-width': 2.5, 'line-opacity': 0.85, 'line-dasharray': [4, 2] } });
+
+            // Zone click → show history in left panel
+            this.map.on('click', 'zone-circles-fill', (e) => {
+                if (!e.features || !e.features[0]) return;
+                const props = e.features[0].properties;
+                this.showZoneHistoryPanel(props.name);
+            });
+            this.map.on('mouseenter', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = 'pointer'; });
+            this.map.on('mouseleave', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = ''; });
+        } catch(e) { console.error('[AlgeriaMap] renderCustomLocations zone-circles error:', e); }
     },
 
     
@@ -1329,8 +1323,10 @@ deselectTruck: function() {
             this.showToast('🛣️ Mode Opération ON — Sélectionnez un camion pour voir sa trajectoire prévue');
         } else {
             // Remove operation route if shown
-            ['op-route-line','op-route-stops'].forEach(id => { if (this.map.getLayer(id)) this.map.removeLayer(id); });
-            if (this.map.getSource('op-route')) this.map.removeSource('op-route');
+            if (this.map && this.map.isStyleLoaded()) {
+                try { ['op-route-line','op-route-stops'].forEach(id => { if (this.map.getLayer(id)) this.map.removeLayer(id); }); } catch(e) {}
+                try { if (this.map.getSource('op-route')) this.map.removeSource('op-route'); } catch(e) {}
+            }
             const panel = document.getElementById('opRoutePanel');
             if (panel) panel.remove();
             this.showToast('Mode Opération désactivé');
@@ -1340,8 +1336,10 @@ deselectTruck: function() {
     drawOperationRoute: async function(truck) {
         if (!this.operationMode || !truck) return;
         // Clean old op route
-        ['op-route-line','op-route-stops'].forEach(id => { if (this.map.getLayer(id)) this.map.removeLayer(id); });
-        if (this.map.getSource('op-route')) this.map.removeSource('op-route');
+        if (this.map && this.map.isStyleLoaded()) {
+            try { ['op-route-line','op-route-stops'].forEach(id => { if (this.map.getLayer(id)) this.map.removeLayer(id); }); } catch(e) {}
+            try { if (this.map.getSource('op-route')) this.map.removeSource('op-route'); } catch(e) {}
+        }
         const panel = document.getElementById('opRoutePanel');
         if (panel) panel.remove();
 
