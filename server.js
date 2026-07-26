@@ -12,7 +12,7 @@ app.use(express.static(__dirname));
 
 // --- 1. CONFIGURATION ---
 const PORT = process.env.PORT || 3000;
-const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_LOCATIONS,*';
+const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=USER_GET_OBJECTS,*';
 const DB_URI = process.env.MONGO_URI || "mongodb+srv://MrNoBoDy:123Chikh1994@cluster0.cljee0n.mongodb.net/fleet_db?retryWrites=true&w=majority&appName=Cluster0";
 
 // --- 2. DATA MODELS ---
@@ -2146,8 +2146,14 @@ async function runVidangeDetection(truck, dbTruck, config) {
   );
   if (maintLocations.length === 0) return;
 
-  const odometerMeters = parseInt(truck.params?.io192 || 0);
-  const odometerKm = Math.round(odometerMeters / 1000);
+  let odometerKm = 0;
+  const modelName = truck.model ? truck.model.toUpperCase() : "";
+  if ((modelName.includes('HOWO') || !truck.params?.io192) && truck.odometer) {
+    odometerKm = parseFloat(truck.odometer) || 0;
+  } else {
+    odometerKm = (parseInt(truck.params?.io192) || 0) / 1000;
+  }
+  odometerKm = Math.round(odometerKm);
   // ✅ Apply vidange override (if user/auto already confirmed a vidange for the upcoming milestone)
   const skipUntilKm = SYSTEM_SETTINGS.vidangeOverrides?.[String(deviceId)]?.skipUntilKm;
   const vidangeStatus = calculateVidangeStatus(odometerKm, config, skipUntilKm);
@@ -5550,8 +5556,14 @@ app.get('/api/admin/reset-overdue-vidanges', async (req, res) => {
 
       const truckName = truck.name;
       const config = getTruckConfig(deviceId);
-      const odometerMeters = parseInt(truck.params?.io192 || 0);
-      const odometerKm = Math.round(odometerMeters / 1000);
+      let odometerKm = 0;
+      const modelName = truck.model ? truck.model.toUpperCase() : "";
+      if ((modelName.includes('HOWO') || !truck.params?.io192) && truck.odometer) {
+        odometerKm = parseFloat(truck.odometer) || 0;
+      } else {
+        odometerKm = (parseInt(truck.params?.io192) || 0) / 1000;
+      }
+      odometerKm = Math.round(odometerKm);
 
       // Parse milestones
       const milestones = parseVidangeMilestones(config.vidangeMilestones);

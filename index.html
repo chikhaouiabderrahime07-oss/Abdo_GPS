@@ -26,7 +26,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   
   <!-- V4.0 Unified Theme -->
-  <link rel="stylesheet" href="theme.css?v=4">
+  <link rel="stylesheet" href="theme.css?v=11">
 
   <!-- V4.0 Compatibility: Map legacy class names to new theme -->
   <style>
@@ -743,7 +743,8 @@
           <div class="map-extras-bar" style="top:12px;right:12px;">
             <button class="extra-btn" onclick="window.AlgeriaMap.toggleFullscreen()" data-tooltip="Plein écran"><i class="fa-solid fa-expand"></i></button>
             <button class="extra-btn" id="btnFollow" onclick="window.AlgeriaMap.toggleFollowMode()" data-tooltip="Suivre le camion"><i class="fa-solid fa-video"></i></button>
-            <button class="extra-btn active" id="btnZones" onclick="window.AlgeriaMap.toggleZoneCircles(this)" data-tooltip="Afficher/Masquer Zones"><i class="fa-solid fa-circle-dot"></i></button>
+            <button class="extra-btn active" id="btnTrucks" onclick="window.AlgeriaMap.toggleTruckMarkers(this)" data-tooltip="Afficher/Masquer Camions" style="color:#22c55e;"><i class="fa-solid fa-truck"></i></button>
+              <button class="extra-btn active" id="btnZones" onclick="window.AlgeriaMap.toggleZoneCircles(this)" data-tooltip="Afficher/Masquer Zones"><i class="fa-solid fa-circle-dot"></i></button>
             <button class="extra-btn" id="btnOpRoute" onclick="window.AlgeriaMap.toggleOperationMode(this)" data-tooltip="Mode Opération — Afficher trajectoire prévue"><i class="fa-solid fa-route"></i></button>
             <button class="extra-btn" id="btnBuild" onclick="window.AlgeriaMap.toggleBuildings()" data-tooltip="Bâtiments 3D"><i class="fa-solid fa-city"></i></button>
             <button class="extra-btn" onclick="window.AlgeriaMap.fitBounds()" data-tooltip="Voir tous les camions"><i class="fa-solid fa-compress-arrows-alt"></i></button>
@@ -1512,38 +1513,62 @@
             </div>
         </div>
         
+
+        <!-- Connexion & API Keys -->
         <div class="settings-accordion-item" style="border:1px solid var(--border); border-radius:6px; margin-bottom:10px; padding:10px;">
             <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold;">
-                <span><i class="fa-solid fa-network-wired"></i> Connexion & API Keys</span>
+                <span><i class="fa-solid fa-network-wired"></i> Connexion &amp; API Keys</span>
                 <i class="fa-solid fa-chevron-down settings-arrow"></i>
             </div>
             <div class="settings-content" style="margin-top:10px;">
-                <div class="form-group">
-                    <label>URL Serveur</label>
-                    <input type="text" id="serverUrl" value="http://localhost:3000" style="width:100%;">
-                </div>
-                <div class="form-group" style="margin-top:10px;">
-                    <label>Geoapify Keys (Rotation)</label>
-                    <textarea id="geoapifyApiKeys" rows="3" placeholder="Clés API ici..."></textarea>
-                </div>
+                <div class="form-group"><label>URL Serveur</label><input type="text" id="serverUrl" value="http://localhost:3000" style="width:100%;"></div>
+                <div class="form-group" style="margin-top:10px;"><label>Geoapify Keys (Rotation)</label><textarea id="geoapifyApiKeys" rows="3" placeholder="Cles API ici..."></textarea></div>
                 <button class="btn-primary" id="saveConnectionBtn" style="margin-top:10px;">Enregistrer</button>
             </div>
         </div>
 
-        <div class="settings-accordion-item" style="border:1px solid var(--border); border-radius:6px; margin-bottom:10px; padding:10px;">
-            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold;">
-                <span><i class="fa-solid fa-map-location-dot"></i> Zones & Clients</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content" style="margin-top:10px;">
-                <!-- Quick add form (collapsed by default) -->
-                <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-                    <button class="btn-primary" onclick="ui.openZoneManagementModal()" style="gap:6px;display:flex;align-items:center;padding:10px 20px;font-size:13px;font-weight:700;border-radius:10px;background:linear-gradient(135deg,#0ea5e9,#6366f1);">
-                        <i class="fa-solid fa-map-location-dot"></i> 🗺️ Gérer Zones & Clients
-                    </button>
-                    <span style="font-size:11px;color:var(--text-muted);">Créez, modifiez et gérez toutes vos zones, clients et clients finaux</span>
+        <!-- SITES & CLIENTS MANAGEMENT -->
+        <div class="settings-accordion-item" id="scSettingsBlock" style="border:1px solid rgba(99,102,241,0.3);border-radius:14px;margin-bottom:10px;overflow:hidden;">
+            <div class="settings-header" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:linear-gradient(90deg,rgba(99,102,241,0.1) 0%,transparent 100%);">
+                <span style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:14px;">
+                    <span style="width:32px;height:32px;background:linear-gradient(135deg,#6366f1,#3b82f6);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;">&#128506;</span>
+                    Sites &amp; Clients
+                    <span id="scSettingsBadge" style="background:rgba(99,102,241,0.15);color:#818cf8;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;">...</span>
+                </span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button onclick="event.stopPropagation();ui.renderSettingsSC()" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);color:#38bdf8;border-radius:8px;padding:5px 12px;font-size:11px;font-weight:700;cursor:pointer;">&#8635; Actualiser</button>
+                    <i class="fa-solid fa-chevron-down settings-arrow"></i>
                 </div>
-                
+            </div>
+            <div class="settings-content" style="margin-top:0;padding:0;">
+                <div style="display:flex;border-bottom:1px solid var(--border,rgba(255,255,255,0.08));overflow-x:auto;">
+                    <button id="scTab_sites" onclick="ui._scSwitchTab('sites')" style="background:none;border:none;border-bottom:2px solid #6366f1;color:#818cf8;padding:11px 18px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">&#127970; Sites <span id="scBadge_sites" style="background:rgba(99,102,241,0.15);padding:1px 6px;border-radius:8px;font-size:10px;margin-left:3px;"></span></button>
+                    <button id="scTab_clients" onclick="ui._scSwitchTab('clients')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted,#888);padding:11px 18px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">&#128084; Clients <span id="scBadge_clients" style="background:rgba(255,255,255,0.06);padding:1px 6px;border-radius:8px;font-size:10px;margin-left:3px;"></span></button>
+                    <button id="scTab_fc" onclick="ui._scSwitchTab('fc')" style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text-muted,#888);padding:11px 18px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">&#129309; Clients Finaux <span id="scBadge_fc" style="background:rgba(255,255,255,0.06);padding:1px 6px;border-radius:8px;font-size:10px;margin-left:3px;"></span></button>
+                </div>
+                <div id="scPane_sites" style="padding:14px 16px;">
+                    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                        <button onclick="ui.openZoneClientModal(null)" style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:10px;padding:9px 15px;font-weight:700;font-size:12px;cursor:pointer;box-shadow:0 3px 12px rgba(59,130,246,0.3);"><i class="fa-solid fa-location-dot"></i> Nouveau Site</button>
+                        <button onclick="ui._scMapPick()" style="display:flex;align-items:center;gap:6px;background:rgba(56,189,248,0.1);color:#38bdf8;border:1px solid rgba(56,189,248,0.3);border-radius:10px;padding:9px 15px;font-weight:700;font-size:12px;cursor:pointer;"><i class="fa-solid fa-crosshairs"></i> Dessiner sur carte</button>
+                        <input id="scSearch_sites" oninput="ui._scFilterSites(this.value)" placeholder="Rechercher un site..." style="flex:1;min-width:130px;background:var(--bg-surface,rgba(0,0,0,0.2));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:10px;padding:9px 13px;color:var(--text-primary,#e2e8f0);font-size:12px;outline:none;">
+                    </div>
+                    <div id="scSitesList" style="display:flex;flex-direction:column;gap:6px;max-height:340px;overflow-y:auto;padding-right:3px;scrollbar-width:thin;"></div>
+                </div>
+                <div id="scPane_clients" style="display:none;padding:14px 16px;">
+                    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                        <button onclick="ui.openClientEditorModal(null)" style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:white;border:none;border-radius:10px;padding:9px 15px;font-weight:700;font-size:12px;cursor:pointer;box-shadow:0 3px 12px rgba(139,92,246,0.3);"><i class="fa-solid fa-building"></i> Nouveau Client</button>
+                        <input id="scSearch_clients" oninput="ui._scFilterClients(this.value)" placeholder="Rechercher un client..." style="flex:1;min-width:130px;background:var(--bg-surface,rgba(0,0,0,0.2));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:10px;padding:9px 13px;color:var(--text-primary,#e2e8f0);font-size:12px;outline:none;">
+                    </div>
+                    <div id="scClientsList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;max-height:380px;overflow-y:auto;"></div>
+                </div>
+                <div id="scPane_fc" style="display:none;padding:14px 16px;">
+                    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+                        <label style="font-size:11px;color:var(--text-muted,#888);font-weight:700;white-space:nowrap;">Client parent :</label>
+                        <select id="scFCParentSel" onchange="ui._scRenderFCPane()" style="background:var(--bg-surface,rgba(0,0,0,0.2));border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:9px;padding:7px 12px;color:var(--text-primary,#e2e8f0);font-size:12px;outline:none;min-width:150px;"></select>
+                        <button onclick="ui._scAddFinalClientInline()" style="display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#22c55e,#16a34a);color:white;border:none;border-radius:10px;padding:9px 15px;font-weight:700;font-size:12px;cursor:pointer;box-shadow:0 3px 12px rgba(34,197,94,0.3);"><i class="fa-solid fa-user-plus"></i> Ajouter Client Final</button>
+                    </div>
+                    <div id="scFCList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;max-height:340px;overflow-y:auto;"></div>
+                </div>
             </div>
         </div>
 
@@ -1820,7 +1845,7 @@
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- Will be populated by predictive-maintenance.js -->
 
-  <script src="config.js?v=4"></script>
+  <script src="config.js?v=11"></script>
   
   <script>
 // GLOBAL ERROR HANDLER - catches ALL unhandled errors
@@ -1878,10 +1903,10 @@ window.addEventListener('unhandledrejection', function(e) {
     }
   </script>
 
-  <script src="algeria-map.js?v=4"></script> 
+  <script src="algeria-map.js?v=11"></script> 
   <script src="geocode.js"></script>
-  <script src="app.js?v=4"></script>
-  <script src="ui.js?v=4"></script>
+  <script src="app.js?v=11"></script>
+  <script src="ui.js?v=11"></script>
   <script src="transport-report.js"></script>
   <script src="notifications.js" defer></script>
   <script src="predictive-maintenance.js" defer></script>
@@ -3384,6 +3409,11 @@ window.addEventListener('unhandledrejection', function(e) {
 </div>
 </body>
 </html>
+
+
+
+
+
 
 
 

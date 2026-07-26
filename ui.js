@@ -501,6 +501,7 @@ initElements() {
           
           console.log("☁️ Settings synced from Cloud");
           this.loadGlobalSettingsToUI();
+          setTimeout(() => this.renderSettingsSC(), 200);
           
           this.loadClients();
           this.renderRulesList(); // RENDER RULES
@@ -541,6 +542,252 @@ initElements() {
       } catch (e) {
           console.error("Erreur de sauvegarde Cloud: " + e.message);
       }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SETTINGS — SITES & CLIENTS INLINE MANAGEMENT
+  // ═══════════════════════════════════════════════════════════════
+
+  renderSettingsSC() {
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    const clients = FLEET_CONFIG.CLIENTS || [];
+
+    // Update badge
+    const badge = document.getElementById('scSettingsBadge');
+    if (badge) badge.textContent = `${locs.length} sites · ${clients.length} clients`;
+
+    // Update tab badges
+    const bSites = document.getElementById('scBadge_sites');
+    const bClients = document.getElementById('scBadge_clients');
+    const bFC = document.getElementById('scBadge_fc');
+    if (bSites) bSites.textContent = locs.length;
+    if (bClients) bClients.textContent = clients.length;
+    if (bFC) bFC.textContent = clients.reduce((s, c) => s + ((c.finalClients || []).length), 0);
+
+    // Render sites list
+    this._scRenderSites('');
+    // Render clients grid
+    this._scRenderClients('');
+    // Populate FC parent dropdown
+    this._scPopulateFCParent();
+  }
+
+  _scSwitchTab(tab) {
+    ['sites', 'clients', 'fc'].forEach(t => {
+      const pane = document.getElementById('scPane_' + t);
+      const btn  = document.getElementById('scTab_' + t);
+      if (pane) pane.style.display = t === tab ? '' : 'none';
+      if (btn) {
+        btn.style.borderBottomColor = t === tab ? '#6366f1' : 'transparent';
+        btn.style.color = t === tab ? '#818cf8' : 'var(--text-muted, #888)';
+      }
+    });
+    if (tab === 'fc') this._scRenderFCPane();
+    if (tab === 'clients') this._scRenderClients('');
+    if (tab === 'sites') this._scRenderSites('');
+  }
+
+  _scRenderSites(filter) {
+    const container = document.getElementById('scSitesList');
+    if (!container) return;
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const q = (filter || '').toLowerCase();
+    const filtered = q ? locs.filter(l => (l.name||'').toLowerCase().includes(q) || (l.wilaya||'').toLowerCase().includes(q)) : locs;
+
+    if (!filtered.length) {
+      container.innerHTML = `<div style="text-align:center;padding:32px 16px;color:var(--text-muted,#888);font-size:13px;">
+        <div style="font-size:32px;margin-bottom:8px;">📍</div>Aucun site trouvé.<br>
+        <button onclick="ui.openZoneClientModal(null)" style="margin-top:12px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:9px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer;">+ Créer le premier site</button>
+      </div>`;
+      return;
+    }
+
+    const typeIcons = { depot:'fa-warehouse', livraison:'fa-box', client:'fa-building', chantier:'fa-hard-hat', carburant:'fa-gas-pump', other:'fa-map-marker-alt' };
+    const typeColors = { depot:'#f59e0b', livraison:'#3b82f6', client:'#8b5cf6', chantier:'#f97316', carburant:'#22c55e', other:'#64748b' };
+
+    container.innerHTML = filtered.map((loc, rawIdx) => {
+      const idx = locs.indexOf(loc);
+      const color = loc.color || typeColors[loc.type] || '#6366f1';
+      const icon = loc.icon || typeIcons[loc.type] || 'fa-map-marker-alt';
+      const client = clients.find(c => c.id === loc.clientId);
+      const fc = client && (client.finalClients||[]).find(f => f.id === loc.finalClientId);
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-surface,rgba(0,0,0,0.15));border:1px solid var(--border,rgba(255,255,255,0.07));border-radius:11px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='${color}40'" onmouseout="this.style.borderColor='var(--border,rgba(255,255,255,0.07))'">
+        <div style="width:38px;height:38px;background:${color}22;border:2px solid ${color}55;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <i class="fa-solid ${icon}" style="color:${color};font-size:15px;"></i>
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:13px;color:var(--text-primary,#e2e8f0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${loc.name}</div>
+          <div style="font-size:10px;color:var(--text-muted,#888);margin-top:2px;display:flex;gap:6px;flex-wrap:wrap;">
+            <span>📍 ${loc.wilaya||'Algérie'}</span>
+            <span>📏 ${loc.radius||500}m</span>
+            ${client ? `<span style="color:${client.color||'#818cf8'};">👔 ${client.name}${fc?' → '+fc.name:''}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          <button onclick="ui.openZoneClientModal(${idx})" style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);color:#818cf8;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:12px;" title="Modifier"><i class="fa-solid fa-pen"></i></button>
+          <button onclick="if(window.AlgeriaMap){const m=window.AlgeriaMap;m.map&&m.map.flyTo({center:[${loc.lng},${loc.lat}],zoom:15,pitch:0});}" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.25);color:#38bdf8;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:12px;" title="Voir sur carte"><i class="fa-solid fa-eye"></i></button>
+          <button onclick="if(confirm('Supprimer ${loc.name.replace(/'/g,"\\'")} ?')){FLEET_CONFIG.CUSTOM_LOCATIONS.splice(${idx},1);ui.saveSettingsToCloud();if(window.AlgeriaMap)AlgeriaMap.renderCustomLocations();ui.renderSettingsSC();}" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:12px;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  _scFilterSites(q) { this._scRenderSites(q); }
+
+  _scRenderClients(filter) {
+    const container = document.getElementById('scClientsList');
+    if (!container) return;
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const q = (filter || '').toLowerCase();
+    const filtered = q ? clients.filter(c => (c.name||'').toLowerCase().includes(q) || (c.industry||'').toLowerCase().includes(q)) : clients;
+
+    if (!filtered.length) {
+      container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px 16px;color:var(--text-muted,#888);font-size:13px;">
+        <div style="font-size:32px;margin-bottom:8px;">👔</div>Aucun client.<br>
+        <button onclick="ui.openClientEditorModal(null)" style="margin-top:12px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:white;border:none;border-radius:9px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer;">+ Créer le premier client</button>
+      </div>`;
+      return;
+    }
+
+    container.innerHTML = filtered.map(c => {
+      const idx = clients.indexOf(c);
+      const color = c.color || '#6366f1';
+      const icon = c.icon || 'fa-building';
+      const fcCount = (c.finalClients||[]).length;
+      const siteCount = (FLEET_CONFIG.CUSTOM_LOCATIONS||[]).filter(l => l.clientId === c.id).length;
+      return `<div style="background:var(--bg-surface,rgba(0,0,0,0.15));border:1px solid ${color}30;border-radius:13px;padding:14px;position:relative;transition:border-color 0.2s;" onmouseover="this.style.borderColor='${color}60'" onmouseout="this.style.borderColor='${color}30'">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+          <div style="width:42px;height:42px;background:${color}22;border:2px solid ${color}55;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <i class="fa-solid ${icon}" style="color:${color};font-size:18px;"></i>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:800;font-size:14px;color:${color};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.emoji||''} ${c.name}</div>
+            ${c.industry ? `<div style="font-size:10px;color:var(--text-muted,#888);margin-top:1px;">${c.industry}</div>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">
+          <span style="background:${color}18;color:${color};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;">🤝 ${fcCount} client${fcCount!==1?'s':''} finaux</span>
+          <span style="background:rgba(56,189,248,0.1);color:#38bdf8;padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;">🏢 ${siteCount} site${siteCount!==1?'s':''}</span>
+        </div>
+        ${c.phone||c.email ? `<div style="font-size:10px;color:var(--text-muted,#888);margin-bottom:8px;">${c.phone?'📞 '+c.phone:''}${c.phone&&c.email?' · ':''}${c.email?'✉️ '+c.email:''}</div>` : ''}
+        <div style="display:flex;gap:5px;">
+          <button onclick="ui.openClientEditorModal(${idx})" style="flex:1;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);color:#818cf8;border-radius:8px;padding:7px;cursor:pointer;font-size:11px;font-weight:600;"><i class="fa-solid fa-pen"></i> Modifier</button>
+          <button onclick="ui._scSwitchTab('fc');document.getElementById('scFCParentSel')&&(document.getElementById('scFCParentSel').value='${c.id}')&&ui._scRenderFCPane()" style="flex:1;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:#22c55e;border-radius:8px;padding:7px;cursor:pointer;font-size:11px;font-weight:600;"><i class="fa-solid fa-users"></i> Clients finaux</button>
+          <button onclick="if(confirm('Supprimer ${c.name.replace(/'/g,"\\'")} et tous ses sites/clients finaux ?')){FLEET_CONFIG.CLIENTS.splice(${idx},1);ui.saveSettingsToCloud();if(window.AlgeriaMap)AlgeriaMap.renderCustomLocations();ui.renderSettingsSC();}" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:8px;padding:7px 10px;cursor:pointer;font-size:11px;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  _scFilterClients(q) { this._scRenderClients(q); }
+
+  _scPopulateFCParent() {
+    const sel = document.getElementById('scFCParentSel');
+    if (!sel) return;
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    sel.innerHTML = clients.length
+      ? clients.map(c => `<option value="${c.id}">${c.emoji||''} ${c.name}</option>`).join('')
+      : '<option value="">— Aucun client —</option>';
+  }
+
+  _scRenderFCPane() {
+    const sel = document.getElementById('scFCParentSel');
+    const container = document.getElementById('scFCList');
+    if (!container || !sel) return;
+    const clientId = sel.value;
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const client = clients.find(c => c.id === clientId);
+    const fcs = client ? (client.finalClients || []) : [];
+
+    if (!client) {
+      container.innerHTML = `<div style="grid-column:1/-1;text-align:center;color:var(--text-muted,#888);padding:24px;font-size:13px;">Sélectionnez un client parent.</div>`;
+      return;
+    }
+
+    if (!fcs.length) {
+      container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:28px 16px;color:var(--text-muted,#888);font-size:13px;">
+        <div style="font-size:28px;margin-bottom:8px;">🤝</div>Aucun client final pour ${client.name}.</div>`;
+      return;
+    }
+
+    const color = client.color || '#6366f1';
+    container.innerHTML = fcs.map((fc, fcIdx) => {
+      return `<div style="background:var(--bg-surface,rgba(0,0,0,0.15));border:1px solid ${color}25;border-radius:11px;padding:12px;transition:border-color 0.2s;" onmouseover="this.style.borderColor='${color}55'" onmouseout="this.style.borderColor='${color}25'">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="width:34px;height:34px;background:${color}18;border:2px solid ${color}40;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;">${fc.emoji||'🤝'}</div>
+          <div>
+            <div style="font-weight:700;font-size:13px;color:var(--text-primary,#e2e8f0);">${fc.name}</div>
+            <div style="font-size:10px;color:${color};">sous ${client.name}</div>
+          </div>
+        </div>
+        ${fc.phone||fc.email ? `<div style="font-size:10px;color:var(--text-muted,#888);margin-bottom:8px;">${fc.phone?'📞 '+fc.phone:''}${fc.phone&&fc.email?' · ':''}${fc.email?'✉️ '+fc.email:''}</div>` : ''}
+        <div style="display:flex;gap:5px;">
+          <button onclick="ui._scEditFC('${clientId}',${fcIdx})" style="flex:1;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);color:#818cf8;border-radius:7px;padding:6px;cursor:pointer;font-size:11px;font-weight:600;"><i class="fa-solid fa-pen"></i></button>
+          <button onclick="if(confirm('Supprimer ${fc.name.replace(/'/g,"\\'")} ?')){const ci=FLEET_CONFIG.CLIENTS.findIndex(x=>x.id==='${clientId}');if(ci>-1){FLEET_CONFIG.CLIENTS[ci].finalClients.splice(${fcIdx},1);ui.saveSettingsToCloud();ui._scRenderFCPane();ui.renderSettingsSC();}}" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:7px;padding:6px 10px;cursor:pointer;font-size:11px;"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  _scAddFinalClientInline() {
+    const sel = document.getElementById('scFCParentSel');
+    const clientId = sel ? sel.value : null;
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const ci = clients.findIndex(c => c.id === clientId);
+    if (ci < 0) { if (window.showToast) showToast('Sélectionnez un client parent', 'warning'); return; }
+
+    const name = prompt('Nom du client final :');
+    if (!name || !name.trim()) return;
+    const emoji = prompt('Emoji (optionnel) :', '🤝') || '🤝';
+    const phone = prompt('Téléphone (optionnel) :', '') || '';
+    const email = prompt('Email (optionnel) :', '') || '';
+
+    if (!FLEET_CONFIG.CLIENTS[ci].finalClients) FLEET_CONFIG.CLIENTS[ci].finalClients = [];
+    FLEET_CONFIG.CLIENTS[ci].finalClients.push({
+      id: 'fc_' + Date.now(),
+      name: name.trim(),
+      emoji, phone, email
+    });
+    this.saveSettingsToCloud();
+    this._scRenderFCPane();
+    this.renderSettingsSC();
+    if (window.showToast) showToast('Client final ajouté ✅', 'success');
+  }
+
+  _scEditFC(clientId, fcIdx) {
+    const ci = (FLEET_CONFIG.CLIENTS||[]).findIndex(c => c.id === clientId);
+    if (ci < 0) return;
+    const fc = FLEET_CONFIG.CLIENTS[ci].finalClients[fcIdx];
+    const name = prompt('Nom du client final :', fc.name);
+    if (!name || !name.trim()) return;
+    fc.name = name.trim();
+    fc.emoji = prompt('Emoji :', fc.emoji||'🤝') || fc.emoji;
+    fc.phone = prompt('Téléphone :', fc.phone||'') || '';
+    fc.email = prompt('Email :', fc.email||'') || '';
+    this.saveSettingsToCloud();
+    this._scRenderFCPane();
+    if (window.showToast) showToast('Client final modifié ✅', 'success');
+  }
+
+  _scMapPick() {
+    // Close settings panel, navigate to map, then start map picker
+    const settingsPanel = document.getElementById('settingsPanel') || document.querySelector('.settings-panel') || document.querySelector('[id*="settings"]');
+    // Hide settings sidebar if visible
+    const sidebar = document.querySelector('.side-panel.active, .settings-sidebar, #settingsSidebar');
+    if (sidebar) sidebar.classList.remove('active');
+    // Switch to map view
+    if (window.app && app.switchTab) app.switchTab('map');
+    else if (document.getElementById('mapView')) {
+      document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+      const mv = document.getElementById('mapView'); if (mv) mv.style.display = '';
+    }
+    // Start map picker after a brief delay to ensure map is visible
+    setTimeout(() => {
+      if (window.ui && ui._startZoneMapPicker) {
+        ui._startZoneMapPicker({ fromSettings: true });
+      }
+    }, 300);
   }
 
   loadGlobalSettingsToUI() {
@@ -3662,7 +3909,7 @@ exportRefuelCSV() {
     if (isNew) locs.push(locToEdit);
     
     this.saveSettingsToCloud();
-    if (window.AlgeriaMap && window.AlgeriaMap.refreshPanelZones) window.AlgeriaMap.refreshPanelZones();
+    if (window.AlgeriaMap) { window.AlgeriaMap.renderCustomLocations(); if(window.AlgeriaMap.refreshPanelZones) window.AlgeriaMap.refreshPanelZones(); }
     if (window.showToast) showToast(`\u2705 Site "${name}" ${isNew ? 'créé' : 'mis à jour'}`, 'success');
     document.getElementById('zmEditOverlay')?.remove();
     this.openZoneManagementModal('sites');
@@ -3737,10 +3984,8 @@ exportRefuelCSV() {
     FLEET_CONFIG.CUSTOM_LOCATIONS.push(newZone);
     this.saveSettingsToCloud();
 
-    // Refresh the ZMC if open
-    if (window.AlgeriaMap && window.AlgeriaMap.refreshPanelZones) {
-      window.AlgeriaMap.refreshPanelZones();
-    }
+    // Refresh the map and ZMC if open
+    if (window.AlgeriaMap) { window.AlgeriaMap.renderCustomLocations(); if(window.AlgeriaMap.refreshPanelZones) window.AlgeriaMap.refreshPanelZones(); }
 
     if (window.showToast) showToast(`\u2705 Zone "${name}" créée avec succès!`, 'success');
     
@@ -9005,6 +9250,7 @@ exportMaintenanceCSV() {
     }
     
     this.saveSettingsToCloud();
+    if (window.AlgeriaMap) window.AlgeriaMap.renderCustomLocations();
     document.getElementById('clientEditorModal')?.remove();
     this.openZoneManagementModal('clients');
     if (window.showToast) showToast('Client supprimé avec succès', 'success');
@@ -9026,6 +9272,7 @@ exportMaintenanceCSV() {
   _cePickFCLocation(j) {
     this._mapPickerOpts = { forFC: true, fcIdx: j };
     document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display = 'none');
+    document.getElementById('zmEditOverlay') && (document.getElementById('zmEditOverlay').style.display = 'none');
     this._startZoneMapPicker({ forFC: true, fcIdx: j });
   }
 
@@ -9050,6 +9297,7 @@ exportMaintenanceCSV() {
       FLEET_CONFIG.CLIENTS[parseInt(idx)] = saved;
     }
     this.saveSettingsToCloud();
+    if (window.AlgeriaMap) window.AlgeriaMap.renderCustomLocations();
     if (window.showToast) showToast('Client sauvegard\u00e9', 'success');
     document.getElementById('clientEditorModal')?.remove();
     if (document.getElementById('zoneManagementModal')) this.openZoneManagementModal('clients');
@@ -9121,6 +9369,7 @@ exportMaintenanceCSV() {
     document.getElementById('zoneManagementModal') && (document.getElementById('zoneManagementModal').style.display = 'none');
     document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display = 'none');
     document.getElementById('zmEditOverlay') && (document.getElementById('zmEditOverlay').style.display = 'none');
+    document.getElementById('zmEditOverlay') && (document.getElementById('zmEditOverlay').style.display = 'none');
     if (typeof this.switchTab === 'function') this.switchTab('byWilaya');
     setTimeout(() => {
       if (window.AlgeriaMap && window.AlgeriaMap.map) {
@@ -9143,6 +9392,7 @@ exportMaintenanceCSV() {
     opts = opts || {};
     document.getElementById('zoneManagementModal') && (document.getElementById('zoneManagementModal').style.display = 'none');
     document.getElementById('clientEditorModal') && (document.getElementById('clientEditorModal').style.display = 'none');
+    document.getElementById('zmEditOverlay') && (document.getElementById('zmEditOverlay').style.display = 'none');
     document.getElementById('mapPickerBanner')?.remove();
     const banner = document.createElement('div');
     banner.id = 'mapPickerBanner';
@@ -9265,6 +9515,10 @@ exportMaintenanceCSV() {
       const zm=document.getElementById('zoneManagementModal');
       if(zm){zm.style.display='';}else{this.openZoneManagementModal('add');}
     }
+    // Restore zmEditOverlay if it was hidden for map picking
+    const _eo2 = document.getElementById('zmEditOverlay'); if (_eo2) _eo2.style.display = '';
+    // Always refresh map after any map pick confirm
+    if (window.AlgeriaMap) window.AlgeriaMap.renderCustomLocations();
   }
 
   _zoneHistoryRowClick(deviceId, truckName, lat, lng, entryTime, exitTime) {

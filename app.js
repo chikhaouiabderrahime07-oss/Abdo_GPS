@@ -72,8 +72,14 @@ class FleetTrackerApp {
       // ----------------------------------------------------------
       // 4. ODOMETER & VIDANGE
       // ----------------------------------------------------------
-      const odometerMeters = truck.params ? (parseInt(truck.params.io192) || 0) : 0;
-      const odometerKm = Math.round(odometerMeters / 1000);
+      let odometerKm = 0;
+      const modelName = truck.model ? truck.model.toUpperCase() : "";
+      if ((modelName.includes('HOWO') || !truck.params?.io192) && truck.odometer) {
+        odometerKm = parseFloat(truck.odometer) || 0;
+      } else {
+        odometerKm = (parseInt(truck.params?.io192) || 0) / 1000;
+      }
+      odometerKm = Math.round(odometerKm);
 
             // ✅ If a vidange was confirmed, ignore the serviced milestone for alerts
             const skipUntilKm = FLEET_CONFIG.VIDANGE_OVERRIDES?.[deviceId]?.skipUntilKm;

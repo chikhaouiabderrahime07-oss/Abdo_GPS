@@ -87,7 +87,7 @@ const AlgeriaMap = {
 
         this.map.on('click', (e) => {
             if (this.map.getSource('history-route')) return; 
-            const features = this.map.queryRenderedFeatures(e.point, { layers: ['route-alt', 'route-main'] });
+            let features = []; try { features = this.map.queryRenderedFeatures(e.point, { layers: ['route-alt', 'route-main'] }); } catch(e) {}
             if (features.length > 0) return; 
 
             if (this.selectedTruck) {
@@ -99,6 +99,27 @@ const AlgeriaMap = {
             }
         });
         
+
+        // Right-click context menu for creating zones
+        this.map.on('contextmenu', (e) => {
+            if (window.ui && window.ui._mapPickerMode) return;
+            document.getElementById('mapContextMenu')?.remove();
+            const lat = e.lngLat.lat;
+            const lng = e.lngLat.lng;
+            const menu = document.createElement('div');
+            menu.id = 'mapContextMenu';
+            menu.style.cssText = 'position:fixed;z-index:99999;background:var(--bg-surface, #0f172a);border:1px solid rgba(56,189,248,0.3);border-radius:12px;padding:6px;box-shadow:0 12px 40px rgba(0,0,0,0.6);backdrop-filter:blur(12px);min-width:200px;';
+            menu.style.left = e.originalEvent.clientX + 'px';
+            menu.style.top = e.originalEvent.clientY + 'px';
+            const latF = lat.toFixed(6);
+            const lngF = lng.toFixed(6);
+            menu.innerHTML = '<div style="padding:6px 10px;font-size:10px;color:var(--text-muted, #64748b);font-weight:700;text-transform:uppercase;letter-spacing:0.05em;">Position: ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + '</div>' +
+                '<button onclick="document.getElementById(\'mapContextMenu\').remove();if(window.ui){ui.openZoneClientModal(null);setTimeout(()=>{const la=document.getElementById(\'zme_lat\');const lo=document.getElementById(\'zme_lng\');if(la)la.value=\'' + latF + '\';if(lo)lo.value=\'' + lngF + '\';},100);}" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text-primary, #e2e8f0);padding:10px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;text-align:left;" onmouseover="this.style.background=\'rgba(56,189,248,0.1)\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-location-dot" style="color:#38bdf8;font-size:15px;width:18px;"></i> Cr\u00e9er un site ici</button>' +
+                '<button onclick="document.getElementById(\'mapContextMenu\').remove();if(window.ui)ui._startZoneMapPicker({})" style="display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;color:var(--text-primary, #e2e8f0);padding:10px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;text-align:left;" onmouseover="this.style.background=\'rgba(34,197,94,0.1)\'" onmouseout="this.style.background=\'none\'"><i class="fa-solid fa-draw-polygon" style="color:#22c55e;font-size:15px;width:18px;"></i> Dessiner un rayon</button>';
+            document.body.appendChild(menu);
+            const closeMenu = (ev) => { if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', closeMenu); } };
+            setTimeout(() => document.addEventListener('click', closeMenu), 50);
+        });
         this.map.on('click', 'route-alt', (e) => {
             const index = e.features[0].properties.index;
             this.selectRoute(index);
@@ -849,6 +870,7 @@ updateMarkers: function(trucks) {
             }
             this.attachMarkerListeners(el, popup, truck);
             this.markers[id] = new mapboxgl.Marker(el).setLngLat(coords).setPopup(popup).addTo(this.map);
+              if (this.trucksVisible === false) el.style.display = 'none';
         }
     });
     
@@ -1118,9 +1140,10 @@ updateMarkers: function(trucks) {
                    </div>`;
             }
             
-            // Info-only popup (no edit buttons)
-            const popupHtml = `<div style="padding:12px 14px;font-family:system-ui,sans-serif;min-width:180px;">
-                <div style="font-weight:800;font-size:14px;margin-bottom:6px;color:${circleColor};">${loc.name}</div>
+            // Zone popup with edit/delete actions
+            const zoneIdx = idx;
+            const popupHtml = `<div style="padding:12px 14px;font-family:system-ui,sans-serif;min-width:200px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"><div style="font-weight:800;font-size:14px;color:${circleColor};flex:1;margin-right:8px;">${loc.name}</div><div style="display:flex;gap:4px;flex-shrink:0;"><button onclick="if(window.ui)ui.openZoneClientModal(${zoneIdx})" style="background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.25);color:#818cf8;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;" title="Modifier"><i class="fa-solid fa-pen"></i></button><button onclick="if(confirm('Supprimer ?')){FLEET_CONFIG.CUSTOM_LOCATIONS.splice(${zoneIdx},1);if(window.ui)ui.saveSettingsToCloud();if(window.AlgeriaMap)AlgeriaMap.renderCustomLocations();}" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#f87171;border-radius:6px;width:26px;height:26px;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;" title="Supprimer"><i class="fa-solid fa-trash"></i></button></div></div>
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;display:flex;align-items:center;gap:5px;"><i class="fa-solid ${resolvedFAIcon}" style="color:${circleColor};width:14px;"></i>${typeLabels[locType] || 'Autre'}</div>
                 <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">📍 ${loc.wilaya || 'Algérie'}</div>
                 <div style="font-size:11px;color:var(--text-muted);">📏 Rayon: ${loc.radius || 500}m</div>
@@ -1173,30 +1196,32 @@ updateMarkers: function(trucks) {
         });
         
         // Add GeoJSON source with all circles (style-safe)
-        if (!this.map.isStyleLoaded()) {
-            this.map.once('style.load', () => this.renderCustomLocations());
-            return;
-        }
+
+        console.log('[AlgeriaMap] renderCustomLocations features:', JSON.stringify(features[0]));
         try {
-            this.map.addSource('zone-circles', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: features }
-            });
+            if (this.map.getSource('zone-circles')) {
+                this.map.getSource('zone-circles').setData({ type: 'FeatureCollection', features: features });
+            } else {
+                this.map.addSource('zone-circles', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: features }
+                });
 
-            // Fill layer (translucent)
-            this.map.addLayer({ id: 'zone-circles-fill', type: 'fill', source: 'zone-circles', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['get', 'opacity'] } });
+                // Fill layer (translucent)
+                this.map.addLayer({ id: 'zone-circles-fill', type: 'fill', source: 'zone-circles', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': ['get', 'opacity'] } });
 
-            // Outline layer
-            this.map.addLayer({ id: 'zone-circles-line', type: 'line', source: 'zone-circles', paint: { 'line-color': ['get', 'strokeColor'], 'line-width': 2.5, 'line-opacity': 0.85, 'line-dasharray': [4, 2] } });
+                // Outline layer
+                this.map.addLayer({ id: 'zone-circles-line', type: 'line', source: 'zone-circles', paint: { 'line-color': ['get', 'strokeColor'], 'line-width': 2.5, 'line-opacity': 0.85, 'line-dasharray': [4, 2] } });
 
-            // Zone click → show history in left panel
-            this.map.on('click', 'zone-circles-fill', (e) => {
-                if (!e.features || !e.features[0]) return;
-                const props = e.features[0].properties;
-                this.showZoneHistoryPanel(props.name);
-            });
-            this.map.on('mouseenter', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = 'pointer'; });
-            this.map.on('mouseleave', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = ''; });
+                // Zone click → show history in left panel
+                this.map.on('click', 'zone-circles-fill', (e) => {
+                    if (!e.features || !e.features[0]) return;
+                    const props = e.features[0].properties;
+                    this.showZoneHistoryPanel(props.name);
+                });
+                this.map.on('mouseenter', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = 'pointer'; });
+                this.map.on('mouseleave', 'zone-circles-fill', () => { this.map.getCanvas().style.cursor = ''; });
+            }
         } catch(e) { console.error('[AlgeriaMap] renderCustomLocations zone-circles error:', e); }
     },
 
@@ -1204,16 +1229,20 @@ updateMarkers: function(trucks) {
     // Helper: generate circle coordinates around a point
     _generateCircleCoords: function(lng, lat, radiusKm, steps) {
         const coords = [];
-        for (let i = 0; i <= steps; i++) {
+        const numLat = parseFloat(lat);
+        const numLng = parseFloat(lng);
+        for (let i = 0; i < steps; i++) {
             const angle = (i / steps) * 2 * Math.PI;
             const dx = radiusKm * Math.cos(angle);
             const dy = radiusKm * Math.sin(angle);
-            const newLat = lat + (dy / 110.574);
-            const newLng = lng + (dx / (111.320 * Math.cos(lat * Math.PI / 180)));
+            const newLat = numLat + (dy / 110.574);
+            const newLng = numLng + (dx / (111.320 * Math.cos(numLat * Math.PI / 180)));
             coords.push([newLng, newLat]);
         }
+        coords.push(coords[0]); // Explicitly close the ring for GeoJSON
         return coords;
     },
+
     _getDistMeters: function(lat1, lng1, lat2, lng2) {
         const R = 6371000;
         const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1221,10 +1250,11 @@ updateMarkers: function(trucks) {
         const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2) * Math.sin(dLng/2);
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     },
-selectTruck: function(truck) {
-    this.selectedTruck = truck;
 
-    // 1. HIDE ALL OTHER TRUCKS (Focus Mode)
+    selectTruck: function(truck) {
+        this.selectedTruck = truck;
+
+        // 1. HIDE ALL OTHER TRUCKS (Focus Mode)
     Object.keys(this.markers).forEach(id => {
         const marker = this.markers[id];
         if (id === truck.id) {
@@ -1314,6 +1344,23 @@ deselectTruck: function() {
         this.customMarkers.forEach(m => { if (m.getElement) m.getElement().style.display = isOn ? '' : 'none'; });
         if (btn) { btn.classList.toggle('active', isOn); btn.title = isOn ? 'Masquer Zones' : 'Afficher Zones'; }
         this.showToast(isOn ? '🟢 Zones affichées' : '🔴 Zones masquées');
+    },
+
+    // Toggle truck markers visibility
+    toggleTruckMarkers: function(btn) {
+        this.trucksVisible = this.trucksVisible === false ? true : (this.trucksVisible === undefined ? false : !this.trucksVisible);
+        const isOn = this.trucksVisible !== false;
+        if (this.markers) {
+            Object.values(this.markers).forEach(m => {
+                if (m && m.getElement) m.getElement().style.display = isOn ? '' : 'none';
+            });
+        }
+        if (btn) {
+            btn.classList.toggle('active', isOn);
+            btn.style.color = isOn ? '#22c55e' : '';
+            btn.title = isOn ? 'Masquer Camions' : 'Afficher Camions';
+        }
+        this.showToast(isOn ? '🟢 Camions affichés' : '🔴 Camions masqués');
     },
 
     toggleOperationMode: function(btn) {
@@ -1517,83 +1564,59 @@ deselectTruck: function() {
         this.map.flyTo({ center: [lng, lat], zoom: 15, speed: 1.2 });
     },
 
-    refreshZoneActivity: async function() {
+        refreshZoneActivity: async function() {
         const actList = document.getElementById('mapActivityList');
         const chips = document.getElementById('zoneActivityChips');
+
+        if (!FLEET_CONFIG.CUSTOM_LOCATIONS || FLEET_CONFIG.CUSTOM_LOCATIONS.length === 0) return;
+
         try {
             const base = typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.API ? FLEET_CONFIG.API.baseUrl : '';
-            const code = window.ui ? ui.currentCode : '';
-            
-            // Fetch zone stats
-            const res = await fetch(`${base}/api/zone-stats`);
-            if (!res.ok) throw new Error('No data');
-            const stats = await res.json();
-            stats.sort((a,b) => b.entries - a.entries);
+            const res = await fetch(base + '/api/zone-events/active', {
+                headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
+            });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const data = await res.json();
+            const activeEvents = data.activeEvents || [];
 
-            // Fetch recent zone events (entry/exit feed)
-            let recentEvents = [];
-            try {
-                const evRes = await fetch(`${base}/api/zone-events?limit=30`, { headers: code ? { 'x-access-code': code } : {} });
-                if (evRes.ok) {
-                    const raw = await evRes.json();
-                    recentEvents = Array.isArray(raw) ? raw : (raw.data || []);
+            // Group by zone
+            const zoneMap = {};
+            activeEvents.forEach(ev => {
+                if (!zoneMap[ev.zoneName]) zoneMap[ev.zoneName] = { count: 0, trucks: [], events: [], lastEntry: null };
+                zoneMap[ev.zoneName].count++;
+                if (!zoneMap[ev.zoneName].trucks.includes(ev.truckName)) zoneMap[ev.zoneName].trucks.push(ev.truckName);
+                zoneMap[ev.zoneName].events.push(ev);
+                if (!zoneMap[ev.zoneName].lastEntry || new Date(ev.entryTime) > new Date(zoneMap[ev.zoneName].lastEntry)) {
+                    zoneMap[ev.zoneName].lastEntry = ev.entryTime;
                 }
-            } catch(e) {}
+            });
+
+            const stats = Object.keys(zoneMap).map(z => ({
+                zone: z,
+                entries: zoneMap[z].count,
+                truckCount: zoneMap[z].trucks.length,
+                lastEntry: zoneMap[z].lastEntry,
+                events: zoneMap[z].events
+            })).sort((a,b) => b.entries - a.entries);
 
             if (actList) {
                 let html = '';
-                
-                // Zone summary cards
-                if (stats.length) {
-                    html += '<div style="padding:6px 8px 2px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">📊 Résumé par Zone</div>';
-                    html += stats.map(s => {
-                        const lastTime = s.lastEntry ? new Date(s.lastEntry).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '--';
-                        return `<div style="padding:8px 10px;border-radius:8px;margin:2px 4px;cursor:pointer;" onclick="window.AlgeriaMap.flyToZoneByName('${s.zone}')" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background=''">
+                stats.forEach(s => {
+                    html += `<div style="padding:8px 10px;border-radius:8px;margin:2px 4px;cursor:pointer;" onclick="window.AlgeriaMap.flyToZoneByName('${s.zone}')" onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background=''">
                             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
                                 <span style="font-size:11px;font-weight:600;color:#e2e8f0;">${s.zone}</span>
                                 <span style="font-size:10px;font-weight:700;color:#3b82f6;background:rgba(59,130,246,0.15);padding:2px 7px;border-radius:10px;">${s.entries}</span>
                             </div>
                             <div style="display:flex;gap:10px;font-size:10px;color:#64748b;">
-                                <span><i class="fa-solid fa-truck" style="color:#22c55e;"></i> ${s.truckCount} camions</span>
-                                <span><i class="fa-solid fa-clock"></i> ${lastTime}</span>
-                            </div>
-                            <div style="height:3px;background:rgba(255,255,255,0.07);border-radius:2px;margin-top:4px;">
-                                <div style="width:${Math.min(100,Math.round(s.entries/Math.max(...stats.map(x=>x.entries))*100))}%;height:100%;border-radius:2px;background:linear-gradient(90deg,#3b82f6,#06b6d4);"></div>
-                            </div>
-                        </div>`;
-                    }).join('');
-                }
-                
-                // Recent entry/exit feed
-                if (recentEvents.length) {
-                    html += '<div style="padding:8px 8px 2px;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-top:6px;border-top:1px solid rgba(255,255,255,0.06);">📋 Derniers Mouvements</div>';
-                    html += recentEvents.slice(0, 20).map(ev => {
-                        const isOpen = ev.status === 'open';
-                        const entryTime = new Date(ev.entryTime);
-                        const timeStr = entryTime.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
-                        const dateStr = entryTime.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'});
-                        const exitStr = ev.exitTime ? new Date(ev.exitTime).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : null;
-                        const durStr = ev.durationMinutes != null ? `${Math.floor(ev.durationMinutes/60)}h${String(ev.durationMinutes%60).padStart(2,'0')}` : '';
-                        
-                        return `<div style="padding:6px 10px;margin:1px 4px;border-radius:6px;border-left:3px solid ${isOpen?'#22c55e':'#6366f1'};" onmouseenter="this.style.background='rgba(255,255,255,0.03)'" onmouseleave="this.style.background=''">
-                            <div style="display:flex;justify-content:space-between;align-items:center;">
-                                <span style="font-size:11px;font-weight:700;color:#e2e8f0;">${ev.truckName}</span>
-                                <span style="font-size:9px;color:#64748b;">${dateStr} ${timeStr}</span>
                             </div>
                             <div style="font-size:10px;color:#94a3b8;display:flex;align-items:center;gap:4px;margin-top:2px;">
-                                <span style="color:${isOpen?'#22c55e':'#6366f1'};font-weight:700;">${isOpen?'→ ENTRÉ':'← SORTI'}</span>
-                                <span style="color:#38bdf8;">${ev.zoneName}</span>
-                                ${exitStr ? `<span style="color:#64748b;">· Sorti ${exitStr}</span>` : '<span style="background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700;">📍 Encore là</span>'}
-                                ${durStr ? `<span style="color:#a78bfa;font-weight:600;">${durStr}</span>` : ''}
+                                <span style="color:#38bdf8;">${s.truckCount} camions</span>
                             </div>
-                        </div>`;
-                    }).join('');
-                }
-                
+                    </div>`;
+                });
                 actList.innerHTML = html || '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucune activité</div>';
             }
 
-            // Bottom bar chips
             if (chips) {
                 chips.innerHTML = stats.slice(0,8).map(s =>
                     `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.25);color:#93c5fd;padding:3px 10px;border-radius:20px;font-size:10px;white-space:nowrap;cursor:pointer;flex-shrink:0;" onclick="window.AlgeriaMap.flyToZoneByName('${s.zone}')">
@@ -1613,15 +1636,53 @@ deselectTruck: function() {
 
     _updateZoneActivityColors: function(stats) {
         if (!this.map || !this.map.getSource('zone-circles')) return;
-        // Update the GeoJSON data with activity-based opacity
         const maxEntries = Math.max(...stats.map(s => s.entries), 1);
-        // Just refresh the layer opacity - for now keep it simple
     },
 
     flyToZoneByName: function(zoneName) {
         const zones = typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : [];
         const zone = zones.find(z => z.name === zoneName);
-        if (zone) this.flyToZone(zone.lat, zone.lng);
+        if (zone) {
+            this.flyToZone(zone.lat, zone.lng);
+            this.drawActiveZoneRadius(zone.lat, zone.lng, zone.radius || 500, { name: zoneName, color: zone.color || '#3b82f6' });
+        }
+    },
+
+    drawActiveZoneRadius: function(lat, lng, radiusMeters, options = {}) {
+        if (!this.map || !this.map.isStyleLoaded()) return;
+        const layerId = 'active-zone-highlight';
+        const sourceId = 'active-zone-highlight-src';
+
+        if (this.map.getLayer(layerId + '-fill')) this.map.removeLayer(layerId + '-fill');
+        if (this.map.getLayer(layerId + '-line')) this.map.removeLayer(layerId + '-line');
+        if (this.map.getSource(sourceId)) this.map.removeSource(sourceId);
+
+        const radiusKm = radiusMeters / 1000;
+        const circleCoords = this._generateCircleCoords(lng, lat, radiusKm, 64);
+        const fillColor = options.color || '#3b82f6';
+
+        this.map.addSource(sourceId, {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: { type: 'Polygon', coordinates: [circleCoords] } }
+        });
+
+        this.map.addLayer({
+            id: layerId + '-fill',
+            type: 'fill',
+            source: sourceId,
+            paint: { 'fill-color': fillColor, 'fill-opacity': 0.25 }
+        });
+
+        this.map.addLayer({
+            id: layerId + '-line',
+            type: 'line',
+            source: sourceId,
+            paint: { 'line-color': fillColor, 'line-width': 3, 'line-dasharray': [4, 2], 'line-opacity': 0.9 }
+        });
+        
+        const bounds = new mapboxgl.LngLatBounds();
+        circleCoords.forEach(coord => bounds.extend(coord));
+        this.map.fitBounds(bounds, { padding: 80, duration: 1500 });
     },
 
     showZoneActivityDetail: function(zoneName) {
@@ -1636,13 +1697,12 @@ deselectTruck: function() {
                 ${events.slice(0,10).map(ev => {
                     const t = new Date(ev.entryTime).toLocaleString('fr-FR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
                     return `<div style="padding:4px 0;border-bottom:1px solid #f0f0f0;font-size:10px;display:flex;justify-content:space-between;">
-                        <span><i class="fa-solid fa-truck" style="color:#22c55e;"></i> ${ev.truck}</span>
+                        <span><i class="fa-solid fa-truck" style="color:#22c55e;"></i> ${ev.truckName}</span>
                         <span style="color:#888;">${t} ${ev.duration?'('+Math.round(ev.duration)+'min)':''}</span>
                     </div>`;
                 }).join('')}
             </div>
         </div>`;
-        // Find zone location and show popup
         const zones = typeof FLEET_CONFIG !== 'undefined' ? (FLEET_CONFIG.CUSTOM_LOCATIONS || []) : [];
         const zone = zones.find(z => z.name === zoneName);
         if (zone) {
@@ -1749,3 +1809,8 @@ deselectTruck: function() {
 };
 
 window.AlgeriaMap = AlgeriaMap;
+
+
+
+
+
