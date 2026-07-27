@@ -31,7 +31,7 @@
   <!-- V4.0 Compatibility: Map legacy class names to new theme -->
   <style>
   :root {
-    /* ── compat vars used in zone history (zone-report + ui.js) ── */
+    /* ── compat vars used in zone history (zone-report + ui_v2.js?v=1785179804639) ── */
     --color-info:      #38bdf8;
     --color-primary:   #818cf8;
     --color-warning:   #fb923c;
@@ -1648,7 +1648,8 @@
                     <div class="form-group"><label>Seuil Alerte (%)</label><input type="number" id="defaultFuelThreshold" value="30"></div>
                     <div class="form-group"><label>Niveau Critique (%)</label><input type="number" id="defaultCriticalLevel" value="15"></div>
                     <div class="form-group"><label>Alerte Vidange (km avant)</label><input type="number" id="defaultVidangeAlert" value="1000"></div>
-                    <div class="form-group"><label>Jalons Vidange (km)</label><input type="text" id="defaultVidangeMilestones" value="30000, 60000, 90000, 120000"></div>
+                    <div class="form-group"><label>1ere Vidange (km)</label><input type="number" id="defaultVidangeStart" value="5000"></div>
+                   <div class="form-group"><label>Rotation (km)</label><input type="number" id="defaultVidangeRot" value="25000"></div>
                 </div>
                 <div class="calibration-box global" style="margin-top:10px;">
                       <textarea id="defaultCalibration" rows="3" placeholder="Calibration (ex: 25=255)"></textarea>
@@ -1893,7 +1894,7 @@
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- Will be populated by predictive-maintenance.js -->
 
-  <script src="config.js?v=13"></script>
+  <script src="config.js?v=1785178812411"></script>
   
   <script>
 // GLOBAL ERROR HANDLER - catches ALL unhandled errors
@@ -1953,8 +1954,8 @@ window.addEventListener('unhandledrejection', function(e) {
 
   <script src="algeria-map.js?v=13"></script> 
   <script src="geocode.js"></script>
-  <script src="app.js?v=13"></script>
-  <script src="ui.js?v=14"></script>
+  <script src="app_v2.js?v=1785179814885"></script>
+  <script src="ui_v2.js?v=1785179804639"></script>
   <script src="transport-report.js"></script>
   <script src="notifications.js" defer></script>
   <script src="predictive-maintenance.js" defer></script>
@@ -2058,7 +2059,7 @@ window.addEventListener('unhandledrejection', function(e) {
         </label>`;
       }).join('');
       
-      // Fetch available locations from ui.js
+      // Fetch available locations from ui_v2.js?v=1785179804639
       let allLocs = window.ui && window.ui.allLocations ? window.ui.allLocations : [];
       let watchedLocs = JSON.parse(localStorage.getItem('fleet_locations') || '[]');
       let watchedNames = new Set(watchedLocs.map(l => l.name));
@@ -2435,8 +2436,11 @@ window.addEventListener('unhandledrejection', function(e) {
           const trucks = Array.isArray(raw) ? raw : (raw.result || raw.objects || Object.values(raw) || []);
 
           // 2. Get all zones from FLEET_CONFIG
-          const zones = (window.FLEET_CONFIG && FLEET_CONFIG.CUSTOM_LOCATIONS) || [];
-          if (!zones.length) { console.log('[ZoneMC] No zones configured.'); return; }
+          let zones = (window.FLEET_CONFIG && FLEET_CONFIG.CUSTOM_LOCATIONS) || [];
+          if (!zones.length) {
+            try { const _b=(window.FLEET_CONFIG&&FLEET_CONFIG.API&&FLEET_CONFIG.API.baseUrl)||''; const _c=localStorage.getItem('fleetAccessCode')||''; const _r=await fetch(_b+'/api/settings',{headers:{'x-access-code':_c}}); if(_r.ok){const _d=await _r.json();if(_d.customLocations&&_d.customLocations.length){if(window.FLEET_CONFIG)FLEET_CONFIG.CUSTOM_LOCATIONS=_d.customLocations;zones=_d.customLocations;}} } catch(_e) {}
+            if (!zones.length) { console.warn('[ZoneMC] No zones configured.'); return; }
+          }
 
           // 3. Check each truck against all zones
           trucks.forEach(t => {
@@ -3701,6 +3705,17 @@ window.addEventListener('unhandledrejection', function(e) {
     </div>
   </div>
 </div>
+
+  <!-- ══ Rule Editor Modal ═══════════════════════════════════════════ -->
+  <div id="ruleEditorModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center; padding:20px;">
+    <div style="background:#fff; border-radius:14px; width:100%; max-width:620px; max-height:90vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:20px 24px 0; border-bottom:1px solid #eee; margin-bottom:16px;">
+        <h3 style="margin:0; font-size:16px; color:#1e293b;"><i class="fa-solid fa-sliders" style="color:#6366f1; margin-right:8px;"></i>Éditeur de Règle Groupe</h3>
+        <button onclick="ui.closeRuleEditor()" style="background:none; border:none; font-size:20px; cursor:pointer; color:#94a3b8; padding:4px 8px;">&times;</button>
+      </div>
+      <div id="ruleEditorContent" style="padding:0 24px 24px;"></div>
+    </div>
+  </div>
 </body>
 </html>
 

@@ -131,8 +131,10 @@ const FLEETCONFIG = {
         fuelSecurityMargin: 100,
         fuelAlertThreshold: 15,
         criticalFuelLevel: 5,
-        vidangeMilestones: '30000, 60000, 90000',
-        vidangeAlertKm: 5000,
+        vidangeStartKm: 5000,
+        vidangeRotationKm: 25000,
+        vidangeAlertKm: 500,
+        vidangeMilestones: '',
         calibration: [],
         fuelSensorKeys: ['io87'],
         fuelSensorCapacityMap: {}
@@ -911,35 +913,55 @@ function getTruckConfig(deviceId) {
     return { ...globalDefault, ...specificConfig, ruleName: ruleName };
 }
 
-function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
-    const alertKm = config && config.vidangeAlertKm ? config.vidangeAlertKm : 5000;
-    if (!config || !config.vidangeMilestones) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
-    
-    let milestones = [];
-    if (typeof config.vidangeMilestones === 'string') {
-        milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a, b) => a - b);
-    } else if (Array.isArray(config.vidangeMilestones)) {
-        milestones = config.vidangeMilestones;
+function calculateVidangeStatus(currentOdometer, config, lastVidangeKm = null) {
+    const alertKm   = parseInt((config && config.vidangeAlertKm)   || 500);
+    const startKm   = parseInt((config && config.vidangeStartKm)   || 5000);
+    const rotKm     = parseInt((config && config.vidangeRotationKm) || 25000);
+
+    // ── Rotation logic (primary) ─────────────────────────────────
+    if (rotKm > 0) {
+        const lastKm = parseInt(lastVidangeKm || 0);
+        const odo    = parseInt(currentOdometer);
+        let nextKm;
+        if (lastKm > 0) {
+            // Known last vidange → rotate from there
+            nextKm = lastKm + rotKm;
+        } else if (odo <= startKm) {
+            // Truck hasn't reached first vidange yet
+            nextKm = startKm;
+        } else {
+            // No history but truck is past startKm: compute virtual rotation
+            const rotsPassed = Math.floor((odo - startKm) / rotKm);
+            const prevKm = startKm + rotsPassed * rotKm;
+            // If the truck is overdue for the PREVIOUS virtual rotation by less than half a rotation (e.g. < 12500 km),
+            // we assume it missed it and flag it as URGENT (nextKm = prevKm).
+            // Otherwise, we assume it was done and we target the next rotation.
+            if ((odo - prevKm) <= (rotKm / 2)) {
+                nextKm = prevKm;
+            } else {
+                nextKm = startKm + (rotsPassed + 1) * rotKm;
+            }
+        }
+        const kmUntilNext = nextKm - odo;
+        return { alert: kmUntilNext <= alertKm, nextKm, kmUntilNext, alertKm, lastKm: lastKm > 0 ? lastKm : null, isVirtual: lastKm === 0 };
     }
 
-    if (milestones.length === 0) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
-
-    const safeSkip = (skipUntilKm !== null && skipUntilKm !== undefined) ? parseInt(skipUntilKm, 10) : null;
-    const base = (!isNaN(safeSkip) && safeSkip > 0) ? safeSkip : 0;
-
-    const GHOST_KM_THRESHOLD = 10000;
-    const activeMilestones = milestones.filter(m => {
-        if (m <= base) return false; // already explicitly acknowledged
-        if ((currentOdometer - m) > GHOST_KM_THRESHOLD) return false; // silently treat as done
-        return true;
-    });
-
-    const nextMilestone = activeMilestones.length > 0 ? activeMilestones[0] : null;
-    if (!nextMilestone) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
-
-    const kmUntilNext = nextMilestone - currentOdometer;
-    const isAlert = kmUntilNext <= alertKm;
-    return { alert: isAlert, nextKm: nextMilestone, kmUntilNext: kmUntilNext, alertKm };
+    // ── Legacy milestone fallback ─────────────────────────────────
+    let milestones = [];
+    if (config && config.vidangeMilestones) {
+        if (typeof config.vidangeMilestones === 'string') {
+            milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a, b) => a - b);
+        } else if (Array.isArray(config.vidangeMilestones)) {
+            milestones = config.vidangeMilestones.slice().sort((a,b)=>a-b);
+        }
+    }
+    if (milestones.length === 0) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm, lastKm: null };
+    const base = parseInt(lastVidangeKm || 0);
+    const active = milestones.filter(m => m > base && (parseInt(currentOdometer) - m) <= 10000);
+    const next = active[0] || null;
+    if (!next) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
+    const kmUntilNext = next - parseInt(currentOdometer);
+    return { alert: kmUntilNext <= alertKm, nextKm: next, kmUntilNext, alertKm, lastKm: base > 0 ? base : null, isVirtual: false };
 }
 
 function calculateFuelNeeded(distanceKm, consumptionPer100) {

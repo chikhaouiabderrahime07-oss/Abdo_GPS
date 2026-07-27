@@ -8,7 +8,13 @@ require('dotenv').config();
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static(__dirname));
+app.use(express.static(__dirname, {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.html') || path.endsWith('.js') || path.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  }
+}));
 
 // --- 1. CONFIGURATION ---
 const PORT = process.env.PORT || 3000;
@@ -1179,110 +1185,65 @@ function parseVidangeMilestones(milestonesRaw) {
 // 🔧 calculateVidangeStatus (same as config.js helper, but supports skipUntilKm)
 // - skipUntilKm: last confirmed vidange milestone.
 //   IMPORTANT: the alert MUST stay active (even overdue) until a vidange is recorded.
-function calculateVidangeStatus(currentOdometer, config, skipUntilKm = null) {
-  if (!config || !config.vidangeMilestones) {
-    return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm: config?.vidangeAlertKm || 5000 };
-  }
+function calculateVidangeStatus(currentOdometer, config, lastVidangeKm = null) {
+    const alertKm = parseInt((config && config.vidangeAlertKm) || 500);
+    const startKm = parseInt((config && config.vidangeStartKm) || 5000);
+    const rotKm   = parseInt((config && config.vidangeRotationKm) || 25000);
 
-  const milestones = parseVidangeMilestones(config.vidangeMilestones);
-  if (!milestones || milestones.length === 0) {
-    return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm: config?.vidangeAlertKm || 5000 };
-  }
+    // Rotation logic (primary)
+    if (rotKm > 0) {
+        const lastKm = parseInt(lastVidangeKm || 0);
+        const odo    = parseInt(currentOdometer);
+        let nextKm;
+        if (lastKm > 0) {
+            nextKm = lastKm + rotKm;
+        } else if (odo <= startKm) {
+            nextKm = startKm;
+        } else {
+            const rotsPassed = Math.floor((odo - startKm) / rotKm);
+            nextKm = startKm + (rotsPassed + 1) * rotKm;
+        }
+        const kmUntilNext = nextKm - odo;
+        return { alert: kmUntilNext <= alertKm, nextKm, kmUntilNext, alertKm, lastKm: lastKm > 0 ? lastKm : null, isVirtual: lastKm === 0 };
+    }
 
-  const alertKm = config.vidangeAlertKm || 5000;
-  const safeSkip = (skipUntilKm !== null && skipUntilKm !== undefined) ? parseInt(skipUntilKm, 10) : null;
-
-  // ✅ IMPORTANT FIX
-  // The alert must NOT disappear just because the truck passed the milestone.
-  // We only move to the next milestone once a vidange is recorded (skipUntilKm).
-  const base = (!isNaN(safeSkip) && safeSkip > 0) ? safeSkip : 0;
-
-  // 🔧 AUTO-SKIP OLD OVERDUE MILESTONES (>10,000 km past = considered done silently)
-  // Trucks that passed a milestone >10k km ago without a recorded vidange are treated
-  // as "already done" — no way management left them that far overdue. This clears old
-  // "RETARD" alerts and starts fresh counting from the next upcoming milestone.
-  const GHOST_KM_THRESHOLD = 10000;
-  const activeMilestones = milestones.filter(m => {
-    if (m <= base) return false; // already explicitly acknowledged via skipUntilKm
-    if ((currentOdometer - m) > GHOST_KM_THRESHOLD) return false; // silently treat as done
-    return true;
-  });
-  const nextMilestone = activeMilestones.length > 0 ? activeMilestones[0] : null;
-  if (!nextMilestone) {
-    return { alert: false, nextKm: 'N/A', kmUntilNext: 999999, alertKm };
-  }
-
-  const kmUntilNext = nextMilestone - currentOdometer;
-  return { alert: kmUntilNext <= alertKm, nextKm: nextMilestone, kmUntilNext, alertKm };
+    // Legacy milestone fallback
+    let milestones = [];
+    if (config && config.vidangeMilestones) {
+        if (typeof config.vidangeMilestones === 'string') {
+            milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a,b)=>a-b);
+        } else if (Array.isArray(config.vidangeMilestones)) {
+            milestones = config.vidangeMilestones.slice().sort((a,b)=>a-b);
+        }
+    }
+    if (milestones.length === 0) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm, lastKm: null };
+    const base = parseInt(lastVidangeKm || 0);
+    const active = milestones.filter(m => m > base && (parseInt(currentOdometer) - m) <= 10000);
+    const next = active[0] || null;
+    if (!next) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
+    const kmUntilNext = next - parseInt(currentOdometer);
+    return { alert: kmUntilNext <= alertKm, nextKm: next, kmUntilNext, alertKm, lastKm: base > 0 ? base : null, isVirtual: false };
 }
+
 
 async function acknowledgeVidange(deviceId, truckName, odometerKm) {
-  try {
-    const cfg = getTruckConfig(deviceId);
-    const milestones = parseVidangeMilestones(cfg.vidangeMilestones);
-    if (!milestones || milestones.length === 0) return null;
-
-    const tol = (SYSTEM_SETTINGS.maintenanceRules && SYSTEM_SETTINGS.maintenanceRules.vidangeKmTolerance)
-      ? parseInt(SYSTEM_SETTINGS.maintenanceRules.vidangeKmTolerance, 10)
-      : 3000;
-
-	    // ✅ IMPORTANT FIX
-	    // We must pick the correct milestone even if the truck is late.
-	    // Old behavior ("next milestone > odometer") was WRONG for late vidanges.
-	    // New behavior:
-	    // 1) Don't go backwards (ignore milestones <= current skipUntilKm)
-	    // 2) Prefer a milestone within tolerance
-	    // 3) If none within tolerance, pick the closest milestone (late-safe)
-	
-	    const existingOverride = SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)];
-	    const currentSkip = existingOverride && existingOverride.skipUntilKm
-	      ? parseInt(existingOverride.skipUntilKm, 10)
-	      : 0;
-	
-	    const available = milestones.filter(m => !currentSkip || m > currentSkip);
-	    if (!available.length) return null;
-	
-	    let candidate = null;
-	    let bestAbs = Infinity;
-	
-	    // 1) Prefer a milestone close to current odometer (early/normal case)
-	    for (const m of available) {
-	      const abs = Math.abs(m - odometerKm);
-	      if (abs <= tol && abs < bestAbs) {
-	        bestAbs = abs;
-	        candidate = m;
-	      }
-	    }
-	
-	    // 2) If nothing is close, pick the closest milestone (late-safe)
-	    if (!candidate) {
-	      bestAbs = Infinity;
-	      for (const m of available) {
-	        const abs = Math.abs(m - odometerKm);
-	        if (abs < bestAbs || (abs === bestAbs && candidate !== null && m > candidate) || (abs === bestAbs && candidate === null)) {
-	          bestAbs = abs;
-	          candidate = m;
-	        }
-	      }
-	    }
-	
-	    if (!candidate) return null;
-
-    if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
-    SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)] = {
-      skipUntilKm: candidate,
-      confirmedAt: new Date().toISOString(),
-      odometerAtConfirm: odometerKm,
-      truckName: truckName || ''
-    };
-
-    await saveSettings();
-    return candidate;
-  } catch (e) {
-    console.error('acknowledgeVidange error:', e.message);
-    return null;
-  }
+    try {
+        if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
+        SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)] = {
+            lastVidangeKm: odometerKm,        // actual km at time of vidange (rotation anchor)
+            odometerAtConfirm: odometerKm,    // kept for backward compat
+            confirmedAt: new Date().toISOString(),
+            truckName: truckName || ''
+        };
+        await saveSettings();
+        console.log(`[Vidange] Acknowledged ${truckName||deviceId} @ ${odometerKm} km`);
+        return odometerKm;
+    } catch(e) {
+        console.error('acknowledgeVidange error:', e.message);
+        return null;
+    }
 }
+
 
 const fmt = (list) => list.map(d => {
   const o = d.toObject ? d.toObject() : d;
@@ -2163,7 +2124,7 @@ async function runVidangeDetection(truck, dbTruck, config) {
   }
   odometerKm = Math.round(odometerKm);
   // ✅ Apply vidange override (if user/auto already confirmed a vidange for the upcoming milestone)
-  const skipUntilKm = SYSTEM_SETTINGS.vidangeOverrides?.[String(deviceId)]?.skipUntilKm;
+  const _ovr = SYSTEM_SETTINGS.vidangeOverrides?.[String(deviceId)]; const skipUntilKm = _ovr?.lastVidangeKm || _ovr?.odometerAtConfirm || _ovr?.skipUntilKm || null;
   const vidangeStatus = calculateVidangeStatus(odometerKm, config, skipUntilKm);
   const minDurationMs = (SYSTEM_SETTINGS.maintenanceRules?.minDurationMinutes || 60) * 60000;
 
@@ -2695,7 +2656,8 @@ async function closeMaintenanceSession(logId, truckName, exitTimeMs) {
       const dur = ((exitTimeMs - new Date(doc.date).getTime()) / 3600000).toFixed(1);
       await Maintenance.findByIdAndUpdate(logId, {
         exitDate: new Date(exitTimeMs),
-        note: `Terminé (Durée: ${dur}h)`
+        note: `Terminé (Durée: ${dur}h)`,
+        status: 'termine'
       });
       console.log(`🏁 Closed Maintenance session for ${truckName}`);
     }
@@ -2796,9 +2758,18 @@ app.get('/api/admin/add-code/:code', async (req, res) => {
 app.get('/api/trucks', checkAccess, async (req, res) => {
   try {
     const r = await fetch(GPS_API_URL);
-    const j = await r.json();
-    res.json(j);
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    if (!r.ok) throw new Error('GPS API HTTP ' + r.status);
+    const text = await r.text();
+    try {
+      const j = JSON.parse(text);
+      res.json(j);
+    } catch(parseErr) {
+      console.error('GPS API Invalid JSON (truncated). Length:', text.length);
+      throw new Error('GPS API a renvoyé des données corrompues.');
+    }
+  } catch (e) { 
+    res.status(500).json({ error: e.message }); 
+  }
 });
 
 
@@ -3022,6 +2993,7 @@ app.post('/api/maintenance/add', checkAccess, async (req, res) => {
     res.status(500).json({ error: e.message, detail: 'La base de données est peut-être inaccessible. Vérifiez /api/health.' });
   }
 });
+
 app.post('/api/maintenance/update', checkAccess, async (req, res) => {
   try {
     const { id, type, note, odometer, isAuto, location, priority, description, technician, cost, parts, scheme, tires, forfaitName, chassisNumber, immatriculation } = req.body;
@@ -3033,6 +3005,7 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     doc.note = note !== undefined ? note : doc.note;
     doc.odometer = odometer || doc.odometer;
     if (isAuto !== undefined) doc.isAuto = isAuto;
+    
     // ✅ FIX: Save all enhanced fields
     if (location !== undefined) doc.location = location;
     if (priority !== undefined) doc.priority = priority;
@@ -3049,7 +3022,7 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
 
     // ✅ If user changed the entry to Vidange, acknowledge
     try {
-      if (prevType !== 'Vidange' && doc.type === 'Vidange' && doc.deviceId && doc.odometer) {
+      if (prevType !== 'Vidange' && (doc.type === 'Vidange' || doc.type === 'Vidange Complète') && doc.deviceId && doc.odometer) {
         await acknowledgeVidange(doc.deviceId, doc.truckName, parseInt(doc.odometer, 10));
       }
     } catch (e) {
@@ -3057,11 +3030,22 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     }
 
     res.json({ success: true });
+
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
   try {
-    await Maintenance.findByIdAndDelete(req.body.id);
+    const doc = await Maintenance.findById(req.body.id);
+    if (doc) {
+      if (doc.type === 'Vidange' || doc.type === 'Vidange Complète') {
+        if (SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[doc.deviceId]) {
+          delete SYSTEM_SETTINGS.vidangeOverrides[doc.deviceId];
+          const mongoose = require('mongoose');
+          await mongoose.models.Settings.findOneAndUpdate({}, { vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides }, { upsert: true });
+        }
+      }
+      await Maintenance.findByIdAndDelete(req.body.id);
+    }
     DB_STATS.lastWriteAt = new Date().toISOString();
     DB_STATS.totalWrites++;
     res.json({ success: true });
@@ -3080,7 +3064,6 @@ app.get('/api/trucks/db', checkAccess, async (req, res) => {
     res.json(fmt(trucks));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ FIX: Update truck metadata — now uses upsert so it works even if truck isn't in DB yet
 app.post('/api/trucks/update-info', checkAccess, async (req, res) => {
   try {
@@ -3097,7 +3080,6 @@ app.post('/api/trucks/update-info', checkAccess, async (req, res) => {
     res.json({ success: true, truck: fmt([truck])[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ NEW: Add a manual (non-GPS) truck that persists for future maintenance orders
 app.post('/api/trucks/manual', checkAccess, async (req, res) => {
   try {
@@ -3112,7 +3094,6 @@ app.post('/api/trucks/manual', checkAccess, async (req, res) => {
     res.json({ success: true, truck: fmt([truck])[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ NEW: Get active (in-progress) maintenance orders only
 app.get('/api/maintenance/active', checkAccess, async (req, res) => {
   try {
@@ -3126,7 +3107,6 @@ app.get('/api/maintenance/active', checkAccess, async (req, res) => {
     res.json(fmt(data));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ NEW: Close/complete a maintenance order
 app.post('/api/maintenance/close', checkAccess, async (req, res) => {
   try {
@@ -3144,7 +3124,6 @@ app.post('/api/maintenance/close', checkAccess, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ V4.0: GPS Geofence Confirmation — Confirm or reject a maintenance via GPS proximity
 app.post('/api/maintenance/gps-confirm', checkAccess, async (req, res) => {
   try {
@@ -3166,7 +3145,6 @@ app.post('/api/maintenance/gps-confirm', checkAccess, async (req, res) => {
     res.json({ success: true, order: doc });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ V4.0: Get maintenance orders pending GPS confirmation
 app.get('/api/maintenance/pending-gps', checkAccess, async (req, res) => {
   try {
@@ -3178,7 +3156,6 @@ app.get('/api/maintenance/pending-gps', checkAccess, async (req, res) => {
     res.json(orders);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ V4.0: Get ALL maintenance history entries (for predictive engine)
 app.get('/api/maintenance-entries', checkAccess, async (req, res) => {
   try {
@@ -3186,7 +3163,6 @@ app.get('/api/maintenance-entries', checkAccess, async (req, res) => {
     res.json(entries);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ✅ V4.0: Geofence check — check if any truck with active maintenance is near a maintenance site
 app.post('/api/maintenance/geofence-check', checkAccess, async (req, res) => {
   try {
@@ -3247,7 +3223,6 @@ app.post('/api/maintenance/geofence-check', checkAccess, async (req, res) => {
     res.json({ triggered });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.get('/api/refuels', checkAccess, async (req, res) => {
   try {
     const { start, end, deviceId, truckName, limit } = req.query || {};
@@ -3440,8 +3415,6 @@ app.delete('/api/audit/:id', checkAccess, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
-
 // ✅ V4.0: Refuel Verification — Confirm or reject a detected refuel
 app.post('/api/refuels/verify', checkAccess, async (req, res) => {
   try {
@@ -3458,7 +3431,6 @@ app.post('/api/refuels/verify', checkAccess, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.post('/api/refuels/rebuild', checkAccess, async (req, res) => {
   try {
     const { deviceId, truckName, start, end, persist, purgeExistingAuto } = req.body || {};
@@ -3620,7 +3592,6 @@ app.get('/api/zone-events', checkAccess, async (req, res) => {
     res.json({ data: rows, pagination: { page, perPage: limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // PUT /api/zone-events/:id// PUT /api/zone-events/:id — manual edit from zone-report
 app.put('/api/zone-events/:id', checkAccess, async (req, res) => {
   try {
@@ -3637,9 +3608,8 @@ app.put('/api/zone-events/:id', checkAccess, async (req, res) => {
     const updated = await ZoneEvent.findByIdAndUpdate(req.params.id, update, { new: true });
     if (!updated) return res.status(404).json({ error: 'Not found' });
     res.json({ ok: true, data: updated });
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // GET /api/zone-events/live — trucks currently inside a zone (with elapsed time)
 app.get('/api/zone-events/live', checkAccess, async (req, res) => {
   try {
@@ -3665,7 +3635,6 @@ app.get('/api/zone-events/live', checkAccess, async (req, res) => {
     }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ── SMART MERGE ENDPOINT (FUSIONNER) ──
 app.post('/api/zone-events/merge', checkAccess, async (req, res) => {
   try {
@@ -3970,8 +3939,6 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
     res.json({ success: true, summary });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
-
 // ============================================================
 // 📍 ZONE ENTRY/EXIT EVENT TRACKER — ALL ZONES, ALL TRUCKS
 // Records every entry/exit to MongoDB for the report & Power BI
@@ -4700,9 +4667,8 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
       } catch(e) { console.error('[ForceSync] Fatal:', e.message); }
     })();
 
-  } catch(e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ════════════════════════════════════════════════════════════════
 
 // POST /api/admin/repair-zones
@@ -4941,7 +4907,6 @@ app.post('/api/clients', checkAccess, async (req, res) => {
     res.json(newClient);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.put('/api/clients/:id', checkAccess, async (req, res) => {
   try {
     const { name, color } = req.body;
@@ -4954,7 +4919,6 @@ app.put('/api/clients/:id', checkAccess, async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.delete('/api/clients/:id', checkAccess, async (req, res) => {
   try {
     await Settings.updateOne({ id: 'global' }, { $pull: { clients: { id: req.params.id } } });
@@ -4962,7 +4926,6 @@ app.delete('/api/clients/:id', checkAccess, async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.post('/api/clients/:id/final-clients', checkAccess, async (req, res) => {
   try {
     const { name } = req.body;
@@ -4974,7 +4937,6 @@ app.post('/api/clients/:id/final-clients', checkAccess, async (req, res) => {
     res.json(fc);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.delete('/api/clients/:clientId/final-clients/:fcId', checkAccess, async (req, res) => {
   try {
     await Settings.updateOne({ id: 'global', 'clients.id': req.params.clientId },
@@ -4984,7 +4946,6 @@ app.delete('/api/clients/:clientId/final-clients/:fcId', checkAccess, async (req
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.get('/api/zone-operations/check-conflict', checkAccess, async (req, res) => {
   try {
     const { deviceId, excludeId } = req.query;
@@ -4995,7 +4956,6 @@ app.get('/api/zone-operations/check-conflict', checkAccess, async (req, res) => 
     res.json(conflicts);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // ============================================================
 // 🚛 ZONE OPERATIONS — CRUD ENDPOINTS
 // ============================================================
@@ -5007,7 +4967,6 @@ app.get('/api/zone-operations/active', checkAccess, async (req, res) => {
     res.json(ops);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // GET /api/zone-operations — list all, filterable
 app.get('/api/zone-operations', checkAccess, async (req, res) => {
   try {
@@ -5026,7 +4985,6 @@ app.get('/api/zone-operations', checkAccess, async (req, res) => {
     res.json(ops);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // POST /api/zone-operations — create new (manual or auto)
 app.post('/api/zone-operations', checkAccess, async (req, res) => {
   try {
@@ -5040,7 +4998,6 @@ app.post('/api/zone-operations', checkAccess, async (req, res) => {
     res.json(op);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // PUT /api/zone-operations/:id — update
 app.put('/api/zone-operations/:id', checkAccess, async (req, res) => {
   try {
@@ -5065,7 +5022,6 @@ app.put('/api/zone-operations/:id', checkAccess, async (req, res) => {
     res.json(op);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-
 // DELETE /api/zone-operations/:id
 app.delete('/api/zone-operations/:id', checkAccess, async (req, res) => {
   try {
@@ -5161,7 +5117,6 @@ app.get('/api/keys', checkAccess, async (req, res) => {
     res.json(keys);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.post('/api/keys', checkAccess, async (req, res) => {
   try {
     const { name } = req.body;
@@ -5172,14 +5127,12 @@ app.post('/api/keys', checkAccess, async (req, res) => {
     res.json(newKey);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.delete('/api/keys/:id', checkAccess, async (req, res) => {
   try {
     await ApiKey.findByIdAndDelete(req.params.id);
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // Shared auth + query builder for PowerBI routes
 async function powerbiAuth(req, res) {
   const token = req.query.token;
@@ -5227,7 +5180,6 @@ app.get('/api/zone-events/powerbi', async (req, res) => {
     res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // HISTORICAL — specific zone in URL path (e.g. /powerbi/SITE_DED_BISKRA)
 app.get('/api/zone-events/powerbi/:zone', async (req, res) => {
   if (!(await powerbiAuth(req, res))) return;
@@ -5238,7 +5190,6 @@ app.get('/api/zone-events/powerbi/:zone', async (req, res) => {
     res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // LIVE — trucks currently inside, with real elapsed chargement time (no zone filter)
 app.get('/api/zone-events/powerbi-live', async (req, res) => {
   if (!(await powerbiAuth(req, res))) return;
@@ -5250,7 +5201,6 @@ app.get('/api/zone-events/powerbi-live', async (req, res) => {
     res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // LIVE — specific zone in URL path
 app.get('/api/zone-events/powerbi-live/:zone', async (req, res) => {
   if (!(await powerbiAuth(req, res))) return;
@@ -5261,7 +5211,6 @@ app.get('/api/zone-events/powerbi-live/:zone', async (req, res) => {
     res.json(events.map(e => formatZoneEventForPowerBI(e, now)));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // INFO — list all available zones (helps building Power BI URLs)
 app.get('/api/zone-events/powerbi-zones', async (req, res) => {
   if (!(await powerbiAuth(req, res))) return;
@@ -5791,7 +5740,7 @@ app.post('/api/admin/sync-vidange-overrides', checkAccess, async (req, res) => {
     // Find all completed vidange records grouped by deviceId
     const vidanges = await Maintenance.find({
       type: { $in: ['Vidange', 'Vidange Complète'] },
-      status: { $in: ['termine', 'terminé', null, undefined] },
+      status: { $nin: ['annule', 'annulé'] },
       odometer: { $gt: 0 }
     }).sort({ odometer: 1 }).lean();
 
@@ -5813,18 +5762,16 @@ app.post('/api/admin/sync-vidange-overrides', checkAccess, async (req, res) => {
       const odometerKm = Math.round(v.odometer);
 
       // Get current override
-      const currentSkip = SYSTEM_SETTINGS.vidangeOverrides &&
-        SYSTEM_SETTINGS.vidangeOverrides[deviceId] &&
-        SYSTEM_SETTINGS.vidangeOverrides[deviceId].skipUntilKm
-        ? parseInt(SYSTEM_SETTINGS.vidangeOverrides[deviceId].skipUntilKm, 10) : 0;
+      const _syncOvr = SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[deviceId];
+      const currentLastKm = _syncOvr ? (parseInt(_syncOvr.lastVidangeKm || _syncOvr.odometerAtConfirm || 0)) : 0;
 
-      if (odometerKm <= currentSkip) {
+      if (odometerKm <= currentLastKm) {
         skipped++;
-        results.push({ truck: v.truckName, deviceId, odometer: odometerKm, action: 'SKIP - already acknowledged at ' + currentSkip + ' km' });
+        results.push({ truck: v.truckName, deviceId, odometer: odometerKm, action: 'SKIP - already acknowledged at ' + currentLastKm + ' km' });
         continue;
       }
 
-      // Acknowledge this vidange
+      // Acknowledge this vidange (stores lastVidangeKm = actual odometer)
       await acknowledgeVidange(deviceId, v.truckName || deviceId, odometerKm);
       synced++;
       console.log('[VidangeSync] ' + (v.truckName||deviceId) + ' acknowledged at ' + odometerKm + ' km');
@@ -5919,7 +5866,6 @@ itinRoute.patch('/set-names', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // GET /api/itinerary/all — return all stored itinerary segments
 itinRoute.get('/all', async (req, res) => {
   try {
@@ -5927,7 +5873,6 @@ itinRoute.get('/all', async (req, res) => {
     res.json(docs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // DELETE /api/itinerary/delete-one — remove a single route
 itinRoute.delete('/delete-one', async (req, res) => {
   try {
@@ -5937,7 +5882,6 @@ itinRoute.delete('/delete-one', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // DELETE /api/itinerary/clear — wipe all (admin)
 itinRoute.delete('/clear', async (req, res) => {
   try {
@@ -5945,7 +5889,6 @@ itinRoute.delete('/clear', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 app.use('/api/itinerary', itinRoute);
 
 // ============================================================
@@ -5979,7 +5922,6 @@ app.get('/api/maintenance-articles', checkAccess, async (req, res) => {
     res.json(fmt(articles));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // POST create/update article
 app.post('/api/maintenance-articles', checkAccess, async (req, res) => {
   try {
@@ -5993,7 +5935,6 @@ app.post('/api/maintenance-articles', checkAccess, async (req, res) => {
     res.json({ success: true, article: fmt([article])[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // DELETE article (soft delete)
 app.delete('/api/maintenance-articles/:id', checkAccess, async (req, res) => {
   try {
@@ -6001,7 +5942,6 @@ app.delete('/api/maintenance-articles/:id', checkAccess, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // PATCH cancel maintenance order
 app.patch('/api/maintenance/:id/cancel', checkAccess, async (req, res) => {
   try {
@@ -6014,7 +5954,6 @@ app.patch('/api/maintenance/:id/cancel', checkAccess, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // PATCH complete maintenance order
 app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
   try {
@@ -6031,7 +5970,6 @@ app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // POST seed default maintenance articles (one-time setup)
 app.post('/api/maintenance-articles/seed-defaults', checkAccess, async (req, res) => {
   try {
@@ -6052,8 +5990,6 @@ app.post('/api/maintenance-articles/seed-defaults', checkAccess, async (req, res
     res.json({ success: true, count: defaults.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
-
 // --- VEHICLE REFERENCES API ---
 
 // GET all references
@@ -6063,7 +5999,6 @@ app.get('/api/vehicle-references', checkAccess, async (req, res) => {
     res.json(refs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // GET references for a specific truck
 app.get('/api/vehicle-references/:deviceId', checkAccess, async (req, res) => {
   try {
@@ -6071,7 +6006,6 @@ app.get('/api/vehicle-references/:deviceId', checkAccess, async (req, res) => {
     res.json(refs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // GET references expiring within N days (default 30)
 app.get('/api/vehicle-references-expiring', checkAccess, async (req, res) => {
   try {
@@ -6082,7 +6016,6 @@ app.get('/api/vehicle-references-expiring', checkAccess, async (req, res) => {
     res.json(refs);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // POST add a reference
 app.post('/api/vehicle-references', checkAccess, async (req, res) => {
   try {
@@ -6093,7 +6026,6 @@ app.post('/api/vehicle-references', checkAccess, async (req, res) => {
     res.json({ success: true, ref });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // PUT update a reference
 app.put('/api/vehicle-references/:id', checkAccess, async (req, res) => {
   try {
@@ -6103,7 +6035,6 @@ app.put('/api/vehicle-references/:id', checkAccess, async (req, res) => {
     res.json({ success: true, ref });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // DELETE a reference
 app.delete('/api/vehicle-references/:id', checkAccess, async (req, res) => {
   try {
@@ -6111,7 +6042,6 @@ app.delete('/api/vehicle-references/:id', checkAccess, async (req, res) => {
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-
 // --- 9. INITIALIZATION ---
 
 // ✅ Mongoose reconnection handlers for resilience
@@ -6324,6 +6254,7 @@ app.get('/api/zone-summary', checkAccess, async (req, res) => {
       };
     });
     res.json(summary);
-  } catch(e) { res.status(500).json({ error: e.message }); }
-});
+  } catch(e) { res.status(500).json({ error: e.message });
 
+} 
+});
