@@ -3997,7 +3997,8 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
     // If the truck "left" and came back within 2 hours, reopen the old event instead.
     // (We just created a new event above via upsert — find it and check if we should
     //  prefer the older closed one instead)
-    const justCreated = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName: zone.name, source: 'live-bot', entryTime: { $gte: now - 5000 } });
+
+        const justCreated = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName: zone.name, source: 'live-bot', entryTime: { $gte: now - 5000 } });
     const oldClosed = await ZoneEvent.findOne({ deviceId, zoneName: zone.name, exitTime: { $ne: null } }).sort({ exitTime: -1 });
     if (justCreated && oldClosed) {
       const timeSinceExit = now - oldClosed.exitTime;
@@ -4249,21 +4250,41 @@ async function runZoneEntryExitTracking(truck, dbTruck) {
   // ── OUTSIDE ALL ZONES ────────────────────────────────────────
   } else if (prevZoneName) {
 
-    // GUARD: Parked truck (speed < 5) → GPS drift. NEVER exit.
-    if (speed < 5) return;
+    // Dual-threshold exit logic (No speed guard)
+    let prevZoneRadius = 500;
+    let prevZoneDist = 999999;
+    const pz = allZones.find(z => z.name === prevZoneName);
+    if (pz) {
+      prevZoneRadius = pz.radius || 500;
+      prevZoneDist = calculateDistance(lat, lng, parseFloat(pz.lat), parseFloat(pz.lng));
+    }
 
-    if (!dbTruck.pendingExitTime) {
-      console.log(`⏳ [Exit-Pending] ${truckName} left "${prevZoneName}" at ${speed.toFixed(1)} km/h. Countdown started...`);
-      await Truck.findOneAndUpdate({ deviceId }, { pendingExitTime: Date.now(), pendingExitZone: prevZoneName });
+    const hardExitDist = prevZoneRadius + 200; 
+    const isHardExit = (prevZoneDist >= hardExitDist);
+
+    if (isHardExit) {
+      // INSTANT EXIT
+      console.log(`✅ [Exit-Hard] ${truckName} is ${prevZoneDist.toFixed(0)}m away (limit: ${hardExitDist}m). Immediate exit from "${prevZoneName}".`);
+      await logZoneExit(deviceId, truckName, prevZoneName, lat, lng);
+      await Truck.findOneAndUpdate({ deviceId }, {
+        _zoneEventZone: null, needsHistoryScan: true,
+        $unset: { pendingExitTime: 1, pendingExitZone: 1 }
+      });
     } else {
-      const minutesOutside = (Date.now() - dbTruck.pendingExitTime) / 60000;
-      if (minutesOutside >= 10) {
-        console.log(`✅ [Exit-Confirmed] ${truckName} confirmed out of "${prevZoneName}" for ${minutesOutside.toFixed(1)} min.`);
-        await logZoneExit(deviceId, truckName, prevZoneName, lat, lng);
-        await Truck.findOneAndUpdate({ deviceId }, {
-          _zoneEventZone: null, needsHistoryScan: true,
-          $unset: { pendingExitTime: 1, pendingExitZone: 1 }
-        });
+      // FUZZ ZONE (between radius and radius+200) -> Wait 3 minutes
+      if (!dbTruck.pendingExitTime) {
+        console.log(`⏳ [Exit-Pending] ${truckName} left "${prevZoneName}" but is only ${prevZoneDist.toFixed(0)}m away. 3-min countdown started...`);
+        await Truck.findOneAndUpdate({ deviceId }, { pendingExitTime: Date.now(), pendingExitZone: prevZoneName });
+      } else {
+        const minutesOutside = (Date.now() - dbTruck.pendingExitTime) / 60000;
+        if (minutesOutside >= 3) {
+          console.log(`✅ [Exit-Confirmed] ${truckName} confirmed out of "${prevZoneName}" for ${minutesOutside.toFixed(1)} min.`);
+          await logZoneExit(deviceId, truckName, prevZoneName, lat, lng);
+          await Truck.findOneAndUpdate({ deviceId }, {
+            _zoneEventZone: null, needsHistoryScan: true,
+            $unset: { pendingExitTime: 1, pendingExitZone: 1 }
+          });
+        }
       }
     }
   }
@@ -5851,22 +5872,8 @@ itinRoute.post('/upsert-batch', async (req, res) => {
       updated++;
     }
     res.json({ ok: true, updated });
-  } catch (e) {
-    console.error('Itinerary upsert error:', e);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// PATCH /api/itinerary/set-names — update resolved place names
-itinRoute.patch('/set-names', async (req, res) => {
-  try {
-    const { key, nameStart, nameEnd } = req.body;
-    if (!key) return res.status(400).json({ error: 'key required' });
-    await ItinerarySegment.updateOne({ key }, { $set: { nameStart, nameEnd } });
-    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// GET /api/itinerary/all — return all stored itinerary segments
 itinRoute.get('/all', async (req, res) => {
   try {
     const docs = await ItinerarySegment.find({}).lean();
@@ -5973,17 +5980,6 @@ app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
 // POST seed default maintenance articles (one-time setup)
 app.post('/api/maintenance-articles/seed-defaults', checkAccess, async (req, res) => {
   try {
-    const defaults = [
-      { code: 'VID-001', name: 'Vidange Moteur', category: 'Entretien Préventif', description: 'Vidange huile moteur complète avec remplacement filtre', defaultPrice: 20000, laborCost: 3000, estimatedDuration: '2h', components: [{ name: 'Huile Moteur 15W40 (10L)', quantity: 1, unitCost: 8000 }, { name: 'Filtre à Huile', quantity: 1, unitCost: 2500 }, { name: 'Joint de Bouchon', quantity: 1, unitCost: 500 }, { name: 'Filtre à Gasoil', quantity: 1, unitCost: 3000 }] },
-      { code: 'FRN-001', name: 'Remplacement Plaquettes de Frein', category: 'Freinage', description: 'Remplacement plaquettes de frein avant et arrière', defaultPrice: 35000, laborCost: 5000, estimatedDuration: '3h', components: [{ name: 'Plaquettes Avant (jeu)', quantity: 1, unitCost: 12000 }, { name: 'Plaquettes Arrière (jeu)', quantity: 1, unitCost: 10000 }] },
-      { code: 'PNU-001', name: 'Remplacement Pneumatiques', category: 'Pneumatiques', description: 'Changement de pneus usés', defaultPrice: 45000, laborCost: 4000, estimatedDuration: '2h', components: [{ name: 'Pneu 315/80 R22.5', quantity: 2, unitCost: 18000 }] },
-      { code: 'FLT-001', name: 'Remplacement Filtres', category: 'Entretien Préventif', description: 'Remplacement de tous les filtres', defaultPrice: 15000, laborCost: 2000, estimatedDuration: '1h30', components: [{ name: 'Filtre à Air', quantity: 1, unitCost: 4000 }, { name: 'Filtre à Huile', quantity: 1, unitCost: 2500 }, { name: 'Filtre à Gasoil', quantity: 1, unitCost: 3000 }, { name: 'Filtre Séparateur Eau', quantity: 1, unitCost: 2500 }] },
-      { code: 'BAT-001', name: 'Remplacement Batterie', category: 'Électrique', description: 'Remplacement batterie véhicule', defaultPrice: 25000, laborCost: 1000, estimatedDuration: '30min', components: [{ name: 'Batterie 12V 180Ah', quantity: 2, unitCost: 11000 }] },
-      { code: 'EMB-001', name: 'Remplacement Embrayage', category: 'Transmission', description: 'Remplacement kit embrayage complet', defaultPrice: 85000, laborCost: 15000, estimatedDuration: '8h', components: [{ name: 'Kit Embrayage Complet', quantity: 1, unitCost: 55000 }, { name: 'Butée Embrayage', quantity: 1, unitCost: 8000 }] },
-      { code: 'CRG-001', name: 'Réparation Climatisation', category: 'Confort', description: 'Recharge et réparation système climatisation', defaultPrice: 18000, laborCost: 5000, estimatedDuration: '3h', components: [{ name: 'Gaz Réfrigérant R134a', quantity: 1, unitCost: 6000 }, { name: 'Filtre Déshydrateur', quantity: 1, unitCost: 4000 }] },
-      { code: 'SUS-001', name: 'Réparation Suspension', category: 'Suspension', description: 'Remplacement amortisseurs et ressorts', defaultPrice: 55000, laborCost: 8000, estimatedDuration: '5h', components: [{ name: 'Amortisseur Avant', quantity: 2, unitCost: 9000 }, { name: 'Amortisseur Arrière', quantity: 2, unitCost: 8000 }] },
-      { code: 'DIV-001', name: 'Réparation Diverse', category: 'Divers', description: 'Travaux de maintenance non catégorisés', defaultPrice: 0, laborCost: 0, estimatedDuration: 'Variable', components: [] }
-    ];
     for (const art of defaults) {
       await MaintenanceArticle.findOneAndUpdate({ code: art.code }, { $set: { ...art, updatedAt: new Date() } }, { upsert: true });
     }
