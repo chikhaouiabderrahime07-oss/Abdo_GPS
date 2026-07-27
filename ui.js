@@ -2385,6 +2385,41 @@ exportDecouchageCSV() {
     `;
     this.vidangeSectionContainer.appendChild(controls);
 
+    // ── Resync Vidange Button ──────────────────────────────────────
+    const resyncBtn = document.createElement('button');
+    resyncBtn.id = 'vidangeResyncBtn';
+    resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange';
+    resyncBtn.style.cssText = 'margin:8px 0 4px;padding:7px 16px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px;transition:opacity .2s;';
+    resyncBtn.onmouseenter = () => resyncBtn.style.opacity = '0.85';
+    resyncBtn.onmouseleave = () => resyncBtn.style.opacity = '1';
+    resyncBtn.onclick = async () => {
+      resyncBtn.disabled = true;
+      resyncBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Synchronisation...';
+      try {
+        const base = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.API && FLEET_CONFIG.API.baseUrl) ? FLEET_CONFIG.API.baseUrl : '';
+        const code = localStorage.getItem('accessCode') || '';
+        const r = await fetch(base + '/api/admin/sync-vidange-overrides', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-access-code': code }
+        });
+        const d = await r.json();
+        if (d.success) {
+          resyncBtn.innerHTML = '<i class="fa-solid fa-check"></i> ' + d.synced + ' synchronises, ' + d.skipped + ' deja OK';
+          resyncBtn.style.background = 'linear-gradient(135deg,#10b981,#059669)';
+          if (typeof ui !== 'undefined' && ui.syncSettings) { await ui.syncSettings(); ui.renderVidangeSection(); }
+          setTimeout(() => { resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange'; resyncBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)'; resyncBtn.disabled = false; }, 4000);
+        } else {
+          resyncBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Erreur: ' + (d.error || '?');
+          resyncBtn.style.background = '#e63946';
+          setTimeout(() => { resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange'; resyncBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)'; resyncBtn.disabled = false; }, 4000);
+        }
+      } catch(e) {
+        resyncBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Erreur reseau';
+        resyncBtn.style.background = '#e63946';
+        setTimeout(() => { resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange'; resyncBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)'; resyncBtn.disabled = false; }, 4000);
+      }
+    };
+    this.vidangeSectionContainer.appendChild(resyncBtn);
+
     const header = document.createElement('div');
     header.className = 'accordion-header';
     header.style.borderLeftColor = 'var(--orange)';
