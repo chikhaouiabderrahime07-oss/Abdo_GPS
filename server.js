@@ -387,6 +387,9 @@ let INIT_STATE = {
 
 // Load init state from DB on startup (persists across restarts)
 async function loadInitState() {
+  // GUARD: Never overwrite 'running' mid-scan
+  if (INIT_STATE.status === 'running') return;
+
   try {
     const doc = await Settings.findOne({ id: 'global' }).lean();
     if (doc && doc._initDone === true) {
@@ -400,6 +403,11 @@ async function loadInitState() {
 }
 
 let REFUEL_RECONCILE_STATE = { running: false, lastRunYmd: null, lastSummary: null };
+// Per-truck GPS provider failure tracker — trucks with >=5 consecutive
+// provider errors are auto-skipped to prevent log spam and wasted API quota.
+// Resets on server restart or when a truck returns valid data.
+const _GPS_FAIL_COUNTS = {};  // { deviceId: count }
+const _GPS_FAIL_THRESHOLD = 5;
 // ============================================================
 // CLIENT CONTEXT RESOLVER
 // Looks up a zone by name in SYSTEM_SETTINGS.customLocations
@@ -3755,7 +3763,15 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
             const valid = pts.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time));
             allPoints = allPoints.concat(valid);
           } catch (chunkErr) {
-            console.warn(`[SCAN] ${truck.truckName} chunk error: ${chunkErr.message}`);
+            const _cMsg = chunkErr.message || '';
+            if (_cMsg.includes('Provider Error') || _cMsg.includes('ETIMEDOUT')) {
+              _GPS_FAIL_COUNTS[truck.deviceId] = (_GPS_FAIL_COUNTS[truck.deviceId] || 0) + 1;
+              if (_GPS_FAIL_COUNTS[truck.deviceId] === 1 || _GPS_FAIL_COUNTS[truck.deviceId] % 20 === 0) {
+                console.warn(`[SCAN] ${truck.truckName} provider errors: ${_GPS_FAIL_COUNTS[truck.deviceId]} consecutive`);
+              }
+            } else {
+              console.warn(`[SCAN] ${truck.truckName} chunk error: ${chunkErr.message}`);
+            }
           }
         }
 
@@ -4365,7 +4381,15 @@ app.post('/api/admin/initialize', checkAccess, async (req, res) => {
               const valid = pts.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time));
               allPoints = allPoints.concat(valid);
             } catch (e) {
-              console.warn(`[Init] ${truck.truckName} chunk error: ${e.message}`);
+              const _iMsg = e.message || '';
+              if (_iMsg.includes('Provider Error') || _iMsg.includes('ETIMEDOUT')) {
+                _GPS_FAIL_COUNTS[truck.deviceId] = (_GPS_FAIL_COUNTS[truck.deviceId] || 0) + 1;
+                if (_GPS_FAIL_COUNTS[truck.deviceId] === 1 || _GPS_FAIL_COUNTS[truck.deviceId] % 20 === 0) {
+                  console.warn(`[Init] ${truck.truckName} provider errors: ${_GPS_FAIL_COUNTS[truck.deviceId]} consecutive (suppressing repeats)`);
+                }
+              } else {
+                console.warn(`[Init] ${truck.truckName} chunk error: ${e.message}`);
+              }
             }
           }
 
@@ -4740,66 +4764,170 @@ app.post('/api/admin/repair-zones', checkAccess, async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
-// Auto-run the repair 15 seconds after startup to fix any pre-existing bad data
-setTimeout(async () => {
+// ════════════════════════════════════════════════════════════════
+// POST /api/admin/fix-zone-events
+// PURE DB CORRECTIVE — Zero GPS API calls.
+// Uses each truck's current lat/lng (already in DB from last live poll)
+// to determine if it is still inside its zone. Closes events where
+// the truck is confirmed OUTSIDE without touching the GPS provider.
+app.post('/api/admin/fix-zone-events', checkAccess, async (req, res) => {
   try {
-    console.log('[Startup-Repair] 🔧 Auto-repairing duplicate zone events...');
+    const MAX_STALE_DAYS = parseInt((req.body && req.body.maxOpenDays)) || 7;
     const now = Date.now();
-    let closedDuplicates = 0, stateSynced = 0;
+    let closedOutside = 0, closedStale = 0, closedDuplicates = 0, stateSynced = 0, keptOpen = 0;
 
-    const openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: 1 });
-    const grouped = {};
-    for (const ev of openEvents) {
-      const key = `${ev.deviceId}::${ev.zoneName}`;
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(ev);
+    const allZones = SYSTEM_SETTINGS.customLocations || [];
+
+    // Helper: straight-line distance in metres
+    function distM(lat1, lng1, lat2, lng2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLng = (lng2 - lng1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+                Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+                Math.sin(dLng/2)*Math.sin(dLng/2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
-    for (const key of Object.keys(grouped)) {
-      const group = grouped[key];
-      if (group.length <= 1) continue;
-      const toClose = group.slice(1);
-      for (const dup of toClose) {
-        await ZoneEvent.findByIdAndUpdate(dup._id, {
-          exitTime: now,
-          durationMinutes: Math.round((now - dup.entryTime) / 60000),
-          status: 'terminé'
+
+    // Get all open events
+    const openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: 1 }).lean();
+    console.log('[Fix] Found ' + openEvents.length + ' open events to check');
+
+    for (const ev of openEvents) {
+      // Find zone config for this event
+      const zoneConf = allZones.find(z => z.name === ev.zoneName);
+      // Get current truck position from DB (no GPS API call)
+      const truck = await Truck.findOne({ deviceId: String(ev.deviceId) }).lean();
+
+      const truckLat = truck && Number.isFinite(parseFloat(truck.lat)) ? parseFloat(truck.lat) : null;
+      const truckLng = truck && Number.isFinite(parseFloat(truck.lng)) ? parseFloat(truck.lng) : null;
+      const lastUpdate = (truck && truck.lastUpdate) ? truck.lastUpdate : null;
+      const ageDays = (now - ev.entryTime) / 86400000;
+
+      // --- CASE 1: We have a current GPS position for this truck ---
+      if (zoneConf && truckLat && truckLng) {
+        const dist = distM(truckLat, truckLng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng));
+        const radius = parseFloat(zoneConf.radius) || 500;
+        const isInsideNow = dist <= radius;
+
+        if (!isInsideNow) {
+          // Truck is confirmed OUTSIDE zone right now → close event
+          // Use lastUpdate as exit time (that's when we last saw it outside)
+          const exitAt = (lastUpdate && lastUpdate > ev.entryTime) ? lastUpdate : now;
+          const dur = Math.round((exitAt - ev.entryTime) / 60000);
+          await ZoneEvent.findByIdAndUpdate(ev._id, {
+            exitTime: exitAt,
+            durationMinutes: Math.max(0, dur),
+            status: 'terminé'
+          });
+          closedOutside++;
+          console.log('[Fix] CLOSED (truck outside): ' + ev.truckName + ' | ' + ev.zoneName +
+            ' | was ' + Math.round(ageDays) + 'd open | dist=' + Math.round(dist) + 'm > ' + radius + 'm');
+        } else {
+          // Truck is still inside — keep open, just note it
+          keptOpen++;
+        }
+      }
+      // --- CASE 2: No position OR position too old → use age threshold ---
+      else {
+        const posAge = lastUpdate ? (now - lastUpdate) / 86400000 : 999;
+        if (ageDays > MAX_STALE_DAYS || posAge > MAX_STALE_DAYS) {
+          // No GPS signal for >7 days AND event has been open >7 days
+          // Close at a reasonable time: entryTime + 16h (a workday) if very old,
+          // or at lastUpdate if we have it
+          let exitAt;
+          if (lastUpdate && lastUpdate > ev.entryTime && posAge <= 30) {
+            exitAt = lastUpdate;
+          } else {
+            exitAt = Math.min(ev.entryTime + 16 * 3600000, now); // 16h max if no data
+          }
+          const dur = Math.round((exitAt - ev.entryTime) / 60000);
+          await ZoneEvent.findByIdAndUpdate(ev._id, {
+            exitTime: exitAt,
+            durationMinutes: Math.max(0, dur),
+            status: 'terminé'
+          });
+          closedStale++;
+          console.log('[Fix] CLOSED (stale/no GPS): ' + ev.truckName + ' | ' + ev.zoneName +
+            ' | ' + Math.round(ageDays) + 'd open | posAge=' + Math.round(posAge) + 'd');
+        } else {
+          keptOpen++;
+        }
+      }
+    }
+
+    // --- Deduplicate ---
+    // Pass 1: same truck + same zone → keep oldest, close rest
+    // Pass 2: same truck in MULTIPLE zones → keep most recent open event, close rest
+    // (a truck can only physically be in ONE zone at a time)
+    const stillOpen = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: 1 }).lean();
+
+    // Group by truck+zone
+    const byTruckZone = {};
+    for (const ev of stillOpen) {
+      const key = ev.deviceId + '::' + ev.zoneName;
+      if (!byTruckZone[key]) byTruckZone[key] = [];
+      byTruckZone[key].push(ev);
+    }
+    for (const key of Object.keys(byTruckZone)) {
+      const grp = byTruckZone[key];
+      if (grp.length <= 1) continue;
+      // Keep oldest (first entry), close newer ones
+      for (let i = 1; i < grp.length; i++) {
+        await ZoneEvent.findByIdAndUpdate(grp[i]._id, {
+          exitTime: now, durationMinutes: Math.round((now - grp[i].entryTime) / 60000), status: 'terminé'
         });
         closedDuplicates++;
+        console.log('[Fix] CLOSED (same zone dup): ' + grp[i].truckName + ' | ' + grp[i].zoneName);
       }
     }
 
-    const allTrucks = await Truck.find({}, 'deviceId _zoneEventZone').lean();
-    for (const truck of allTrucks) {
-      const openEv = await ZoneEvent.findOne({ deviceId: String(truck.deviceId), exitTime: null }).sort({ entryTime: 1 });
+    // Group by truck only — a truck can only be in ONE zone
+    const byTruck = {};
+    const stillOpen2 = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: -1 }).lean(); // newest first
+    for (const ev of stillOpen2) {
+      if (!byTruck[ev.deviceId]) byTruck[ev.deviceId] = [];
+      byTruck[ev.deviceId].push(ev);
+    }
+    for (const devId of Object.keys(byTruck)) {
+      const grp = byTruck[devId];
+      if (grp.length <= 1) continue;
+      // Keep most recent (index 0 = newest since sorted desc), close older conflicting zones
+      const keep = grp[0];
+      for (let i = 1; i < grp.length; i++) {
+        const dup = grp[i];
+        if (dup.zoneName === keep.zoneName) continue; // already handled above
+        await ZoneEvent.findByIdAndUpdate(dup._id, {
+          exitTime: dup.entryTime + 60000, // close 1 min after entry (bad event)
+          durationMinutes: 1, status: 'terminé'
+        });
+        closedDuplicates++;
+        console.log('[Fix] CLOSED (multi-zone conflict): ' + (dup.truckName||devId) + ' was in ' + dup.zoneName + ' AND ' + keep.zoneName + ' simultaneously');
+      }
+    }
+
+    // --- Sync _zoneEventZone on ALL trucks from DB truth ---
+    const allTrucks = await Truck.find({}).lean();
+    for (const t of allTrucks) {
+      const openEv = await ZoneEvent.findOne({ deviceId: String(t.deviceId), exitTime: null }).sort({ entryTime: 1 });
       const correctZone = openEv ? openEv.zoneName : null;
-      if (truck._zoneEventZone !== correctZone) {
-        await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { _zoneEventZone: correctZone });
+      if (t._zoneEventZone !== correctZone) {
+        await Truck.findOneAndUpdate({ deviceId: String(t.deviceId) }, { _zoneEventZone: correctZone });
         stateSynced++;
+        console.log('[Fix] SYNC: ' + (t.truckName||t.deviceId) + ' | ' + t._zoneEventZone + ' → ' + correctZone);
       }
     }
 
-    if (closedDuplicates > 0 || stateSynced > 0) {
-      console.log(`[Startup-Repair] ✅ Done: ${closedDuplicates} duplicates closed, ${stateSynced} truck states synced.`);
-    } else {
-      console.log('[Startup-Repair] ✅ No issues found — data is clean.');
-    }
+    const msg = closedOutside + ' fermes (hors-zone) + ' + closedStale + ' fermes (inactifs) + ' +
+                closedDuplicates + ' doublons + ' + stateSynced + ' etats syncs | ' + keptOpen + ' gardes ouverts';
+    console.log('[Fix] Done: ' + msg);
+    res.json({ success: true, closedOutside, closedStale, closedDuplicates, stateSynced, keptOpen, summary: msg });
   } catch (e) {
-    console.error('[Startup-Repair] Error:', e.message);
+    console.error('[Fix] fix-zone-events error:', e.message);
+    res.status(500).json({ error: e.message });
   }
-}, 15000);
-
-// ============================================================
-// CLIENT & CLIENT FINAL - CRUD ENDPOINTS
-// ============================================================
-
-app.get('/api/clients', checkAccess, async (req, res) => {
-
-  try {
-    const doc = await Settings.findOne({ id: 'global' });
-    res.json(doc && doc.clients ? doc.clients : []);
-  } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
 
 app.post('/api/clients', checkAccess, async (req, res) => {
   try {
@@ -5650,6 +5778,68 @@ app.get('/api/admin/reset-overdue-vidanges', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+// ════════════════════════════════════════════════════════════════
+// POST /api/admin/sync-vidange-overrides
+// Reads all COMPLETED Vidange records from Maintenance DB and
+// calls acknowledgeVidange() for each truck so the UI correctly
+// reflects what was already done. No GPS API calls needed.
+// ════════════════════════════════════════════════════════════════
+app.post('/api/admin/sync-vidange-overrides', checkAccess, async (req, res) => {
+  try {
+    await loadSettings();
+
+    // Find all completed vidange records grouped by deviceId
+    const vidanges = await Maintenance.find({
+      type: { $in: ['Vidange', 'Vidange Complète'] },
+      status: { $in: ['termine', 'terminé', null, undefined] },
+      odometer: { $gt: 0 }
+    }).sort({ odometer: 1 }).lean();
+
+    // Group by deviceId — keep highest odometer per truck
+    const byDevice = {};
+    for (const v of vidanges) {
+      if (!v.deviceId) continue;
+      const key = String(v.deviceId);
+      if (!byDevice[key] || v.odometer > byDevice[key].odometer) {
+        byDevice[key] = v;
+      }
+    }
+
+    let synced = 0, skipped = 0;
+    const results = [];
+
+    for (const deviceId of Object.keys(byDevice)) {
+      const v = byDevice[deviceId];
+      const odometerKm = Math.round(v.odometer);
+
+      // Get current override
+      const currentSkip = SYSTEM_SETTINGS.vidangeOverrides &&
+        SYSTEM_SETTINGS.vidangeOverrides[deviceId] &&
+        SYSTEM_SETTINGS.vidangeOverrides[deviceId].skipUntilKm
+        ? parseInt(SYSTEM_SETTINGS.vidangeOverrides[deviceId].skipUntilKm, 10) : 0;
+
+      if (odometerKm <= currentSkip) {
+        skipped++;
+        results.push({ truck: v.truckName, deviceId, odometer: odometerKm, action: 'SKIP - already acknowledged at ' + currentSkip + ' km' });
+        continue;
+      }
+
+      // Acknowledge this vidange
+      await acknowledgeVidange(deviceId, v.truckName || deviceId, odometerKm);
+      synced++;
+      console.log('[VidangeSync] ' + (v.truckName||deviceId) + ' acknowledged at ' + odometerKm + ' km');
+      results.push({ truck: v.truckName, deviceId, odometer: odometerKm, action: 'SYNCED' });
+    }
+
+    await saveSettings();
+    console.log('[VidangeSync] Done: ' + synced + ' synced, ' + skipped + ' skipped');
+    res.json({ success: true, synced, skipped, total: Object.keys(byDevice).length, results });
+  } catch (e) {
+    console.error('[VidangeSync] Error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // --- 8. ITINERARY TRACKING API ---
 

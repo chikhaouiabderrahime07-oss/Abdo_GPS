@@ -678,10 +678,14 @@
               <option value="long">> 2h en zone</option>
               <option value="late">> 4h (retard)</option>
             </select>
-            <div style="display:flex;align-items:center;background:var(--bg-3);border-radius:6px;padding:0 8px;border:1px solid var(--border-1);">
-              <span style="font-size:11px;font-weight:700;color:var(--text-2);margin-right:8px;" title="Scan autonome toutes les 30 min"><i class="fa-solid fa-robot"></i> Auto-Scan: <span id="systemStatusBadge" style="color:var(--teal);font-family:monospace;font-size:12px;">—</span></span>
-              <button id="btnInitSystem" class="hdr-btn" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:4px;margin:4px 0;padding:4px 12px;font-weight:700;" onclick="ZMC.initializeSystem()"><i class="fa-solid fa-rocket"></i> Initialiser</button>
-              <button id="btnForceGlobalSync" class="hdr-btn" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;border:none;border-radius:4px;margin:4px 0;padding:4px 12px;font-weight:700;" onclick="ZMC.forceGlobalSync()" title="Synchronisation forcée: scanne les 48 dernières heures pour tous les camions + ferme les événements périmés"><i class="fa-solid fa-rotate"></i> Force Sync</button>
+            <div id="syncControlBar" style="display:flex;align-items:center;gap:6px;background:var(--bg-3);border-radius:8px;padding:5px 10px;border:1px solid var(--border-1);">
+              <i class="fa-solid fa-robot" style="color:var(--teal);font-size:11px;" title="Scan autonome actif"></i>
+              <span id="systemStatusBadge" style="color:var(--teal);font-family:monospace;font-size:11px;font-weight:700;min-width:55px;">—</span>
+              <span style="width:1px;height:18px;background:var(--border-1);margin:0 2px;display:inline-block;opacity:0.5;"></span>
+              <input type="date" id="syncStartDate" style="background:var(--bg-2);border:1px solid var(--border-1);border-radius:5px;color:var(--text-1);padding:3px 6px;font-size:11px;" title="D&#233;but">
+              <span style="color:var(--text-3);font-size:10px;font-weight:700;">&#8594;</span>
+              <input type="date" id="syncEndDate" style="background:var(--bg-2);border:1px solid var(--border-1);border-radius:5px;color:var(--text-1);padding:3px 6px;font-size:11px;" title="Fin">
+              <label id="correctiveModeLabel" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#f59e0b;cursor:pointer;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:6px;padding:4px 9px;" title="Recalcule toutes les entrees/sorties depuis les donnees GPS brutes. Corrige les evenements incorrects."><input type="checkbox" id="correctiveModeToggle" style="accent-color:#f59e0b;"> Correctif</label><button id="btnForceGlobalSync" class="hdr-btn" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;border:none;border-radius:6px;padding:5px 13px;font-weight:800;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;" onclick="ZMC.forceGlobalSync()"><i class="fa-solid fa-rotate"></i> Force Sync</button>
             </div>
             <button class="hdr-btn" onclick="ZMC.refreshLive()"><i class="fa-solid fa-arrows-rotate"></i> Actualiser</button>
             <button class="hdr-btn" onclick="ZMC.exportLiveCSV()"><i class="fa-solid fa-file-arrow-down"></i> CSV</button>
@@ -2206,41 +2210,222 @@ const ZMC = (() => {
   // Calls /api/admin/force-sync: scans last N hours, closes stale
   // open events, syncs _zoneEventZone for every truck from DB truth.
   // ═══════════════════════════════════════════════════════════════
-  async function forceGlobalSync(hours = 48, isSilent = false) {
+  async function forceGlobalSync() {
     const btn = document.getElementById('btnForceGlobalSync');
-    if (btn && btn.disabled) return; // already running
+    if (btn && btn.disabled) return;
 
-    if (!isSilent) {
-      const h = prompt(
-        '🔄 FORCE SYNC\n\n' +
-        'Scanne l\'historique GPS de TOUS les camions, ferme les événements périmés\n' +
-        'et resynchronise toute la base de données en temps réel.\n\n' +
-        'Combien d\'heures d\'historique couvrir ?\n(48 = recommandé, 168 = 7 jours max)',
-        String(hours)
-      );
-      if (h === null) return;
-      hours = Math.min(Math.max(parseInt(h) || 48, 1), 168);
+    // Read date range from toolbar pickers
+    const startEl  = document.getElementById('syncStartDate');
+    const endEl    = document.getElementById('syncEndDate');
+    const startVal = startEl ? startEl.value : '';
+    const endVal   = endEl   ? endEl.value   : '';
+
+    if (!startVal || !endVal) {
+      toast('Selectionnez une periode de debut et de fin.', 'warning');
+      if (startEl) startEl.style.outline = '2px solid #ef4444';
+      if (endEl)   endEl.style.outline   = '2px solid #ef4444';
+      return;
     }
+    if (new Date(startVal) > new Date(endVal)) {
+      toast('La date de debut doit etre anterieure a la date de fin.', 'warning');
+      return;
+    }
+    if (startEl) startEl.style.outline = '';
+    if (endEl)   endEl.style.outline   = '';
 
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sync...'; }
-    toast(`🔄 Force Sync démarré — ${hours}h × tous les camions. Patientez 1 à 3 min...`, 'info');
+    const isCorrectif = document.getElementById('correctiveModeToggle')?.checked ?? false;
+
+    // Calculate days between the two dates
+    const daysDiff = Math.ceil((new Date(endVal) - new Date(startVal)) / 86400000) + 1;
+
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> En cours...'; }
+
+    showForceSyncModal(startVal, endVal, isCorrectif);
 
     try {
-      const r = await fetch(`${state.base}/api/admin/force-sync`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers() },
-        body: JSON.stringify({ hours })
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Erreur serveur');
+      if (isCorrectif) {
+        // ════════════════════════════════════════════════════════
+        // CORRECTIVE MODE — 100% DB only, zero GPS API calls.
+        // Reads existing zone events and fixes illogical data.
+        // Step 1: Fix impossible dates + close stale events
+        // Step 2: Deduplicate + sync truck states
+        // ════════════════════════════════════════════════════════
+        _fsmSetStep(0, 'Analyse des evenements en base de donnees...', 20);
 
-      // Show a countdown banner so user knows it's working in background
-      showSyncCountdown(hours, d.trucksTotal || '?');
+        const r0 = await fetch(`${state.base}/api/admin/fix-zone-events`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers() },
+          body: JSON.stringify({ maxOpenDays: 45 })
+        });
+        const d0 = await r0.json();
+        if (!r0.ok) throw new Error(d0.error || 'Erreur fix-zone-events');
+
+        _fsmLog(
+          (d0.closedOutside || 0) + ' hors-zone fermes · ' +
+          (d0.closedStale || 0) + ' inactifs fermes · ' +
+          (d0.closedDuplicates || 0) + ' doublons · ' +
+          (d0.keptOpen || 0) + ' gardes ouverts'
+        );
+
+        // ── Step 2: Sync truck states ──────────────────────────────
+        _fsmSetStep(1, 'Synchronisation des etats camions...', 85);
+        const r2 = await fetch(`${state.base}/api/admin/repair-zones`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', ...headers() }
+        });
+        const d2 = await r2.json();
+        if (!r2.ok) throw new Error(d2.error || 'Erreur repair-zones');
+        _fsmLog((d2.stateSynced || 0) + ' etats synchronises · ' + (d2.closedDuplicates || 0) + ' doublons residuels fermes');
+
+        _fsmSetStep(2, null, 100, true);
+        _fsmSetResult(
+          'Correction complete: ' +
+          (d0.closedOutside||0) + ' hors-zone · ' +
+          (d0.closedStale||0) + ' inactifs · ' +
+          (d0.closedDuplicates||0) + ' doublons · ' +
+          (d2.stateSynced||0) + ' etats corriges',
+          'success'
+        );
+
+      } else {
+        // ════════════════════════════════════════════════════════
+        // NORMAL SYNC: scan-history (skip already-scanned trucks)
+        // Fast for short windows, returns synchronously
+        // ════════════════════════════════════════════════════════
+        _fsmSetStep(0, 'Scan GPS en cours (' + daysDiff + ' jours)...', 20);
+
+        const startISO = startVal + ' 00:00:00';
+        const endISO   = endVal   + ' 23:59:59';
+
+        const r1 = await fetch(`${state.base}/api/zone-events/scan-history`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers() },
+          body: JSON.stringify({ start: startISO, end: endISO, forceAll: false })
+        });
+        const d1 = await r1.json();
+        if (!r1.ok) throw new Error(d1.error || 'Erreur scan-history');
+
+        _fsmSetStep(1, null, 100, true);
+        _fsmSetResult(
+          'Sync complete: ' + (d1.trucks || 0) + ' camions · ' + (d1.created || 0) + ' crees · ' + (d1.updated || 0) + ' mis a jour · ' + (d1.skipped || 0) + ' ignores',
+          'success'
+        );
+      }
+
+      await refreshAll();
+      toast(isCorrectif ? '✅ Correction terminee' : '✅ Force Sync termine', 'success');
 
     } catch(e) {
-      toast('Erreur Force Sync: ' + e.message, 'error');
+      _fsmSetResult('Erreur: ' + e.message, 'error');
+      toast('Erreur: ' + e.message, 'error');
     } finally {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Force Sync'; }
+    }
+  }
+
+  // ── Force Sync progress modal + helpers ──────────────────────────
+  let _fsmEl = null;
+
+  function showForceSyncModal(startVal, endVal, isCorrectif) {
+    const old = document.getElementById('forceSyncModal');
+    if (old) old.remove();
+
+    const steps = isCorrectif
+      ? ['Correction DB', 'Synchronisation', 'Termine']
+      : ['Scan GPS', 'Termine'];
+
+    const modal = document.createElement('div');
+    modal.id = 'forceSyncModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);display:flex;align-items:center;justify-content:center;z-index:99999;font-family:"Inter",sans-serif;backdrop-filter:blur(10px);';
+
+    const stepHTML = steps.map((s, i) =>
+      `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+        <div id="fsmStepIcon${i}" style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#475569;flex-shrink:0;">${i+1}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:13px;font-weight:700;color:#64748b;" id="fsmStepLabel${i}">${s}</div>
+          <div style="font-size:11px;color:#334155;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="fsmStepLog${i}"></div>
+        </div>
+      </div>`
+    ).join('');
+
+    modal.innerHTML = `
+      <div style="background:#0f172a;border:1px solid ${isCorrectif ? 'rgba(245,158,11,0.35)' : 'rgba(14,165,233,0.35)'};border-radius:20px;padding:32px;min-width:500px;max-width:620px;box-shadow:0 40px 100px rgba(0,0,0,0.8);">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;">
+          <div style="width:50px;height:50px;background:${isCorrectif ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#0ea5e9,#0284c7)'};border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:24px;box-shadow:0 6px 20px rgba(14,165,233,0.3);">${isCorrectif ? '🔧' : '🔄'}</div>
+          <div>
+            <div style="font-size:17px;font-weight:800;color:#f1f5f9;">${isCorrectif ? 'Mode Correctif — Reconstruction' : 'Force Sync'}</div>
+            <div style="font-size:11px;color:#38bdf8;margin-top:3px;">${startVal} &rarr; ${endVal}${isCorrectif ? ' &middot; Toutes les entrees/sorties recalculees' : ' &middot; Camions deja analyses ignores'}</div>
+          </div>
+        </div>
+        <div style="margin-bottom:18px;">${stepHTML}</div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;height:7px;overflow:hidden;margin-bottom:18px;">
+          <div id="fsmBar" style="height:100%;background:linear-gradient(90deg,${isCorrectif ? '#f59e0b,#fbbf24' : '#0ea5e9,#38bdf8'});width:0%;transition:width 0.7s ease;border-radius:8px;"></div>
+        </div>
+        <div id="fsmResult" style="display:none;text-align:center;padding:13px;border-radius:10px;margin-bottom:14px;font-size:13px;font-weight:700;"></div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button id="fsmCloseBtn" onclick="document.getElementById('forceSyncModal').remove();" style="padding:8px 22px;background:rgba(255,255,255,0.06);color:#64748b;border:1px solid rgba(255,255,255,0.08);border-radius:9px;cursor:pointer;font-weight:700;font-size:12px;">Fermer</button>
+        </div>
+        <style>@keyframes fsmSpin{to{transform:rotate(360deg)}}</style>
+      </div>`;
+
+    document.body.appendChild(modal);
+    _fsmEl = modal;
+  }
+
+  function _fsmSetStep(stepIdx, msg, pct, done) {
+    if (!_fsmEl) return;
+    const bar = _fsmEl.querySelector('#fsmBar');
+    if (bar) bar.style.width = (pct || 0) + '%';
+
+    // Mark all previous steps done
+    for (let i = 0; i < stepIdx; i++) {
+      const icon = _fsmEl.querySelector('#fsmStepIcon' + i);
+      const lbl  = _fsmEl.querySelector('#fsmStepLabel' + i);
+      if (icon) { icon.style.background = 'rgba(34,197,94,0.15)'; icon.style.borderColor = '#22c55e'; icon.style.color = '#22c55e'; icon.textContent = '✓'; }
+      if (lbl)  lbl.style.color = '#94a3b8';
+    }
+    // Mark current step active (if not done)
+    if (!done) {
+      const curIcon = _fsmEl.querySelector('#fsmStepIcon' + stepIdx);
+      const curLbl  = _fsmEl.querySelector('#fsmStepLabel' + stepIdx);
+      if (curIcon) { curIcon.style.background = 'rgba(14,165,233,0.15)'; curIcon.style.borderColor = '#0ea5e9'; curIcon.style.color = '#0ea5e9'; curIcon.innerHTML = '<i class="fa-solid fa-spinner" style="animation:fsmSpin 1s linear infinite;font-size:10px;"></i>'; }
+      if (curLbl) { curLbl.style.color = '#e2e8f0'; if (msg) curLbl.textContent = msg; }
+    }
+  }
+
+  function _fsmLog(msg) {
+    if (!_fsmEl) return;
+    // Find the active step (the one with spinner) and add log under it
+    const allLogs = _fsmEl.querySelectorAll('[id^="fsmStepLog"]');
+    for (const log of allLogs) {
+      const icon = log.parentElement?.parentElement?.querySelector('[id^="fsmStepIcon"]');
+      if (icon && icon.querySelector('.fa-spinner')) {
+        log.textContent = msg;
+        // Now mark this step done
+        const stepId = log.id.replace('fsmStepLog','');
+        const doneIcon = _fsmEl.querySelector('#fsmStepIcon' + stepId);
+        if (doneIcon) { doneIcon.style.background = 'rgba(34,197,94,0.15)'; doneIcon.style.borderColor = '#22c55e'; doneIcon.style.color = '#22c55e'; doneIcon.textContent = '✓'; }
+        break;
+      }
+    }
+  }
+
+  function _fsmSetResult(msg, type) {
+    if (!_fsmEl) return;
+    const res = _fsmEl.querySelector('#fsmResult');
+    const bar = _fsmEl.querySelector('#fsmBar');
+    if (bar) { bar.style.width = '100%'; bar.style.background = type === 'success' ? 'linear-gradient(90deg,#22c55e,#16a34a)' : 'linear-gradient(90deg,#ef4444,#dc2626)'; }
+    if (res) {
+      res.style.display = '';
+      res.style.background = type === 'success' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+      res.style.color = type === 'success' ? '#34d399' : '#f87171';
+      res.style.border = `1px solid ${type === 'success' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}`;
+      res.textContent = msg;
+    }
+    const closeBtn = _fsmEl.querySelector('#fsmCloseBtn');
+    if (closeBtn && type === 'success') {
+      closeBtn.style.background = 'rgba(34,197,94,0.12)';
+      closeBtn.style.color = '#34d399';
+      closeBtn.style.borderColor = 'rgba(34,197,94,0.3)';
     }
   }
 
@@ -3479,6 +3664,13 @@ const ZMC = (() => {
   // Apply makeSortable to fleet and ops tables after first load
   // (history table already has histSortBy, we only need the generic ones)
   document.addEventListener('DOMContentLoaded', () => {
+    // Set default date range for Force Sync (last 7 days → today)
+    const _today = new Date().toISOString().slice(0,10);
+    const _weekAgo = new Date(Date.now() - 7*86400000).toISOString().slice(0,10);
+    const _sEl = document.getElementById('syncStartDate');
+    const _eEl = document.getElementById('syncEndDate');
+    if (_sEl) _sEl.value = _weekAgo;
+    if (_eEl) _eEl.value = _today;
     // Small delay to allow initial renders to complete
     setTimeout(() => {
       makeSortable('fleetTable');
@@ -3667,39 +3859,71 @@ document.addEventListener('DOMContentLoaded', () => {
       ? exitTime
       : new Date(new Date(startISO).getTime() + 6 * 3600000).toISOString();
 
-    // Store exact window in localStorage so main window can read it
-    const payload = { deviceId: String(deviceId), truckName, date: dateStr, startISO, endISO, exitTime: exitTime || null, zoneName: '', ts: Date.now() };
-    try { localStorage.setItem('fleet_gps_verify', JSON.stringify(payload)); } catch(e) {}
+    // Build full payload with exact entry/exit times
+    const payload = {
+      type: 'openGPSHistory',
+      deviceId: String(deviceId),
+      truckName: truckName,
+      date: dateStr,
+      startISO: startISO,
+      endISO: endISO,
+      exitTime: (exitTime && exitTime !== 'null' && exitTime !== '') ? exitTime : null,
+      zoneName: '',
+      ts: Date.now()
+    };
 
-    const bcPayload = { type: 'openGPSHistory', ...payload };
+    // Store in localStorage (both keys — main app checks both)
+    try {
+      localStorage.setItem('fleet_gps_verify', JSON.stringify(payload));
+      localStorage.setItem('fleet_gps_verify_meta', JSON.stringify({
+        truckName: truckName,
+        imei: String(deviceId),
+        zoneName: '',
+        exitTime: payload.exitTime,
+        startISO: startISO,
+        endISO: endISO,
+        ts: Date.now()
+      }));
+      // Store in mapFocusTruck for the tertiary fallback listener
+      localStorage.setItem('mapFocusTruck', JSON.stringify(payload));
+    } catch(e) { console.warn('[openGPSHistory] localStorage error:', e); }
 
-    // Layer 1: window.opener (popup) — set metadata DIRECTLY before calling modal
+    // Layer 1: window.opener (when zone-report is a popup from main page)
     if (window.opener && !window.opener.closed) {
       try {
         const op = window.opener;
         if (op.ui && typeof op.ui.openHistoryModal === 'function') {
-          // Inject recap metadata directly into opener window's global
-          // This bypasses localStorage race conditions completely
           op._histRecapMeta = {
             truckName: truckName,
-            imei:      String(deviceId),
-            zoneName:  '',           // will be enriched if available
-            exitTime:  (exitTime && exitTime !== 'null' && exitTime !== '') ? exitTime : null,
-            startISO:  startISO,
-            endISO:    endISO
+            imei: String(deviceId),
+            zoneName: '',
+            exitTime: payload.exitTime,
+            startISO: startISO,
+            endISO: endISO
           };
           op.ui.openHistoryModal(String(deviceId), truckName, dateStr, startISO, endISO);
-          op.focus(); return;
+          op.focus();
+          return;
         }
       } catch(e) {}
     }
 
-    // Layer 2: BroadcastChannel (same-origin tab)
-    try { const ch = new BroadcastChannel('fleet_nav'); ch.postMessage(bcPayload); ch.close(); } catch(e) {}
+    // Layer 2: BroadcastChannel (when main page is already open in another tab)
+    try {
+      const ch = new BroadcastChannel('fleet_nav');
+      ch.postMessage(payload);
+      ch.close();
+    } catch(e) {}
 
-    // Layer 3: open/focus main window — it will read localStorage on load
-    const mainWin = window.open('./index.html#gpshistory:' + encodeURIComponent(deviceId) + ':' + encodeURIComponent(truckName) + ':' + dateStr, 'fleetMain');
+    // Layer 3: open/focus main window with hash (main page will auto-trigger on load)
+    const mainWin = window.open(
+      './index.html#gpshistory:' + encodeURIComponent(deviceId) + ':' + encodeURIComponent(truckName) + ':' + dateStr,
+      'fleetMain'
+    );
     if (mainWin) mainWin.focus();
+
+    // Show a toast so user knows it's working
+    toast('📍 Ouverture du trajet GPS: ' + truckName + ' (' + dateStr + ')', 'info');
   }
 
 

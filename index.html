@@ -26,7 +26,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   
   <!-- V4.0 Unified Theme -->
-  <link rel="stylesheet" href="theme.css?v=11">
+  <link rel="stylesheet" href="theme.css?v=13">
 
   <!-- V4.0 Compatibility: Map legacy class names to new theme -->
   <style>
@@ -1575,6 +1575,54 @@
 
         
 
+        <!-- ZONE MISSION CONTROL -->
+        <div class="settings-accordion-item" id="zoneMcBlock" style="border:1px solid rgba(239,68,68,0.3);border-radius:14px;margin-bottom:10px;overflow:hidden;">
+            <div class="settings-header" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:linear-gradient(90deg,rgba(239,68,68,0.08) 0%,transparent 100%);">
+                <span style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:14px;">
+                    <span style="width:32px;height:32px;background:linear-gradient(135deg,#ef4444,#f97316);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 3px 10px rgba(239,68,68,0.35);">&#127919;</span>
+                    Zone Mission Control
+                    <span id="zoneMcStatus" style="background:rgba(34,197,94,0.15);color:#22c55e;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;">ACTIF</span>
+                </span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content" style="margin-top:0;padding:14px 16px;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+                    <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:11px;padding:12px;">
+                        <div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Scanner Live</div>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span id="liveScanDot" style="width:8px;height:8px;background:#22c55e;border-radius:50%;box-shadow:0 0 6px #22c55e;display:inline-block;"></span>
+                            <span style="font-weight:700;font-size:13px;color:#e2e8f0;">Toutes les 2 min</span>
+                        </div>
+                        <div id="liveScanNext" style="font-size:10px;color:#64748b;margin-top:3px;">Prochain : calcul...</div>
+                    </div>
+                    <div style="background:rgba(139,92,246,0.08);border:1px solid rgba(139,92,246,0.2);border-radius:11px;padding:12px;">
+                        <div style="font-size:10px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Validateur 15 min</div>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span id="histScanDot" style="width:8px;height:8px;background:#22c55e;border-radius:50%;box-shadow:0 0 6px #22c55e;display:inline-block;"></span>
+                            <span style="font-weight:700;font-size:13px;color:#e2e8f0;">Toutes les 15 min</span>
+                        </div>
+                        <div id="histScanNext" style="font-size:10px;color:#64748b;margin-top:3px;">Prochain : calcul...</div>
+                    </div>
+                </div>
+                <div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:12px;padding:14px;margin-bottom:12px;">
+                    <div style="font-weight:800;font-size:13px;color:#fca5a5;margin-bottom:4px;">&#128260; Reconstruction Historique 3 Mois</div>
+                    <div style="font-size:11px;color:#94a3b8;margin-bottom:12px;line-height:1.5;">Efface et reconstruit toute la base de donnees des zones depuis 90 jours. Processus lourd - lancer une seule fois.</div>
+                    <div id="rescanProgress" style="display:none;margin-bottom:10px;">
+                        <div style="background:rgba(255,255,255,0.06);border-radius:8px;height:6px;overflow:hidden;margin-bottom:6px;">
+                            <div id="rescanBar" style="height:100%;background:linear-gradient(90deg,#ef4444,#f97316);width:0%;transition:width 1s;border-radius:8px;"></div>
+                        </div>
+                        <div id="rescanMsg" style="font-size:11px;color:#94a3b8;text-align:center;">Initialisation...</div>
+                    </div>
+                    <button id="btnRescan3Month" onclick="window.ZoneMC && ZoneMC.startRescan3Month()" style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#ef4444,#dc2626);color:white;border:none;border-radius:10px;padding:10px 18px;font-weight:800;font-size:12px;cursor:pointer;box-shadow:0 4px 14px rgba(239,68,68,0.35);width:100%;justify-content:center;">
+                        <i class="fa-solid fa-rotate"></i> Lancer le Rescan 3 Mois
+                    </button>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-size:11px;color:#64748b;">Derniere analyse :</span>
+                    <span id="lastScanTime" style="font-size:11px;color:#38bdf8;font-weight:700;">-</span>
+                </div>
+            </div>
+        </div>
         <div class="settings-accordion-item" style="border:1px solid var(--border); border-radius:6px; margin-bottom:10px; padding:10px;">
             <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold;">
                 <span><i class="fa-solid fa-globe"></i> Calibration Globale</span>
@@ -1845,7 +1893,7 @@
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- Will be populated by predictive-maintenance.js -->
 
-  <script src="config.js?v=11"></script>
+  <script src="config.js?v=13"></script>
   
   <script>
 // GLOBAL ERROR HANDLER - catches ALL unhandled errors
@@ -1903,10 +1951,10 @@ window.addEventListener('unhandledrejection', function(e) {
     }
   </script>
 
-  <script src="algeria-map.js?v=11"></script> 
+  <script src="algeria-map.js?v=13"></script> 
   <script src="geocode.js"></script>
-  <script src="app.js?v=11"></script>
-  <script src="ui.js?v=11"></script>
+  <script src="app.js?v=13"></script>
+  <script src="ui.js?v=13"></script>
   <script src="transport-report.js"></script>
   <script src="notifications.js" defer></script>
   <script src="predictive-maintenance.js" defer></script>
@@ -2261,60 +2309,292 @@ window.addEventListener('unhandledrejection', function(e) {
       }
     }
 
-    // ═══════════════════════════════════════════
-    // GPS GEOFENCE MAINTENANCE POLLER
-    // ═══════════════════════════════════════════
-    let geofencePollerInterval = null;
-    
-    function startGeofencePoller() {
-      if (geofencePollerInterval) return;
-      console.log('📍 GPS Geofence Poller started (2min interval)');
-      
-      async function checkGeofence() {
+    // ═══════════════════════════════════════════════════════════════
+    // ZONE MISSION CONTROL — 3-TIER SCANNING ENGINE
+    // Tier 1: Manual 3-month rescan
+    // Tier 2: 2-minute live zone state scanner
+    // Tier 3: 15-minute history truth validator
+    // ═══════════════════════════════════════════════════════════════
+    window.ZoneMC = (function() {
+      'use strict';
+
+      const HEADERS = () => ({
+        'Content-Type': 'application/json',
+        'x-access-code': localStorage.getItem('fleetAccessCode') || ''
+      });
+
+      // Haversine distance in meters
+      function distM(lat1, lng1, lat2, lng2) {
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      }
+
+      // Format ISO string to "HH:MM:SS"
+      function fmtTime(iso) {
+        if (!iso) return '—';
+        try { return new Date(iso).toLocaleTimeString('fr-DZ', {hour:'2-digit',minute:'2-digit',second:'2-digit'}); } catch(e) { return iso; }
+      }
+
+      // Update UI timers
+      let _liveCountdown = 120, _histCountdown = 900;
+      function _updateTimers() {
+        const lEl = document.getElementById('liveScanNext');
+        const hEl = document.getElementById('histScanNext');
+        if (lEl) lEl.textContent = 'Prochain : ' + _liveCountdown + 's';
+        if (hEl) hEl.textContent = 'Prochain : ' + Math.floor(_histCountdown/60) + 'min ' + (_histCountdown%60) + 's';
+        if (_liveCountdown > 0) _liveCountdown--;
+        if (_histCountdown > 0) _histCountdown--;
+      }
+      setInterval(_updateTimers, 1000);
+
+      // ──────────────────────────────────────────────────────────────
+      // TIER 1: 3-MONTH RESCAN
+      // ──────────────────────────────────────────────────────────────
+      let _rescanPoll = null;
+
+      async function startRescan3Month() {
+        const btn = document.getElementById('btnRescan3Month');
+        const prog = document.getElementById('rescanProgress');
+        const bar  = document.getElementById('rescanBar');
+        const msg  = document.getElementById('rescanMsg');
+
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Démarrage...'; }
+        if (prog) prog.style.display = '';
+
         try {
-          const res = await fetch('/api/maintenance/geofence-check', {
+          const r = await fetch('/api/admin/initialize', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
+            headers: HEADERS(),
+            body: JSON.stringify({ days: 90 })
           });
-          if (!res.ok) return;
-          const data = await res.json();
-          
-          if (data.triggered && data.triggered.length > 0) {
-            data.triggered.forEach(t => {
-              if (t.status === 'exited_zone') {
-                // Truck left maintenance zone — prompt confirmation
-                window.pushNotification && window.pushNotification('maintenance_gps', {
-                  title: `📍 Confirmer maintenance: ${t.truckName}`,
-                  body: `${t.truckName} a quitté la zone de maintenance (${t.type}). Distance: ${t.distance}m. Confirmer la maintenance ?`,
-                  truckName: t.truckName,
-                  severity: 'warning',
-                  meta: { orderId: t.orderId, action: 'confirm_maintenance' }
-                });
-                
-                // Also show a toast
-                showToast(`📍 ${t.truckName} a quitté la zone — Confirmer la maintenance ?`, 'warning', 8000);
-              } else if (t.status === 'entered_zone') {
-                window.pushNotification && window.pushNotification('geofence', {
-                  title: `📍 ${t.truckName} en zone maintenance`,
-                  body: t.message,
-                  truckName: t.truckName,
-                  severity: 'info'
+          const d = await r.json();
+          if (!r.ok) throw new Error(d.error || 'Erreur serveur');
+
+          if (window.showToast) showToast('🔁 Rescan 3 mois démarré — suivi en cours...', 'info');
+
+          // Poll progress
+          clearInterval(_rescanPoll);
+          _rescanPoll = setInterval(async () => {
+            try {
+              const pr = await fetch('/api/admin/init-status', { headers: HEADERS() });
+              const pd = await pr.json();
+              const { status, progress, completedAt } = pd;
+              const pct = progress && progress.total > 0
+                ? Math.round((progress.done / progress.total) * 100) : 0;
+
+              if (bar)  bar.style.width = pct + '%';
+              if (msg)  msg.textContent = progress
+                ? `${progress.currentTruck || '...'} — ${progress.done}/${progress.total} camions (${pct}%)`
+                : 'En cours...';
+
+              if (status === 'done' || status === 'idle') {
+                clearInterval(_rescanPoll);
+                if (bar)  bar.style.width = '100%';
+                if (msg)  msg.textContent = '✅ Rescan terminé — ' + fmtTime(completedAt);
+                if (btn)  { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Lancer le Rescan 3 Mois'; }
+                if (window.showToast) showToast('✅ Historique 3 mois reconstruit avec succès', 'success');
+                const lEl = document.getElementById('lastScanTime');
+                if (lEl) lEl.textContent = 'Rescan 3 mois : ' + fmtTime(completedAt || new Date().toISOString());
+              } else if (status === 'error') {
+                clearInterval(_rescanPoll);
+                if (msg) msg.textContent = '❌ Erreur: ' + (progress?.errors?.[0] || 'Inconnue');
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Réessayer'; }
+              }
+            } catch(e) { console.warn('[ZoneMC] Poll error:', e); }
+          }, 3000);
+
+        } catch(e) {
+          if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Lancer le Rescan 3 Mois'; }
+          if (msg) msg.textContent = '❌ ' + e.message;
+          if (window.showToast) showToast('Erreur rescan: ' + e.message, 'error');
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────
+      // TIER 2: 2-MINUTE LIVE ZONE STATE SCANNER
+      // Checks ALL CUSTOM_LOCATIONS zones against live truck positions.
+      // If truck LEFT zone → update UI status to "Terminé".
+      // Also keeps maintenance geofence check running.
+      // ──────────────────────────────────────────────────────────────
+      // Track known zone memberships: Map<deviceId, { zoneName, entryTime }>
+      const _zoneMembership = new Map();
+
+      async function runLiveScan() {
+        _liveCountdown = 120;
+        const dot = document.getElementById('liveScanDot');
+        if (dot) { dot.style.background = '#f59e0b'; dot.style.boxShadow = '0 0 6px #f59e0b'; }
+
+        try {
+          // 1. Get live truck positions
+          const r = await fetch('/api/trucks', { headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' } });
+          if (!r.ok) throw new Error('API trucks failed');
+          const raw = await r.json();
+          const trucks = Array.isArray(raw) ? raw : (raw.result || raw.objects || Object.values(raw) || []);
+
+          // 2. Get all zones from FLEET_CONFIG
+          const zones = (window.FLEET_CONFIG && FLEET_CONFIG.CUSTOM_LOCATIONS) || [];
+          if (!zones.length) { console.log('[ZoneMC] No zones configured.'); return; }
+
+          // 3. Check each truck against all zones
+          trucks.forEach(t => {
+            const lat = parseFloat(t.lat || t.position?.y || 0);
+            const lng = parseFloat(t.lng || t.position?.x || 0);
+            const deviceId = String(t.id || t.deviceId || t.imei || '');
+            const truckName = t.name || t.truckName || deviceId;
+            if (!lat || !lng || !deviceId) return;
+
+            let inAnyZone = null;
+            for (const zone of zones) {
+              if (!zone.lat || !zone.lng) continue;
+              const d = distM(lat, lng, zone.lat, zone.lng);
+              const radius = zone.radius || 500;
+              if (d <= radius) { inAnyZone = zone; break; }
+            }
+
+            const prev = _zoneMembership.get(deviceId);
+            if (inAnyZone) {
+              // Truck IS in a zone
+              if (!prev) {
+                // Just entered
+                _zoneMembership.set(deviceId, { zoneName: inAnyZone.name, entryTime: new Date().toISOString() });
+                console.log('[ZoneMC] ENTERED:', truckName, '→', inAnyZone.name);
+              }
+            } else {
+              // Truck NOT in any zone
+              if (prev) {
+                // Just LEFT — update UI and notify
+                _zoneMembership.delete(deviceId);
+                console.log('[ZoneMC] EXITED:', truckName, '←', prev.zoneName);
+
+                // Update live map truck status
+                if (window.AlgeriaMap && AlgeriaMap.updateSingleTruckStatus) {
+                  AlgeriaMap.updateSingleTruckStatus(deviceId, 'exited', prev.zoneName);
+                }
+                // Push notification (session dedup handles repeat suppression)
+                window.pushNotification && pushNotification('zone_exit', {
+                  title: `🚛 ${truckName} a quitté ${prev.zoneName}`,
+                  body: `Sortie de zone détectée. Durée : ${_elapsed(prev.entryTime)}`,
+                  severity: 'warning'
                 });
               }
-            });
-          }
-        } catch(err) { console.warn('Geofence check error:', err); }
-      }
-      
-      // Run immediately then every 2 minutes
-      checkGeofence();
-      geofencePollerInterval = setInterval(checkGeofence, 2 * 60 * 1000);
-    }
+            }
+          });
 
-    // Start after login
+          // 4. Also run maintenance geofence check (existing logic)
+          fetch('/api/maintenance/geofence-check', {
+            method: 'POST', headers: HEADERS()
+          }).then(r => r.ok ? r.json() : null).then(data => {
+            if (!data || !data.triggered) return;
+            data.triggered.forEach(t => {
+              const key = t.status === 'exited_zone' ? 'maintenance_gps' : 'geofence';
+              window.pushNotification && pushNotification(key, {
+                title: t.status === 'exited_zone'
+                  ? `📍 Confirmer maintenance: ${t.truckName}`
+                  : `📍 ${t.truckName} en zone maintenance`,
+                body: t.body || t.message || '',
+                severity: t.status === 'exited_zone' ? 'warning' : 'info'
+              });
+            });
+          }).catch(() => {});
+
+          if (dot) { dot.style.background = '#22c55e'; dot.style.boxShadow = '0 0 6px #22c55e'; }
+          const lEl = document.getElementById('lastScanTime');
+          if (lEl) lEl.textContent = 'Live : ' + fmtTime(new Date().toISOString());
+
+        } catch(e) {
+          console.warn('[ZoneMC] Live scan error:', e);
+          if (dot) { dot.style.background = '#ef4444'; dot.style.boxShadow = '0 0 6px #ef4444'; }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────
+      // TIER 3: 15-MINUTE HISTORY TRUTH VALIDATOR
+      // Calls /api/zone-events/scan-history for the last 15 minutes.
+      // This is the authoritative pass that corrects any slight delays
+      // from the 2-min live scan and writes exact exit timestamps.
+      // ──────────────────────────────────────────────────────────────
+      async function runHistoryValidator() {
+        _histCountdown = 900;
+        const dot = document.getElementById('histScanDot');
+        if (dot) { dot.style.background = '#f59e0b'; dot.style.boxShadow = '0 0 6px #f59e0b'; }
+
+        try {
+          const now = new Date();
+          const end = now.toISOString().replace('T', ' ').substring(0, 19);
+          const startD = new Date(now.getTime() - 15 * 60 * 1000);
+          const start = startD.toISOString().replace('T', ' ').substring(0, 19);
+
+          const r = await fetch('/api/zone-events/scan-history', {
+            method: 'POST',
+            headers: HEADERS(),
+            body: JSON.stringify({ start, end, forceAll: true })
+          });
+
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const d = await r.json();
+          console.log('[ZoneMC] History validator:', d);
+
+          if (dot) { dot.style.background = '#22c55e'; dot.style.boxShadow = '0 0 6px #22c55e'; }
+          const lEl = document.getElementById('lastScanTime');
+          if (lEl) lEl.textContent = 'Validateur : ' + fmtTime(new Date().toISOString());
+
+        } catch(e) {
+          console.warn('[ZoneMC] History validator error:', e);
+          if (dot) { dot.style.background = '#ef4444'; dot.style.boxShadow = '0 0 6px #ef4444'; }
+        }
+      }
+
+      // Helper: elapsed time from ISO start
+      function _elapsed(isoStart) {
+        if (!isoStart) return '?';
+        const ms = Date.now() - new Date(isoStart).getTime();
+        const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+        return h > 0 ? `${h}h ${m}min` : `${m}min`;
+      }
+
+      // ──────────────────────────────────────────────────────────────
+      // ENGINE STARTUP
+      // ──────────────────────────────────────────────────────────────
+      let _liveInterval = null, _histInterval = null;
+
+      function start() {
+        if (_liveInterval) return; // Already running
+        console.log('[ZoneMC] 3-Tier engine started ✅');
+
+        // Tier 2: run immediately then every 2 minutes
+        runLiveScan();
+        _liveInterval = setInterval(runLiveScan, 2 * 60 * 1000);
+
+        // Tier 3: first run after 15 minutes, then every 15 minutes
+        setTimeout(() => {
+          runHistoryValidator();
+          _histInterval = setInterval(runHistoryValidator, 15 * 60 * 1000);
+        }, 15 * 60 * 1000);
+      }
+
+      function stop() {
+        clearInterval(_liveInterval); clearInterval(_histInterval);
+        _liveInterval = null; _histInterval = null;
+        console.log('[ZoneMC] Engine stopped');
+      }
+
+      return { start, stop, startRescan3Month, runLiveScan, runHistoryValidator, distM };
+    })();
+
+    // Auto-start after login
     document.addEventListener('DOMContentLoaded', () => {
-      if (localStorage.getItem('fleetAccessCode')) startGeofencePoller();
+      if (localStorage.getItem('fleetAccessCode')) {
+        setTimeout(() => window.ZoneMC && ZoneMC.start(), 1500);
+      }
     });
+    // Also hook into login event if fired dynamically
+    document.addEventListener('fleet-login', () => {
+      window.ZoneMC && ZoneMC.start();
+    });
+
 
     // ═══════════════════════════════════════════
     // GASOIL VERIFICATION HELPERS
@@ -2795,20 +3075,34 @@ window.addEventListener('unhandledrejection', function(e) {
         if (hash && hash.startsWith('#gpshistory:')) {
           const parts = hash.slice(12).split(':').map(decodeURIComponent);
           const devId = parts[0], tName = parts[1], tDate = parts[2];
-          if (devId && window.ui) {
-            window.history.replaceState(null, '', window.location.pathname);
-            setTimeout(function() {
-              if (typeof window.ui.openHistoryModal === 'function') {
-                var gv = null;
-                try { gv = JSON.parse(localStorage.getItem('fleet_gps_verify') || 'null'); } catch(_) {}
-                var sISO = (gv && gv.deviceId === devId && Date.now()-gv.ts < 20000) ? gv.startISO : null;
-                var eISO = (gv && gv.deviceId === devId && Date.now()-gv.ts < 20000) ? gv.endISO   : null;
-                if (gv) try { localStorage.removeItem('fleet_gps_verify'); } catch(_) {}
-                window.ui.openHistoryModal(devId, tName, tDate, sISO, eISO);
-              }
-            }, 1200);
-            return;
-          }
+          window.history.replaceState(null, '', window.location.pathname);
+          // Retry until window.ui is ready (page may still be booting)
+          var _gpsRetry = 0;
+          var _gpsPoller = setInterval(function() {
+            _gpsRetry++;
+            if (window.ui && typeof window.ui.openHistoryModal === 'function') {
+              clearInterval(_gpsPoller);
+              var gv = null;
+              try { gv = JSON.parse(localStorage.getItem('fleet_gps_verify') || 'null'); } catch(_) {}
+              var sISO = (gv && gv.deviceId === devId && Date.now()-gv.ts < 60000) ? gv.startISO : null;
+              var eISO = (gv && gv.deviceId === devId && Date.now()-gv.ts < 60000) ? gv.endISO   : null;
+              // Set global recap meta BEFORE calling openHistoryModal
+              window._histRecapMeta = {
+                truckName: (gv && gv.truckName) || tName,
+                imei: devId,
+                zoneName: (gv && gv.zoneName) || '',
+                exitTime: (gv && gv.exitTime) || null,
+                startISO: sISO,
+                endISO: eISO
+              };
+              if (gv) try { localStorage.removeItem('fleet_gps_verify'); } catch(_) {}
+              window.ui.openHistoryModal(devId, tName, tDate, sISO, eISO);
+            } else if (_gpsRetry > 20) {
+              clearInterval(_gpsPoller); // Give up after 10 seconds
+              console.warn('[GPS Hash] window.ui not ready after 10s — aborting');
+            }
+          }, 500);
+          return;
         }
         try {
           const stored = localStorage.getItem('mapFocusTruck');

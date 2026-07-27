@@ -5020,6 +5020,99 @@ async runZoneHistoryScan() {
             console.log(`⚡ Downsampled to ${points.length} pts (step=${step})`);
           }
 
+          // ─────────────────────────────────────────────────────────
+          // GPS NOISE FILTER — 3 Passes
+          // Fixes: trajectory drift / trucks shown miles outside zone
+          // ─────────────────────────────────────────────────────────
+          const _gpsDistM = (a, b) => {
+            const R = 6371000, dLat = (b.lat - a.lat) * Math.PI/180, dLng = (b.lng - a.lng) * Math.PI/180;
+            const x = Math.sin(dLat/2)**2 + Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLng/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1-x));
+          };
+
+          // Pass 1: Remove invalid, zero, or out-of-Algeria bounding box coordinates
+          // Algeria bbox: lat [18.9, 37.2], lng [-8.7, 12.0]
+          points = points.filter(p =>
+            p.lat && p.lng &&
+            Number.isFinite(p.lat) && Number.isFinite(p.lng) &&
+            p.lat !== 0 && p.lng !== 0 &&
+            p.lat >= 18.9 && p.lat <= 37.2 &&
+            p.lng >= -8.7 && p.lng <= 12.0
+          );
+
+          // Pass 2: Remove GPS teleport outliers
+          // If the implied speed between two consecutive points exceeds 250 km/h,
+          // the point is a satellite glitch and must be removed.
+          const MAX_SPEED_MS = 250 / 3.6; // 250 km/h in m/s
+          const filtered2 = [];
+          for (let i = 0; i < points.length; i++) {
+            if (filtered2.length === 0) { filtered2.push(points[i]); continue; }
+            const prev = filtered2[filtered2.length - 1];
+            const distM = _gpsDistM(prev, points[i]);
+            const dtS   = Math.max((points[i].time - prev.time) / 1000, 1);
+            const impliedSpeedMs = distM / dtS;
+            if (impliedSpeedMs <= MAX_SPEED_MS) {
+              filtered2.push(points[i]);
+            } else {
+              // Suspected glitch — check if NEXT point is sane relative to prev
+              // If next returns close to prev, skip this point (it was a spike)
+              const next = points[i + 1];
+              if (next) {
+                const distToNext = _gpsDistM(prev, next);
+                const dtToNext = Math.max((next.time - prev.time) / 1000, 1);
+                if ((distToNext / dtToNext) <= MAX_SPEED_MS) {
+                  // This point was a spike — skip it
+                  console.debug(`[GPS Filter] Teleport skip @ i=${i}: ${impliedSpeedMs.toFixed(0)}m/s implied`);
+                  continue;
+                }
+              }
+              filtered2.push(points[i]); // Keep if can't confirm spike
+            }
+          }
+          points = filtered2;
+
+          // Pass 3: Stationary jitter smoother
+          // When a truck is stopped (speed=0), GPS oscillates within ~50-200m.
+          // Collapse runs of stopped points into their centroid to prevent jagged
+          // lines radiating away from the actual parking spot.
+          const MAX_JITTER_M = 80; // collapse oscillations within 80m of stop origin
+          const smoothed = [];
+          let jitterBuf = [];
+          const _flushJitter = () => {
+            if (!jitterBuf.length) return;
+            if (jitterBuf.length === 1) { smoothed.push(jitterBuf[0]); jitterBuf = []; return; }
+            // Average the cluster
+            const avgLat = jitterBuf.reduce((s, p) => s + p.lat, 0) / jitterBuf.length;
+            const avgLng = jitterBuf.reduce((s, p) => s + p.lng, 0) / jitterBuf.length;
+            smoothed.push({ ...jitterBuf[0], lat: avgLat, lng: avgLng });
+            // Keep last as anchor for next segment
+            smoothed.push({ ...jitterBuf[jitterBuf.length - 1], lat: avgLat, lng: avgLng });
+            jitterBuf = [];
+          };
+          for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            if ((p.speed || 0) < 2) {
+              if (!jitterBuf.length) { jitterBuf.push(p); }
+              else {
+                const anchor = jitterBuf[0];
+                if (_gpsDistM(anchor, p) <= MAX_JITTER_M) {
+                  jitterBuf.push(p);
+                } else {
+                  _flushJitter();
+                  jitterBuf.push(p);
+                }
+              }
+            } else {
+              _flushJitter();
+              smoothed.push(p);
+            }
+          }
+          _flushJitter();
+          const beforeSmooth = points.length;
+          points = smoothed;
+          console.log(`🛰️ GPS Filter: ${beforeSmooth} → ${points.length} pts (noise removed)`);
+          // ─────────────────────────────────────────────────────────
+
           const coords = [];
           const stops = [];
           const truckConfig = getTruckConfig(imei);
