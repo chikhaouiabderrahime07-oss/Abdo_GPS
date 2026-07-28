@@ -5280,96 +5280,132 @@ async runZoneHistoryScan() {
               document.getElementById('map-wrapper').appendChild(toast);
               setTimeout(()=>toast.remove(), 3000);
 
-              // ── FLOATING RECAP PANEL ─────────────────────────────────
+              // ══════════════════════════════════════════════════════
+              // PREMIUM HISTORY SIDEBAR PANEL — Reworked V2
+              // Source of truth: zone event metadata (startISO/endISO/exitTime)
+              // GPS pings are ONLY for the route drawing, not for times/status
+              // ══════════════════════════════════════════════════════
               (() => {
-                // Read from in-memory object or fallback to localStorage (for window.opener case)
+                // ── 1. Read metadata ──────────────────────────────────
                 let _meta = window._histRecapMeta || null;
                 if (!_meta) {
                   try { _meta = JSON.parse(localStorage.getItem('fleet_gps_verify_meta') || 'null'); } catch(_) {}
                 }
+
                 const _tName = (_meta && _meta.truckName) || (typeof app !== 'undefined' && app.trucks && app.trucks.get(imei) ? app.trucks.get(imei).name : imei);
                 const _zoneName = (_meta && _meta.zoneName) || '';
-                // exitTime present and not empty → truck left (Terminé); else check GPS
-                const _exitT = _meta && _meta.exitTime && _meta.exitTime !== '' && _meta.exitTime !== 'null' ? _meta.exitTime : null;
 
-                // ── Use ZONE EVENT times for display (exact), GPS points only for route ──
-                // Zone detection is precise; GPS samples lag 10-30+ minutes
-                const _pt0 = points[0];
-                const _ptN = points[points.length - 1];
-                const _gpsT0 = _pt0 ? new Date(_pt0.time) : null;
-                const _gpsTN = _ptN ? new Date(_ptN.time) : null;
+                // ── 2. Source of truth: zone event times, NOT GPS pings ──
+                const _rawExit = _meta && (_meta.exitTime || _meta.endISO);
+                const _exitIsValid = _rawExit && _rawExit !== 'null' && _rawExit !== '';
+                const _entryDate = (_meta && _meta.startISO) ? new Date(_meta.startISO) : (points[0] ? new Date(points[0].time) : null);
+                const _exitDate  = _exitIsValid ? new Date(_rawExit) : null;
 
-                // FIX: "Encore là" only if exitTime null AND last GPS point < 1h ago.
-                // If last GPS > 1h ago → track ended → show GPS exit time, not "Encore là".
-                const _lastGpsMs = _gpsTN ? _gpsTN.getTime() : 0;
-                const _isStillIn = !_exitT && (_lastGpsMs === 0 || (Date.now() - _lastGpsMs) < 3600000);
+                // Status: Terminé if exitTime exists. En cours only if no exit AND GPS is very recent.
+                const _lastGpsMs = points.length ? points[points.length - 1].time : 0;
+                const _isLive    = !_exitIsValid && _lastGpsMs > 0 && (Date.now() - _lastGpsMs) < 90 * 60 * 1000;
+                const _isTermine = !!_exitIsValid;
 
-                // Prefer zone event metadata; fall back to GPS point times
-                const _t0 = (_meta && _meta.startISO) ? new Date(_meta.startISO) : _gpsT0;
-                const _tN = _exitT
-                  ? new Date(_exitT)
-                  : (_isStillIn ? _gpsTN : (_meta && _meta.endISO ? new Date(_meta.endISO) : _gpsTN));
-
-                const _durMs = (_t0 && _tN) ? (_tN - _t0) : 0;
+                // ── 3. Duration & stats ───────────────────────────────
+                const _durMs = (_entryDate && _exitDate) ? (_exitDate - _entryDate) : (_entryDate && _isLive ? Date.now() - _entryDate.getTime() : 0);
                 const _dH = Math.floor(_durMs / 3600000);
                 const _dM = Math.floor((_durMs % 3600000) / 60000);
-                const _durStr = _durMs ? (_dH > 0 ? _dH+'h '+_dM+'m' : _dM+' min') : '—';
+                const _durStr = _durMs > 0 ? (_dH > 0 ? `${_dH}h ${_dM}m` : `${_dM} min`) : '—';
                 const _maxSpd = points.reduce((mx, p) => Math.max(mx, p.speed || 0), 0);
-                const _fmt = (d) => d ? d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
-                const _fmtD = (d) => d ? d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short'}) : '—';
+                const _fmt  = (d) => d ? d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'}) : '—';
+                const _fmtD = (d) => d ? d.toLocaleDateString('fr-FR', {day:'2-digit', month:'short', year:'numeric'}) : '—';
 
-                document.getElementById('histRecapPanel')?.remove();
+                // ── 4. Inject styles once ────────────────────────────
+                if (!document.getElementById('histSidebarStyles')) {
+                  const _sty = document.createElement('style');
+                  _sty.id = 'histSidebarStyles';
+                  _sty.textContent = `
+                    #histSidebar { position:absolute; top:12px; right:12px; width:290px;
+                      background:rgba(10,17,34,0.97); border:1px solid rgba(255,255,255,0.1);
+                      border-radius:18px; padding:18px; z-index:9999;
+                      font-family:'Inter',sans-serif; box-shadow:0 24px 64px rgba(0,0,0,0.7);
+                      backdrop-filter:blur(24px); color:#f1f5f9;
+                      animation:hsSlidein 0.32s cubic-bezier(0.16,1,0.3,1); pointer-events:all; }
+                    @keyframes hsSlidein { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:translateX(0)} }
+                    #histSidebar .hs-lbl { font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#475569;margin-bottom:3px; }
+                    #histSidebar .hs-val { font-size:19px;font-weight:800;line-height:1; }
+                    #histSidebar .hs-sub { font-size:10px;color:#475569;margin-top:2px; }
+                    #histSidebar .hs-card { background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07);border-radius:11px;padding:10px;text-align:center; }
+                    #histSidebar .hs-hr  { border:none;border-top:1px solid rgba(255,255,255,0.07);margin:12px 0; }
+                    #histSidebar .hs-close { background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);
+                      color:#f87171;border-radius:10px;padding:9px 14px;font-size:12px;font-weight:700;
+                      cursor:pointer;width:100%;margin-top:12px;transition:background .2s;
+                      font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px; }
+                    #histSidebar .hs-close:hover { background:rgba(239,68,68,0.28); }
+                    @keyframes pulse2 { 0%,100%{opacity:1} 50%{opacity:.4} }
+                  `;
+                  document.head.appendChild(_sty);
+                }
+
+                // ── 5. Status badge ──────────────────────────────────
+                const _badge = _isTermine
+                  ? `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.3);color:#34d399;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:700;"><i class="fa-solid fa-circle-check" style="font-size:9px;"></i>Terminé</span>`
+                  : _isLive
+                    ? `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(251,146,60,.15);border:1px solid rgba(251,146,60,.3);color:#fb923c;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:700;"><span style="width:7px;height:7px;background:#fb923c;border-radius:50%;animation:pulse2 1.4s infinite;display:inline-block;"></span>En cours</span>`
+                    : `<span style="display:inline-flex;align-items:center;gap:5px;background:rgba(100,116,139,.15);border:1px solid rgba(100,116,139,.3);color:#94a3b8;border-radius:999px;padding:3px 10px;font-size:10px;font-weight:700;"><i class="fa-solid fa-clock" style="font-size:9px;"></i>Historique</span>`;
+
+                // ── 6. Build & inject panel ──────────────────────────
+                document.getElementById('histSidebar')?.remove();
                 const _panel = document.createElement('div');
-                _panel.id = 'histRecapPanel';
-                _panel.style.cssText = 'position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:9999;min-width:360px;max-width:92vw;background:#ffffff;border:1px solid var(--text-primary, #e2e8f0);border-radius:14px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.18);font-family:Inter,sans-serif;pointer-events:all;';
+                _panel.id = 'histSidebar';
                 _panel.innerHTML = `
-                  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                    <div style="display:flex;align-items:center;gap:9px;">
-                      <div style="width:32px;height:32px;background:linear-gradient(135deg,#38bdf8,#0284c7);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                        <i class="fa-solid fa-clock-rotate-left" style="color:white;font-size:13px;"></i>
+                  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
+                        <div style="width:36px;height:36px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                          <i class="fa-solid fa-route" style="color:white;font-size:15px;"></i>
+                        </div>
+                        <div>
+                          <div style="font-size:15px;font-weight:800;color:#f1f5f9;line-height:1.15;">${_tName}</div>
+                          ${_zoneName ? `<div style="font-size:10px;color:#818cf8;font-weight:600;margin-top:1px;">📍 ${_zoneName}</div>` : ''}
+                        </div>
                       </div>
-                      <div>
-                        <div style="font-size:13px;font-weight:700;color:var(--bg-surface, #0f172a);">${_tName}</div>
-                        ${_zoneName ? '<div style="font-size:11px;color:#0284c7;font-weight:600;">📍 '+_zoneName+'</div>' : ''}
-                      </div>
+                      ${_badge}
                     </div>
-                    <button onclick="document.getElementById('histRecapPanel').remove()" style="background:#f1f5f9;border:1px solid var(--text-primary, #e2e8f0);color:#475569;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:13px;">✕</button>
+                    <button onclick="document.getElementById('histSidebar')?.remove();" style="background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);color:#64748b;width:28px;height:28px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;font-family:inherit;">✕</button>
                   </div>
-                  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;margin-bottom:10px;align-items:center;">
-                    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px;text-align:center;">
-                      <div style="font-size:9px;color:#6b7280;text-transform:uppercase;font-weight:700;margin-bottom:2px;">Entrée</div>
-                      <div style="font-size:15px;font-weight:700;color:#4ade80;">${_fmt(_t0)}</div>
-                      <div style="font-size:10px;color:var(--text-muted, #64748b);">${_fmtD(_t0)}</div>
+
+                  <hr class="hs-hr">
+
+                  <div style="display:grid;grid-template-columns:1fr 22px 1fr;gap:5px;align-items:center;margin-bottom:12px;">
+                    <div style="background:rgba(74,222,128,0.07);border:1px solid rgba(74,222,128,0.18);border-radius:11px;padding:10px;text-align:center;">
+                      <div class="hs-lbl" style="color:#4ade80;">▶ Entrée</div>
+                      <div class="hs-val" style="color:#4ade80;font-size:17px;">${_fmt(_entryDate)}</div>
+                      <div class="hs-sub">${_fmtD(_entryDate)}</div>
                     </div>
-                    <div style="font-size:18px;color:var(--text-muted, #94a3b8);text-align:center;">→</div>
-                    <div style="background:${_isStillIn?'#fff7ed':'#fff1f2'};border:1px solid ${_isStillIn?'#fed7aa':'#fecdd3'};border-radius:8px;padding:8px;text-align:center;">
-                      <div style="font-size:9px;color:var(--text-muted, #64748b);text-transform:uppercase;font-weight:700;margin-bottom:2px;">Sortie</div>
-                      ${_isStillIn
-                        ? '<div style="font-size:11px;font-weight:700;color:#fb923c;">📍 Encore là</div><div style="font-size:9px;color:var(--text-muted, #64748b);">En cours</div>'
-                        : '<div style="font-size:15px;font-weight:700;color:#f87171;">'+_fmt(_tN)+'</div><div style="font-size:10px;color:var(--text-muted, #64748b);">'+_fmtD(_tN)+'</div>'
+                    <div style="text-align:center;color:#1e293b;font-size:14px;font-weight:700;">→</div>
+                    <div style="background:${_isTermine ? 'rgba(248,113,113,0.07)' : 'rgba(251,146,60,0.07)'};border:1px solid ${_isTermine ? 'rgba(248,113,113,0.18)' : 'rgba(251,146,60,0.18)'};border-radius:11px;padding:10px;text-align:center;">
+                      <div class="hs-lbl" style="color:${_isTermine ? '#f87171' : '#fb923c'};">⏹ Sortie</div>
+                      ${_isTermine
+                        ? `<div class="hs-val" style="color:#f87171;font-size:17px;">${_fmt(_exitDate)}</div><div class="hs-sub">${_fmtD(_exitDate)}</div>`
+                        : _isLive
+                          ? `<div style="font-size:11px;font-weight:700;color:#fb923c;margin-top:4px;">📍 Encore là</div><div class="hs-sub">En cours</div>`
+                          : `<div style="font-size:12px;font-weight:700;color:#334155;margin-top:4px;">—</div><div class="hs-sub">Inconnu</div>`
                       }
                     </div>
                   </div>
-                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">
-                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
-                      <div style="font-size:14px;font-weight:700;color:#38bdf8;">${_durStr}</div>
-                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Durée</div>
-                    </div>
-                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
-                      <div style="font-size:14px;font-weight:700;color:#a78bfa;">${totalDist.toFixed(0)}<span style="font-size:9px;"> km</span></div>
-                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Distance</div>
-                    </div>
-                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
-                      <div style="font-size:14px;font-weight:700;color:#f59e0b;">${filteredStops.length}</div>
-                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Arrêts</div>
-                    </div>
-                    <div style="background:#f8fafc;border:1px solid #f1f5f9;border-radius:8px;padding:7px;text-align:center;">
-                      <div style="font-size:14px;font-weight:700;color:#34d399;">${_maxSpd}<span style="font-size:9px;"> km/h</span></div>
-                      <div style="font-size:9px;color:var(--text-muted, #64748b);margin-top:2px;">Vit. Max</div>
-                    </div>
+
+                  <hr class="hs-hr">
+
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:12px;">
+                    <div class="hs-card"><div class="hs-lbl">Durée</div><div class="hs-val" style="color:#38bdf8;">${_durStr}</div></div>
+                    <div class="hs-card"><div class="hs-lbl">Distance</div><div class="hs-val" style="color:#a78bfa;">${totalDist.toFixed(0)}<span style="font-size:10px;font-weight:400;"> km</span></div></div>
+                    <div class="hs-card"><div class="hs-lbl">Arrêts &gt;5min</div><div class="hs-val" style="color:#f59e0b;">${filteredStops.length}</div></div>
+                    <div class="hs-card"><div class="hs-lbl">Vit. Max</div><div class="hs-val" style="color:#34d399;">${_maxSpd}<span style="font-size:10px;font-weight:400;"> km/h</span></div></div>
                   </div>
-                  ${exactDecouchages.length > 0 ? '<div style="margin-top:8px;background:#fff1f2;border:1px solid #fecdd3;border-radius:8px;padding:6px 10px;font-size:11px;color:#dc2626;font-weight:700;">🌙 '+exactDecouchages.length+' découchage'+(exactDecouchages.length>1?'s':'')+' détecté'+(exactDecouchages.length>1?'s':'')+'</div>' : ''}
-                  <div style="margin-top:6px;font-size:10px;color:var(--text-muted, #94a3b8);text-align:right;">${points.length} points GPS analysés</div>
+
+                  ${exactDecouchages.length > 0 ? `<div style="background:rgba(239,68,68,0.09);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:7px 12px;font-size:11px;color:#f87171;font-weight:700;margin-bottom:10px;">🌙 ${exactDecouchages.length} découchage${exactDecouchages.length>1?'s':''} détecté${exactDecouchages.length>1?'s':''}</div>` : ''}
+
+                  <div style="font-size:10px;color:#1e293b;text-align:center;margin-bottom:4px;">🛰️ ${points.length} points GPS</div>
+
+                  <button class="hs-close" onclick="if(window.AlgeriaMap)window.AlgeriaMap.clearHistory();document.getElementById('histSidebar')?.remove();document.getElementById('histSidebarStyles')?.remove();">
+                    <i class="fa-solid fa-xmark"></i> Fermer le trajet &amp; Restaurer
+                  </button>
                 `;
                 const _mw = document.getElementById('map-wrapper');
                 if (_mw) { _mw.style.position = 'relative'; _mw.appendChild(_panel); }

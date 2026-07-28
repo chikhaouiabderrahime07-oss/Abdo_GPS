@@ -4734,7 +4734,9 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
 
             // ── 5. Upsert events ───────────────────────────────────
             for (const seg of merged) {
-              const isIn   = (now - seg.lastPoint.time) < 12 * 3600000;
+              // FIX: A segment is "still in zone" ONLY if last GPS ping < 90 min ago.
+              // Old value was 12h — any visit before 05:38 would be wrongly flagged "en cours" at 17:38.
+              const isIn   = (now - seg.lastPoint.time) < 90 * 60 * 1000;
               const entry  = seg.firstPoint.time;
               const exit   = isIn ? null : seg.lastPoint.time;
               const dur    = exit ? Math.round((exit - entry) / 60000) : null;
@@ -4755,8 +4757,13 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
                 if (betterEntry < exists.entryTime) { upd.entryTime = betterEntry; upd.entryLat = seg.firstPoint.lat; upd.entryLng = seg.firstPoint.lng; }
                 
                 if (isIn) {
-                  // Segment says still in zone -> reopen event if it was closed
-                  upd.exitTime = null; upd.durationMinutes = null; upd.exitLat = null; upd.exitLng = null; upd.status = 'en cours';
+                  // Truck confirmed inside RIGHT NOW (< 90min ago)
+                  // Only reopen if it was closed very recently (< 90min) — could be a live-bot mistake
+                  // NEVER reopen an event that was closed hours ago
+                  if (exists.exitTime && (now - exists.exitTime) < 90 * 60 * 1000) {
+                    upd.exitTime = null; upd.durationMinutes = null; upd.exitLat = null; upd.exitLng = null; upd.status = 'en cours';
+                  }
+                  // else: already open or old closed event — leave it alone
                 } else {
                   // Segment says exited -> use the latest known exit time
                   const betterExit = (!exists.exitTime || exit > exists.exitTime) ? exit : exists.exitTime;
