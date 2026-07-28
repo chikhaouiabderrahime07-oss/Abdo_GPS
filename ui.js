@@ -4929,10 +4929,11 @@ async runZoneHistoryScan() {
     // Use any fresh meta that exists, or create minimal one
     const _existingFresh = _existingMeta && Date.now()-(_existingMeta.ts||0) < 30000;
     if (_existingFresh) {
-      // Merge: keep exitTime/zoneName from handler, update times if provided
+      // Merge: keep zoneName from handler, update times if provided
       try {
         _existingMeta.startISO = resolvedStart || _existingMeta.startISO;
         _existingMeta.endISO   = resolvedEnd   || _existingMeta.endISO;
+        _existingMeta.exitTime = resolvedEnd   || _existingMeta.exitTime; // FIX: Ensure exitTime is synced
         localStorage.setItem('fleet_gps_verify_meta', JSON.stringify(_existingMeta));
       } catch(_) {}
     } else {
@@ -4941,7 +4942,7 @@ async runZoneHistoryScan() {
           truckName: name || String(imei),
           imei:      String(imei),
           zoneName:  '',
-          exitTime:  null,
+          exitTime:  resolvedEnd, // FIX: Pass the actual end time instead of null
           startISO:  resolvedStart,
           endISO:    resolvedEnd,
           ts:        Date.now()
