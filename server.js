@@ -6193,22 +6193,56 @@ function triggerBackgroundScan(hours, forceAll = false) {
     req.end();
 }
 
-// ── Every 15 minutes: reconcile _zoneEventZone with actual open ZoneEvents ──
-// Prevents trucks from showing "in zone" on dashboard when their event is already closed.
+// ── Every 15 minutes: STRICT PHYSICAL BARRIER & RECONCILIATION ──
+// Prevents trucks from staying "En cours" if the live bot missed the exit.
 setInterval(async () => {
   try {
-    const trucksInZone = await Truck.find(
-      { _zoneEventZone: { $nin: [null, ''] } },
-      '_id deviceId truckName _zoneEventZone'
-    ).lean();
-    for (const t of trucksInZone) {
-      const hasOpen = await ZoneEvent.exists({ deviceId: t.deviceId, exitTime: null, zoneName: t._zoneEventZone });
-      if (!hasOpen) {
-        await Truck.findByIdAndUpdate(t._id, { _zoneEventZone: null });
-        console.log(`[Reconcile] ${t.truckName}: _zoneEventZone effacé (pas d'event ouvert pour "${t._zoneEventZone}")`);
+    const trucks = await Truck.find({}).lean();
+    for (const t of trucks) {
+      // 1. Reconcile _zoneEventZone if event is closed
+      if (t._zoneEventZone) {
+        const hasOpen = await ZoneEvent.exists({ deviceId: t.deviceId, exitTime: null, zoneName: t._zoneEventZone });
+        if (!hasOpen) {
+          await Truck.findByIdAndUpdate(t._id, { _zoneEventZone: null });
+          console.log(`[Reconcile] ${t.truckName}: _zoneEventZone effacé (pas d'event ouvert)`);
+        }
+      }
+
+      // 2. Strict Barrier: if truck has an open event but is physically outside the zone
+      const openEvents = await ZoneEvent.find({ deviceId: t.deviceId, exitTime: null }).lean();
+      if (!openEvents.length || !t.coordinates || !t.coordinates.lat || !t.coordinates.lng) continue;
+
+      for (const ev of openEvents) {
+        const z = SYSTEM_SETTINGS.customLocations?.find(loc => loc.name === ev.zoneName);
+        if (!z) continue;
+
+        // Calculate exact distance
+        const R = 6371000, r = Math.PI/180;
+        const dLat = (t.coordinates.lat - z.lat) * r;
+        const dLng = (t.coordinates.lng - z.lng) * r;
+        const a = Math.sin(dLat/2)**2 + Math.cos(z.lat*r)*Math.cos(t.coordinates.lat*r)*Math.sin(dLng/2)**2;
+        const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        
+        const radius = z.radius || 500;
+        
+        // If truck is > 300m away from the zone border, FORCE CLOSE
+        if (dist > radius + 300) {
+           const exitMs = (t.lastUpdate && new Date(t.lastUpdate).getTime() > ev.entryTime) 
+                          ? new Date(t.lastUpdate).getTime() : Date.now();
+           const realDur = Math.max(0, Math.round((exitMs - ev.entryTime) / 60000));
+           
+           await ZoneEvent.findByIdAndUpdate(ev._id, {
+             $set: { exitTime: exitMs, durationMinutes: realDur, exitLat: t.coordinates.lat, exitLng: t.coordinates.lng }
+           });
+           
+           if (t._zoneEventZone === ev.zoneName) {
+             await Truck.findByIdAndUpdate(t._id, { _zoneEventZone: null });
+           }
+           console.log(`🚨 [FAILSAFE BARRIER] Force-closed event for ${t.truckName} at "${ev.zoneName}". Dist=${Math.round(dist)}m (Radius=${radius})`);
+        }
       }
     }
-  } catch(e) { console.error('[Reconcile] Error:', e.message); }
+  } catch(e) { console.error('[Failsafe] Error:', e.message); }
 }, 15 * 60 * 1000);
 
 // Every 30 minutes: scan last 2 hours (light, fast, only flagged trucks)

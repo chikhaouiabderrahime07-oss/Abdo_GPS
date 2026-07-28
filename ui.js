@@ -5288,9 +5288,8 @@ async runZoneHistoryScan() {
                 }
                 const _tName = (_meta && _meta.truckName) || (typeof app !== 'undefined' && app.trucks && app.trucks.get(imei) ? app.trucks.get(imei).name : imei);
                 const _zoneName = (_meta && _meta.zoneName) || '';
-                // exitTime present and not empty → truck left (Terminé); else → encore là
+                // exitTime present and not empty → truck left (Terminé); else check GPS
                 const _exitT = _meta && _meta.exitTime && _meta.exitTime !== '' && _meta.exitTime !== 'null' ? _meta.exitTime : null;
-                const _isStillIn = !_exitT;
 
                 // ── Use ZONE EVENT times for display (exact), GPS points only for route ──
                 // Zone detection is precise; GPS samples lag 10-30+ minutes
@@ -5299,11 +5298,16 @@ async runZoneHistoryScan() {
                 const _gpsT0 = _pt0 ? new Date(_pt0.time) : null;
                 const _gpsTN = _ptN ? new Date(_ptN.time) : null;
 
+                // FIX: "Encore là" only if exitTime null AND last GPS point < 1h ago.
+                // If last GPS > 1h ago → track ended → show GPS exit time, not "Encore là".
+                const _lastGpsMs = _gpsTN ? _gpsTN.getTime() : 0;
+                const _isStillIn = !_exitT && (_lastGpsMs === 0 || (Date.now() - _lastGpsMs) < 3600000);
+
                 // Prefer zone event metadata; fall back to GPS point times
                 const _t0 = (_meta && _meta.startISO) ? new Date(_meta.startISO) : _gpsT0;
                 const _tN = _exitT
                   ? new Date(_exitT)
-                  : (_meta && _meta.endISO && !_isStillIn ? new Date(_meta.endISO) : _gpsTN);
+                  : (_isStillIn ? _gpsTN : (_meta && _meta.endISO ? new Date(_meta.endISO) : _gpsTN));
 
                 const _durMs = (_t0 && _tN) ? (_tN - _t0) : 0;
                 const _dH = Math.floor(_durMs / 3600000);
