@@ -660,6 +660,20 @@
         <div class="top-tab" data-tab="gps" onclick="ZMC.switchTab('gps')" style="margin-left:auto;border:1px solid rgba(45,212,191,0.3);">
           <i class="fa-solid fa-satellite-dish" style="color:var(--teal);"></i> Radar GPS
         </div>
+
+        <!-- ⏱ Scheduler Pills: Fix 30min + Validator 23:59 -->
+        <div id="schedulerPills" style="display:flex;align-items:center;gap:5px;margin-left:10px;">
+          <!-- 30-min fixer -->
+          <div id="fixerPill" style="display:flex;align-items:center;gap:5px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);border-radius:20px;padding:3px 10px;cursor:default;" title="Auto-Fixer toutes les 30 min">
+            <i class="fa-solid fa-wrench" style="color:#38bdf8;font-size:9px;"></i>
+            <span id="fixerPillVal" style="font-size:11px;font-weight:800;color:#38bdf8;font-variant-numeric:tabular-nums;min-width:38px;">--:--</span>
+          </div>
+          <!-- 23:59 validator -->
+          <div id="midnightPill" style="display:flex;align-items:center;gap:5px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);border-radius:20px;padding:3px 10px;cursor:default;" title="Nuclear Validator à 23h59">
+            <i class="fa-solid fa-shield-check" style="color:#a78bfa;font-size:9px;"></i>
+            <span id="midnightPillVal" style="font-size:11px;font-weight:800;color:#a78bfa;font-variant-numeric:tabular-nums;min-width:60px;">--h--:--</span>
+          </div>
+        </div>
       </div>
 
       <!-- ══════ TAB: LIVE ══════ -->
@@ -1865,12 +1879,12 @@ const ZMC = (() => {
     const tbody = document.getElementById('histBody');
     tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>';
 
-    // Build URL from inline filters (header bar)
-    const zone = document.getElementById('histZoneFilter')?.value || state.filters.zone || '';
-    const truckVal = document.getElementById('histTruckFilter')?.value || state.filters.truck || '';
+    // Build URL from inline filters (header bar) — local filters only, NO global bar bleed
+    const zone = document.getElementById('histZoneFilter')?.value || '';
+    const truckVal = document.getElementById('histTruckFilter')?.value || '';
     const status = document.getElementById('histStatusFilter')?.value || '';
-    const start = document.getElementById('histStart')?.value || state.filters.start || '';
-    const end = document.getElementById('histEnd')?.value || state.filters.end || '';
+    const start = document.getElementById('histStart')?.value || '';
+    const end = document.getElementById('histEnd')?.value || '';
     const limit = parseInt(document.getElementById('histLimit')?.value || '50');
     // Sync sort direction from the dropdown (if user changed it manually)
     const dropSort = document.getElementById('histSortOrder')?.value;
@@ -2051,11 +2065,11 @@ const ZMC = (() => {
 
   async function exportHistoryCSV() {
     // Re-fetch ALL records matching active filters — not just the current 50-row page
-    const zone   = document.getElementById('histZoneFilter')?.value || state.filters.zone || '';
-    const truck  = document.getElementById('histTruckFilter')?.value || state.filters.truck || '';
+    const zone   = document.getElementById('histZoneFilter')?.value || '';
+    const truck  = document.getElementById('histTruckFilter')?.value || '';
     const status = document.getElementById('histStatusFilter')?.value || '';
-    const startVal = document.getElementById('histStart')?.value || state.filters.start || '';
-    const endVal   = document.getElementById('histEnd')?.value   || state.filters.end   || '';
+    const startVal = document.getElementById('histStart')?.value || '';
+    const endVal   = document.getElementById('histEnd')?.value   || '';
     // Default = today when no period selected
     const today = new Date().toISOString().slice(0,10);
     const start = startVal || today;
@@ -3927,6 +3941,51 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
 
+
+
+</script>
+
+<!-- Scheduler Pills JS -->
+<script>
+(function(){
+  var base = (typeof state !== 'undefined' && state.base) ? state.base : '';
+  var fVal = document.getElementById('fixerPillVal');
+  var mVal = document.getElementById('midnightPillVal');
+  var fNext = null, mNext = null;
+
+  function fTick() {
+    if (!fVal) return;
+    if (!fNext) { fVal.textContent = '--:--'; return; }
+    var rem = fNext - Date.now();
+    if (rem <= 0) { fVal.textContent = '🔄'; fVal.style.color = '#4ade80'; return; }
+    fVal.style.color = '#38bdf8';
+    var m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
+    fVal.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  }
+  function mTick() {
+    if (!mVal) return;
+    if (!mNext) { mVal.textContent = '--h--:--'; return; }
+    var rem = mNext - Date.now();
+    if (rem <= 0) { mVal.textContent = '⚡'; mVal.style.color = '#4ade80'; return; }
+    mVal.style.color = '#a78bfa';
+    var h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000), s = Math.floor((rem % 60000) / 1000);
+    mVal.textContent = (h > 0 ? String(h).padStart(2,'0') + 'h' : '') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  }
+
+  function fetchPillStatus() {
+    fetch(base + '/api/fixer-status').then(function(r){ return r.json(); }).then(function(d){
+      fNext = d.nextRunAt || (Date.now() + 30 * 60000); fTick();
+    }).catch(function(){});
+    fetch(base + '/api/midnight-status').then(function(r){ return r.json(); }).then(function(d){
+      mNext = d.nextRunAt || (Date.now() + 23 * 3600000); mTick();
+    }).catch(function(){});
+  }
+
+  fetchPillStatus();
+  setInterval(function(){ fTick(); mTick(); }, 1000);
+  setInterval(fetchPillStatus, 5 * 60000);
+})();
 </script>
 </body>
 </html>
+
