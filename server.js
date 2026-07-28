@@ -4740,12 +4740,30 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
               const dur    = exit ? Math.round((exit - entry) / 60000) : null;
               if (!isIn && dur !== null && dur < 3) continue; // drive-by
               const zCtx   = resolveZoneClientContext(seg.zone.name);
-              const exists = await ZoneEvent.findOne({ deviceId: String(truck.deviceId), exitTime: null, zoneName: seg.zone.name }).sort({ entryTime: 1 });
+              
+              // Find ANY event (open or closed) that overlaps with this segment for this zone
+              const exists = await ZoneEvent.findOne({ 
+                deviceId: String(truck.deviceId), 
+                zoneName: seg.zone.name,
+                entryTime: { $lte: exit || Date.now() },
+                $or: [ { exitTime: null }, { exitTime: { $gte: entry } } ]
+              }).sort({ entryTime: 1 });
+
               if (exists) {
-                const better = Math.min(exists.entryTime, entry);
+                const betterEntry = Math.min(exists.entryTime, entry);
                 const upd = { source: 'gps-history-scan' };
-                if (better < exists.entryTime) { upd.entryTime = better; upd.entryLat = seg.firstPoint.lat; upd.entryLng = seg.firstPoint.lng; }
-                if (!isIn) { upd.exitTime = exit; upd.durationMinutes = dur; upd.exitLat = seg.lastPoint.lat; upd.exitLng = seg.lastPoint.lng; upd.status = 'terminé'; }
+                if (betterEntry < exists.entryTime) { upd.entryTime = betterEntry; upd.entryLat = seg.firstPoint.lat; upd.entryLng = seg.firstPoint.lng; }
+                
+                if (isIn) {
+                  // Segment says still in zone -> reopen event if it was closed
+                  upd.exitTime = null; upd.durationMinutes = null; upd.exitLat = null; upd.exitLng = null; upd.status = 'en cours';
+                } else {
+                  // Segment says exited -> use the latest known exit time
+                  const betterExit = (!exists.exitTime || exit > exists.exitTime) ? exit : exists.exitTime;
+                  upd.exitTime = betterExit; 
+                  upd.durationMinutes = Math.round((betterExit - betterEntry) / 60000);
+                  upd.exitLat = seg.lastPoint.lat; upd.exitLng = seg.lastPoint.lng; upd.status = 'terminé';
+                }
                 await ZoneEvent.findByIdAndUpdate(exists._id, { $set: upd }); updated++;
               } else {
                 await ZoneEvent.create({ deviceId: String(truck.deviceId), truckName: truck.truckName, zoneName: seg.zone.name, zoneType: seg.zone.type || 'unknown', entryTime: entry, exitTime: exit, durationMinutes: dur, entryLat: seg.firstPoint.lat, entryLng: seg.firstPoint.lng, exitLat: isIn ? null : seg.lastPoint.lat, exitLng: isIn ? null : seg.lastPoint.lng, status: isIn ? 'en cours' : 'terminé', source: 'gps-history-scan', clientId: zCtx.clientId || null, clientName: zCtx.clientName || null, finalClientId: zCtx.finalClientId || null, finalClientName: zCtx.finalClientName || null });
