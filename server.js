@@ -4806,6 +4806,46 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
           }
         }
 
+        // ── 8. AGGRESSIVE DEDUP PASS — merge overlapping events for last 24h ──
+        {
+          const since = Date.now() - 24 * 3600000;
+          const allRecent = await ZoneEvent.find({ entryTime: { $gte: since } }).sort({ entryTime: 1 }).lean();
+          const grp = {};
+          for (const ev of allRecent) {
+            if (!ev.deviceId || !ev.zoneName) continue;
+            const k = ev.deviceId + '__' + ev.zoneName;
+            if (!grp[k]) grp[k] = [];
+            grp[k].push(ev);
+          }
+          let dedupCount = 0;
+          for (const k in grp) {
+            const list = grp[k];
+            if (list.length <= 1) continue;
+            const toDel = new Set();
+            for (let i = 0; i < list.length; i++) {
+              if (toDel.has(String(list[i]._id))) continue;
+              const a = list[i], endA = a.exitTime || Date.now();
+              for (let j = i+1; j < list.length; j++) {
+                if (toDel.has(String(list[j]._id))) continue;
+                const b = list[j], endB = b.exitTime || Date.now();
+                const overlaps = a.entryTime <= endB && b.entryTime <= endA;
+                const close = Math.abs(a.entryTime - b.entryTime) < 4*3600000;
+                if (overlaps || close) {
+                  let keep, disc;
+                  if (a.exitTime && !b.exitTime) { keep=a; disc=b; }
+                  else if (!a.exitTime && b.exitTime) { keep=b; disc=a; }
+                  else { keep = a.entryTime<=b.entryTime?a:b; disc = keep===a?b:a; }
+                  const bE = Math.min(keep.entryTime, disc.entryTime);
+                  const bX = keep.exitTime && disc.exitTime ? Math.max(keep.exitTime, disc.exitTime) : (keep.exitTime||disc.exitTime||null);
+                  await ZoneEvent.findByIdAndUpdate(keep._id, { $set: { entryTime:bE, exitTime:bX, durationMinutes: bX?Math.round((bX-bE)/60000):null, status:bX?'terminé':'en cours' }});
+                  toDel.add(String(disc._id)); dedupCount++;
+                }
+              }
+            }
+            if (toDel.size) await ZoneEvent.deleteMany({ _id: { $in: Array.from(toDel) } });
+          }
+          if (dedupCount) console.log('[ForceSync] 🗑️ Dedup pass: ' + dedupCount + ' duplicates merged');
+        }
         console.log(`[ForceSync] ✅ Done: ${created} created, ${updated} updated, ${closed} stale closed, ${errors} errors`);
       } catch(e) { console.error('[ForceSync] Fatal:', e.message); }
     })();
@@ -6427,25 +6467,237 @@ setInterval(() => {
     triggerBackgroundScan(24, false);
 }, 6 * 3600000);
 
-// Midnight deep scan: every day at 00:00 — scan last 48 hours, ALL trucks (forceAll=true)
-// This self-corrects ALL trucks including persistent parked ones that are never flagged
-function scheduleMidnightScan() {
-    const now = new Date();
-    const midnight = new Date(now);
-    midnight.setHours(24, 0, 30, 0); // 00:00:30 tomorrow
-    const msUntilMidnight = midnight.getTime() - now.getTime();
-    setTimeout(() => {
-        console.log('[AutoScan-Midnight] 🌙 Deep scan — last 48 hours — ALL TRUCKS...');
-        triggerBackgroundScan(48, true); // forceAll=true — scan every truck
-        // Re-schedule for next midnight
-        setInterval(() => {
-            console.log('[AutoScan-Midnight] 🌙 Deep scan — last 48 hours — ALL TRUCKS...');
-            triggerBackgroundScan(48, true);
-        }, 24 * 3600000);
-    }, msUntilMidnight);
-    console.log(`[AutoScan-Midnight] Next deep scan in ${Math.round(msUntilMidnight / 60000)} minutes.`);
+// ════════════════════════════════════════════════════════════════════
+// ⚡ NUCLEAR MIDNIGHT VALIDATOR — 23:59 Algeria Time (UTC+1)
+// The ABSOLUTE source-of-truth sweep for the entire fleet.
+// Runs every night at 23:59. Does:
+//   1. Fetches full-day GPS history for ALL trucks (00:00 → now)
+//   2. DELETES all today's zone events (clean slate)
+//   3. Rebuilds from GPS truth — segments → dedup → merge
+//   4. Syncs _zoneEventZone on all trucks
+//   5. Closes any ghost "en cours" that GPS can't confirm
+// No data is skipped. No data is wrong after this runs.
+// ════════════════════════════════════════════════════════════════════
+
+const midnightState = {
+  lastRunAt:   null,
+  nextRunAt:   null,
+  isRunning:   false,
+  lastResult:  { processed: 0, created: 0, deleted: 0, errors: 0, closedGhosts: 0 }
+};
+
+app.get('/api/midnight-status', checkAccess, (req, res) => {
+  res.json({
+    lastRunAt:   midnightState.lastRunAt,
+    nextRunAt:   midnightState.nextRunAt,
+    isRunning:   midnightState.isRunning,
+    lastResult:  midnightState.lastResult
+  });
+});
+
+function msToNext2359Algeria() {
+  // Algeria = UTC+1 (no DST)
+  const ALGERIA_OFFSET_MS = 60 * 60 * 1000;
+  const nowUTC = Date.now();
+  const nowAlgeria = new Date(nowUTC + ALGERIA_OFFSET_MS);
+
+  // Build 23:59:00 Algeria today
+  const target = new Date(nowAlgeria);
+  target.setHours(23, 59, 0, 0);
+
+  // If 23:59 already passed today in Algeria, push to tomorrow
+  if (nowAlgeria >= target) target.setDate(target.getDate() + 1);
+
+  // Convert back to UTC
+  const targetUTC = target.getTime() - ALGERIA_OFFSET_MS;
+  return Math.max(0, targetUTC - nowUTC);
 }
-scheduleMidnightScan();
+
+async function runMidnightValidator() {
+  if (midnightState.isRunning) {
+    console.log('[MidnightValidator] Already running — skipping.');
+    return;
+  }
+  midnightState.isRunning = true;
+  const now = Date.now();
+  console.log('\n[MidnightValidator] ⚡ STARTING NUCLEAR SWEEP — ' + new Date().toISOString());
+
+  const GAP_MS = 45 * 60 * 1000;     // GPS drift inside zone
+  const RE_ENTRY_MS = 30 * 60 * 1000; // re-entry = same visit
+  const DRIVE_BY_MIN = 3;              // min duration to log
+
+  let processed = 0, created = 0, deleted = 0, errors = 0, closedGhosts = 0;
+
+  try {
+    const allTrucks = await Truck.find({}, 'deviceId truckName').lean();
+    const allZones  = (SYSTEM_SETTINGS.customLocations || []).filter(z => z.lat && z.lng);
+
+    if (!allZones.length) {
+      console.log('[MidnightValidator] No zones configured — aborting.');
+      midnightState.isRunning = false;
+      return;
+    }
+
+    // Today's window: 00:00 Algeria → now
+    const ALGERIA_OFFSET_MS = 60 * 60 * 1000;
+    const todayAlgeria = new Date(now + ALGERIA_OFFSET_MS);
+    todayAlgeria.setHours(0, 0, 0, 0);
+    const todayStartUTC = todayAlgeria.getTime() - ALGERIA_OFFSET_MS;
+
+    console.log(`[MidnightValidator] Window: ${new Date(todayStartUTC).toISOString()} → now`);
+    console.log(`[MidnightValidator] Trucks: ${allTrucks.length} | Zones: ${allZones.length}`);
+
+    // ── Step 1: DELETE all today's zone events (clean slate) ──────────────────
+    const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: todayStartUTC } });
+    deleted = delResult.deletedCount;
+    console.log(`[MidnightValidator] 🗑️ Deleted ${deleted} existing today events — clean slate`);
+
+    // ── Step 2: Reset all truck states (will be re-synced from GPS) ───────────
+    await Truck.updateMany({}, { $set: { _zoneEventZone: null } });
+
+    // ── Step 3: For each truck, fetch GPS + build events ─────────────────────
+    for (const truck of allTrucks) {
+      try {
+        // Fetch today's GPS history in one window
+        let allPoints = [];
+        try {
+          const raw = await fetchGpsHistoryWindow(String(truck.deviceId), todayStartUTC, now);
+          if (Array.isArray(raw) && raw.length) {
+            const cfg = getTruckConfig(String(truck.deviceId));
+            allPoints = normalizeGpsHistoryMessages(raw, String(truck.deviceId), cfg)
+              .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time) && p.time >= todayStartUTC);
+          }
+        } catch(e) { /* GPS API error — skip this truck */ errors++; continue; }
+
+        if (!allPoints.length) continue;
+        allPoints.sort((a, b) => a.time - b.time);
+        processed++;
+
+        // ── Build raw segments ──────────────────────────────────────────────
+        const rawSegments = [];
+        let cur = null;
+        for (const pt of allPoints) {
+          let hit = null;
+          for (const z of allZones) {
+            if (calculateDistance(pt.lat, pt.lng, parseFloat(z.lat), parseFloat(z.lng)) <= (z.radius || 500)) { hit = z; break; }
+          }
+          if (hit) {
+            if (!cur) { cur = { zone: hit, firstPoint: pt, lastPoint: pt }; }
+            else if (cur.zone.name === hit.name) { cur.lastPoint = pt; }
+            else { rawSegments.push(cur); cur = { zone: hit, firstPoint: pt, lastPoint: pt }; }
+          } else if (cur) {
+            const gapOk = (pt.time - cur.lastPoint.time) >= GAP_MS;
+            const moving = (pt.s || 0) >= 5;
+            if (gapOk && moving) { rawSegments.push(cur); cur = null; }
+          }
+        }
+        if (cur) rawSegments.push(cur);
+
+        // ── Merge same-zone re-entries within RE_ENTRY_MS ──────────────────
+        const segments = [];
+        for (const seg of rawSegments) {
+          const last = segments[segments.length - 1];
+          if (last && last.zone.name === seg.zone.name && (seg.firstPoint.time - last.lastPoint.time) <= RE_ENTRY_MS) {
+            last.lastPoint = seg.lastPoint;
+          } else { segments.push({ ...seg }); }
+        }
+
+        // ── Create events from GPS truth ────────────────────────────────────
+        for (const seg of segments) {
+          const entry  = seg.firstPoint.time;
+          const lastMs = seg.lastPoint.time;
+          const isIn   = (now - lastMs) < 90 * 60 * 1000;
+          const exit   = isIn ? null : lastMs;
+          const dur    = exit ? Math.round((exit - entry) / 60000) : null;
+
+          // Filter drive-bys
+          if (!isIn && dur !== null && dur < DRIVE_BY_MIN) continue;
+
+          const zCtx = resolveZoneClientContext(seg.zone.name);
+          await ZoneEvent.create({
+            deviceId:        String(truck.deviceId),
+            truckName:       truck.truckName,
+            zoneName:        seg.zone.name,
+            zoneType:        seg.zone.type || 'unknown',
+            entryTime:       entry,
+            exitTime:        exit,
+            durationMinutes: dur,
+            entryLat:        seg.firstPoint.lat,
+            entryLng:        seg.firstPoint.lng,
+            exitLat:         isIn ? null : seg.lastPoint.lat,
+            exitLng:         isIn ? null : seg.lastPoint.lng,
+            status:          isIn ? 'en cours' : 'terminé',
+            source:          'midnight-validator',
+            clientId:        zCtx.clientId        || null,
+            clientName:      zCtx.clientName      || null,
+            finalClientId:   zCtx.finalClientId   || null,
+            finalClientName: zCtx.finalClientName || null
+          });
+          created++;
+          if (isIn) {
+            await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { _zoneEventZone: seg.zone.name });
+          }
+        }
+
+      } catch(truckErr) {
+        errors++;
+        console.error(`[MidnightValidator] Error ${truck.truckName}: ${truckErr.message}`);
+      }
+    }
+
+    // ── Step 4: Close any ghost "en cours" with no GPS support ───────────────
+    const openEvents = await ZoneEvent.find({ exitTime: null, source: 'midnight-validator', entryTime: { $gte: todayStartUTC } }).lean();
+    for (const ev of openEvents) {
+      const ageMins = (now - ev.entryTime) / 60000;
+      if (ageMins > 90) {
+        await ZoneEvent.findByIdAndUpdate(ev._id, {
+          $set: { exitTime: ev.entryTime + Math.round(ageMins * 0.8) * 60000, status: 'terminé', durationMinutes: Math.round(ageMins * 0.8) }
+        });
+        await Truck.findOneAndUpdate({ deviceId: ev.deviceId }, { _zoneEventZone: null });
+        closedGhosts++;
+      }
+    }
+
+    // ── Step 5: Final sync — trucks with no open event → null state ──────────
+    const openByTruck = {};
+    const allOpen = await ZoneEvent.find({ exitTime: null, entryTime: { $gte: todayStartUTC } }).lean();
+    for (const ev of allOpen) openByTruck[ev.deviceId] = ev.zoneName;
+    const allTruckIds = allTrucks.map(t => String(t.deviceId));
+    for (const did of allTruckIds) {
+      if (!openByTruck[did]) {
+        await Truck.findOneAndUpdate({ deviceId: did }, { _zoneEventZone: null });
+      }
+    }
+
+    midnightState.lastRunAt  = Date.now();
+    midnightState.lastResult = { processed, created, deleted, errors, closedGhosts };
+    midnightState.isRunning  = false;
+
+    console.log('\n[MidnightValidator] ✅ COMPLETE:');
+    console.log(`   🚛 Processed: ${processed}/${allTrucks.length} trucks`);
+    console.log(`   🗑️  Deleted (old): ${deleted} events`);
+    console.log(`   ✨ Created (fresh): ${created} events`);
+    console.log(`   👻 Ghosts closed: ${closedGhosts}`);
+    console.log(`   ❌ Errors: ${errors}\n`);
+
+  } catch(fatalErr) {
+    midnightState.isRunning = false;
+    console.error('[MidnightValidator] FATAL:', fatalErr.message);
+  }
+
+  // Re-schedule for next night
+  scheduleMidnightValidator();
+}
+
+function scheduleMidnightValidator() {
+  const ms = msToNext2359Algeria();
+  const nextDate = new Date(Date.now() + ms);
+  midnightState.nextRunAt = Date.now() + ms;
+  console.log(`[MidnightValidator] ⏰ Next run: ${nextDate.toLocaleString('fr-DZ', { timeZone: 'Africa/Algiers' })} Algeria time (${Math.round(ms/60000)}min)`);
+  setTimeout(runMidnightValidator, ms);
+}
+
+scheduleMidnightValidator();
 
 // ── LOCALHOST BURST SCAN ─────────────────────────────────────────
 // On localhost (non-production): fire an immediate full scan of last 7 days

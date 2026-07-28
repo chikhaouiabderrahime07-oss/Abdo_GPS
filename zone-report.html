@@ -1955,7 +1955,7 @@ const ZMC = (() => {
         <td style="color:var(--purple);font-size:11px;font-weight:600;">${e.operationName||'—'}</td>
         <td>${badge}</td>
         <td style="display:flex;gap:6px;align-items:center;justify-content:flex-end;padding-right:16px;">
-           <button onclick="openGPSHistory('${e.deviceId}','${e.truckName}','${e.entryTime}','${e.exitTime||''}')" title="Trajet GPS (entrée → sortie)" style="background:var(--blue-dim);color:var(--blue);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-map-location-dot"></i> GPS</button>
+           <button onclick="openGPSHistory('${e.deviceId}','${e.truckName}','${e.entryTime}','${e.exitTime||''}','${e.zoneName||''}')" title="Trajet GPS (entrée → sortie)" style="background:var(--blue-dim);color:var(--blue);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-map-location-dot"></i> GPS</button>
            <button onclick="openInMapLive('${e.truckName}','${e.deviceId}',${e.entryLat||'null'},${e.entryLng||'null'})" title="Position live" style="background:var(--red-dim);color:var(--red);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-location-crosshairs"></i> Live</button>
            <button onclick="ZMC.openEditHistory('${e._id}')" title="Modifier" style="background:var(--bg-3);color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;transition:all 0.2s;" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--text-3)'" onmouseout="this.style.color='var(--text-2)';this.style.borderColor='var(--border)'"><i class="fa-solid fa-pen"></i></button>
          </td>
@@ -3852,7 +3852,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
     // Open GPS history replay modal in the main window — exact entry→exit window
-  function openGPSHistory(deviceId, truckName, entryTime, exitTime) {
+  function openGPSHistory(deviceId, truckName, entryTime, exitTime, zoneName) {
     const dateStr  = entryTime ? new Date(entryTime).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
     const startISO = entryTime && entryTime !== 'null' ? entryTime : (dateStr + 'T00:00:00.000Z');
     const endISO   = (exitTime && exitTime !== 'null' && exitTime !== '')
@@ -3868,7 +3868,7 @@ document.addEventListener('DOMContentLoaded', () => {
       startISO: startISO,
       endISO: endISO,
       exitTime: (exitTime && exitTime !== 'null' && exitTime !== '') ? exitTime : null,
-      zoneName: '',
+      zoneName: zoneName || '',
       ts: Date.now()
     };
 
@@ -3878,7 +3878,7 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('fleet_gps_verify_meta', JSON.stringify({
         truckName: truckName,
         imei: String(deviceId),
-        zoneName: '',
+        zoneName: zoneName || '',
         exitTime: payload.exitTime,
         startISO: startISO,
         endISO: endISO,
@@ -3896,7 +3896,7 @@ document.addEventListener('DOMContentLoaded', () => {
           op._histRecapMeta = {
             truckName: truckName,
             imei: String(deviceId),
-            zoneName: '',
+            zoneName: zoneName || '',
             exitTime: payload.exitTime,
             startISO: startISO,
             endISO: endISO

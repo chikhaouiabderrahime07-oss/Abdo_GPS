@@ -3716,6 +3716,56 @@ window.addEventListener('unhandledrejection', function(e) {
       <div id="ruleEditorContent" style="padding:0 24px 24px;"></div>
     </div>
   </div>
+
+<!-- ═══ Scheduler Widgets — bottom-left ═══ -->
+<div id="schedulerWidgets" style="position:fixed;bottom:16px;left:16px;z-index:9990;display:flex;flex-direction:column;gap:6px;font-family:'Inter',sans-serif;">
+
+  <!-- 30-min Fixer -->
+  <div id="fixerWidget" style="background:rgba(6,11,24,0.92);border:1px solid rgba(56,189,248,0.2);border-radius:12px;padding:7px 13px;backdrop-filter:blur(20px);box-shadow:0 4px 20px rgba(0,0,0,0.4);cursor:default;display:flex;align-items:center;gap:9px;transition:all 0.3s;" title="Auto-Fixer: corrige les doublons et fantômes toutes les 30 min">
+    <div style="width:26px;height:26px;background:linear-gradient(135deg,rgba(56,189,248,0.2),rgba(99,102,241,0.2));border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <i class="fa-solid fa-wrench" style="color:#38bdf8;font-size:10px;"></i>
+    </div>
+    <div>
+      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#334155;">Fix 30min</div>
+      <div id="fixerCountdownVal" style="font-size:14px;font-weight:800;color:#38bdf8;font-variant-numeric:tabular-nums;">--:--</div>
+    </div>
+    <div id="fixerLastResult" style="font-size:8px;color:#1e293b;max-width:0;overflow:hidden;white-space:nowrap;transition:max-width 0.3s;"></div>
+  </div>
+
+  <!-- Midnight Validator -->
+  <div id="midnightWidget" style="background:rgba(6,11,24,0.92);border:1px solid rgba(167,139,250,0.25);border-radius:12px;padding:7px 13px;backdrop-filter:blur(20px);box-shadow:0 4px 20px rgba(0,0,0,0.4);cursor:default;display:flex;align-items:center;gap:9px;transition:all 0.3s;" title="Midnight Validator: reconstruction GPS complète à 23h59">
+    <div style="width:26px;height:26px;background:linear-gradient(135deg,rgba(167,139,250,0.2),rgba(99,102,241,0.2));border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <i class="fa-solid fa-shield-check" style="color:#a78bfa;font-size:10px;"></i>
+    </div>
+    <div>
+      <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#334155;">Validator 23:59</div>
+      <div id="midnightCountdownVal" style="font-size:14px;font-weight:800;color:#a78bfa;font-variant-numeric:tabular-nums;">--:--</div>
+    </div>
+    <div id="midnightLastResult" style="font-size:8px;color:#1e293b;max-width:0;overflow:hidden;white-space:nowrap;transition:max-width 0.3s;"></div>
+  </div>
+
+</div>
+<script>
+(function(){
+  var base=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.API)?FLEET_CONFIG.API.baseUrl:'';
+
+  // ── 30-min Fixer countdown ──────────────────────────────────────────────
+  var fEl=document.getElementById('fixerCountdownVal'),fLast=document.getElementById('fixerLastResult'),fW=document.getElementById('fixerWidget');
+  var fNext=null;
+  function fTick(){if(!fEl)return;if(!fNext){fEl.textContent='--:--';return;}var rem=fNext-Date.now();if(rem<=0){fEl.textContent='\uD83D\uDD04...';fEl.style.color='#4ade80';return;}fEl.style.color='#38bdf8';var m=Math.floor(rem/60000),s=Math.floor((rem%60000)/1000);fEl.textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');}
+  function fFetch(){fetch(base+'/api/fixer-status').then(function(r){return r.json();}).then(function(d){fNext=d.nextRunAt||(Date.now()+30*60*1000);if(d.lastResult&&fLast)fLast.textContent=' '+(d.lastResult.deletedDups||0)+' dups '+(d.lastResult.closedGhosts||0)+' ghosts';fTick();}).catch(function(){if(fEl)fEl.textContent='30:00';});}
+  if(fW){fW.addEventListener('mouseenter',function(){if(fLast)fLast.style.maxWidth='180px';});fW.addEventListener('mouseleave',function(){if(fLast)fLast.style.maxWidth='0';});}
+  fFetch();setInterval(fTick,1000);setInterval(fFetch,5*60*1000);
+
+  // ── Midnight Validator countdown ────────────────────────────────────────
+  var mEl=document.getElementById('midnightCountdownVal'),mLast=document.getElementById('midnightLastResult'),mW=document.getElementById('midnightWidget');
+  var mNext=null;
+  function mTick(){if(!mEl)return;if(!mNext){mEl.textContent='--:--';return;}var rem=mNext-Date.now();if(rem<=0){mEl.textContent='\u26A1 Scan...';mEl.style.color='#4ade80';return;}mEl.style.color='#a78bfa';var h=Math.floor(rem/3600000),m=Math.floor((rem%3600000)/60000),s=Math.floor((rem%60000)/1000);mEl.textContent=(h>0?String(h).padStart(2,'0')+'h':'') + String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');}
+  function mFetch(){fetch(base+'/api/midnight-status').then(function(r){return r.json();}).then(function(d){mNext=d.nextRunAt||(Date.now()+23*60*60*1000);if(d.lastResult&&mLast&&d.lastResult.created!==undefined)mLast.textContent=' '+d.lastResult.created+' evt, '+d.lastResult.errors+' err';mTick();}).catch(function(){if(mEl)mEl.textContent='--h--:--';});}
+  if(mW){mW.addEventListener('mouseenter',function(){if(mLast)mLast.style.maxWidth='180px';});mW.addEventListener('mouseleave',function(){if(mLast)mLast.style.maxWidth='0';});}
+  mFetch();setInterval(mTick,1000);setInterval(mFetch,5*60*1000);
+})();
+</script>
 </body>
 </html>
 

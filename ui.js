@@ -2969,7 +2969,7 @@ renderFilteredRefuels() {
     let html = `
     <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:15px;">
         <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:#10b981;">${totalRefuels}</div>
+            <div style="font-size:17px; font-weight:900; color:#10b981;">${totalRefuels}</div>
             <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Remplissages</div>
         </div>
         <div style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px; text-align:center;">
@@ -5314,12 +5314,12 @@ async runZoneHistoryScan() {
                   _sty.id = 'histSidebarStyles';
                   _sty.textContent = `
                     #histSidebar {
-                      position:absolute; bottom:88px; left:50%;
+                      position:absolute; bottom:14px; left:50%;
                       transform:translateX(-50%);
-                      width:min(700px,96vw);
+                      width:min(480px,90vw);
                       background:rgba(6,11,24,0.94);
                       border:1px solid rgba(255,255,255,0.1);
-                      border-radius:22px; overflow:hidden;
+                      border-radius:16px; overflow:hidden;
                       z-index:9999; font-family:'Inter',sans-serif;
                       box-shadow:0 -2px 60px rgba(0,0,0,0.6),0 0 0 1px rgba(99,102,241,0.12);
                       backdrop-filter:blur(32px) saturate(200%);
@@ -5331,10 +5331,10 @@ async runZoneHistoryScan() {
                     #histSidebar .hs-header {
                       background:linear-gradient(135deg,rgba(99,102,241,.22),rgba(139,92,246,.12));
                       border-bottom:1px solid rgba(255,255,255,.07);
-                      padding:12px 18px;
+                      padding:10px 14px;
                       display:flex;align-items:center;justify-content:space-between;
                     }
-                    #histSidebar .hs-body { padding:14px 18px 16px; }
+                    #histSidebar .hs-body { padding:10px 14px 12px; }
                     #histSidebar .hs-times { display:grid;grid-template-columns:1fr 28px 1fr;gap:8px;align-items:center;margin-bottom:12px; }
                     #histSidebar .hs-tc { border-radius:13px;padding:11px 12px;text-align:center; }
                     #histSidebar .hs-tc-lbl { font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px; }
@@ -5342,7 +5342,7 @@ async runZoneHistoryScan() {
                     #histSidebar .hs-tc-sub { font-size:9px;margin-top:3px;opacity:.55; }
                     #histSidebar .hs-stats { display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px; }
                     #histSidebar .hs-sc { background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:9px 5px;text-align:center; }
-                    #histSidebar .hs-sv { font-size:18px;font-weight:800;line-height:1.1; }
+                    #histSidebar .hs-sv { font-size:15px;font-weight:800;line-height:1.1; }
                     #histSidebar .hs-sl { font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#334155;margin-top:3px; }
                     #histSidebar .hs-footer { display:flex;gap:8px;align-items:stretch; }
                     #histSidebar .hs-btn { flex:1;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:white;border-radius:12px;padding:11px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px;transition:opacity .2s;box-shadow:0 4px 16px rgba(99,102,241,.4); }
