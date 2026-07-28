@@ -3672,8 +3672,272 @@ app.post('/api/zone-events/merge', checkAccess, async (req, res) => {
   }
 });
 
-// POST /api/zone-events/scan-history — backfill from GPS history
 // ════════════════════════════════════════════════════════════════
+// runScanForWindow — THE SINGLE SOURCE OF TRUTH FOR ZONE DETECTION
+// Called by: scan-history HTTP route, force-sync, midnight-validator, 30-min fixer
+// NO HTTP dependency — runs directly in process, always works on Render.
+// ════════════════════════════════════════════════════════════════
+async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = null) {
+  let trucks = [];
+  if (Array.isArray(deviceIds) && deviceIds.length) {
+    trucks = await Truck.find({ deviceId: { $in: deviceIds.map(String) } }, 'deviceId truckName needsHistoryScan lastMovementTime lastHistoryScanTime').lean();
+  } else {
+    trucks = await Truck.find({}, 'deviceId truckName needsHistoryScan lastMovementTime lastHistoryScanTime').lean();
+  }
+
+  const isManualScan = Array.isArray(deviceIds) && deviceIds.length > 0;
+  const filteredTrucks = trucks.filter(t => {
+    if (forceAll || isManualScan) return true;
+    if (t.needsHistoryScan) return true;
+    if (t.lastMovementTime && (!t.lastHistoryScanTime || t.lastMovementTime > t.lastHistoryScanTime)) return true;
+    return false;
+  });
+  const skippedCount = trucks.length - filteredTrucks.length;
+
+  const allZones = SYSTEM_SETTINGS.customLocations || [];
+  const summary  = { trucks: filteredTrucks.length, skipped: skippedCount, zones: allZones.length, created: 0, updated: 0, errors: [] };
+
+  const CHUNK_MS = 2 * 24 * 60 * 60 * 1000;
+  const GAP_TOLERANCE_MS = 45 * 60 * 1000;
+  const TRUCK_TIMEOUT_MS = 300000;
+
+  async function processTruck(truck) {
+    const truckTimeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Truck scan timeout (5m)')), TRUCK_TIMEOUT_MS)
+    );
+
+    const truckWork = async () => {
+      // ── STEP 1: Collect GPS points ───────────────────────────────────────────────────
+      let allPoints = [];
+      for (let chunkStart = startMs; chunkStart < endMs; chunkStart += CHUNK_MS) {
+        const chunkEnd = Math.min(chunkStart + CHUNK_MS, endMs);
+        try {
+          const raw = await fetchGpsHistoryWindow(String(truck.deviceId), chunkStart, chunkEnd);
+          if (!Array.isArray(raw) || raw.length === 0) continue;
+          const pts = normalizeGpsHistoryMessages(raw, String(truck.deviceId), getTruckConfig(String(truck.deviceId)));
+          const valid = pts.filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time));
+          allPoints = allPoints.concat(valid);
+        } catch (chunkErr) {
+          const _cMsg = chunkErr.message || '';
+          if (_cMsg.includes('Provider Error') || _cMsg.includes('ETIMEDOUT')) {
+            _GPS_FAIL_COUNTS[truck.deviceId] = (_GPS_FAIL_COUNTS[truck.deviceId] || 0) + 1;
+            if (_GPS_FAIL_COUNTS[truck.deviceId] === 1 || _GPS_FAIL_COUNTS[truck.deviceId] % 20 === 0)
+              console.warn(`[SCAN] ${truck.truckName} provider errors: ${_GPS_FAIL_COUNTS[truck.deviceId]} consecutive`);
+          } else {
+            console.warn(`[SCAN] ${truck.truckName} chunk error: ${chunkErr.message}`);
+          }
+        }
+      }
+
+      if (allPoints.length < 1) {
+        await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { lastHistoryScanTime: Date.now(), needsHistoryScan: false });
+        return;
+      }
+
+      allPoints.sort((a, b) => a.time - b.time);
+
+      // ── STEP 2: PROTECT open events ────────────────────────────────────────────────
+      const protectedOpenEvents = await ZoneEvent.find({ deviceId: String(truck.deviceId), exitTime: null });
+      const openEventByZone = {};
+      for (const ev of protectedOpenEvents) openEventByZone[ev.zoneName] = ev;
+
+      // ── STEP 3: Delete ONLY closed gps-history-scan events in window ──────────────
+      await ZoneEvent.deleteMany({
+        deviceId: String(truck.deviceId),
+        exitTime: { $ne: null },
+        entryTime: { $gte: startMs, $lte: endMs },
+        source: 'gps-history-scan'
+      });
+
+      // ── STEP 4: Build segments with gap tolerance ────────────────────────────────
+      const segments = [];
+      let currentSeg = null;
+
+      for (const pt of allPoints) {
+        let inZone = null;
+        for (const loc of allZones) {
+          const dist = calculateDistance(pt.lat, pt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
+          if (dist <= (loc.radius || 500)) { inZone = loc; break; }
+        }
+
+        if (inZone) {
+          if (!currentSeg) {
+            currentSeg = { zone: inZone, firstPoint: pt, lastPoint: pt, entryTime: pt.time };
+          } else if (currentSeg.zone.name === inZone.name) {
+            currentSeg.lastPoint = pt;
+          } else {
+            segments.push(currentSeg);
+            currentSeg = { zone: inZone, firstPoint: pt, lastPoint: pt, entryTime: pt.time };
+          }
+        } else {
+          if (currentSeg) {
+            const gap = pt.time - currentSeg.lastPoint.time;
+            if (gap < GAP_TOLERANCE_MS) continue;
+            segments.push(currentSeg);
+            currentSeg = null;
+          }
+        }
+      }
+      if (currentSeg) segments.push(currentSeg);
+
+      // ── STEP 5: Merge same-zone re-entries within 30 min ─────────────────────────
+      const RE_ENTRY_MS = 30 * 60 * 1000;
+      const mergedSegments = [];
+      for (const seg of segments) {
+        const last = mergedSegments[mergedSegments.length - 1];
+        if (last && last.zone.name === seg.zone.name && (seg.firstPoint.time - last.lastPoint.time) <= RE_ENTRY_MS) {
+          last.lastPoint = seg.lastPoint;
+        } else {
+          mergedSegments.push({ ...seg });
+        }
+      }
+
+      // ── STEP 6: Upsert events ────────────────────────────────────────────────────────
+      const now = Date.now();
+      const minDwell = 3;
+
+      for (const seg of mergedSegments) {
+        const ptsAfterLastZone = allPoints.filter(p => p.time > seg.lastPoint.time);
+        const hasMovedAfterZone = ptsAfterLastZone.length >= 2;
+        // STRICT: "still inside" only if:
+        //   a) no GPS data after zone visit AND
+        //   b) last zone ping < 2h ago (reduced from 4h — trucks don't park 4h unconfirmed)
+        const isStillInside = !hasMovedAfterZone && (now - seg.lastPoint.time) < (2 * 3600000);
+        const resolvedEntryTime = seg.entryTime;
+        const resolvedExitTime  = isStillInside ? null : seg.lastPoint.time;
+        const durMins = resolvedExitTime ? Math.round((resolvedExitTime - resolvedEntryTime) / 60000) : null;
+
+        let existingOpen = openEventByZone[seg.zone.name] || null;
+        if (!existingOpen) {
+          existingOpen = await ZoneEvent.findOne({ deviceId: String(truck.deviceId), exitTime: null, zoneName: seg.zone.name }).sort({ entryTime: 1 });
+        }
+
+        if (!isStillInside && durMins !== null && durMins < minDwell) {
+          if (existingOpen && Math.abs(existingOpen.entryTime - resolvedEntryTime) < 12 * 3600000) {
+            await ZoneEvent.findByIdAndDelete(existingOpen._id);
+            delete openEventByZone[seg.zone.name];
+            console.log(`🗑️ [Scan] Drive-by deleted: ${truck.truckName} @ ${seg.zone.name}`);
+          }
+          continue;
+        }
+
+        if (existingOpen) {
+          const betterEntryTime = Math.min(existingOpen.entryTime, resolvedEntryTime);
+          const updateFields = {
+            entryTime: betterEntryTime,
+            exitTime: resolvedExitTime,
+            durationMinutes: resolvedExitTime ? Math.round((resolvedExitTime - betterEntryTime) / 60000) : null,
+            status: isStillInside ? 'en cours' : 'terminé',
+            source: 'gps-history-scan'
+          };
+          if (betterEntryTime < existingOpen.entryTime) { updateFields.entryLat = seg.firstPoint.lat; updateFields.entryLng = seg.firstPoint.lng; }
+          if (!isStillInside) { updateFields.exitLat = seg.lastPoint.lat; updateFields.exitLng = seg.lastPoint.lng; }
+          await ZoneEvent.findByIdAndUpdate(existingOpen._id, { $set: updateFields });
+          summary.updated++;
+          delete openEventByZone[seg.zone.name];
+          if (isStillInside) await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { _zoneEventZone: seg.zone.name });
+        } else {
+          const zoneCtx = resolveZoneClientContext(seg.zone.name);
+          await ZoneEvent.create({
+            deviceId: String(truck.deviceId), truckName: truck.truckName,
+            zoneName: seg.zone.name, zoneType: seg.zone.type || 'unknown',
+            entryTime: resolvedEntryTime, exitTime: resolvedExitTime, durationMinutes: durMins,
+            entryLat: seg.firstPoint.lat, entryLng: seg.firstPoint.lng,
+            exitLat: isStillInside ? null : seg.lastPoint.lat,
+            exitLng: isStillInside ? null : seg.lastPoint.lng,
+            status: isStillInside ? 'en cours' : 'terminé',
+            source: 'gps-history-scan',
+            clientId: zoneCtx.clientId || null, clientName: zoneCtx.clientName || null,
+            finalClientId: zoneCtx.finalClientId || null, finalClientName: zoneCtx.finalClientName || null
+          });
+          summary.created++;
+          if (isStillInside) await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { _zoneEventZone: seg.zone.name });
+        }
+      }
+
+      // ── STEP 7: Close orphaned open events ───────────────────────────────────────────
+      for (const [orphanZone, openEv] of Object.entries(openEventByZone)) {
+        const zoneConf = allZones.find(z => z.name === orphanZone);
+        if (!zoneConf) continue;
+        const ptsAfterEntry = allPoints.filter(p => p.time > openEv.entryTime);
+        if (ptsAfterEntry.length < 3) continue;
+        const recent3 = ptsAfterEntry.slice(-3);
+        const allOut = recent3.every(p => calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng)) > (zoneConf.radius || 500));
+        if (!allOut) continue;
+        let exitPt = null;
+        for (const p of ptsAfterEntry) {
+          if (calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng)) > (zoneConf.radius || 500)) { exitPt = p; break; }
+        }
+        const exitTs  = exitPt ? exitPt.time : ptsAfterEntry[0].time;
+        const durMins = Math.round((exitTs - openEv.entryTime) / 60000);
+        if (durMins < 3) {
+          await ZoneEvent.findByIdAndDelete(openEv._id);
+          console.log(`🗑️ [Orphan] Drive-by deleted: ${truck.truckName} @ ${orphanZone} (${durMins}m)`);
+        } else {
+          await ZoneEvent.findByIdAndUpdate(openEv._id, { $set: { exitTime: exitTs, durationMinutes: durMins, status: 'terminé', exitLat: exitPt ? exitPt.lat : null, exitLng: exitPt ? exitPt.lng : null } });
+          console.log(`✅ [Orphan] Closed: ${truck.truckName} @ ${orphanZone} — ${durMins}m`);
+          summary.updated++;
+        }
+        await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId), _zoneEventZone: orphanZone }, { _zoneEventZone: null });
+      }
+
+      await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { lastHistoryScanTime: Date.now(), needsHistoryScan: false });
+    };
+
+    return Promise.race([truckWork(), truckTimeout]);
+  }
+
+  async function mapConcurrent(array, maxConcurrency, asyncFn) {
+    let index = 0;
+    async function worker() {
+      while (index < array.length) {
+        const i = index++;
+        try { await asyncFn(array[i]); }
+        catch (e) { summary.errors.push({ truck: array[i].truckName, error: e.message }); }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(maxConcurrency, array.length) }, () => worker()));
+  }
+
+  await mapConcurrent(filteredTrucks, 3, processTruck);
+  return summary;
+}
+
+// HTTP wrapper — kept for backward-compat with any external callers
+app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
+  try {
+    const { start, end, deviceIds, forceAll } = req.body || {};
+    if (!start || !end) return res.status(400).json({ error: 'start et end requis' });
+    const startMs = new Date(start).getTime();
+    const endMs   = new Date(end).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return res.status(400).json({ error: 'Dates invalides' });
+    const summary = await runScanForWindow(startMs, endMs, !!forceAll, deviceIds || null);
+    res.json({ success: true, summary });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══ EMERGENCY CLOSE: POST /api/admin/emergency-close ═════════════════════════════
+// Immediately closes ALL open events older than N hours (default 2h).
+// Use this when you know today's data is wrong and need instant cleanup.
+app.post('/api/admin/emergency-close', checkAccess, async (req, res) => {
+  try {
+    const maxAgeHours = Math.max(1, parseInt(req.body?.maxAgeHours) || 2);
+    const cutoff = Date.now() - maxAgeHours * 3600000;
+    const stale = await ZoneEvent.find({ exitTime: null, entryTime: { $lt: cutoff } }).lean();
+    let closed = 0;
+    for (const ev of stale) {
+      const exitT = Math.min(ev.entryTime + maxAgeHours * 3600000, Date.now());
+      await ZoneEvent.findByIdAndUpdate(ev._id, { $set: {
+        exitTime: exitT, status: 'terminé',
+        durationMinutes: Math.round((exitT - ev.entryTime) / 60000)
+      }});
+      await Truck.findOneAndUpdate({ deviceId: ev.deviceId, _zoneEventZone: ev.zoneName }, { _zoneEventZone: null });
+      closed++;
+    }
+    console.log(`[EmergencyClose] Closed ${closed} stale open events (older than ${maxAgeHours}h)`);
+    res.json({ success: true, closed, message: `${closed} events closed (older than ${maxAgeHours}h)` });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
 // BULLETPROOF V4 LOGIC:
 //   1. NEVER delete open events (exitTime: null) — they are protected
 //   2. Only delete CLOSED gps-history-scan events in the window
@@ -4699,72 +4963,10 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
         await Truck.updateMany({}, { $set: { _zoneEventZone: null } });
         console.log('[ForceSync] 🔄 Truck states reset → null');
 
-        // Step 3 — Call the PROVEN scan-history endpoint (forceAll=true)
-        const http = require('http');
-        const payload = JSON.stringify({ start: todayStartISO, end: nowISO, forceAll: true });
-        const targetPort = process.env.PORT || 3000;
-
-        await new Promise((resolve) => {
-          const req2 = http.request({
-            hostname: '127.0.0.1', port: targetPort,
-            path: '/api/zone-events/scan-history',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'x-access-code': SYSTEM_SETTINGS.adminCode || '12345' }
-          }, (r2) => {
-            let body = '';
-            r2.on('data', d => body += d);
-            r2.on('end', () => {
-              try {
-                const result = JSON.parse(body);
-                console.log(`[ForceSync] ✅ Scan complete: created=${result.summary?.created} updated=${result.summary?.updated} errors=${result.summary?.errors?.length || 0}`);
-              } catch(e) { console.warn('[ForceSync] Could not parse scan result'); }
-              resolve();
-            });
-          });
-          req2.on('error', (e) => { console.error('[ForceSync] Scan call failed:', e.message); resolve(); });
-          req2.write(payload);
-          req2.end();
-        });
-
-        // Step 4 — Dedup pass on last 24h (safety net for anything the scan created twice)
-        const since = Date.now() - 24 * 3600000;
-        const allRecent = await ZoneEvent.find({ entryTime: { $gte: since } }).sort({ entryTime: 1 }).lean();
-        const grp = {};
-        for (const ev of allRecent) {
-          if (!ev.deviceId || !ev.zoneName) continue;
-          const k = ev.deviceId + '__' + ev.zoneName;
-          if (!grp[k]) grp[k] = [];
-          grp[k].push(ev);
-        }
-        let dedupCount = 0;
-        for (const k in grp) {
-          const list = grp[k];
-          if (list.length <= 1) continue;
-          const toDel = new Set();
-          for (let i = 0; i < list.length; i++) {
-            if (toDel.has(String(list[i]._id))) continue;
-            const a = list[i], endA = a.exitTime || Date.now();
-            for (let j = i+1; j < list.length; j++) {
-              if (toDel.has(String(list[j]._id))) continue;
-              const b = list[j], endB = b.exitTime || Date.now();
-              const overlaps = a.entryTime <= endB && b.entryTime <= endA;
-              const close = Math.abs(a.entryTime - b.entryTime) < 4*3600000;
-              if (overlaps || close) {
-                let keep, disc;
-                if (a.exitTime && !b.exitTime) { keep=a; disc=b; }
-                else if (!a.exitTime && b.exitTime) { keep=b; disc=a; }
-                else { keep = a.entryTime<=b.entryTime?a:b; disc = keep===a?b:a; }
-                const bE = Math.min(keep.entryTime, disc.entryTime);
-                const bX = keep.exitTime && disc.exitTime ? Math.max(keep.exitTime, disc.exitTime) : (keep.exitTime||disc.exitTime||null);
-                await ZoneEvent.findByIdAndUpdate(keep._id, { $set: { entryTime:bE, exitTime:bX, durationMinutes: bX?Math.round((bX-bE)/60000):null, status:bX?'terminé':'en cours' }});
-                toDel.add(String(disc._id)); dedupCount++;
-              }
-            }
-          }
-          if (toDel.size) await ZoneEvent.deleteMany({ _id: { $in: Array.from(toDel) } });
-        }
-        if (dedupCount) console.log('[ForceSync] 🗑️ Dedup pass: ' + dedupCount + ' duplicates merged');
-        console.log(`[ForceSync] ✅ NUCLEAR SWEEP COMPLETE — ${new Date().toISOString()}`);
+        // Step 3 — Call runScanForWindow DIRECTLY (no HTTP, works on Render)
+        console.log(`[ForceSync] 🔍 Starting GPS scan: ${todayStartISO} → ${nowISO}`);
+        const scanResult = await runScanForWindow(todayStartUTC, now, true, null);
+        console.log(`[ForceSync] ✅ NUCLEAR SWEEP COMPLETE — created=${scanResult.created} updated=${scanResult.updated} errors=${scanResult.errors?.length || 0} — ${new Date().toISOString()}`);
       } catch(e) { console.error('[ForceSync] Fatal:', e.message); }
     })();
 
