@@ -3800,13 +3800,13 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
             // Outside all zones
             if (currentSeg) {
               const gap = pt.time - currentSeg.lastPoint.time;
-              const ptSpeed = pt.s || 0;
-              if (gap < GAP_TOLERANCE_MS || ptSpeed < 5) {
-                // Within tolerance gap OR truck is slow → don't close the segment yet
+              // We removed the buggy ptSpeed < 5 check. If the truck is outside the zone, it's outside.
+              if (gap < GAP_TOLERANCE_MS) {
+                // Within tolerance gap → don't close the segment yet
                 // Just don't update lastPoint
                 continue;
               } else {
-                // Real exit: speed > 5 and gap > 45 min
+                // Real exit: gap > 45 min
                 segments.push(currentSeg);
                 currentSeg = null;
               }
@@ -3842,18 +3842,24 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
           const resolvedExitTime = isStillInside ? null : seg.lastPoint.time;
           const durMins = resolvedExitTime ? Math.round((resolvedExitTime - resolvedEntryTime) / 60000) : null;
 
-          if (!isStillInside && durMins !== null && durMins < minDwell) continue; // drive-by
-
           // ── BULLETPROOF: Check openEventByZone first (fast), then DB (safe) ──
-          // openEventByZone may be stale if live-bot created an event during the scan.
           let existingOpen = openEventByZone[seg.zone.name] || null;
           if (!existingOpen) {
-            // Re-check DB for any open event not in our pre-loaded map (e.g., live-bot)
             existingOpen = await ZoneEvent.findOne({
               deviceId: String(truck.deviceId),
               exitTime: null,
               zoneName: seg.zone.name
-            }).sort({ entryTime: 1 }); // oldest first
+            }).sort({ entryTime: 1 });
+          }
+
+          if (!isStillInside && durMins !== null && durMins < minDwell) {
+             // It's a drive-by (< 3 min). If there is an open event for this drive-by, DELETE IT to prevent ghosts!
+             if (existingOpen && Math.abs(existingOpen.entryTime - resolvedEntryTime) < 12 * 3600000) {
+                 await ZoneEvent.findByIdAndDelete(existingOpen._id);
+                 delete openEventByZone[seg.zone.name];
+                 console.log(`🗑️ [Scan-History] Deleted ghost drive-by for ${truck.truckName} in ${seg.zone.name}`);
+             }
+             continue; 
           }
 
           if (existingOpen) {
