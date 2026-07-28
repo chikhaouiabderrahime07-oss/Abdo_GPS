@@ -3730,6 +3730,28 @@ async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = nu
       }
 
       if (allPoints.length < 1) {
+        // No GPS data — close ALL stale open events for this truck rather than
+        // leaving them as ghost "en cours" forever. Use a conservative exit time.
+        const now_noGps = Date.now();
+        const staleOpen = await ZoneEvent.find({
+          deviceId: String(truck.deviceId),
+          exitTime: null,
+          entryTime: { $lt: now_noGps - 2 * 3600000 } // open & more than 2h old
+        });
+        for (const ev of staleOpen) {
+          // Exit = min(entryTime + 4h, now) — conservative estimate
+          const closeAt = Math.min(ev.entryTime + 4 * 3600000, now_noGps - 60000);
+          await ZoneEvent.findByIdAndUpdate(ev._id, { $set: {
+            exitTime: closeAt,
+            status: 'terminé',
+            durationMinutes: Math.round((closeAt - ev.entryTime) / 60000)
+          }});
+          await Truck.findOneAndUpdate(
+            { deviceId: String(truck.deviceId), _zoneEventZone: ev.zoneName },
+            { _zoneEventZone: null }
+          );
+          console.log(`[Scan] ⚠️  No GPS data — force-closed stale event: ${truck.truckName} @ ${ev.zoneName}`);
+        }
         await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { lastHistoryScanTime: Date.now(), needsHistoryScan: false });
         return;
       }
@@ -4939,34 +4961,47 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
     const allZones  = SYSTEM_SETTINGS.customLocations || [];
     if (!allZones.length) return res.status(400).json({ error: 'No zones configured' });
 
-    // Algeria is UTC+1 — compute today 00:00 Algeria time
+    // Algeria is UTC+1 — nuke last 2 days (yesterday 00:00 Algeria → now)
+    // This covers both July 27 AND July 28 bad data in one sweep.
     const ALGERIA_OFFSET_MS = 60 * 60 * 1000;
-    const todayAlgeria = new Date(now + ALGERIA_OFFSET_MS);
-    todayAlgeria.setHours(0, 0, 0, 0);
-    const todayStartUTC = todayAlgeria.getTime() - ALGERIA_OFFSET_MS;
-    const todayStartISO = new Date(todayStartUTC).toISOString();
+    const twoDaysAgoAlgeria = new Date(now + ALGERIA_OFFSET_MS);
+    twoDaysAgoAlgeria.setDate(twoDaysAgoAlgeria.getDate() - 1); // go to yesterday
+    twoDaysAgoAlgeria.setHours(0, 0, 0, 0); // midnight
+    const rangeStartUTC = twoDaysAgoAlgeria.getTime() - ALGERIA_OFFSET_MS;
+    const rangeStartISO = new Date(rangeStartUTC).toISOString();
     const nowISO        = new Date(now).toISOString();
 
     // Respond immediately — scan runs in background
     res.json({
       success: true, trucksTotal: allTrucks.length,
-      message: `Force sync (nuclear today sweep) started — ${allTrucks.length} trucks. Window: ${todayStartISO} → ${nowISO}. Refresh in 1–3 min.`
+      message: `Force sync (nuclear 2-day sweep) started — ${allTrucks.length} trucks. Window: ${rangeStartISO} → ${nowISO}. Refresh in 2–4 min.`
     });
 
     // ── Background: Step 1 — Nuclear delete today's events (clean slate) ───
     (async () => {
       try {
-        const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: todayStartUTC } });
-        console.log(`[ForceSync] 🗑️  Deleted ${delResult.deletedCount} today events — clean slate`);
+        const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: rangeStartUTC } });
+        console.log(`[ForceSync] 🗑️  Deleted ${delResult.deletedCount} events (last 2 days) — clean slate`);
 
         // Step 2 — Reset all truck zone states
         await Truck.updateMany({}, { $set: { _zoneEventZone: null } });
         console.log('[ForceSync] 🔄 Truck states reset → null');
 
         // Step 3 — Call runScanForWindow DIRECTLY (no HTTP, works on Render)
-        console.log(`[ForceSync] 🔍 Starting GPS scan: ${todayStartISO} → ${nowISO}`);
-        const scanResult = await runScanForWindow(todayStartUTC, now, true, null);
-        console.log(`[ForceSync] ✅ NUCLEAR SWEEP COMPLETE — created=${scanResult.created} updated=${scanResult.updated} errors=${scanResult.errors?.length || 0} — ${new Date().toISOString()}`);
+        console.log(`[ForceSync] 🔍 Starting GPS scan: ${rangeStartISO} → ${nowISO}`);
+        const scanResult = await runScanForWindow(rangeStartUTC, now, true, null);
+        console.log(`[ForceSync] ✅ NUCLEAR 2-DAY SWEEP COMPLETE — created=${scanResult.created} updated=${scanResult.updated} errors=${scanResult.errors?.length || 0} — ${new Date().toISOString()}`);
+        // Step 4 — Hard cap: close any still-open events older than 2h (safety net)
+        const hardCapCutoff = Date.now() - 2 * 3600000;
+        const stillOpen = await ZoneEvent.find({ exitTime: null, entryTime: { $lt: hardCapCutoff } }).lean();
+        let hardCapped = 0;
+        for (const ev of stillOpen) {
+          const closeAt = Math.min(ev.entryTime + 4 * 3600000, Date.now() - 60000);
+          await ZoneEvent.findByIdAndUpdate(ev._id, { $set: { exitTime: closeAt, status: 'terminé', durationMinutes: Math.round((closeAt - ev.entryTime) / 60000) }});
+          await Truck.findOneAndUpdate({ deviceId: ev.deviceId, _zoneEventZone: ev.zoneName }, { _zoneEventZone: null });
+          hardCapped++;
+        }
+        if (hardCapped) console.log(`[ForceSync] 🛡️  Hard cap closed ${hardCapped} still-open events > 2h old`);
       } catch(e) { console.error('[ForceSync] Fatal:', e.message); }
     })();
 
@@ -6587,7 +6622,7 @@ setInterval(async () => {
   }
 }, FIXER_INTERVAL_MS);
 
-// Every 6 hours: scan last 24 hours (medium, flagged trucks)
+// Every 6 hours: scan last 2 hours (medium, flagged trucks)
 setInterval(() => {
     console.log('[AutoScan-6h] Scanning last 24 hours...');
     triggerBackgroundScan(24, false);
@@ -6657,77 +6692,53 @@ async function runMidnightValidator() {
   // ─────────────────────────────────────────────────────────────────────────
 
   try {
-    // Algeria is UTC+1 — compute today 00:00 Algeria time
+    // Algeria is UTC+1 — nuke last 2 days (yesterday 00:00 → now)
     const ALGERIA_OFFSET_MS = 60 * 60 * 1000;
-    const todayAlgeria = new Date(now + ALGERIA_OFFSET_MS);
-    todayAlgeria.setHours(0, 0, 0, 0);
-    const todayStartUTC = todayAlgeria.getTime() - ALGERIA_OFFSET_MS;
-    const todayStartISO = new Date(todayStartUTC).toISOString();
+    const twoDaysAgoMN = new Date(now + ALGERIA_OFFSET_MS);
+    twoDaysAgoMN.setDate(twoDaysAgoMN.getDate() - 1);
+    twoDaysAgoMN.setHours(0, 0, 0, 0);
+    const rangeStartUTC = twoDaysAgoMN.getTime() - ALGERIA_OFFSET_MS;
+    const rangeStartISO = new Date(rangeStartUTC).toISOString();
     const nowISO        = new Date(now).toISOString();
 
     const truckCount = await Truck.countDocuments({});
-    console.log(`[MidnightValidator] Window: ${todayStartISO} → ${nowISO} | ${truckCount} trucks`);
+    console.log(`[MidnightValidator] Window: ${rangeStartISO} → ${nowISO} | ${truckCount} trucks`);
 
-    // ── STEP 1: Nuclear delete — wipe ALL today's events (clean slate) ────────
-    const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: todayStartUTC } });
-    console.log(`[MidnightValidator] 🗑️  Deleted ${delResult.deletedCount} today events — clean slate`);
+    // ── STEP 1: Nuclear delete — wipe last 2 days events (clean slate) ─────────
+    const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: rangeStartUTC } });
+    console.log(`[MidnightValidator] 🗑️  Deleted ${delResult.deletedCount} events (last 2 days) — clean slate`);
 
     // ── STEP 2: Reset all truck zone states ──────────────────────────────────
     await Truck.updateMany({}, { $set: { _zoneEventZone: null } });
     console.log('[MidnightValidator] 🔄 All truck states reset → null');
 
-    // ── STEP 3: Fire proven scan-history for today, forceAll=true ─────────────
-    // This uses the EXACT same zone detection logic that was correct for 2 months.
-    // We call it directly (not via HTTP) to avoid port/auth issues on Render.
-    const http = require('http');
-    const scanPayload = JSON.stringify({
-      start:    todayStartISO,
-      end:      nowISO,
-      forceAll: true  // scan EVERY truck regardless of needsHistoryScan flag
-    });
-    const targetPort = process.env.PORT || 3000;
+    // ── STEP 3: Call runScanForWindow DIRECTLY (no HTTP, guaranteed on Render) ─
+    const scanResult = await runScanForWindow(rangeStartUTC, now, true, null);
+    midnightState.lastResult = {
+      deleted: delResult.deletedCount,
+      created: scanResult.created || 0,
+      updated: scanResult.updated || 0,
+      errors:  scanResult.errors?.length || 0,
+      trucks:  scanResult.trucks || truckCount
+    };
+    console.log(`[MidnightValidator] ✅ Scan complete: created=${midnightState.lastResult.created} updated=${midnightState.lastResult.updated} errors=${midnightState.lastResult.errors}`);
 
-    await new Promise((resolve) => {
-      const req = http.request({
-        hostname: '127.0.0.1',
-        port:     targetPort,
-        path:     '/api/zone-events/scan-history',
-        method:   'POST',
-        headers:  {
-          'Content-Type':   'application/json',
-          'Content-Length': Buffer.byteLength(scanPayload),
-          'x-access-code':  SYSTEM_SETTINGS.adminCode || '12345'
-        }
-      }, (res) => {
-        let body = '';
-        res.on('data', d => body += d);
-        res.on('end', () => {
-          try {
-            const result = JSON.parse(body);
-            midnightState.lastResult = {
-              deleted:  delResult.deletedCount,
-              created:  (result.summary?.created || 0),
-              updated:  (result.summary?.updated || 0),
-              errors:   (result.summary?.errors?.length || 0),
-              trucks:   (result.summary?.trucks || truckCount)
-            };
-            console.log(`[MidnightValidator] ✅ Scan-history complete: created=${midnightState.lastResult.created} updated=${midnightState.lastResult.updated} errors=${midnightState.lastResult.errors}`);
-          } catch(e) { console.warn('[MidnightValidator] Could not parse scan result:', e.message); }
-          resolve();
-        });
-      });
-      req.on('error', (e) => {
-        console.error('[MidnightValidator] Scan-history call failed:', e.message);
-        midnightState.lastResult = { deleted: delResult.deletedCount, created: 0, updated: 0, errors: 1, trucks: truckCount };
-        resolve();
-      });
-      req.write(scanPayload);
-      req.end();
-    });
+    // ── STEP 4: Hard cap — close any still-open events > 2h old ─────────────
+    const hardCapCutoff = Date.now() - 2 * 3600000;
+    const stillOpen = await ZoneEvent.find({ exitTime: null, entryTime: { $lt: hardCapCutoff } }).lean();
+    let hardCapped = 0;
+    for (const ev of stillOpen) {
+      const closeAt = Math.min(ev.entryTime + 4 * 3600000, Date.now() - 60000);
+      await ZoneEvent.findByIdAndUpdate(ev._id, { $set: { exitTime: closeAt, status: 'terminé', durationMinutes: Math.round((closeAt - ev.entryTime) / 60000) }});
+      await Truck.findOneAndUpdate({ deviceId: ev.deviceId, _zoneEventZone: ev.zoneName }, { _zoneEventZone: null });
+      hardCapped++;
+    }
+    if (hardCapped) console.log(`[MidnightValidator] 🛡️  Hard cap closed ${hardCapped} events > 2h old`);
 
     midnightState.lastRunAt = Date.now();
     midnightState.isRunning = false;
-    console.log(`\n[MidnightValidator] ✅ NUCLEAR SWEEP COMPLETE — ${new Date().toISOString()}\n`);
+    console.log(`\n[MidnightValidator] ✅ NUCLEAR 2-DAY SWEEP COMPLETE — ${new Date().toISOString()}\n`);
+
 
   } catch(fatalErr) {
     midnightState.isRunning = false;
