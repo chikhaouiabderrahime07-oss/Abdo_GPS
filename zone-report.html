@@ -568,7 +568,6 @@
     <div class="hdr-title">dedsite.online</div>
     <div class="hdr-right">
       <div class="live-badge"><div class="live-dot"></div>LIVE</div>
-      <button onclick="if(confirm('Nuker les données du 27/28 juillet et reconstruire?')){ fetch('/api/admin/force-sync', {method: 'POST', headers: {'Content-Type': 'application/json', 'x-access-code': localStorage.getItem('ZMC_code')||''}, body: '{}'}).then(r=>r.json()).then(d=>alert(d.message)); }" style="background:var(--red);color:white;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;margin-left:10px;"><i class="fa-solid fa-bomb"></i> FIX 27-28 DATA</button>
       <span id="lastRefreshTime" style="font-size:10px;color:var(--text-3);"></span>
       <button class="hdr-btn" onclick="window.location.href='/'" title="Retourner à la carte principale"><i class="fa-solid fa-arrow-left"></i></button>
       <button class="hdr-btn" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
@@ -1970,7 +1969,7 @@ const ZMC = (() => {
         <td style="color:var(--purple);font-size:11px;font-weight:600;">${e.operationName||'—'}</td>
         <td>${badge}</td>
         <td style="display:flex;gap:6px;align-items:center;justify-content:flex-end;padding-right:16px;">
-           <button onclick="openGPSHistory('${e.deviceId}','${e.truckName}','${e.entryTime}','${e.exitTime||''}','${e.zoneName||''}')" title="Trajet GPS (entrée → sortie)" style="background:var(--blue-dim);color:var(--blue);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-map-location-dot"></i> GPS</button>
+           <button onclick="openGPSHistory('${e.deviceId}','${e.truckName}','${e.entryTime ? new Date(e.entryTime).toISOString() : ''}','${e.exitTime ? new Date(e.exitTime).toISOString() : ''}','${e.zoneName||''}')" title="Trajet GPS (entrée → sortie)" style="background:var(--blue-dim);color:var(--blue);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--blue)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-map-location-dot"></i> GPS</button>
            <button onclick="openInMapLive('${e.truckName}','${e.deviceId}',${e.entryLat||'null'},${e.entryLng||'null'})" title="Position live" style="background:var(--red-dim);color:var(--red);border:1px solid transparent;border-radius:6px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--red)'" onmouseout="this.style.borderColor='transparent'"><i class="fa-solid fa-location-crosshairs"></i> Live</button>
            <button onclick="ZMC.openEditHistory('${e._id}')" title="Modifier" style="background:var(--bg-3);color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;transition:all 0.2s;" onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--text-3)'" onmouseout="this.style.color='var(--text-2)';this.style.borderColor='var(--border)'"><i class="fa-solid fa-pen"></i></button>
          </td>
@@ -3868,11 +3867,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Open GPS history replay modal in the main window — exact entry→exit window
   function openGPSHistory(deviceId, truckName, entryTime, exitTime, zoneName) {
-    const dateStr  = entryTime ? new Date(entryTime).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-    const startISO = entryTime && entryTime !== 'null' ? entryTime : (dateStr + 'T00:00:00.000Z');
-    const endISO   = (exitTime && exitTime !== 'null' && exitTime !== '')
-      ? exitTime
-      : new Date(new Date(startISO).getTime() + 6 * 3600000).toISOString();
+    // Safely parse — handles ISO strings, numeric strings (Unix ms), and numbers
+    function toISO(v) {
+      if (!v || v === 'null' || v === '') return null;
+      const n = Number(v);
+      if (!isNaN(n) && n > 1e12) return new Date(n).toISOString(); // Unix ms number string
+      const d = new Date(v);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    const startISO = toISO(entryTime) || new Date().toISOString();
+    const endISO   = toISO(exitTime) || new Date(new Date(startISO).getTime() + 6 * 3600000).toISOString();
+    const dateStr  = startISO.slice(0, 10);
 
     // Build full payload with exact entry/exit times
     const payload = {
