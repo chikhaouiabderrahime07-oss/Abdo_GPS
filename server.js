@@ -3837,7 +3837,11 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
         const minDwell = 3; // minutes
 
         for (const seg of mergedSegments) {
-          const isStillInside = (now - seg.lastPoint.time) < (12 * 3600000);
+          // FIX: Smart isStillInside — if we have GPS points AFTER the last zone point
+          // AND they are outside the zone, the truck has clearly left. Don't keep it "en cours".
+          const ptsAfterLastZone = allPoints.filter(p => p.time > seg.lastPoint.time);
+          const hasMovedAfterZone = ptsAfterLastZone.length >= 2;
+          const isStillInside = !hasMovedAfterZone && (now - seg.lastPoint.time) < (4 * 3600000);
           const resolvedEntryTime = seg.entryTime;
           const resolvedExitTime = isStillInside ? null : seg.lastPoint.time;
           const durMins = resolvedExitTime ? Math.round((resolvedExitTime - resolvedEntryTime) / 60000) : null;
@@ -3916,6 +3920,59 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
           }
         }
 
+
+        // ── STEP 7: Close orphaned open events ────────────────────────────
+        // Any zone still in openEventByZone was NOT matched by any GPS segment.
+        // That means the truck has GPS data but none of it was inside this zone
+        // → the truck has left → close the orphaned open event.
+        for (const [orphanZone, openEv] of Object.entries(openEventByZone)) {
+          const zoneConf = allZones.find(z => z.name === orphanZone);
+          if (!zoneConf) continue;
+
+          // Only act if we have enough GPS points AFTER the entry to be confident
+          const ptsAfterEntry = allPoints.filter(p => p.time > openEv.entryTime);
+          if (ptsAfterEntry.length < 3) continue; // Not enough data — leave it open
+
+          // Are the last 3 GPS points all outside the zone?
+          const recent3 = ptsAfterEntry.slice(-3);
+          const allOut = recent3.every(p => {
+            const d = calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng));
+            return d > (zoneConf.radius || 500);
+          });
+          if (!allOut) continue; // Truck might still be there (GPS drift or parked inside)
+
+          // Find the first GPS point outside the zone after entry = actual exit point
+          let exitPt = null;
+          for (const p of ptsAfterEntry) {
+            const d = calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng));
+            if (d > (zoneConf.radius || 500)) { exitPt = p; break; }
+          }
+          const exitTs = exitPt ? exitPt.time : ptsAfterEntry[0].time;
+          const durMins = Math.round((exitTs - openEv.entryTime) / 60000);
+
+          if (durMins < 3) {
+            // Drive-by — delete the ghost event entirely
+            await ZoneEvent.findByIdAndDelete(openEv._id);
+            console.log(`🗑️ [Orphan] Drive-by supprimé: ${truck.truckName} @ ${orphanZone} (${durMins}m)`);
+          } else {
+            // Real visit that ended — close it properly
+            await ZoneEvent.findByIdAndUpdate(openEv._id, { $set: {
+              exitTime: exitTs,
+              durationMinutes: durMins,
+              status: 'terminé',
+              exitLat: exitPt ? exitPt.lat : null,
+              exitLng: exitPt ? exitPt.lng : null
+            }});
+            console.log(`✅ [Orphan] Fermé: ${truck.truckName} @ ${orphanZone} — ${durMins}m`);
+            summary.updated++;
+          }
+
+          // Sync truck _zoneEventZone field
+          await Truck.findOneAndUpdate(
+            { deviceId: String(truck.deviceId), _zoneEventZone: orphanZone },
+            { _zoneEventZone: null }
+          );
+        }
 
         // Mark truck as scanned
         await Truck.findOneAndUpdate(
@@ -4232,6 +4289,29 @@ async function runZoneEntryExitTracking(truck, dbTruck) {
       }
 
       // No existing open event — this is a genuine new entry
+      // ── ANTI DRIVE-BY: Wait 4 minutes of confirmed presence before creating an event ──
+      // The bot runs every 2 min. A truck passing through creates a 2-min event.
+      // We buffer: first cycle sets pendingEntry, second+ cycle (≥4 min) creates the real event.
+      const pendingEntryZone = dbTruck.pendingEntryZone || null;
+      const pendingEntryTime = dbTruck.pendingEntryTime || 0;
+
+      if (pendingEntryZone !== currentZone.name) {
+        // First time we see this zone — start the countdown, don't log yet
+        await Truck.findOneAndUpdate({ deviceId }, {
+          pendingEntryZone: currentZone.name,
+          pendingEntryTime: Date.now()
+        });
+        console.log(`⏳ [Entry-Pending] ${truckName} near "${currentZone.name}" — waiting 4 min to confirm...`);
+        return;
+      }
+
+      const minsInsidePending = (Date.now() - pendingEntryTime) / 60000;
+      if (minsInsidePending < 4) {
+        return; // Still under 4 minutes — not confirmed yet
+      }
+
+      // ≥4 minutes confirmed inside → real entry, proceed
+      await Truck.findOneAndUpdate({ deviceId }, { $unset: { pendingEntryZone: 1, pendingEntryTime: 1 } });
       if (prevZoneName && prevZoneName !== currentZone.name) {
         await logZoneExit(deviceId, truckName, prevZoneName, lat, lng);
       }
@@ -4254,7 +4334,15 @@ async function runZoneEntryExitTracking(truck, dbTruck) {
     }
 
   // ── OUTSIDE ALL ZONES ────────────────────────────────────────
-  } else if (prevZoneName) {
+  } else {
+    // Cancel any pending entry if truck left before 4-min confirmation
+    if (dbTruck.pendingEntryZone) {
+      await Truck.findOneAndUpdate({ deviceId }, { $unset: { pendingEntryZone: 1, pendingEntryTime: 1 } });
+      console.log(`🚫 [Entry-Cancelled] ${truckName} left "${dbTruck.pendingEntryZone}" before confirmation.`);
+    }
+  }
+
+  if (!currentZone && prevZoneName) {
 
     // Dual-threshold exit logic (No speed guard)
     let prevZoneRadius = 500;
@@ -6104,6 +6192,24 @@ function triggerBackgroundScan(hours, forceAll = false) {
     req.write(data);
     req.end();
 }
+
+// ── Every 15 minutes: reconcile _zoneEventZone with actual open ZoneEvents ──
+// Prevents trucks from showing "in zone" on dashboard when their event is already closed.
+setInterval(async () => {
+  try {
+    const trucksInZone = await Truck.find(
+      { _zoneEventZone: { $nin: [null, ''] } },
+      '_id deviceId truckName _zoneEventZone'
+    ).lean();
+    for (const t of trucksInZone) {
+      const hasOpen = await ZoneEvent.exists({ deviceId: t.deviceId, exitTime: null, zoneName: t._zoneEventZone });
+      if (!hasOpen) {
+        await Truck.findByIdAndUpdate(t._id, { _zoneEventZone: null });
+        console.log(`[Reconcile] ${t.truckName}: _zoneEventZone effacé (pas d'event ouvert pour "${t._zoneEventZone}")`);
+      }
+    }
+  } catch(e) { console.error('[Reconcile] Error:', e.message); }
+}, 15 * 60 * 1000);
 
 // Every 30 minutes: scan last 2 hours (light, fast, only flagged trucks)
 setInterval(() => {
