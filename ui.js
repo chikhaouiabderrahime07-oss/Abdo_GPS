@@ -5050,6 +5050,14 @@ async runZoneHistoryScan() {
               return p;
           }).sort((a,b) => a.time - b.time);
 
+          // 3.5 Exact Window Filtering (Trim the extra pre-point returned by GPS API)
+          if (window._histRecapMeta && window._histRecapMeta.startISO) {
+              const exactStartMs = new Date(window._histRecapMeta.startISO).getTime();
+              // Add a small 1-minute buffer to ensure we don't trim the first valid entry point
+              // The runaway lines in the UI were caused by points from 30+ mins earlier
+              points = points.filter(p => p.time >= (exactStartMs - 60000));
+          }
+
           // Downsample very large datasets (>4000 pts) to prevent browser OOM
           if (points.length > 4000) {
             const step = Math.ceil(points.length / 4000);

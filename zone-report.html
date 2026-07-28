@@ -568,6 +568,7 @@
     <div class="hdr-title">dedsite.online</div>
     <div class="hdr-right">
       <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+      <button onclick="if(confirm('Nuker les données du 27/28 juillet et reconstruire?')){ fetch('/api/admin/force-sync', {method: 'POST', headers: {'Content-Type': 'application/json', 'x-access-code': localStorage.getItem('ZMC_code')||''}, body: '{}'}).then(r=>r.json()).then(d=>alert(d.message)); }" style="background:var(--red);color:white;border:none;border-radius:6px;padding:6px 12px;font-size:11px;font-weight:700;cursor:pointer;margin-left:10px;"><i class="fa-solid fa-bomb"></i> FIX 27-28 DATA</button>
       <span id="lastRefreshTime" style="font-size:10px;color:var(--text-3);"></span>
       <button class="hdr-btn" onclick="window.location.href='/'" title="Retourner à la carte principale"><i class="fa-solid fa-arrow-left"></i></button>
       <button class="hdr-btn" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
