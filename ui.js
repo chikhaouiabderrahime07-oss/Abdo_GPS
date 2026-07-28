@@ -5051,11 +5051,18 @@ async runZoneHistoryScan() {
           }).sort((a,b) => a.time - b.time);
 
           // 3.5 Exact Window Filtering (Trim the extra pre-point returned by GPS API)
-          if (window._histRecapMeta && window._histRecapMeta.startISO) {
-              const exactStartMs = new Date(window._histRecapMeta.startISO).getTime();
-              // Add a small 1-minute buffer to ensure we don't trim the first valid entry point
-              // The runaway lines in the UI were caused by points from 30+ mins earlier
-              points = points.filter(p => p.time >= (exactStartMs - 60000));
+          try {
+              // 'start' is passed as "YYYY-MM-DD HH:MM:SS". Replace space with 'T' for cross-browser safety (Firefox)
+              const safeStartStr = typeof start === 'string' ? start.replace(' ', 'T') : start;
+              let exactStartMs = new Date(safeStartStr).getTime();
+              
+              if (!isNaN(exactStartMs)) {
+                  // Add a small 1-minute buffer to ensure we don't trim the first valid entry point
+                  points = points.filter(p => p.time >= (exactStartMs - 60000));
+                  console.log(`⏱️ GPS path strictly trimmed to >= ${new Date(exactStartMs).toLocaleString()}`);
+              }
+          } catch(e) {
+              console.error("GPS window filter error", e);
           }
 
           // Downsample very large datasets (>4000 pts) to prevent browser OOM
