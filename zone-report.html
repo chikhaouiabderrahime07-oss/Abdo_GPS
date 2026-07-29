@@ -3980,10 +3980,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function fetchPillStatus() {
     fetch(base + '/api/fixer-status').then(function(r){ return r.json(); }).then(function(d){
-      fNext = d.nextRunAt || (Date.now() + 30 * 60000); fTick();
+      if(d.nextRunAt) { fNext = d.nextRunAt; } else {
+        var ms = Date.now(), t30 = 30 * 60000;
+        fNext = Math.ceil(ms / t30) * t30;
+        if(fNext === ms) fNext += t30;
+      }
+      fTick();
     }).catch(function(){});
     fetch(base + '/api/midnight-status').then(function(r){ return r.json(); }).then(function(d){
-      mNext = d.nextRunAt || (Date.now() + 23 * 3600000); mTick();
+      if(d.nextRunAt) { mNext = d.nextRunAt; } else {
+        var nx = new Date(); nx.setHours(24, 0, 0, 0);
+        mNext = nx.getTime();
+      }
+      mTick();
     }).catch(function(){});
   }
 

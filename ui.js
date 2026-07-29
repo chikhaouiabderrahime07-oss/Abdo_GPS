@@ -5523,7 +5523,11 @@ async runZoneHistoryScan() {
                   fetch(_base + '/api/fixer-status')
                     .then(r => r.json())
                     .then(d => {
-                      _nextMs = d.nextRunAt || (Date.now() + 30 * 60 * 1000);
+                      if (d.nextRunAt) { _nextMs = d.nextRunAt; } else {
+                        const ms = Date.now(), t30 = 30 * 60000;
+                        _nextMs = Math.ceil(ms / t30) * t30;
+                        if (_nextMs === ms) _nextMs += t30;
+                      }
                       _tick();
                       const _iv = setInterval(() => {
                         if (!document.getElementById('histSidebar')) { clearInterval(_iv); return; }
