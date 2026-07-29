@@ -1356,26 +1356,31 @@ function parseGpsDateTimeFlexible(value) {
 
   let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (match) {
-    return new Date(
+    // The GPS API strings are in Algeria Local Time (UTC+1).
+    // We treat the string parts as UTC, then subtract 1 hour (3,600,000 ms) 
+    // to get the correct absolute UTC timestamp.
+    const algMs = Date.UTC(
       Number(match[1]),
       Number(match[2]) - 1,
       Number(match[3]),
       Number(match[4]),
       Number(match[5]),
       Number(match[6] || 0)
-    ).getTime();
+    );
+    return algMs - 3600000; // Convert Algeria time (UTC+1) back to pure UTC ms
   }
 
   match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (match) {
-    return new Date(
+    const algMs = Date.UTC(
       Number(match[3]),
       Number(match[2]) - 1,
       Number(match[1]),
       Number(match[4]),
       Number(match[5]),
       Number(match[6] || 0)
-    ).getTime();
+    );
+    return algMs - 3600000; // Convert Algeria time (UTC+1) back to pure UTC ms
   }
 
   const parsed = Date.parse(text);
@@ -1385,9 +1390,11 @@ function parseGpsDateTimeFlexible(value) {
 function formatGpsApiDateTime(value) {
   const ms = parseGpsDateTimeFlexible(value);
   if (!Number.isFinite(ms)) return '';
-  const d = new Date(ms);
+  // To send to GPS API, we must provide an Algeria Local Time (UTC+1) string.
+  // Add 1 hour to the UTC timestamp, then extract the UTC parts.
+  const d = new Date(ms + 3600000);
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
 }
 
 function encodeGpsHistoryBoundary(value) {
