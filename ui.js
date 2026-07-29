@@ -5308,8 +5308,8 @@ async runZoneHistoryScan() {
                 // ── 2. Truth: zone event times (not GPS pings) ────────────────
                 const _rawExit   = _meta && (_meta.exitTime || _meta.endISO);
                 const _exitValid = _rawExit && _rawExit !== 'null' && _rawExit !== '';
-                const _entryDate = (_meta && _meta.startISO) ? new Date(_meta.startISO) : (points[0] ? new Date(points[0].time) : null);
-                const _exitDate  = _exitValid ? new Date(_rawExit) : null;
+                const _entryDate = (_meta && _meta.startISO) ? new Date(_meta.startISO) : (start ? new Date(start.replace(' ', 'T')) : (points[0] ? new Date(points[0].time) : null));
+                const _exitDate  = _exitValid ? new Date(_rawExit) : (end ? new Date(end.replace(' ', 'T')) : null);
                 const _lastGpsMs = points.length ? points[points.length - 1].time : 0;
                 const _isLive    = !_exitValid && _lastGpsMs > 0 && (Date.now() - _lastGpsMs) < 90 * 60 * 1000;
                 const _isTermine = !!_exitValid;
@@ -5366,6 +5366,35 @@ async runZoneHistoryScan() {
                     #histSidebar .hs-cd-val { font-size:15px;font-weight:800;color:#38bdf8;font-variant-numeric:tabular-nums;letter-spacing:.03em; }
                     #histSidebar .hs-cd-lbl { font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#1e3a5f;margin-top:2px; }
                     @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+                    
+                    /* Light Mode Overrides */
+                    body.light-mode #histSidebar {
+                      background:rgba(255,255,255,0.94);
+                      color:#0f172a;
+                      border:1px solid rgba(0,0,0,0.1);
+                      box-shadow:0 -2px 60px rgba(0,0,0,0.15),0 0 0 1px rgba(99,102,241,0.08);
+                    }
+                    body.light-mode #histSidebar .hs-header {
+                      background:linear-gradient(135deg,rgba(99,102,241,.1),rgba(139,92,246,.05));
+                      border-bottom:1px solid rgba(0,0,0,.05);
+                    }
+                    body.light-mode #histSidebar .hs-sc {
+                      background:rgba(0,0,0,.03);
+                      border:1px solid rgba(0,0,0,.05);
+                    }
+                    body.light-mode #histSidebar .hs-sl { color:#64748b; }
+                    body.light-mode #histSidebar .hs-tc-sub { color:#64748b; opacity:1; }
+                    body.light-mode .timeline-control-panel {
+                      background:rgba(255,255,255,0.95) !important;
+                      border:1px solid rgba(0,0,0,0.1) !important;
+                      color:#1e293b !important;
+                    }
+                    body.light-mode .timeline-control-panel button {
+                      color:#3b82f6 !important;
+                    }
+                    body.light-mode .timeline-control-panel button:hover {
+                      background:rgba(59,130,246,0.1) !important;
+                    }
                   `;
                   document.head.appendChild(_sty);
                 }
