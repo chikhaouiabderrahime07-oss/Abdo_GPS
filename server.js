@@ -5118,9 +5118,12 @@ app.post('/api/admin/fix-zone-events', checkAccess, async (req, res) => {
       if (zoneConf && truckLat && truckLng) {
         const dist = distM(truckLat, truckLng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng));
         const radius = parseFloat(zoneConf.radius) || 500;
-        const isInsideNow = dist <= radius;
+        
+        // Anti-Drift Math: Allow a 400-meter buffer for parked trucks experiencing satellite bounce
+        const DRIFT_BUFFER = 400; 
+        const isDefinitelyOutside = dist > (radius + DRIFT_BUFFER);
 
-        if (!isInsideNow) {
+        if (isDefinitelyOutside) {
           // Truck is confirmed OUTSIDE zone right now → close event
           // Use lastUpdate as exit time (that's when we last saw it outside)
           const exitAt = (lastUpdate && lastUpdate > ev.entryTime) ? lastUpdate : now;

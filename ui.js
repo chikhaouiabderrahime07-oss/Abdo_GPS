@@ -5514,7 +5514,15 @@ async runZoneHistoryScan() {
                     if (!el) return;
                     if (!_nextMs) { el.textContent = '--:--'; return; }
                     const rem = _nextMs - Date.now();
-                    if (rem <= 0) { el.textContent = '🔄 Fix...'; return; }
+                    if (rem <= 0) { 
+                        el.textContent = '🔄 Fix...'; 
+                        if (rem < -15000) {
+                            const ms = Date.now(), t30 = 30 * 60000;
+                            _nextMs = Math.ceil(ms / t30) * t30;
+                            if (_nextMs === ms) _nextMs += t30;
+                        }
+                        return; 
+                    }
                     const m = Math.floor(rem / 60000);
                     const s = Math.floor((rem % 60000) / 1000);
                     el.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');

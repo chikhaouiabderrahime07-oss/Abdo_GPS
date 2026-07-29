@@ -3963,7 +3963,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!fVal) return;
     if (!fNext) { fVal.textContent = '--:--'; return; }
     var rem = fNext - Date.now();
-    if (rem <= 0) { fVal.textContent = '🔄'; fVal.style.color = '#4ade80'; return; }
+    if (rem <= 0) { 
+      fVal.textContent = '🔄'; fVal.style.color = '#4ade80'; 
+      if (rem < -15000) {
+        var ms = Date.now(), t30 = 30 * 60000;
+        fNext = Math.ceil(ms / t30) * t30;
+        if(fNext === ms) fNext += t30;
+      }
+      return; 
+    }
     fVal.style.color = '#38bdf8';
     var m = Math.floor(rem / 60000), s = Math.floor((rem % 60000) / 1000);
     fVal.textContent = String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
@@ -3972,7 +3980,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!mVal) return;
     if (!mNext) { mVal.textContent = '--h--:--'; return; }
     var rem = mNext - Date.now();
-    if (rem <= 0) { mVal.textContent = '⚡'; mVal.style.color = '#4ade80'; return; }
+    if (rem <= 0) { 
+      mVal.textContent = '⚡'; mVal.style.color = '#4ade80'; 
+      if (rem < -15000) {
+        var nx = new Date(); nx.setHours(24, 0, 0, 0);
+        mNext = nx.getTime();
+      }
+      return; 
+    }
     mVal.style.color = '#a78bfa';
     var h = Math.floor(rem / 3600000), m = Math.floor((rem % 3600000) / 60000), s = Math.floor((rem % 60000) / 1000);
     mVal.textContent = (h > 0 ? String(h).padStart(2,'0') + 'h' : '') + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
