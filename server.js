@@ -6460,8 +6460,8 @@ setInterval(async () => {
         
         const radius = z.radius || 500;
         
-        // If truck is > 300m away from the zone border, FORCE CLOSE
-        if (dist > radius + 300) {
+        // If truck is > 1500m away from the zone border, FORCE CLOSE
+        if (dist > radius + 1500) {
            const exitMs = (t.lastUpdate && new Date(t.lastUpdate).getTime() > ev.entryTime) 
                           ? new Date(t.lastUpdate).getTime() : Date.now();
            const realDur = Math.max(0, Math.round((exitMs - ev.entryTime) / 60000));
