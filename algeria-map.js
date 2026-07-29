@@ -221,7 +221,7 @@ fetchAddress: function(lat, lng, targetElement) {
                 this.map.resize();
                 this.map.fitBounds(bounds, { padding: 50, duration: 800 });
             }
-        }, 150);
+        }, 450);
         
         this.renderPlayerControls();
     },

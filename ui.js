@@ -5013,6 +5013,11 @@ async runZoneHistoryScan() {
           this.setZoneGrouping('map');
           const mapTabBtn = document.querySelector('[data-tab="byWilaya"]');
           if(mapTabBtn) mapTabBtn.click();
+          // Force Mapbox to recognize its new size after tab switch
+          if(window.AlgeriaMap && window.AlgeriaMap.map) {
+             setTimeout(() => window.AlgeriaMap.map.resize(), 150);
+             setTimeout(() => window.AlgeriaMap.map.resize(), 400);
+          }
       }
       
       const btn = document.getElementById('btnGroupMap');
