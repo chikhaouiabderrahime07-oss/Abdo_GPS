@@ -2313,7 +2313,7 @@ const ZMC = (() => {
         const r1 = await fetch(`${state.base}/api/zone-events/scan-history`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...headers() },
-          body: JSON.stringify({ start: startISO, end: endISO, forceAll: false })
+          body: JSON.stringify({ start: startISO, end: endISO, forceAll: true })
         });
         const d1 = await r1.json();
         if (!r1.ok) throw new Error(d1.error || 'Erreur scan-history');
