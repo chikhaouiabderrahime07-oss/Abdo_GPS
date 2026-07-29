@@ -194,50 +194,6 @@ fetchAddress: function(lat, lng, targetElement) {
             'layout': { 'line-join': 'round', 'line-cap': 'round' },
             'paint': { 'line-color': '#e11d48', 'line-width': 5, 'line-opacity': 0.8 }
         });
-
-        // Add Start Flag (Req #1)
-        const startEl = document.createElement('div');
-        startEl.innerHTML = '<i class="fa-solid fa-flag-checkered"></i>';
-        startEl.style.cssText = "color:#16a34a; font-size:24px; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5)); z-index:5;";
-        this.historyLayers.start = new mapboxgl.Marker(startEl).setLngLat(coords[0]).addTo(this.map);
-
-        // Arrows
-        this.map.addLayer({
-            'id': 'history-route-arrows',
-            'type': 'symbol',
-            'source': 'history-route',
-            'layout': {
-                'symbol-placement': 'line', 'text-field': '▶', 
-                'text-size': 18, 'symbol-spacing': 80, 'text-keep-upright': false
-            },
-            'paint': { 'text-color': '#881337' }
-        });
-
-        // Zoom to fit
-        const bounds = new mapboxgl.LngLatBounds();
-        coords.forEach(c => bounds.extend(c));
-        this.map.fitBounds(bounds, { padding: 50 });
-        
-        this.renderPlayerControls();
-    },
-
-    // 2. Render Player UI (Dashboard + Controls)
-    renderPlayerControls: function() {
-        const wrapper = document.getElementById('map-wrapper');
-        const player = document.createElement('div');
-        player.id = 'historyPlayer';
-        
-        // --- HTML STRUCTURE ---
-        player.innerHTML = `
-            <div class="player-controls-row">
-                <button id="btnPlay" class="player-btn" onclick="AlgeriaMap.togglePlay()">
-                    <i class="fa-solid fa-play"></i>
-                </button>
-                
-                <input type="range" id="timeSlider" min="0" max="${this.historyPoints.length - 1}" value="0" class="player-slider">
-                
-                <div class="speed-control">
-                    <span style="font-size:10px; color:#666; font-weight:bold;">VITESSE</span>
                     <select id="speedSelect" onchange="AlgeriaMap.setSpeed(this.value)" class="player-select">
                         <option value="1">1x (Lent)</option>
                         <option value="5">5x</option>
@@ -295,19 +251,19 @@ fetchAddress: function(lat, lng, targetElement) {
             
             .player-btn {
                 width: 38px; height: 38px; border-radius: 50%; border: none;
-                background: var(--teal); color: white; cursor: pointer; display: flex;
+                background: #3b82f6; color: white; cursor: pointer; display: flex;
                 align-items: center; justify-content: center; font-size: 14px; transition: 0.2s;
             }
             .player-btn:hover { transform: scale(1.1); }
             .player-btn.close-btn { background: #ef4444; margin-left: auto; }
 
-            .player-slider { flex: 1; accent-color: var(--teal); cursor: pointer; height: 6px; }
+            .player-slider { flex: 1; accent-color: #3b82f6; cursor: pointer; height: 6px; }
             
             .speed-control { display: flex; flex-direction: column; gap: 2px; }
             .player-select { padding: 4px; border-radius: 6px; border: 1px solid #ccc; font-size: 11px; font-weight: bold; }
 
             .stats-group { display: flex; gap: 12px; color: #333; font-weight: 600; font-family: monospace; font-size: 13px; }
-            .stat-item i { color: var(--teal); margin-right: 4px; }
+            .stat-item i { color: #3b82f6; margin-right: 4px; }
             
             .filter-group { display: flex; gap: 6px; }
             .filter-btn {

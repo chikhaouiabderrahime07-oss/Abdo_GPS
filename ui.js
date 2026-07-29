@@ -5307,9 +5307,9 @@ async runZoneHistoryScan() {
 
                 // ── 2. Truth: zone event times (not GPS pings) ────────────────
                 const _rawExit   = _meta && (_meta.exitTime || _meta.endISO);
-                const _exitValid = _rawExit && _rawExit !== 'null' && _rawExit !== '';
+                const _exitValid = (_rawExit && _rawExit !== 'null' && _rawExit !== '') || (end && end !== 'null' && end !== '');
                 const _entryDate = (_meta && _meta.startISO) ? new Date(_meta.startISO) : (start ? new Date(start.replace(' ', 'T')) : (points[0] ? new Date(points[0].time) : null));
-                const _exitDate  = _exitValid ? new Date(_rawExit) : (end ? new Date(end.replace(' ', 'T')) : null);
+                const _exitDate  = _exitValid ? new Date(_rawExit || end.replace(' ', 'T')) : null;
                 const _lastGpsMs = points.length ? points[points.length - 1].time : 0;
                 const _isLive    = !_exitValid && _lastGpsMs > 0 && (Date.now() - _lastGpsMs) < 90 * 60 * 1000;
                 const _isTermine = !!_exitValid;
@@ -5331,7 +5331,7 @@ async runZoneHistoryScan() {
                     #histSidebar {
                       position:absolute; bottom:14px; left:50%;
                       transform:translateX(-50%);
-                      width:min(480px,90vw);
+                      width:min(350px,90vw);
                       background:rgba(6,11,24,0.94);
                       border:1px solid rgba(255,255,255,0.1);
                       border-radius:16px; overflow:hidden;
@@ -5411,7 +5411,7 @@ async runZoneHistoryScan() {
                 const _panel = document.createElement('div');
                 _panel.id = 'histSidebar';
                 _panel.innerHTML = `
-                  <div class="hs-header">
+                  <div class="hs-header" id="hsHeaderDraggable" style="cursor: grab;">
                     <div style="display:flex;align-items:center;gap:10px;">
                       <div style="width:38px;height:38px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 12px rgba(99,102,241,.4);">
                         <i class="fa-solid fa-route" style="color:white;font-size:14px;"></i>
@@ -5466,6 +5466,38 @@ async runZoneHistoryScan() {
 
                 const _mw = document.getElementById('map-wrapper');
                 if (_mw) { _mw.style.position = 'relative'; _mw.appendChild(_panel); }
+
+                // Make sidebar draggable
+                const hsHeader = _panel.querySelector('#hsHeaderDraggable');
+                if (hsHeader) {
+                    let isDragging = false, startX, startY, initialLeft, initialTop;
+                    hsHeader.addEventListener('mousedown', (e) => {
+                        isDragging = true;
+                        startX = e.clientX; startY = e.clientY;
+                        const rect = _panel.getBoundingClientRect();
+                        const mwRect = _mw.getBoundingClientRect();
+                        // Disable the transform to allow precise positioning
+                        _panel.style.transform = 'none';
+                        _panel.style.bottom = 'auto';
+                        _panel.style.left = (rect.left - mwRect.left) + 'px';
+                        _panel.style.top = (rect.top - mwRect.top) + 'px';
+                        initialLeft = rect.left - mwRect.left;
+                        initialTop = rect.top - mwRect.top;
+                        hsHeader.style.cursor = 'grabbing';
+                        e.preventDefault();
+                    });
+                    document.addEventListener('mousemove', (e) => {
+                        if (!isDragging) return;
+                        const dx = e.clientX - startX;
+                        const dy = e.clientY - startY;
+                        _panel.style.left = (initialLeft + dx) + 'px';
+                        _panel.style.top = (initialTop + dy) + 'px';
+                    });
+                    document.addEventListener('mouseup', () => {
+                        isDragging = false;
+                        hsHeader.style.cursor = 'grab';
+                    });
+                }
 
                 // ── 7. Live countdown ────────────────────────────────────────────
                 (() => {
