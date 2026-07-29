@@ -6559,7 +6559,7 @@ setInterval(async () => {
           const endB = evB.exitTime || now;
 
           const overlaps = evA.entryTime <= endB && evB.entryTime <= endA;
-          const closeEntries = Math.abs(evA.entryTime - evB.entryTime) < 4 * 3600000;
+          const closeEntries = Math.abs(evA.entryTime - evB.entryTime) < 8 * 3600000;
           const sameDay = new Date(evA.entryTime).toDateString() === new Date(evB.entryTime).toDateString();
 
           if (overlaps || (sameDay && closeEntries)) {
@@ -6571,9 +6571,10 @@ setInterval(async () => {
 
             // Merge best entry/exit into keeper
             const betterEntry = Math.min(keep.entryTime, discard.entryTime);
-            const betterExit  = keep.exitTime && discard.exitTime
-              ? Math.max(keep.exitTime, discard.exitTime)
-              : (keep.exitTime || discard.exitTime || null);
+            // FATAL BUG FIX: If either event is open (null), the merged event MUST remain open (null)
+            const betterExit = (keep.exitTime === null || discard.exitTime === null)
+              ? null
+              : Math.max(keep.exitTime, discard.exitTime);
             const dur = betterExit ? Math.round((betterExit - betterEntry) / 60000) : null;
             await ZoneEvent.findByIdAndUpdate(keep._id, { $set: {
               entryTime: betterEntry, exitTime: betterExit,
