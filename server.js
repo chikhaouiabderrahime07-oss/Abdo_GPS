@@ -3786,7 +3786,10 @@ async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = nu
         let inZone = null;
         for (const loc of allZones) {
           const dist = calculateDistance(pt.lat, pt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
-          if (dist <= (loc.radius || 500)) { inZone = loc; break; }
+          let radius = loc.radius || 500;
+          // STICKY GEOFENCE: If truck is already in this zone, give it a 400m anti-drift buffer
+          if (currentSeg && currentSeg.zone.name === loc.name) radius += 400;
+          if (dist <= radius) { inZone = loc; break; }
         }
 
         if (inZone) {
