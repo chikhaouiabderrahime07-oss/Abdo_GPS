@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -875,33 +875,7 @@
             </div>
         </div>
 
-        <div class="settings-accordion-item" style="border: 1px solid rgba(16,185,129,0.2); background:var(--success-subtle); border-radius:6px; margin-bottom:10px; padding:10px;">
-            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold; color: var(--success);" onclick="ui.loadAutoBackups()">
-                <span><i class="fa-solid fa-clock-rotate-left"></i> Restauration Automatique (30 jours)</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content" style="margin-top:10px;">
-                <p style="font-size:12px; color:var(--text-muted); margin-bottom:15px;">Sélectionnez une sauvegarde automatique et choisissez les modules à restaurer.</p>
-                <div style="display:flex; gap:15px; flex-wrap:wrap; align-items:center;">
-                    <select id="autoBackupSelect" style="flex:1; padding:8px; border-radius:5px; background:var(--bg-surface); border:1px solid var(--border); color:var(--text);">
-                      <option>Chargement...</option>
-                    </select>
-                    
-                    <div style="display:flex; gap:15px; flex-wrap:wrap; font-size:13px; align-items:center; background:var(--bg-surface); padding:8px; border-radius:5px;">
-                        <label style="cursor:pointer"><input type="checkbox" id="rbSettings" value="settings" checked> Paramètres</label>
-                        <label style="cursor:pointer"><input type="checkbox" id="rbTrucks" value="truck_states" checked> Flotte</label>
-                        <label style="cursor:pointer"><input type="checkbox" id="rbRefuels" value="refuels"> Carburant</label>
-                        <label style="cursor:pointer"><input type="checkbox" id="rbMaint" value="maintenance"> Maintenance</label>
-                        <label style="cursor:pointer"><input type="checkbox" id="rbHist" value="history"> Historique</label>
-                        <label style="cursor:pointer"><input type="checkbox" id="rbTrans" value="transportReports"> Rapports</label>
-                    </div>
 
-                    <button class="btn-primary" onclick="ui.triggerSelectiveRestore()" style="background:var(--warning); border:none; padding:8px 15px;">
-                        <i class="fa-solid fa-rotate-left"></i> Restaurer
-                    </button>
-                </div>
-            </div>
-        </div>
 
       </div>
     </div>
@@ -1645,6 +1619,34 @@
             <div class="settings-content" style="margin-top:10px;">
                 <button class="btn-primary" onclick="ui.openRuleEditor()">+ Nouvelle Règle</button>
                 <div id="rulesListContainer" class="rule-cards-container" style="margin-top:10px;"></div>
+            </div>
+        </div>
+
+        <div class="settings-accordion-item" style="border: 1px solid rgba(16,185,129,0.2); background:var(--success-subtle); border-radius:6px; margin-bottom:10px; padding:10px;">
+            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold; color: var(--success);" onclick="ui.loadAutoBackups()">
+                <span><i class="fa-solid fa-clock-rotate-left"></i> Restauration Automatique (30 jours)</span>
+                <i class="fa-solid fa-chevron-down settings-arrow"></i>
+            </div>
+            <div class="settings-content" style="margin-top:10px;">
+                <p style="font-size:12px; color:var(--text-muted); margin-bottom:15px;">Sélectionnez une sauvegarde automatique et choisissez les modules à restaurer.</p>
+                <div style="display:flex; gap:15px; flex-wrap:wrap; align-items:center;">
+                    <select id="autoBackupSelect" style="flex:1; padding:8px; border-radius:5px; background:var(--bg-surface); border:1px solid var(--border); color:var(--text);">
+                      <option>Chargement...</option>
+                    </select>
+                    
+                    <div style="display:flex; gap:15px; flex-wrap:wrap; font-size:13px; align-items:center; background:var(--bg-surface); padding:8px; border-radius:5px;">
+                        <label style="cursor:pointer"><input type="checkbox" id="rbSettings" value="settings" checked> Paramètres</label>
+                        <label style="cursor:pointer"><input type="checkbox" id="rbTrucks" value="truck_states" checked> Flotte</label>
+                        <label style="cursor:pointer"><input type="checkbox" id="rbRefuels" value="refuels"> Carburant</label>
+                        <label style="cursor:pointer"><input type="checkbox" id="rbMaint" value="maintenance"> Maintenance</label>
+                        <label style="cursor:pointer"><input type="checkbox" id="rbHist" value="history"> Historique</label>
+                        <label style="cursor:pointer"><input type="checkbox" id="rbTrans" value="transportReports"> Rapports</label>
+                    </div>
+
+                    <button class="btn-primary" onclick="ui.triggerSelectiveRestore()" style="background:var(--warning); border:none; padding:8px 15px;">
+                        <i class="fa-solid fa-rotate-left"></i> Restaurer
+                    </button>
+                </div>
             </div>
         </div>
 

@@ -613,18 +613,19 @@
           <option value="late">🔴 En retard</option>
         </select>
 
-        <div style="display:flex;align-items:center;gap:4px;">
-          <span style="color:var(--text-3);font-size:11px;font-weight:600;">Entrée:</span>
-          <input type="date" id="sbStart" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
-          <span style="color:var(--text-3);font-size:11px;">→</span>
-          <input type="date" id="sbEnd" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
-        </div>
-
-        <div style="display:flex;align-items:center;gap:4px;">
-          <span style="color:var(--text-3);font-size:11px;font-weight:600;">Sortie:</span>
-          <input type="date" id="sbExitStart" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
-          <span style="color:var(--text-3);font-size:11px;">→</span>
-          <input type="date" id="sbExitEnd" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+        <div id="filterBarDates" style="display:flex;align-items:center;gap:12px;">
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span style="color:var(--text-3);font-size:11px;font-weight:600;">Entrée:</span>
+            <input type="date" id="sbStart" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+            <span style="color:var(--text-3);font-size:11px;">→</span>
+            <input type="date" id="sbEnd" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;">
+            <span style="color:var(--text-3);font-size:11px;font-weight:600;">Sortie:</span>
+            <input type="date" id="sbExitStart" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+            <span style="color:var(--text-3);font-size:11px;">→</span>
+            <input type="date" id="sbExitEnd" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          </div>
         </div>
 
         <button onclick="ZMC.resetFilters()" style="padding:6px 10px;border:none;background:transparent;color:var(--red);font-size:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:4px;margin-left:auto;">
@@ -796,7 +797,7 @@
                   <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('durationMinutes')">Durée <span id="hSort_durationMinutes"></span></th>
                   <th>Arrivée Planifiée</th>
                   <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('engagementMinutes')">Écart Arrivée <span id="hSort_engagementMinutes"></span></th>
-                  <th>Recap Immob.</th><th>Type</th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
+                  <th>Recap Immob.</th><th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('source')">Précision <span id="hSort_source"></span></th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
                 </tr>
               </thead>
               <tbody id="histBody"><tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-3);">Sélectionnez vos filtres puis cliquez Rechercher</td></tr></tbody>
@@ -1339,13 +1340,21 @@ const ZMC = (() => {
   }
 
   // ── TABS ──
-  function switchTab(tab) {
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.top-tab').forEach(n => n.classList.remove('active'));
-    document.getElementById(`tab${tab.charAt(0).toUpperCase()+tab.slice(1)}`)?.classList.add('active');
-    document.querySelector(`.top-tab[data-tab="${tab}"]`)?.classList.add('active');
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab' + tabId.charAt(0).toUpperCase() + tabId.slice(1)).classList.add('active');
     
-    if (tab === 'powerbi') {
+    // Adapt global filter bar visibility
+    const dateFilters = document.getElementById('filterBarDates');
+    if (dateFilters) {
+      if (tabId === 'history') dateFilters.style.display = 'flex';
+      else dateFilters.style.display = 'none';
+    }
+
+    document.querySelectorAll('.top-tab').forEach(n => n.classList.remove('active'));
+    document.querySelector(`.top-tab[data-tab="${tabId}"]`)?.classList.add('active');
+    
+    if (tabId === 'powerbi') {
         const pane = document.querySelector('#tabPowerbi .pane-scroll');
         const hints = document.getElementById('pbHints');
         if (pane && hints && !pane.dataset.scrollBound) {
@@ -1370,13 +1379,13 @@ const ZMC = (() => {
         }
     }
 
-    if (tab === 'fleet') loadFleetData();
-    if (tab === 'operations') loadOperations();
-    if (tab === 'history') loadHistory();
-    if (tab === 'analytics') loadAnalytics();
-    if (tab === 'powerbi') { loadApiKeys(); buildPBUrl(); checkPBFreshness(); }
+    if (tabId === 'fleet') loadFleetData();
+    if (tabId === 'operations') loadOperations();
+    if (tabId === 'history') loadHistory();
+    if (tabId === 'analytics') loadAnalytics();
+    if (tabId === 'powerbi') { loadApiKeys(); buildPBUrl(); checkPBFreshness(); }
     // GPS tab: always refresh fleet data so truck list is up-to-date
-    if (tab === 'gps') {
+    if (tabId === 'gps') {
       loadFleetData().then(() => {
         // If the dropdown is already visible, refresh it now
         const dd = document.getElementById('gpsTrucksDropdown');
@@ -1964,7 +1973,7 @@ const ZMC = (() => {
       const isVerified = e.source === 'vérifié' || e.entryConfirmed;
       const srcBadge = isVerified
         ? '<span class="tag" style="background:rgba(74,222,128,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.3);">✅ Vérifié</span>'
-        : '<span class="tag" style="background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);">⏳ En attente</span>';
+        : '<span class="tag" style="background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);">⏳ Auto</span>';
       const typeBadge = e.operationSource === 'auto' || !e.operationSource ? '<span class="tag gray">Auto</span>' : '<span class="tag blue">Manuel</span>';
 
       const planned = e.plannedArrival ? new Date(e.plannedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
