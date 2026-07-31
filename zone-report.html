@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
@@ -608,21 +608,15 @@
 
         <select id="sbStatus" class="sb-select" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
           <option value="">Tous les statuts</option>
+          <option value="in-zone">🟢 En zone</option>
+          <option value="en-route">🚛 En route</option>
+          <option value="late">🔴 En retard</option>
         </select>
 
-        <div id="filterBarDates" style="display:flex;align-items:center;gap:12px;">
-          <div style="display:flex;align-items:center;gap:4px;">
-            <span style="color:var(--text-3);font-size:11px;font-weight:600;">Entrée:</span>
-            <input type="date" id="sbStart" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
-            <span style="color:var(--text-3);font-size:11px;">→</span>
-            <input type="date" id="sbEnd" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
-          </div>
-          <div style="display:flex;align-items:center;gap:4px;">
-            <span style="color:var(--text-3);font-size:11px;font-weight:600;">Sortie:</span>
-            <input type="date" id="sbExitStart" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
-            <span style="color:var(--text-3);font-size:11px;">→</span>
-            <input type="date" id="sbExitEnd" class="sb-input" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
-          </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <input type="date" id="sbStart" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <span style="color:var(--text-3);font-size:11px;">→</span>
+          <input type="date" id="sbEnd" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
         </div>
 
         <button onclick="ZMC.resetFilters()" style="padding:6px 10px;border:none;background:transparent;color:var(--red);font-size:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:4px;margin-left:auto;">
@@ -690,7 +684,14 @@
             <div class="pane-sub">Camions en zone en ce moment — mise à jour auto toutes les 2 min</div>
           </div>
           <div class="pane-actions">
-
+            <select id="liveZoneFilter" class="sb-select" style="width:auto;min-width:140px;" onchange="ZMC.renderLive()">
+              <option value="">Toutes les zones</option>
+            </select>
+            <select id="liveStatusFilter" class="sb-select" style="width:auto;" onchange="ZMC.renderLive()">
+              <option value="">Tous</option>
+              <option value="long">> 2h en zone</option>
+              <option value="late">> 4h (retard)</option>
+            </select>
             <div id="syncControlBar" style="display:flex;align-items:center;gap:6px;background:var(--bg-3);border-radius:8px;padding:5px 10px;border:1px solid var(--border-1);">
               <i class="fa-solid fa-robot" style="color:var(--teal);font-size:11px;" title="Scan autonome actif"></i>
               <span id="systemStatusBadge" style="color:var(--teal);font-family:monospace;font-size:11px;font-weight:700;min-width:55px;">—</span>
@@ -748,12 +749,19 @@
             <div class="pane-sub">Entrées/sorties de zones • calcul immobilisation • 50 par page</div>
           </div>
           <div class="pane-actions" style="flex-wrap:wrap;gap:6px;">
-
-            <input type="number" id="histMinDur" class="sb-input" style="width:70px;padding:5px 8px;" placeholder="Min min" title="Durée minimum (minutes)">
-            <input type="number" id="histMaxDur" class="sb-input" style="width:70px;padding:5px 8px;" placeholder="Max min" title="Durée maximum (minutes)">
-            <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#4ade80;cursor:pointer;padding:5px 8px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.25);border-radius:6px;" title="Afficher uniquement les événements vérifiés">
-              <input type="checkbox" id="histVerifiedOnly" onchange="ZMC.loadHistory(1)" style="accent-color:#4ade80;"> ✅ Vérifiés seulement
-            </label>
+            <select id="histZoneFilter" class="sb-select" style="width:auto;min-width:130px;">
+              <option value="">Toutes les zones</option>
+            </select>
+            <select id="histTruckFilter" class="sb-select" style="width:auto;min-width:130px;">
+              <option value="">Tous les camions</option>
+            </select>
+            <select id="histStatusFilter" class="sb-select" style="width:auto;">
+              <option value="">Tous</option>
+              <option value="open">En cours</option>
+              <option value="closed">Terminé</option>
+            </select>
+            <input type="date" id="histStart" class="sb-input" style="width:auto;padding:5px 8px;">
+            <input type="date" id="histEnd" class="sb-input" style="width:auto;padding:5px 8px;">
             <!-- Sort order -->
             <select id="histSortOrder" class="sb-select" style="width:auto;" onchange="ZMC.loadHistory(1)" title="Ordre de tri">
               <option value="desc">↓ Plus récent</option>
@@ -769,7 +777,6 @@
             </select>
             <button class="hdr-btn accent" onclick="ZMC.loadHistory(1)"><i class="fa-solid fa-magnifying-glass"></i> Rechercher</button>
             <button class="hdr-btn" onclick="ZMC.exportHistoryCSV()" title="Exporte TOUT le résultat (pas uniquement la page affichée). Par défaut = aujourd hui. Sélectionnez une période pour filtrer."><i class="fa-solid fa-file-arrow-down"></i> Export CSV</button>
-            <button class="hdr-btn" onclick="ZMC.runCorrectifV5()" style="border:1px solid rgba(74,222,128,0.4);color:#4ade80;" title="Normalise tous les anciens événements vers la norme V5 Vérifié (supprime les autos, les glitchs < 15 min et valide les entrées/sorties)"><i class="fa-solid fa-wand-magic-sparkles"></i> Correctif V5</button>
           </div>
         </div>
         <div class="kpi-strip" id="histStats" style="display:none;">
@@ -779,7 +786,6 @@
           <div class="kpi-card"><div class="kpi-val" id="hkpiAvg" style="color:var(--green);">—</div><div class="kpi-label">Durée Moy.</div></div>
           <div class="kpi-card"><div class="kpi-val" id="hkpiTotal" style="color:var(--orange);">—</div><div class="kpi-label">Total Heures</div></div>
           <div class="kpi-card"><div class="kpi-val" id="hkpiRecap" style="color:var(--red);">—</div><div class="kpi-label">Recap Immob. Moy.</div></div>
-          <div class="kpi-card"><div class="kpi-val" id="hkpiVerified" style="color:#4ade80;">—</div><div class="kpi-label">✅ Vérifiés</div></div>
         </div>
         <div class="pane-scroll" style="padding-top:10px;">
           <div class="full-wrap">
@@ -794,7 +800,7 @@
                   <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('durationMinutes')">Durée <span id="hSort_durationMinutes"></span></th>
                   <th>Arrivée Planifiée</th>
                   <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('engagementMinutes')">Écart Arrivée <span id="hSort_engagementMinutes"></span></th>
-                  <th>Recap Immob.</th><th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('source')">Précision <span id="hSort_source"></span></th><th>Source</th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
+                  <th>Recap Immob.</th><th>Type</th><th title="Couche de vérification GPS">Précision</th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
                 </tr>
               </thead>
               <tbody id="histBody"><tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-3);">Sélectionnez vos filtres puis cliquez Rechercher</td></tr></tbody>
@@ -1088,8 +1094,8 @@
                 <div id="gpsTrucksList" style="padding:6px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px;"></div>
               </div>
             </div>
-            <button onclick="ZMC.reloadGPSHistory()" id="reloadGpsBtn" style="padding:10px 24px;font-size:13px;font-weight:700;background:linear-gradient(135deg,#2dd4bf,#0d9488);color:white;border:none;border-radius:8px;cursor:pointer;white-space:nowrap;">
-              <i class="fa-solid fa-satellite-dish"></i> 🚀 Lancer le Scan Radar
+            <button onclick="ZMC.launchGpsRadar()" id="reloadGpsBtn" style="padding:10px 24px;font-size:13px;font-weight:700;background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#111;border:none;border-radius:8px;cursor:pointer;white-space:nowrap;box-shadow:0 0 18px rgba(251,191,36,0.35);transition:all 0.2s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">
+              <i class="fa-solid fa-satellite-dish"></i> Lancer GPS Radar (Layer 5)
             </button>
           </div>
           <!-- Progress + Results -->
@@ -1337,38 +1343,13 @@ const ZMC = (() => {
   }
 
   // ── TABS ──
-  function switchTab(tabId) {
-    document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
-    document.getElementById('tab' + tabId.charAt(0).toUpperCase() + tabId.slice(1)).classList.add('active');
-    
-    // Adapt global filter bar visibility
-    const dateFilters = document.getElementById('filterBarDates');
-    if (dateFilters) {
-      if (tabId === 'history') dateFilters.style.display = 'flex';
-      else dateFilters.style.display = 'none';
-    }
-
-    const statusSelect = document.getElementById('sbStatus');
-    if (statusSelect) {
-      const currentVal = statusSelect.value;
-      if (tabId === 'history') {
-        statusSelect.innerHTML = '<option value="">Tous les statuts</option><option value="open">En cours (en zone)</option><option value="closed">Terminé (sorti)</option>';
-      } else if (tabId === 'operations') {
-        statusSelect.innerHTML = '<option value="">Toutes les opérations</option><option value="active">🟢 En cours</option><option value="pending">⏳ En attente</option><option value="completed">✅ Terminées</option><option value="cancelled">❌ Annulées</option>';
-      } else {
-        statusSelect.innerHTML = '<option value="">Tous les statuts</option><option value="in-zone">🟢 En zone</option><option value="long">⚠️ > 2h en zone</option><option value="late">🔴 > 4h (retard)</option>';
-      }
-      if (Array.from(statusSelect.options).some(opt => opt.value === currentVal)) {
-        statusSelect.value = currentVal;
-      } else {
-        statusSelect.value = '';
-      }
-    }
-
+  function switchTab(tab) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.top-tab').forEach(n => n.classList.remove('active'));
-    document.querySelector(`.top-tab[data-tab="${tabId}"]`)?.classList.add('active');
+    document.getElementById(`tab${tab.charAt(0).toUpperCase()+tab.slice(1)}`)?.classList.add('active');
+    document.querySelector(`.top-tab[data-tab="${tab}"]`)?.classList.add('active');
     
-    if (tabId === 'powerbi') {
+    if (tab === 'powerbi') {
         const pane = document.querySelector('#tabPowerbi .pane-scroll');
         const hints = document.getElementById('pbHints');
         if (pane && hints && !pane.dataset.scrollBound) {
@@ -1393,13 +1374,13 @@ const ZMC = (() => {
         }
     }
 
-    if (tabId === 'fleet') loadFleetData();
-    if (tabId === 'operations') loadOperations();
-    if (tabId === 'history') loadHistory();
-    if (tabId === 'analytics') loadAnalytics();
-    if (tabId === 'powerbi') { loadApiKeys(); buildPBUrl(); checkPBFreshness(); }
+    if (tab === 'fleet') loadFleetData();
+    if (tab === 'operations') loadOperations();
+    if (tab === 'history') loadHistory();
+    if (tab === 'analytics') loadAnalytics();
+    if (tab === 'powerbi') { loadApiKeys(); buildPBUrl(); checkPBFreshness(); }
     // GPS tab: always refresh fleet data so truck list is up-to-date
-    if (tabId === 'gps') {
+    if (tab === 'gps') {
       loadFleetData().then(() => {
         // If the dropdown is already visible, refresh it now
         const dd = document.getElementById('gpsTrucksDropdown');
@@ -1416,8 +1397,6 @@ const ZMC = (() => {
       status: document.getElementById('sbStatus')?.value || '',
       start: document.getElementById('sbStart')?.value || '',
       end: document.getElementById('sbEnd')?.value || '',
-      exitStart: document.getElementById('sbExitStart')?.value || '',
-      exitEnd: document.getElementById('sbExitEnd')?.value || '',
       client: document.getElementById('sbClient')?.value || '',
       finalClient: document.getElementById('sbFinalClient')?.value || ''
     };
@@ -1429,7 +1408,7 @@ const ZMC = (() => {
   }
 
   function resetFilters() {
-    ['sbZone','sbTruck','sbStatus','sbStart','sbEnd','sbExitStart','sbExitEnd','sbClient','sbFinalClient'].forEach(id => {
+    ['sbZone','sbTruck','sbStatus','sbStart','sbEnd','sbClient','sbFinalClient'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -1477,11 +1456,8 @@ const ZMC = (() => {
       data = data.filter(e => e.finalClientId === f.finalClient || e.finalClientName === (state.finalClientMap && state.finalClientMap[f.finalClient]));
     }
     // Inline filters (top bar)
-    const liveZone = state.filters.zone;
-    const liveStatus = state.filters.status;
-    // Note: Live only shows trucks currently in a zone.
-    // If user wants 'long' or 'late', we filter further.
-    // If 'in-zone', we don't need to do anything since data is already filtered below if needed, or by definition they are in a zone.
+    const liveZone = document.getElementById('liveZoneFilter')?.value;
+    const liveStatus = document.getElementById('liveStatusFilter')?.value;
     if (liveZone) data = data.filter(e => e.zoneName === liveZone);
     const now = Date.now();
     if (liveStatus === 'long') data = data.filter(e => (now - new Date(e.entryTime).getTime()) > 2 * 3600000);
@@ -1904,17 +1880,11 @@ const ZMC = (() => {
     tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>';
 
     // Build URL from inline filters (header bar) — local filters only, NO global bar bleed
-    // Read unified global filters directly from state.filters
-    const zone = state.filters.zone;
-    const truckVal = state.filters.truck;
-    const status = state.filters.status;
-    const start = state.filters.start;
-    const end = state.filters.end;
-    const exitStart = state.filters.exitStart;
-    const exitEnd = state.filters.exitEnd;
-    const minDuration   = document.getElementById('histMinDur')?.value || '';
-    const maxDuration   = document.getElementById('histMaxDur')?.value || '';
-    const verifiedOnly  = document.getElementById('histVerifiedOnly')?.checked;
+    const zone = document.getElementById('histZoneFilter')?.value || '';
+    const truckVal = document.getElementById('histTruckFilter')?.value || '';
+    const status = document.getElementById('histStatusFilter')?.value || '';
+    const start = document.getElementById('histStart')?.value || '';
+    const end = document.getElementById('histEnd')?.value || '';
     const limit = parseInt(document.getElementById('histLimit')?.value || '50');
     // Sync sort direction from the dropdown (if user changed it manually)
     const dropSort = document.getElementById('histSortOrder')?.value;
@@ -1933,14 +1903,9 @@ const ZMC = (() => {
         url += `&truck=${encodeURIComponent(truckVal)}`;
       }
     }
-    if (status)      url += `&status=${status}`;
-    if (start)       url += `&entryStart=${new Date(start).toISOString()}`;
-    if (end)         url += `&entryEnd=${new Date(end+'T23:59:59').toISOString()}`;
-    if (exitStart)   url += `&exitStart=${new Date(exitStart).toISOString()}`;
-    if (exitEnd)     url += `&exitEnd=${new Date(exitEnd+'T23:59:59').toISOString()}`;
-    if (minDuration) url += `&minDuration=${minDuration}`;
-    if (maxDuration) url += `&maxDuration=${maxDuration}`;
-    if (verifiedOnly) url += `&verified=true`;
+    if (status) url += `&status=${status}`;
+    if (start) url += `&start=${new Date(start).toISOString()}`;
+    if (end) url += `&end=${new Date(end+'T23:59:59').toISOString()}`;
 
     try {
       const r = await fetch(url, { headers: headers() });
@@ -1970,7 +1935,6 @@ const ZMC = (() => {
     const avgMin = closed.length ? Math.round(totalMin/closed.length) : 0;
     const recapValues = data.filter(e => e.recapImmobilisationMin != null).map(e => e.recapImmobilisationMin);
     const avgRecap = recapValues.length ? Math.round(recapValues.reduce((a,b)=>a+b,0)/recapValues.length) : 0;
-    const verifiedCount = data.filter(e => e.source === 'vérifié' || e.entryConfirmed).length;
     statsBar.style.display='grid';
     document.getElementById('hkpiVisits').textContent = pag?.total || data.length;
     document.getElementById('hkpiTrucks').textContent = new Set(data.map(e=>e.truckName)).size;
@@ -1978,20 +1942,29 @@ const ZMC = (() => {
     document.getElementById('hkpiAvg').textContent = fmtMin(avgMin);
     document.getElementById('hkpiTotal').textContent = `${Math.floor(totalMin/60)}h`;
     document.getElementById('hkpiRecap').textContent = fmtMin(avgRecap);
-    const hkpiVerified = document.getElementById('hkpiVerified');
-    if (hkpiVerified) hkpiVerified.textContent = `${verifiedCount}/${data.length}`;
 
     tbody.innerHTML = data.map(e => {
       const entry = new Date(e.entryTime||e.createdAt);
       const exit = e.exitTime ? new Date(e.exitTime) : null;
       const dur = fmtMin(e.durationMinutes);
       const badge = e.exitTime ? '<span class="tag green">Terminé</span>' : '<span class="tag teal">En cours</span>';
-      const isVerified = e.source === 'vérifié' || e.entryConfirmed;
-      const srcBadge = isVerified
-        ? '<span class="tag" style="background:rgba(74,222,128,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.3);">✅ Vérifié</span>'
-        : '<span class="tag" style="background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);">⏳ Auto</span>';
       const typeBadge = e.operationSource === 'auto' || !e.operationSource ? '<span class="tag gray">Auto</span>' : '<span class="tag blue">Manuel</span>';
-
+      // ── 4-Layer Precision Badge ──────────────────────────────────────────
+      const isVerified = e.source === 'v\u00e9rifi\u00e9' || e.entryConfirmed;
+      let srcBadge;
+      if (!isVerified) {
+        srcBadge = '<span class="tag" style="background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);">&#8987; Auto</span>';
+      } else {
+        const layer = e.verificationLayer || 'fixer-30m';
+        const lm = {
+          'gps-radar': { lbl:'GPS Radar', icon:'&#128752;', bg:'rgba(251,191,36,0.18)', color:'#fbbf24', border:'rgba(251,191,36,0.4)', tip:'GPS Radar — Confiance maximum (Layer 5)' },
+          'midnight':  { lbl:'Minuit',    icon:'&#127769;', bg:'rgba(167,139,250,0.15)',color:'#a78bfa', border:'rgba(167,139,250,0.35)',tip:'Scan nucléaire de minuit (23:59)' },
+          'correctif': { lbl:'Correctif', icon:'&#128296;', bg:'rgba(96,165,250,0.15)', color:'#60a5fa', border:'rgba(96,165,250,0.35)', tip:'Correctif V5 manuel' },
+          'fixer-30m': { lbl:'30 min',   icon:'&#9201;',   bg:'rgba(74,222,128,0.13)', color:'#4ade80', border:'rgba(74,222,128,0.3)',  tip:'Fixer automatique toutes les 30 min' }
+        };
+        const lc = lm[layer] || lm['fixer-30m'];
+        srcBadge = `<span class="tag" style="background:${lc.bg};color:${lc.color};border:1px solid ${lc.border};display:inline-flex;flex-direction:column;align-items:center;gap:1px;padding:3px 8px;line-height:1.3;" title="${lc.tip}"><span style="font-size:11px;font-weight:700;">&#10003; V\u00e9rifi\u00e9</span><span style="font-size:9px;opacity:0.8;">${lc.icon} ${lc.lbl}</span></span>`;
+      }
       const planned = e.plannedArrival ? new Date(e.plannedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
       const diff = e.diffArrivalMin != null ? `<span style="color:${e.diffArrivalMin > 0 ? 'var(--red)' : 'var(--green)'};">${e.diffArrivalMin > 0 ? '+' : ''}${e.diffArrivalMin}m</span>` : '—';
       const recap = fmtMin(e.recapImmobilisationMin);
@@ -2008,9 +1981,8 @@ const ZMC = (() => {
         <td class="mono" style="color:var(--text-3);">${planned}</td>
         <td class="mono">${diff}</td>
         <td class="mono" style="font-weight:800;color:${recapColor};">${recap}</td>
-        <td>${srcBadge}</td>
         <td>${typeBadge}</td>
-
+        <td>${srcBadge}</td>
         <td style="color:var(--purple);font-size:11px;font-weight:600;">${e.operationName||'—'}</td>
         <td>${badge}</td>
         <td style="display:flex;gap:6px;align-items:center;justify-content:flex-end;padding-right:16px;">
@@ -2109,26 +2081,23 @@ const ZMC = (() => {
   }
 
   async function exportHistoryCSV() {
-    const zone   = state.filters.zone;
-    const truck  = state.filters.truck;
-    const status = state.filters.status;
-    const startVal = state.filters.start;
-    const endVal   = state.filters.end;
-    const exitStartVal = state.filters.exitStart;
-    const exitEndVal = state.filters.exitEnd;
+    // Re-fetch ALL records matching active filters — not just the current 50-row page
+    const zone   = document.getElementById('histZoneFilter')?.value || '';
+    const truck  = document.getElementById('histTruckFilter')?.value || '';
+    const status = document.getElementById('histStatusFilter')?.value || '';
+    const startVal = document.getElementById('histStart')?.value || '';
+    const endVal   = document.getElementById('histEnd')?.value   || '';
+    // Default = today when no period selected
+    const today = new Date().toISOString().slice(0,10);
+    const start = startVal || today;
+    const end   = endVal   || today;
 
     let url = `${state.base}/api/zone-events?limit=10000&page=1`;
     if (zone)   url += `&zone=${encodeURIComponent(zone)}`;
     if (truck)  url += `&truck=${encodeURIComponent(truck)}`;
     if (status) url += `&status=${status}`;
-    if (startVal) url += `&entryStart=${startVal}T00:00:00.000Z`;
-    else if (!startVal && !endVal && !exitStartVal && !exitEndVal) {
-      const today = new Date().toISOString().slice(0,10);
-      url += `&entryStart=${today}T00:00:00.000Z`;
-    }
-    if (endVal) url += `&entryEnd=${endVal}T23:59:59.999Z`;
-    if (exitStartVal) url += `&exitStart=${exitStartVal}T00:00:00.000Z`;
-    if (exitEndVal) url += `&exitEnd=${exitEndVal}T23:59:59.999Z`;
+    url += `&start=${new Date(start).toISOString()}`;
+    url += `&end=${new Date(end + 'T23:59:59').toISOString()}`;
 
     const label = (startVal || endVal) ? (start === end ? start : `${start}_${end}`) : "aujourd-hui";
     toast(`📥 Export en cours (${label.replace('_',' → ')})...`, 'info');
@@ -2145,26 +2114,6 @@ const ZMC = (() => {
       downloadCSV(csv, 'historique_' + label);
       toast('✅ ' + all.length + ' enregistrements exportés', 'success');
     } catch(err) { toast('Erreur export: ' + err.message, 'error'); }
-  }
-
-  async function runCorrectifV5() {
-    if (!confirm('Voulez-vous normaliser et valider tout l\'historique vers la norme V5 Vérifié ?\n\n- Supprime les anciens événements "auto" et glitchs (<15 min)\n- Marque les événements existants comme vérifiés\n- Lance la vérification GPS jour par jour sur les événements en cours')) return;
-    toast('🛠️ Lancement du correctif V5 en cours...', 'info');
-    try {
-      const res = await fetch(`${state.base}/api/zone-events/correctif-v5`, {
-        method: 'POST',
-        headers: headers()
-      });
-      const d = await res.json();
-      if (d.success) {
-        toast(`✅ Correctif terminé: ${d.verifiedCount} vérifiés, ${d.deletedAuto} autos supprimés, ${d.deletedGlitches} glitchs supprimés`, 'success');
-        loadHistory(1);
-      } else {
-        toast(`❌ Erreur: ${d.error || 'inconnue'}`, 'error');
-      }
-    } catch(e) {
-      toast(`❌ Erreur réseau: ${e.message}`, 'error');
-    }
   }
 
   async function scanHistory() {
@@ -3759,7 +3708,105 @@ const ZMC = (() => {
     }, 2000);
   });
 
-  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, runCorrectifV5, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey, forceGlobalSync, initializeSystem, refreshSystemStatus, makeSortable, goBack };
+  // ── GPS RADAR LAYER 5 — Ultimate on-demand verification ─────────────────────────────────
+  async function launchGpsRadar() {
+    const btn = document.getElementById('reloadGpsBtn');
+    const start = document.getElementById('gpsStart')?.value;
+    const end   = document.getElementById('gpsEnd')?.value;
+    if (!start || !end) { toast('Sélectionnez une période pour le scan GPS Radar', 'error'); return; }
+
+    const startMs = new Date(start + 'T00:00:00').getTime();
+    const endMs   = new Date(end   + 'T23:59:59').getTime();
+
+    // Collect selected truck deviceIds
+    const checked = [...document.querySelectorAll('.gpsTruckCheck:checked')].map(el => el.value);
+    const deviceIds = checked.length > 0 ? checked : null;
+
+    toast('🛡️ GPS Radar Layer 5 lancé... Scan en cours, résultats dans quelques minutes.', 'info');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Radar en cours...'; }
+
+    try {
+      const r = await fetch(`${state.base}/api/zone-events/gps-radar`, {
+        method:'POST', headers: headers(),
+        body: JSON.stringify({ startMs, endMs, deviceIds })
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'Erreur radar');
+
+      // Show live progress panel
+      const resultsEl = document.getElementById('gpsScanResults');
+      if (resultsEl) {
+        resultsEl.innerHTML = `
+          <div style="background:var(--bg-card);border:1px solid rgba(251,191,36,0.3);border-radius:var(--radius);padding:24px;">
+            <div style="font-size:14px;font-weight:700;color:#fbbf24;margin-bottom:16px;"><i class="fa-solid fa-satellite-dish fa-spin"></i> GPS Radar en cours...</div>
+            <div style="background:var(--bg-3);border-radius:8px;overflow:hidden;height:8px;margin-bottom:16px;">
+              <div id="radarProgressBar" style="height:100%;background:linear-gradient(90deg,#fbbf24,#f59e0b);width:0%;transition:width 0.5s;"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+              <div style="background:var(--bg-3);border-radius:8px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:900;color:var(--teal);" id="rdTotal">—</div><div style="font-size:10px;color:var(--text-3);">Total</div></div>
+              <div style="background:var(--bg-3);border-radius:8px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:900;color:#4ade80;" id="rdConfirmed">—</div><div style="font-size:10px;color:var(--text-3);">Confirmés</div></div>
+              <div style="background:var(--bg-3);border-radius:8px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:900;color:#f87171;" id="rdDeleted">—</div><div style="font-size:10px;color:var(--text-3);">Supprimés</div></div>
+              <div style="background:var(--bg-3);border-radius:8px;padding:12px;text-align:center;"><div style="font-size:20px;font-weight:900;color:#fb923c;" id="rdErrors">—</div><div style="font-size:10px;color:var(--text-3);">Erreurs GPS</div></div>
+            </div>
+          </div>`;
+      }
+
+      // Poll progress every 3 seconds
+      const pollRadar = setInterval(async () => {
+        try {
+          const ps = await fetch(`${state.base}/api/gps-radar/status`, { headers: headers() });
+          const pd = await ps.json();
+          const pct = pd.total > 0 ? Math.round((pd.processed / pd.total) * 100) : 0;
+          const bar = document.getElementById('radarProgressBar');
+          if (bar) bar.style.width = pct + '%';
+          if (document.getElementById('rdTotal'))    document.getElementById('rdTotal').textContent = pd.total || 0;
+          if (document.getElementById('rdConfirmed')) document.getElementById('rdConfirmed').textContent = pd.confirmed || 0;
+          if (document.getElementById('rdDeleted'))   document.getElementById('rdDeleted').textContent = pd.deleted || 0;
+          if (document.getElementById('rdErrors'))    document.getElementById('rdErrors').textContent = pd.errors || 0;
+
+          if (!pd.isRunning && pd.lastResult) {
+            clearInterval(pollRadar);
+            const lr = pd.lastResult;
+            const dur = Math.round((lr.durationMs || 0) / 1000);
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Lancer GPS Radar (Layer 5)'; }
+            if (resultsEl) {
+              resultsEl.innerHTML = `
+                <div style="background:linear-gradient(135deg,rgba(251,191,36,0.12),rgba(245,158,11,0.06));border:1px solid rgba(251,191,36,0.35);border-radius:var(--radius);padding:24px;text-align:center;">
+                  <div style="font-size:28px;margin-bottom:8px;">&#127752;</div>
+                  <div style="font-size:16px;font-weight:800;color:#fbbf24;margin-bottom:4px;">GPS Radar terminé !</div>
+                  <div style="font-size:12px;color:var(--text-3);margin-bottom:16px;">${lr.total} événements analysés en ${dur}s</div>
+                  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:360px;margin:auto;">
+                    <div style="background:rgba(74,222,128,0.12);border-radius:8px;padding:12px;"><div style="font-size:22px;font-weight:900;color:#4ade80;">${lr.confirmed}</div><div style="font-size:10px;color:var(--text-3);">Confirmés [Radar]</div></div>
+                    <div style="background:rgba(248,113,113,0.12);border-radius:8px;padding:12px;"><div style="font-size:22px;font-weight:900;color:#f87171;">${lr.deleted}</div><div style="font-size:10px;color:var(--text-3);">Faux supprimés</div></div>
+                    <div style="background:rgba(251,146,60,0.1);border-radius:8px;padding:12px;"><div style="font-size:22px;font-weight:900;color:#fb923c;">${lr.errors}</div><div style="font-size:10px;color:var(--text-3);">GPS indisponible</div></div>
+                  </div>
+                </div>`;
+            }
+            toast(`✅ GPS Radar: ${lr.confirmed} confirmés, ${lr.deleted} faux supprimés`, 'success');
+            loadHistory(1);
+          }
+        } catch(_) {}
+      }, 3000);
+
+    } catch(e) {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-satellite-dish"></i> Lancer GPS Radar (Layer 5)'; }
+      toast('Erreur GPS Radar: ' + e.message, 'error');
+    }
+  }
+
+  // ── CORRECTIF V5 ──────────────────────────────────────────────────────────────────
+  async function runCorrectifV5() {
+    toast('🛠️ Lancement du correctif V5 multi-layer en cours...', 'info');
+    try {
+      const r = await fetch(`${state.base}/api/zone-events/correctif-v5`, { method:'POST', headers: headers() });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error);
+      toast(`✅ Correctif: ${d.verifiedCount} vérifiés | ${d.deletedAuto} autos supprimés | ${d.deletedGlitches} glitchs | ${d.deepDeleted||0} faux GPS supprimés`, 'success');
+      loadHistory(1);
+    } catch(e) { toast('Erreur correctif: ' + e.message, 'error'); }
+  }
+
+  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, launchGpsRadar, runCorrectifV5, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey, forceGlobalSync, initializeSystem, refreshSystemStatus, makeSortable, goBack };
 })();
 
 // ── BOOTSTRAP ──

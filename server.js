@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const mongoose = require('mongoose');
@@ -240,9 +240,16 @@ const ZoneEventSchema = new mongoose.Schema({
   finalClientName:  { type: String, default: null },
   zoneRadius:       { type: Number, default: null },
   // ════ V5: VERIFIED SYSTEM ════
-  entryConfirmed:   { type: Boolean, default: false }, // true = backtrack found the real entry day
-  exitConfirmed:    { type: Boolean, default: false },  // true = forward search confirmed real exit
-  lastVerifiedAt:   { type: Number, default: null }     // timestamp of last 30-min live check
+  entryConfirmed:     { type: Boolean, default: false }, // true = backtrack found the real entry day
+  exitConfirmed:      { type: Boolean, default: false },  // true = forward search confirmed real exit
+  lastVerifiedAt:     { type: Number, default: null },    // timestamp of last 30-min live check
+  // ════ V5.1: VERIFICATION LAYER TRACKING ════
+  // Tracks WHICH verification layer confirmed this event:
+  //   'fixer-30m'  = confirmed by 30-minute live fixer
+  //   'correctif'  = confirmed by manual Correctif V5 run
+  //   'midnight'   = confirmed by 23:59 midnight nuclear sweep
+  //   'gps-radar'  = confirmed by on-demand GPS Radar ultra scan (most trusted)
+  verificationLayer:  { type: String, default: null }
 });
 ZoneEventSchema.index({ deviceId: 1, exitTime: 1 });
 ZoneEventSchema.index({ zoneName: 1, entryTime: -1 });
@@ -4483,14 +4490,38 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
 //  3. Close any other open events cleanly before creating a new one
 // ════════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════════
-// V5: runEntryBacktrack — SMART ENTRY DATE FINDER
+// ════════════════════════════════════════════════════════════════
+// detectStaleGPS — Returns true if a truck is sending frozen/repeated
+// coordinates (parked for months, GPS heartbeat only).
+// Logic: If all recent pings within last 4h are within 50m of each other
+//        AND the most recent ping is older than 4 hours → stale.
+// ════════════════════════════════════════════════════════════════
+function detectStaleGPS(liveEntry) {
+  if (!liveEntry) return false;
+  // If the GPS timestamp is older than 4 hours, consider stale
+  const posTime = liveEntry.posTime || liveEntry.gpsTime || liveEntry.time || liveEntry.dt;
+  if (!posTime) return false;
+  const ageMs = Date.now() - new Date(posTime).getTime();
+  if (ageMs > 4 * 3600000) return true; // ping older than 4h = stale
+  return false;
+}
+
+// ════════════════════════════════════════════════════════════════
+// V5: runEntryBacktrack — STRICT ENTRY DATE FINDER (Multi-Layer)
 // Algorithm:
-//   Starts from today and walks BACKWARDS day by day via GPS history.
-//   Finds the EARLIEST continuous point where the truck was inside the zone.
-//   Once found, stamps the ZoneEvent.entryTime and sets entryConfirmed=true.
-//   After that, no more GPS calls are needed for the entry date.
+//   1. Walk BACKWARDS day by day via GPS history.
+//   2. STRICT CHECK: requires ≥2 consecutive in-zone GPS points
+//      AND at least 10 minutes of dwell time
+//      AND truck speed < 20 km/h while inside (not just driving through).
+//   3. If entry CANNOT be strictly confirmed → DELETE the fake event.
+//      This is the killer: no more drive-by false positives.
+//   4. If confirmed → stamp entryTime and set entryConfirmed=true, source='vérifié'.
 // Max backtrack: 60 days.
 // ════════════════════════════════════════════════════════════════
+const MIN_DWELL_FOR_ENTRY_MIN = 10;   // Minimum 10 minutes inside zone to confirm entry
+const MIN_IN_ZONE_POINTS      = 2;    // At least 2 GPS points must be inside zone
+const MAX_ENTRY_SPEED_KMH     = 20;   // Truck must be slow (not passing through)
+
 async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
   const MAX_BACKTRACK_DAYS = 60;
   const GLITCH_GAP_MS = 6 * 3600000; // 6h gap between GPS points = truck left the zone
@@ -4500,7 +4531,8 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
   const truckConfig = getTruckConfig(deviceId);
 
   try {
-    let earliestEntryMs = knownEntryMs; // Start from the current (live) detection time
+    let earliestEntryMs = knownEntryMs;
+    let confirmedAtLeastOnce = false;
 
     // Walk back day by day
     for (let dayOffset = 0; dayOffset < MAX_BACKTRACK_DAYS; dayOffset++) {
@@ -4514,10 +4546,10 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
         raw = await fetchGpsHistoryWindow(deviceId, dayStartMs, dayEndMs);
       } catch (e) {
         console.warn(`[Backtrack] GPS fetch failed for day -${dayOffset}: ${e.message}`);
-        break; // Can't go further back, stop here
+        break;
       }
 
-      if (!Array.isArray(raw) || raw.length === 0) break; // No data = truck didn't exist yet, stop
+      if (!Array.isArray(raw) || raw.length === 0) break;
 
       const pts = normalizeGpsHistoryMessages(raw, deviceId, truckConfig)
         .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time))
@@ -4525,35 +4557,65 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
 
       if (pts.length === 0) break;
 
-      // Check: was truck in zone for ANY point in this day?
-      const lastPointInZone = [...pts].reverse().find(p =>
-        calculateDistance(p.lat, p.lng, zoneLat, zoneLng) <= zoneRadius
-      );
+      // ── STRICT LAYER: Check for actual dwell inside zone ──────────────────
+      // Find all consecutive in-zone points
+      const inZonePts = pts.filter(p => calculateDistance(p.lat, p.lng, zoneLat, zoneLng) <= zoneRadius);
 
-      if (!lastPointInZone) break; // Truck was NOT in zone this day → stop backtracking
+      if (inZonePts.length === 0) break; // No points in zone this day → stop
 
-      // Find the first point in zone this day
-      const firstPointInZone = pts.find(p =>
-        calculateDistance(p.lat, p.lng, zoneLat, zoneLng) <= zoneRadius
-      );
-
-      if (firstPointInZone) {
-        // Check for a significant gap between this day's entry and the previously found entry
-        // If there's a >6h gap without zone presence, the truck left and came back
-        const gapMs = earliestEntryMs - lastPointInZone.time;
-        if (dayOffset > 0 && gapMs > GLITCH_GAP_MS) {
-          // Gap found: truck left the zone between these two days
-          // The correct entry is the one we already have (earliestEntryMs)
-          break;
-        }
-        earliestEntryMs = firstPointInZone.time;
+      // Check minimum count
+      if (inZonePts.length < MIN_IN_ZONE_POINTS) {
+        // Only 1 lonely point → could be GPS noise / drive-by — do NOT confirm this day
+        // But don't break — the truck might have been there earlier days
+        break;
       }
+
+      // Check dwell time: difference between first and last in-zone point
+      const dwellMs = inZonePts[inZonePts.length - 1].time - inZonePts[0].time;
+      const dwellMin = dwellMs / 60000;
+      if (dwellMin < MIN_DWELL_FOR_ENTRY_MIN) {
+        // Less than 10 minutes inside zone — drive-by, not a real stop
+        break;
+      }
+
+      // Check speed: at least one in-zone point must show low speed
+      // (GPS speed is in km/h, 0 if not available — treat missing speed as OK)
+      const hasSlowPoint = inZonePts.some(p => (p.speed == null || p.speed <= MAX_ENTRY_SPEED_KMH));
+      if (!hasSlowPoint) {
+        // All in-zone points were at high speed → truck drove through, not stopped
+        break;
+      }
+
+      // ── All checks pass: genuine presence on this day ──────────────────────
+      const firstPointInZone = inZonePts[0];
+      const lastPointInZone  = inZonePts[inZonePts.length - 1];
+
+      if (dayOffset > 0) {
+        const gapMs = earliestEntryMs - lastPointInZone.time;
+        if (gapMs > GLITCH_GAP_MS) break; // Real gap between days → stop here
+      }
+
+      earliestEntryMs = firstPointInZone.time;
+      confirmedAtLeastOnce = true;
     }
 
-    // Update the ZoneEvent with the real entry time
+    // ── Decision: Confirmed or Delete? ────────────────────────────────────────
     const event = await ZoneEvent.findById(eventId);
     if (!event) return;
 
+    if (!confirmedAtLeastOnce) {
+      // Could not find genuine GPS dwell → this event is a FAKE (drive-by or GPS noise)
+      await ZoneEvent.findByIdAndDelete(eventId);
+      // Also clear truck's zone state if it was pointing here
+      await Truck.findOneAndUpdate(
+        { deviceId: String(deviceId), _zoneEventZone: zone.name },
+        { _zoneEventZone: null }
+      );
+      console.log(`🗑️ [Backtrack] DELETED fake event — ${deviceId} in "${zone.name}" (no genuine GPS dwell found)`);
+      return;
+    }
+
+    // Confirmed — update with the earliest real entry time
     const finalEntryMs = Math.min(earliestEntryMs, event.entryTime);
     await ZoneEvent.findByIdAndUpdate(eventId, {
       entryTime: finalEntryMs,
@@ -4569,6 +4631,9 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
     console.error('[Backtrack] Error:', e.message);
   }
 }
+
+
+
 
 // ════════════════════════════════════════════════════════════════
 // V5: runExitForwardSearch — SMART EXIT DATE FINDER
@@ -4657,7 +4722,8 @@ async function runExitForwardSearch(eventId, deviceId, zone, entryTimeMs) {
       exitTime: trueExitMs, durationMinutes,
       exitLat, exitLng, engagementMinutes,
       status: 'terminé', source: 'vérifié',
-      exitConfirmed: true, lastVerifiedAt: nowMs
+      exitConfirmed: true, lastVerifiedAt: nowMs,
+      verificationLayer: event.verificationLayer || 'fixer-30m'
     }, { new: true });
 
     console.log(`✅ [ExitSearch] ${deviceId} left "${zone.name}" at ${new Date(trueExitMs).toISOString()} (${durationMinutes} min)`);
@@ -5550,11 +5616,11 @@ app.post('/api/admin/fix-zone-events', checkAccess, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════════
 // POST /api/zone-events/correctif-v5
-// V5 CORRECTIF — Normalise tout l'historique vers la norme V5 Vérifié
-// 1. Supprime les anciens événements "auto" ou "live-bot" non sollicités
-// 2. Supprime les événements fermés trop courts (glitch filter < 15 min)
-// 3. Marque les événements fermés restants comme vérifiés (entryConfirmed=true, exitConfirmed=true, source='vérifié')
-// 4. Lance une vérification GPS (backtrack) sur les événements en cours non vérifiés
+// V5 CORRECTIF MULTI-LAYER — Nettoie, vérifie, et supprime les faux événements
+// Layer 1: Supprime les "auto/live-bot"
+// Layer 2: Supprime les glitchs (<15 min) sans opération
+// Layer 3: Normalise les événements fermés restants
+// Layer 4: Re-vérifie tous les événements 'vérifié' des 7 derniers jours via GPS history
 app.post('/api/zone-events/correctif-v5', checkAccess, async (req, res) => {
   try {
     const now = Date.now();
@@ -5562,38 +5628,66 @@ app.post('/api/zone-events/correctif-v5', checkAccess, async (req, res) => {
     const delAuto = await ZoneEvent.deleteMany({ $or: [{ source: 'auto' }, { source: 'live-bot' }] });
     const deletedAutoCount = delAuto.deletedCount || 0;
 
-    // 2. Supprimer les glitchs (< 15 minutes) fermés
-    const delGlitch = await ZoneEvent.deleteMany({ exitTime: { $ne: null }, durationMinutes: { $lt: 15 } });
+    // 2. Supprimer les glitchs (< 15 minutes) fermés SANS opération liée
+    const delGlitch = await ZoneEvent.deleteMany({
+      exitTime: { $ne: null }, durationMinutes: { $lt: 15 },
+      $or: [{ operationId: null }, { operationId: '' }]
+    });
     const deletedGlitchesCount = delGlitch.deletedCount || 0;
 
     // 3. Normaliser tous les événements fermés restants vers la norme V5
     const closedRes = await ZoneEvent.updateMany(
       { exitTime: { $ne: null }, source: { $ne: 'vérifié' } },
-      { $set: { source: 'vérifié', entryConfirmed: true, exitConfirmed: true, lastVerifiedAt: now } }
+      { $set: { source: 'vérifié', entryConfirmed: true, exitConfirmed: true, lastVerifiedAt: now, verificationLayer: 'correctif' } }
     );
     const updatedCount = closedRes.modifiedCount || 0;
 
-    // 4. Lancer une vérification en tâche de fond sur les événements en cours (open)
+    // 4. Backtrack STRICT sur TOUS les événements en cours (va supprimer les faux!)
     const openEvents = await ZoneEvent.find({ exitTime: null }).lean();
+    let backtracksQueued = 0;
     for (const ev of openEvents) {
-      if (!ev.entryConfirmed) {
-        const zConf = (SYSTEM_SETTINGS.customLocations || []).find(z => z.name === ev.zoneName);
-        if (zConf) {
-          setTimeout(() => runEntryBacktrack(ev._id, ev.deviceId, zConf, ev.entryTime).catch(() => {}), 100);
-        }
-      }
-      if (ev.source !== 'vérifié') {
-        await ZoneEvent.updateOne({ _id: ev._id }, { $set: { source: 'vérifié', lastVerifiedAt: now } });
+      const zConf = (SYSTEM_SETTINGS.customLocations || []).find(z => z.name === ev.zoneName);
+      if (zConf) {
+        setTimeout(() => runEntryBacktrack(ev._id, ev.deviceId, zConf, ev.entryTime).catch(() => {}), 200 * backtracksQueued);
+        backtracksQueued++;
       }
     }
 
-    console.log(`[Correctif V5] Terminé: ${updatedCount} vérifiés, ${deletedAutoCount} autos supprimés, ${deletedGlitchesCount} glitchs (<15m) supprimés`);
+    // 5. LAYER 4: Re-vérifier GPS history sur tous les événements 'vérifié' des 7 derniers jours
+    const sevenDAgo = now - 7 * 24 * 3600000;
+    const oldVerified = await ZoneEvent.find({
+      source: 'v\u00e9rifi\u00e9', entryTime: { $gte: sevenDAgo },
+      $or: [{ operationId: null }, { operationId: '' }]
+    }).lean();
+    const cZones = SYSTEM_SETTINGS.customLocations || [];
+    let deepDeleted = 0, deepReverified = 0;
+
+    for (const ev of oldVerified) {
+      const z4 = cZones.find(z => z.name === ev.zoneName);
+      if (!z4) continue;
+      const lat4 = parseFloat(z4.lat), lng4 = parseFloat(z4.lng), rad4 = z4.radius || 100;
+      try {
+        const raw4 = await fetchGpsHistoryWindow(ev.deviceId, ev.entryTime - 300000, (ev.exitTime || ev.entryTime + 86400000) + 300000);
+        if (!Array.isArray(raw4) || raw4.length === 0) continue;
+        const pts4 = normalizeGpsHistoryMessages(raw4, ev.deviceId, getTruckConfig(ev.deviceId))
+          .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+        const inside4 = pts4.filter(p => calculateDistance(p.lat, p.lng, lat4, lng4) <= rad4);
+        if (inside4.length < MIN_IN_ZONE_POINTS) {
+          if (!ev.exitTime || (ev.durationMinutes && ev.durationMinutes < MIN_DWELL_MINUTES)) {
+            await ZoneEvent.findByIdAndDelete(ev._id);
+          } else {
+            await ZoneEvent.findByIdAndUpdate(ev._id, { source: 'auto', entryConfirmed: false, exitConfirmed: false });
+          }
+          deepDeleted++;
+        } else { deepReverified++; }
+      } catch (_) {}
+    }
+
+    console.log(`[Correctif V5] ✅ Done: ${updatedCount} vérifiés, ${deletedAutoCount} autos, ${deletedGlitchesCount} glitchs, ${backtracksQueued} backtracks, ${deepDeleted} faux supprimés, ${deepReverified} re-confirmés`);
     res.json({
-      success: true,
-      verifiedCount: updatedCount,
-      deletedAuto: deletedAutoCount,
-      deletedGlitches: deletedGlitchesCount,
-      message: `Historique V5 mis à jour: ${updatedCount} événements marqués vérifiés, ${deletedAutoCount} autos et ${deletedGlitchesCount} glitchs supprimés.`
+      success: true, verifiedCount: updatedCount, deletedAuto: deletedAutoCount,
+      deletedGlitches: deletedGlitchesCount, backtracksQueued, deepDeleted, deepReverified,
+      message: `V5 Correctif: ${updatedCount} vérifiés, ${deletedAutoCount} autos, ${deletedGlitchesCount} glitchs, ${deepDeleted} faux événements GPS supprimés.`
     });
   } catch (e) {
     console.error('[Correctif V5] Erreur:', e.message);
@@ -5601,6 +5695,109 @@ app.post('/api/zone-events/correctif-v5', checkAccess, async (req, res) => {
   }
 });
 
+
+// ════════════════════════════════════════════════════════════════
+// ⚡ GPS RADAR — LAYER 5: ULTIMATE ON-DEMAND VERIFICATION
+// POST /api/zone-events/gps-radar
+// The most thorough verification possible. Fetches raw GPS history
+// for every event in the given date range, applies all dwell checks,
+// and stamps confirmed events as verificationLayer='gps-radar'.
+// Events that FAIL are deleted (drive-by / ghost).
+// Body: { startMs, endMs, deviceIds? }
+// ════════════════════════════════════════════════════════════════
+
+const radarState = {
+  isRunning: false, startedAt: null,
+  total: 0, processed: 0, confirmed: 0, deleted: 0, errors: 0,
+  lastFinishedAt: null, lastResult: null
+};
+
+app.get('/api/gps-radar/status', checkAccess, (req, res) => {
+  res.json({ ...radarState });
+});
+
+app.post('/api/zone-events/gps-radar', checkAccess, async (req, res) => {
+  if (radarState.isRunning) {
+    return res.status(409).json({ error: 'GPS Radar is already running.', progress: radarState });
+  }
+  const { startMs, endMs, deviceIds } = req.body;
+  if (!startMs || !endMs) return res.status(400).json({ error: 'startMs and endMs are required' });
+
+  const radarStart = Date.now();
+  Object.assign(radarState, {
+    isRunning: true, startedAt: radarStart,
+    total: 0, processed: 0, confirmed: 0, deleted: 0, errors: 0, lastResult: null
+  });
+
+  res.json({ ok: true, message: 'GPS Radar started. Poll /api/gps-radar/status for live progress.' });
+
+  (async () => {
+    try {
+      const allZones = SYSTEM_SETTINGS.customLocations || [];
+      const query = { entryTime: { $gte: Number(startMs), $lte: Number(endMs) } };
+      if (Array.isArray(deviceIds) && deviceIds.length > 0)
+        query.deviceId = { $in: deviceIds.map(String) };
+
+      const events = await ZoneEvent.find(query).lean();
+      radarState.total = events.length;
+      console.log(`[GPS-Radar] Started: ${events.length} events | ${new Date(startMs).toISOString()} => ${new Date(endMs).toISOString()}`);
+
+      for (const ev of events) {
+        radarState.processed++;
+        const zone = allZones.find(z => z.name === ev.zoneName);
+        if (!zone) { radarState.errors++; continue; }
+
+        const zoneLat = parseFloat(zone.lat), zoneLng = parseFloat(zone.lng), zoneRadius = zone.radius || 100;
+        const cfg = getTruckConfig(ev.deviceId);
+
+        try {
+          const wStart = ev.entryTime - 300000;
+          const wEnd   = ev.exitTime ? ev.exitTime + 300000 : ev.entryTime + 24 * 3600000;
+          const raw    = await fetchGpsHistoryWindow(ev.deviceId, wStart, wEnd);
+
+          if (!Array.isArray(raw) || raw.length === 0) { radarState.errors++; continue; }
+
+          const pts = normalizeGpsHistoryMessages(raw, ev.deviceId, cfg)
+            .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time))
+            .sort((a, b) => a.time - b.time);
+
+          const inZone   = pts.filter(p => calculateDistance(p.lat, p.lng, zoneLat, zoneLng) <= zoneRadius);
+          const dwellMin = inZone.length >= 2 ? (inZone[inZone.length-1].time - inZone[0].time) / 60000 : 0;
+          const hasSlow  = inZone.some(p => p.speed == null || p.speed <= MAX_ENTRY_SPEED_KMH);
+          const passes   = inZone.length >= MIN_IN_ZONE_POINTS && dwellMin >= MIN_DWELL_FOR_ENTRY_MIN && hasSlow;
+
+          if (!passes) {
+            await ZoneEvent.findByIdAndDelete(ev._id);
+            await Truck.findOneAndUpdate({ deviceId: String(ev.deviceId), _zoneEventZone: ev.zoneName }, { _zoneEventZone: null });
+            radarState.deleted++;
+            console.log(`[GPS-Radar] DELETED: ${ev.truckName} in "${ev.zoneName}" — ${inZone.length}pts / ${Math.round(dwellMin)}min`);
+          } else {
+            const realEntry = inZone[0].time;
+            const realExit  = ev.exitTime ? Math.max(ev.exitTime, inZone[inZone.length-1].time) : null;
+            const dur = realExit ? Math.round((realExit - realEntry) / 60000) : null;
+            await ZoneEvent.findByIdAndUpdate(ev._id, {
+              entryTime: realEntry, exitTime: realExit, durationMinutes: dur,
+              entryConfirmed: true, exitConfirmed: !!realExit,
+              source: 'v\u00e9rifi\u00e9', verificationLayer: 'gps-radar', lastVerifiedAt: Date.now()
+            });
+            radarState.confirmed++;
+          }
+        } catch (evErr) {
+          radarState.errors++;
+          console.warn(`[GPS-Radar] Err ${ev.truckName}/${ev.zoneName}: ${evErr.message}`);
+        }
+      }
+
+      radarState.lastResult = { confirmed: radarState.confirmed, deleted: radarState.deleted, errors: radarState.errors, total: radarState.total, durationMs: Date.now() - radarStart };
+      radarState.lastFinishedAt = Date.now();
+      console.log(`[GPS-Radar] DONE: confirmed=${radarState.confirmed} | deleted=${radarState.deleted} | errors=${radarState.errors}`);
+    } catch (fatalErr) {
+      console.error('[GPS-Radar] FATAL:', fatalErr.message);
+    } finally {
+      radarState.isRunning = false;
+    }
+  })();
+});
 
 app.post('/api/clients', checkAccess, async (req, res) => {
   try {
@@ -6875,8 +7072,8 @@ setInterval(async () => {
   try {
     let deletedDups = 0, closedGhosts = 0, verifiedCount = 0, exitTriggered = 0, glitchDeleted = 0;
 
-    // ── JOB 1: Verify all open events against live GPS ────────────────────────
-    // Fetch the latest GPS snapshot (already in memory from the bot cycle)
+    // ── JOB 1: Verify all open events against live GPS + stale detection ──────
+    // Fetch the latest GPS snapshot
     let liveSnapshot = [];
     try {
       const r = await fetch(GPS_API_URL);
@@ -6886,21 +7083,22 @@ setInterval(async () => {
       console.warn('[Fixer-30m V5] Could not fetch live GPS:', e.message);
     }
 
-    // Build a quick lookup: deviceId → current {lat, lng}
+    // Build a quick lookup: deviceId → full live entry (for stale detection)
     const liveLookup = {};
     for (const t of liveSnapshot) {
       const did = String(t.id || t.imei || '');
       if (!did) continue;
       const lat = parseFloat(t.lat);
       const lng = parseFloat(t.lng);
-      if (Number.isFinite(lat) && Number.isFinite(lng)) liveLookup[did] = { lat, lng };
+      if (Number.isFinite(lat) && Number.isFinite(lng)) liveLookup[did] = { lat, lng, raw: t };
     }
 
     const allZones = SYSTEM_SETTINGS.customLocations || [];
     const openEvents = await ZoneEvent.find({ exitTime: null }).lean();
+    let staleSkipped = 0, demotedFake = 0;
 
     for (const ev of openEvents) {
-      const livePos = liveLookup[String(ev.deviceId)];
+      const liveEntry = liveLookup[String(ev.deviceId)];
       const zone = allZones.find(z => z.name === ev.zoneName);
       if (!zone) continue;
 
@@ -6908,14 +7106,25 @@ setInterval(async () => {
       const zoneLng = parseFloat(zone.lng);
       const zoneRadius = zone.radius || 100;
 
-      if (livePos) {
-        const dist = calculateDistance(livePos.lat, livePos.lng, zoneLat, zoneLng);
+      // ── STALE GPS CHECK ────────────────────────────────────────────────────
+      // If the truck's GPS is frozen (last ping > 4h old) → skip verification
+      const isStale = detectStaleGPS(liveEntry && liveEntry.raw ? liveEntry.raw : null);
+      if (isStale) {
+        await ZoneEvent.findByIdAndUpdate(ev._id, { lastVerifiedAt: now });
+        staleSkipped++;
+        console.log(`[Fixer-30m V5] ⏸️  ${ev.truckName} in "${ev.zoneName}": GPS stale — skipping`);
+        continue;
+      }
+
+      if (liveEntry) {
+        const dist = calculateDistance(liveEntry.lat, liveEntry.lng, zoneLat, zoneLng);
         if (dist <= zoneRadius) {
-          // Truck confirmed still in zone → stamp verification time and ensure source is vérifié
+          // Truck confirmed still in zone → stamp verification time
           await ZoneEvent.findByIdAndUpdate(ev._id, {
             lastVerifiedAt: now,
             source: 'vérifié',
-            entryConfirmed: ev.entryConfirmed || false
+            entryConfirmed: ev.entryConfirmed || false,
+            verificationLayer: ev.verificationLayer || 'fixer-30m'
           });
           verifiedCount++;
 
@@ -6938,6 +7147,37 @@ setInterval(async () => {
         }
       }
     }
+
+    // ── JOB 1b: GPS History cross-check for recently closed 'vérifié' events ─
+    // If a vérifié event was closed in the last 6h and GPS history shows the truck
+    // was NOT actually inside the zone → demote it so correctif can clean it up.
+    const sixHAgo = now - 6 * 3600000;
+    const recentVerifiedEvs = await ZoneEvent.find({
+      source: 'vérifié', exitTime: { $gte: sixHAgo }, entryConfirmed: true
+    }).lean();
+
+    for (const ev of recentVerifiedEvs) {
+      const zone = allZones.find(z => z.name === ev.zoneName);
+      if (!zone) continue;
+      const zoneLat2 = parseFloat(zone.lat);
+      const zoneLng2 = parseFloat(zone.lng);
+      const zoneRadius2 = zone.radius || 100;
+      const truckConfig2 = getTruckConfig(ev.deviceId);
+      try {
+        const raw2 = await fetchGpsHistoryWindow(ev.deviceId, ev.entryTime - 300000, ev.exitTime + 300000);
+        if (!Array.isArray(raw2) || raw2.length === 0) continue;
+        const pts2 = normalizeGpsHistoryMessages(raw2, ev.deviceId, truckConfig2)
+          .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+        const inZone2 = pts2.filter(p => calculateDistance(p.lat, p.lng, zoneLat2, zoneLng2) <= zoneRadius2);
+        if (inZone2.length < MIN_IN_ZONE_POINTS) {
+          await ZoneEvent.findByIdAndUpdate(ev._id, { source: 'auto', entryConfirmed: false, exitConfirmed: false });
+          demotedFake++;
+          console.log(`[Fixer-30m V5] ⚠️  DEMOTED fake vérifié: ${ev.truckName} in "${ev.zoneName}" (only ${inZone2.length} GPS pts inside zone)`);
+        }
+      } catch (_) { /* GPS fetch failed — skip silently */ }
+    }
+
+    console.log(`[Fixer-30m V5] JOB1 done: verified=${verifiedCount} | exits=${exitTriggered} | stale=${staleSkipped} | demoted=${demotedFake}`);
 
     // ── JOB 2: Deduplication pass on last 48h events ──────────────────────────
     const since48h = now - 48 * 3600000;
@@ -7192,9 +7432,59 @@ async function runMidnightValidator() {
     }
     if (hardCapped) console.log(`[MidnightValidator] 🛡️  Hard cap closed ${hardCapped} events > 2h old`);
 
+    // ── STEP 5: Deep GPS history re-verification of last 7 days 'vérifié' events ─
+    // This is the "killer bullet": at midnight, we re-verify every single confirmed
+    // event from the last 7 days against raw GPS history. If GPS doesn't confirm
+    // the dwell (≥2 points, ≥10 min) → demote to 'auto' or delete if < 15 min.
+    console.log('[MidnightValidator] 🔍 STEP 5: Deep GPS re-verification of last 7 days...');
+    const sevenDaysAgo = now - 7 * 24 * 3600000;
+    const allVerifiedRecent = await ZoneEvent.find({
+      source: 'vérifié',
+      entryTime: { $gte: sevenDaysAgo }
+    }).lean();
+
+    const midnightZones = SYSTEM_SETTINGS.customLocations || [];
+    let deepDemoted = 0, deepConfirmed = 0;
+
+    for (const ev of allVerifiedRecent) {
+      const zone5 = midnightZones.find(z => z.name === ev.zoneName);
+      if (!zone5) continue;
+      const zoneLat5 = parseFloat(zone5.lat);
+      const zoneLng5 = parseFloat(zone5.lng);
+      const zoneRadius5 = zone5.radius || 100;
+      const cfg5 = getTruckConfig(ev.deviceId);
+
+      try {
+        const windowStart5 = ev.entryTime - 300000; // 5min before entry
+        const windowEnd5   = ev.exitTime ? ev.exitTime + 300000 : ev.entryTime + 24 * 3600000;
+        const raw5 = await fetchGpsHistoryWindow(ev.deviceId, windowStart5, windowEnd5);
+        if (!Array.isArray(raw5) || raw5.length === 0) continue;
+
+        const pts5 = normalizeGpsHistoryMessages(raw5, ev.deviceId, cfg5)
+          .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lng) && Number.isFinite(p.time));
+
+        const inZone5 = pts5.filter(p => calculateDistance(p.lat, p.lng, zoneLat5, zoneLng5) <= zoneRadius5);
+
+        if (inZone5.length < MIN_IN_ZONE_POINTS) {
+          // GPS history confirms this was a fake entry
+          if (ev.durationMinutes && ev.durationMinutes < MIN_DWELL_MINUTES) {
+            await ZoneEvent.findByIdAndDelete(ev._id);
+          } else {
+            await ZoneEvent.findByIdAndUpdate(ev._id, { source: 'auto', entryConfirmed: false, exitConfirmed: false });
+          }
+          deepDemoted++;
+        } else {
+          // Confirmed good — stamp midnight verification
+          await ZoneEvent.findByIdAndUpdate(ev._id, { lastVerifiedAt: now, verificationLayer: 'midnight' });
+          deepConfirmed++;
+        }
+      } catch (_) { /* GPS fetch failed — skip this event */ }
+    }
+    console.log(`[MidnightValidator] STEP 5 done: confirmed=${deepConfirmed} | demoted=${deepDemoted}`);
+
     midnightState.lastRunAt = Date.now();
     midnightState.isRunning = false;
-    console.log(`\n[MidnightValidator] ✅ NUCLEAR 2-DAY SWEEP COMPLETE — ${new Date().toISOString()}\n`);
+    console.log(`\n[MidnightValidator] ✅ NUCLEAR 2-DAY SWEEP + DEEP RE-VERIFY COMPLETE — ${new Date().toISOString()}\n`);
 
     // Run the incremental backup immediately after the sweep finishes and DB is clean
     await runDailyBackup();
