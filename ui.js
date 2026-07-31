@@ -5913,10 +5913,29 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   }
 
 
-  // NEW: Download FULL Backup from SERVER
-  downloadServerBackup() {
-      const backupUrl = `${FLEET_CONFIG.API.baseUrl}/api/backup/download`;
-      window.open(backupUrl, '_blank');
+  async downloadServerBackup() {
+      try {
+          const btn = document.getElementById('exportJSONBtn');
+          if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Chargement...';
+          
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backup/download`, {
+              headers: { 'x-access-code': localStorage.getItem('fleetToken') }
+          });
+          if (!res.ok) throw new Error('Access Denied');
+          const blob = await res.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.style.display = 'none';
+          a.href = url;
+          a.download = `Backup_Complet_${new Date().toISOString().slice(0,10)}.json`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          
+          if(btn) btn.innerHTML = '<i class="fa-solid fa-database"></i> Backup Complet (JSON)';
+      } catch (err) {
+          alert("Erreur de téléchargement du backup: " + err.message);
+      }
   }
 
   // NEW: Restore Backup to Server
@@ -5972,7 +5991,9 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   // NEW: Load Auto Backups List
   async loadAutoBackups() {
       try {
-          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backups/list`);
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backups/list`, {
+              headers: { 'x-access-code': localStorage.getItem('fleetToken') }
+          });
           const files = await res.json();
           const select = document.getElementById('autoBackupSelect');
           if (!select) return;
@@ -6016,7 +6037,10 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       try {
           const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backups/restore-selective`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 
+                'Content-Type': 'application/json',
+                'x-access-code': localStorage.getItem('fleetToken')
+              },
               body: JSON.stringify({ filename, modules })
           });
           
@@ -10019,6 +10043,9 @@ exportMaintenanceCSV() {
         if (entryData.date) {
           const dateEl = document.getElementById('modalMaintDate');
           if (dateEl) {
+            let sourceBadge = (ev.source === 'vérifié' || ev.entryConfirmed) 
+                ? `<span class="badge badge-verified"><i class="fa-solid fa-check-circle"></i> Vérifié</span>`
+                : `<span class="badge badge-auto" style="background:rgba(245,158,11,0.15);color:#d97706;"><i class="fa-solid fa-robot"></i> Auto</span>`;
             const d = new Date(entryData.date);
             d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
             dateEl.value = d.toISOString().slice(0, 16);

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
@@ -608,9 +608,6 @@
 
         <select id="sbStatus" class="sb-select" onchange="ZMC.applyFilters()" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
           <option value="">Tous les statuts</option>
-          <option value="in-zone">🟢 En zone</option>
-          <option value="en-route">🚛 En route</option>
-          <option value="late">🔴 En retard</option>
         </select>
 
         <div id="filterBarDates" style="display:flex;align-items:center;gap:12px;">
@@ -797,7 +794,7 @@
                   <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('durationMinutes')">Durée <span id="hSort_durationMinutes"></span></th>
                   <th>Arrivée Planifiée</th>
                   <th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('engagementMinutes')">Écart Arrivée <span id="hSort_engagementMinutes"></span></th>
-                  <th>Recap Immob.</th><th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('source')">Précision <span id="hSort_source"></span></th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
+                  <th>Recap Immob.</th><th style="cursor:pointer;user-select:none;white-space:nowrap;" title="Cliquer pour trier" onclick="ZMC.histSortBy('source')">Précision <span id="hSort_source"></span></th><th>Source</th><th>Opération</th><th>Statut</th><th style="width:80px;"></th>
                 </tr>
               </thead>
               <tbody id="histBody"><tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-3);">Sélectionnez vos filtres puis cliquez Rechercher</td></tr></tbody>
@@ -1351,6 +1348,23 @@ const ZMC = (() => {
       else dateFilters.style.display = 'none';
     }
 
+    const statusSelect = document.getElementById('sbStatus');
+    if (statusSelect) {
+      const currentVal = statusSelect.value;
+      if (tabId === 'history') {
+        statusSelect.innerHTML = '<option value="">Tous les statuts</option><option value="open">En cours (en zone)</option><option value="closed">Terminé (sorti)</option>';
+      } else if (tabId === 'operations') {
+        statusSelect.innerHTML = '<option value="">Toutes les opérations</option><option value="active">🟢 En cours</option><option value="pending">⏳ En attente</option><option value="completed">✅ Terminées</option><option value="cancelled">❌ Annulées</option>';
+      } else {
+        statusSelect.innerHTML = '<option value="">Tous les statuts</option><option value="in-zone">🟢 En zone</option><option value="long">⚠️ > 2h en zone</option><option value="late">🔴 > 4h (retard)</option>';
+      }
+      if (Array.from(statusSelect.options).some(opt => opt.value === currentVal)) {
+        statusSelect.value = currentVal;
+      } else {
+        statusSelect.value = '';
+      }
+    }
+
     document.querySelectorAll('.top-tab').forEach(n => n.classList.remove('active'));
     document.querySelector(`.top-tab[data-tab="${tabId}"]`)?.classList.add('active');
     
@@ -1463,9 +1477,11 @@ const ZMC = (() => {
       data = data.filter(e => e.finalClientId === f.finalClient || e.finalClientName === (state.finalClientMap && state.finalClientMap[f.finalClient]));
     }
     // Inline filters (top bar)
-    // Apply filters from global state
     const liveZone = state.filters.zone;
     const liveStatus = state.filters.status;
+    // Note: Live only shows trucks currently in a zone.
+    // If user wants 'long' or 'late', we filter further.
+    // If 'in-zone', we don't need to do anything since data is already filtered below if needed, or by definition they are in a zone.
     if (liveZone) data = data.filter(e => e.zoneName === liveZone);
     const now = Date.now();
     if (liveStatus === 'long') data = data.filter(e => (now - new Date(e.entryTime).getTime()) > 2 * 3600000);
