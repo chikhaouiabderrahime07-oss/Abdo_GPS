@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 🔒 GATEKEEPER INTERCEPTOR (CORS-Safe — Fixed for Mapbox)
  * Automatically injects the Access Code into every API request.
  * CRITICAL: Only injects into same-origin requests, NEVER into external APIs
@@ -6022,7 +6022,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
           
           const result = await res.json();
           if (res.ok) {
-              alert('✅ Restauration sélective réussie ! La page va s\\'actualiser.');
+              alert("✅ Restauration sélective réussie ! La page va s'actualiser.");
               location.reload();
           } else {
               alert('❌ Erreur: ' + (result.error || 'Erreur inconnue'));
