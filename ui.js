@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 🔒 GATEKEEPER INTERCEPTOR (CORS-Safe — Fixed for Mapbox)
  * Automatically injects the Access Code into every API request.
  * CRITICAL: Only injects into same-origin requests, NEVER into external APIs
@@ -3263,7 +3263,7 @@ exportRefuelCSV() {
     clients.forEach(cl => {
       let cSite = locs.find(l => l.type === 'client' && (l.clientId === cl.id || l.name === cl.name));
       if (!cSite) {
-        cSite = { id: 'zone_' + Date.now() + '_' + Math.floor(Math.random()*9999), name: cl.name, type: 'client', clientId: cl.id, color: cl.color || '#3b82f6', lat: 0, lng: 0, radius: 500 };
+        cSite = { id: 'zone_' + Date.now() + '_' + Math.floor(Math.random()*9999), name: cl.name, type: 'client', clientId: cl.id, color: cl.color || '#3b82f6', lat: 0, lng: 0, radius: 100 };
         locs.push(cSite);
         needsSave = true;
       } else if (!cSite.clientId) { cSite.clientId = cl.id; needsSave = true; }
@@ -3736,7 +3736,7 @@ exportRefuelCSV() {
   openZoneClientModal(index) {
     const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
     const isNew = (index === null || index === undefined || index === 'null');
-    const loc = isNew ? { name: '', type: 'other', lat: '', lng: '', radius: 500, color: '#3b82f6', icon: '' } : locs[index];
+    const loc = isNew ? { name: '', type: 'other', lat: '', lng: '', radius: 100, color: '#3b82f6', icon: '' } : locs[index];
     if (!loc) return;
     const clients = FLEET_CONFIG.CLIENTS || [];
     const TC = {
@@ -4441,20 +4441,30 @@ async loadZoneHistory() {
   if (!container) return;
   container.innerHTML = '<div class="zr-empty">⏳ Chargement...</div>';
 
-  const zone = document.getElementById('zrFilterZone')?.value || '';
-  const truck = document.getElementById('zrFilterTruck')?.value || '';
-  const start = document.getElementById('zrFilterStart')?.value || '';
-  const end = document.getElementById('zrFilterEnd')?.value || '';
+  const zone        = document.getElementById('zrFilterZone')?.value || '';
+  const truck       = document.getElementById('zrFilterTruck')?.value || '';
+  const start       = document.getElementById('zrFilterStart')?.value || '';
+  const end         = document.getElementById('zrFilterEnd')?.value || '';
+  const exitStart   = document.getElementById('zrFilterExitStart')?.value || '';
+  const exitEnd     = document.getElementById('zrFilterExitEnd')?.value || '';
+  const minDuration = document.getElementById('zrFilterMinDur')?.value || '';
+  const maxDuration = document.getElementById('zrFilterMaxDur')?.value || '';
+  const verifiedOnly = document.getElementById('zrFilterVerified')?.checked;
 
   let url = `${FLEET_CONFIG.API.baseUrl}/api/zone-events?limit=2000`;
-  if (zone) url += `&zone=${encodeURIComponent(zone)}`;
-  if (truck) url += `&truck=${encodeURIComponent(truck)}`;
-  if (start) url += `&start=${new Date(start).toISOString()}`;
-  if (end) url += `&end=${new Date(end).toISOString()}`;
+  if (zone)        url += `&zone=${encodeURIComponent(zone)}`;
+  if (truck)       url += `&truck=${encodeURIComponent(truck)}`;
+  if (start)       url += `&entryStart=${new Date(start).toISOString()}`;
+  if (end)         url += `&entryEnd=${new Date(end + 'T23:59:59').toISOString()}`;
+  if (exitStart)   url += `&exitStart=${new Date(exitStart).toISOString()}`;
+  if (exitEnd)     url += `&exitEnd=${new Date(exitEnd + 'T23:59:59').toISOString()}`;
+  if (minDuration) url += `&minDuration=${minDuration}`;
+  if (maxDuration) url += `&maxDuration=${maxDuration}`;
+  if (verifiedOnly) url += `&verified=true`;
 
   try {
-    const res = await fetch(url, { headers: { 'x-access-code': this.currentCode } });
-    const raw = await res.json();
+    const res  = await fetch(url, { headers: { 'x-access-code': this.currentCode } });
+    const raw  = await res.json();
     const data = Array.isArray(raw) ? raw : (raw && raw.data ? raw.data : []);
     this._zoneData = data;
 
@@ -4464,45 +4474,51 @@ async loadZoneHistory() {
       return;
     }
 
-    // Stats
-    const closed = data.filter(e => e.status === 'closed');
-    const avgDur = closed.length ? Math.round(closed.reduce((s,e) => s + (e.durationMinutes||0), 0) / closed.length) : 0;
+    // Stats bar
+    const closed   = data.filter(e => e.status === 'closed');
+    const verified = data.filter(e => e.source === 'vérifié' || e.entryConfirmed);
+    const avgDur   = closed.length ? Math.round(closed.reduce((s,e) => s + (e.durationMinutes||0), 0) / closed.length) : 0;
     if (statsBar) {
       statsBar.style.display = 'grid';
       statsBar.innerHTML = [
-        { val: data.length, label: 'Visites', color: '#818cf8' },
-        { val: new Set(data.map(e=>e.truckName)).size, label: 'Camions', color: '#38bdf8' },
-        { val: new Set(data.map(e=>e.zoneName)).size, label: 'Zones', color: '#fb923c' },
-        { val: avgDur + ' min', label: 'Durée Moy.', color: '#4ade80' }
+        { val: data.length,                                 label: 'Visites',    color: '#818cf8' },
+        { val: new Set(data.map(e=>e.truckName)).size,      label: 'Camions',    color: '#38bdf8' },
+        { val: new Set(data.map(e=>e.zoneName)).size,       label: 'Zones',      color: '#fb923c' },
+        { val: avgDur + ' min',                             label: 'Durée Moy.', color: '#4ade80' },
+        { val: `${verified.length}/${data.length}`,         label: 'Vérifiés',   color: '#4ade80' }
       ].map(s => `<div class="zr-stat"><div class="zr-stat-val" style="color:${s.color};">${s.val}</div><div class="zr-stat-label">${s.label}</div></div>`).join('');
     }
 
     // Table
     container.innerHTML = `<table class="zr-table">
-      <thead><tr><th>Date</th><th>Camion</th><th>Zone</th><th>Entrée</th><th>Sortie</th><th>Durée</th><th>Statut</th></tr></thead>
+      <thead><tr>
+        <th>Date Entrée</th><th>Camion</th><th>Zone</th>
+        <th>Heure Entrée</th><th>Date/Heure Sortie</th>
+        <th>Durée</th><th>Statut</th><th>Source</th><th>Voir</th>
+      </tr></thead>
       <tbody>${data.map(e => {
-        const dt = new Date(e.entryTime);
+        const entryDt = new Date(e.entryTime);
+        const exitDt  = e.exitTime ? new Date(e.exitTime) : null;
         const durH = Math.floor((e.durationMinutes||0)/60);
         const durM = (e.durationMinutes||0)%60;
-        const dur = e.durationMinutes != null ? (durH > 0 ? `${durH}h ${durM}m` : `${durM}m`) : '—';
-        const badge = e.status === 'open'
+        const dur  = e.durationMinutes != null ? (durH > 0 ? `${durH}h ${durM}m` : `${durM}m`) : '—';
+        const statusBadge = e.status === 'open'
           ? `<span class="zr-op-status arrived">En cours</span>`
           : `<span class="zr-op-status completed">Terminé</span>`;
-        const eJson = JSON.stringify({
-          deviceId: e.deviceId, truckName: e.truckName, zoneName: e.zoneName,
-          entryLat: e.entryLat, entryLng: e.entryLng, exitLat: e.exitLat, exitLng: e.exitLng,
-          entryTime: e.entryTime, exitTime: e.exitTime, durationMinutes: e.durationMinutes,
-          recapImmobilisationMin: e.recapImmobilisationMin, clientName: e.clientName, finalClientName: e.finalClientName
-        }).replace(/'/g, "\\'");
-        return `<tr style="cursor:pointer;" onclick="ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'},'${e.entryTime}','${e.exitTime||''}')" title="Cliquer pour voir sur la carte">
-          <td>${dt.toLocaleDateString('fr-FR')}</td>
+        const isVerif = e.source === 'vérifié' || e.entryConfirmed;
+        const srcBadge = isVerif
+          ? `<span style="background:rgba(74,222,128,0.15);border:1px solid rgba(74,222,128,0.4);color:#4ade80;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;">✅ Vérifié</span>`
+          : `<span style="background:rgba(251,146,60,0.15);border:1px solid rgba(251,146,60,0.3);color:#fb923c;border-radius:6px;padding:2px 7px;font-size:10px;font-weight:700;">⏳ En attente</span>`;
+        return `<tr style="cursor:pointer;" onclick="ui._zoneHistoryRowClick('${e.deviceId||''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'},'${e.entryTime}','${e.exitTime||''}')" title="Voir sur la carte">
+          <td>${entryDt.toLocaleDateString('fr-FR')}</td>
           <td style="font-weight:600;color:#38bdf8;">${e.truckName}</td>
           <td style="color:#818cf8;">${e.zoneName}</td>
-          <td>${dt.toLocaleTimeString('fr-FR')}</td>
-          <td>${e.exitTime ? new Date(e.exitTime).toLocaleTimeString('fr-FR') : '—'}</td>
+          <td>${entryDt.toLocaleTimeString('fr-FR')}</td>
+          <td>${exitDt ? exitDt.toLocaleDateString('fr-FR')+' '+exitDt.toLocaleTimeString('fr-FR') : '—'}</td>
           <td class="zr-dur">${dur}</td>
-          <td>${badge}</td>
-          <td><button onclick="event.stopPropagation();ui._zoneHistoryRowClick('${e.deviceId || ''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'},'${e.entryTime}','${e.exitTime||''}')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px;font-weight:700;white-space:nowrap;"><i class="fa-solid fa-crosshairs" style="margin-right:3px;"></i>Voir</button></td>
+          <td>${statusBadge}</td>
+          <td>${srcBadge}</td>
+          <td><button onclick="event.stopPropagation();ui._zoneHistoryRowClick('${e.deviceId||''}','${e.truckName}',${e.entryLat||'null'},${e.entryLng||'null'},'${e.entryTime}','${e.exitTime||''}')" style="background:rgba(56,189,248,0.1);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;border-radius:6px;padding:3px 8px;cursor:pointer;font-size:10px;font-weight:700;"><i class="fa-solid fa-crosshairs" style="margin-right:3px;"></i>Voir</button></td>
         </tr>`;
       }).join('')}</tbody>
     </table>`;
@@ -5951,6 +5967,70 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       };
       
       reader.readAsText(file);
+  }
+
+  // NEW: Load Auto Backups List
+  async loadAutoBackups() {
+      try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backups/list`);
+          const files = await res.json();
+          const select = document.getElementById('autoBackupSelect');
+          if (!select) return;
+          
+          if (!files || files.length === 0) {
+              select.innerHTML = '<option value="">Aucune sauvegarde auto</option>';
+              return;
+          }
+          select.innerHTML = files.map(f => `<option value="${f}">${f}</option>`).join('');
+      } catch (err) {
+          console.error('Error loading backups:', err);
+      }
+  }
+
+  // NEW: Trigger Selective Restore
+  async triggerSelectiveRestore() {
+      const select = document.getElementById('autoBackupSelect');
+      const filename = select ? select.value : '';
+      if (!filename) {
+          alert('Veuillez sélectionner une sauvegarde.');
+          return;
+      }
+
+      const modules = [];
+      if (document.getElementById('rbSettings')?.checked) modules.push('settings');
+      if (document.getElementById('rbTrucks')?.checked) modules.push('truck_states');
+      if (document.getElementById('rbRefuels')?.checked) modules.push('refuels');
+      if (document.getElementById('rbMaint')?.checked) modules.push('maintenance');
+      if (document.getElementById('rbHist')?.checked) modules.push('history');
+      if (document.getElementById('rbTrans')?.checked) modules.push('transportReports');
+
+      if (modules.length === 0) {
+          alert('Veuillez cocher au moins un module à restaurer.');
+          return;
+      }
+
+      if (!confirm(`⚠️ ATTENTION : Vous allez restaurer les modules suivants depuis ${filename} :\n- ${modules.join('\n- ')}\n\nContinuer ?`)) {
+          return;
+      }
+
+      try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backups/restore-selective`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filename, modules })
+          });
+          
+          const result = await res.json();
+          if (res.ok) {
+              alert('✅ Restauration sélective réussie ! La page va s\\'actualiser.');
+              location.reload();
+          } else {
+              alert('❌ Erreur: ' + (result.error || 'Erreur inconnue'));
+          }
+      } catch (err) {
+          alert('❌ Erreur de connexion');
+          console.error(err);
+      }
   }
   
   clearHistory() {

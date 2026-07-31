@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
@@ -614,9 +614,17 @@
         </select>
 
         <div style="display:flex;align-items:center;gap:4px;">
+          <span style="color:var(--text-3);font-size:11px;font-weight:600;">Entrée:</span>
           <input type="date" id="sbStart" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
           <span style="color:var(--text-3);font-size:11px;">→</span>
           <input type="date" id="sbEnd" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+        </div>
+
+        <div style="display:flex;align-items:center;gap:4px;">
+          <span style="color:var(--text-3);font-size:11px;font-weight:600;">Sortie:</span>
+          <input type="date" id="sbExitStart" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
+          <span style="color:var(--text-3);font-size:11px;">→</span>
+          <input type="date" id="sbExitEnd" class="sb-input" style="padding:6px 10px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-3);color:var(--text);font-size:12px;">
         </div>
 
         <button onclick="ZMC.resetFilters()" style="padding:6px 10px;border:none;background:transparent;color:var(--red);font-size:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:4px;margin-left:auto;">
@@ -684,14 +692,7 @@
             <div class="pane-sub">Camions en zone en ce moment — mise à jour auto toutes les 2 min</div>
           </div>
           <div class="pane-actions">
-            <select id="liveZoneFilter" class="sb-select" style="width:auto;min-width:140px;" onchange="ZMC.renderLive()">
-              <option value="">Toutes les zones</option>
-            </select>
-            <select id="liveStatusFilter" class="sb-select" style="width:auto;" onchange="ZMC.renderLive()">
-              <option value="">Tous</option>
-              <option value="long">> 2h en zone</option>
-              <option value="late">> 4h (retard)</option>
-            </select>
+
             <div id="syncControlBar" style="display:flex;align-items:center;gap:6px;background:var(--bg-3);border-radius:8px;padding:5px 10px;border:1px solid var(--border-1);">
               <i class="fa-solid fa-robot" style="color:var(--teal);font-size:11px;" title="Scan autonome actif"></i>
               <span id="systemStatusBadge" style="color:var(--teal);font-family:monospace;font-size:11px;font-weight:700;min-width:55px;">—</span>
@@ -749,19 +750,12 @@
             <div class="pane-sub">Entrées/sorties de zones • calcul immobilisation • 50 par page</div>
           </div>
           <div class="pane-actions" style="flex-wrap:wrap;gap:6px;">
-            <select id="histZoneFilter" class="sb-select" style="width:auto;min-width:130px;">
-              <option value="">Toutes les zones</option>
-            </select>
-            <select id="histTruckFilter" class="sb-select" style="width:auto;min-width:130px;">
-              <option value="">Tous les camions</option>
-            </select>
-            <select id="histStatusFilter" class="sb-select" style="width:auto;">
-              <option value="">Tous</option>
-              <option value="open">En cours</option>
-              <option value="closed">Terminé</option>
-            </select>
-            <input type="date" id="histStart" class="sb-input" style="width:auto;padding:5px 8px;">
-            <input type="date" id="histEnd" class="sb-input" style="width:auto;padding:5px 8px;">
+
+            <input type="number" id="histMinDur" class="sb-input" style="width:70px;padding:5px 8px;" placeholder="Min min" title="Durée minimum (minutes)">
+            <input type="number" id="histMaxDur" class="sb-input" style="width:70px;padding:5px 8px;" placeholder="Max min" title="Durée maximum (minutes)">
+            <label style="display:flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#4ade80;cursor:pointer;padding:5px 8px;background:rgba(74,222,128,0.08);border:1px solid rgba(74,222,128,0.25);border-radius:6px;" title="Afficher uniquement les événements vérifiés">
+              <input type="checkbox" id="histVerifiedOnly" onchange="ZMC.loadHistory(1)" style="accent-color:#4ade80;"> ✅ Vérifiés seulement
+            </label>
             <!-- Sort order -->
             <select id="histSortOrder" class="sb-select" style="width:auto;" onchange="ZMC.loadHistory(1)" title="Ordre de tri">
               <option value="desc">↓ Plus récent</option>
@@ -777,6 +771,7 @@
             </select>
             <button class="hdr-btn accent" onclick="ZMC.loadHistory(1)"><i class="fa-solid fa-magnifying-glass"></i> Rechercher</button>
             <button class="hdr-btn" onclick="ZMC.exportHistoryCSV()" title="Exporte TOUT le résultat (pas uniquement la page affichée). Par défaut = aujourd hui. Sélectionnez une période pour filtrer."><i class="fa-solid fa-file-arrow-down"></i> Export CSV</button>
+            <button class="hdr-btn" onclick="ZMC.runCorrectifV5()" style="border:1px solid rgba(74,222,128,0.4);color:#4ade80;" title="Normalise tous les anciens événements vers la norme V5 Vérifié (supprime les autos, les glitchs < 15 min et valide les entrées/sorties)"><i class="fa-solid fa-wand-magic-sparkles"></i> Correctif V5</button>
           </div>
         </div>
         <div class="kpi-strip" id="histStats" style="display:none;">
@@ -786,6 +781,7 @@
           <div class="kpi-card"><div class="kpi-val" id="hkpiAvg" style="color:var(--green);">—</div><div class="kpi-label">Durée Moy.</div></div>
           <div class="kpi-card"><div class="kpi-val" id="hkpiTotal" style="color:var(--orange);">—</div><div class="kpi-label">Total Heures</div></div>
           <div class="kpi-card"><div class="kpi-val" id="hkpiRecap" style="color:var(--red);">—</div><div class="kpi-label">Recap Immob. Moy.</div></div>
+          <div class="kpi-card"><div class="kpi-val" id="hkpiVerified" style="color:#4ade80;">—</div><div class="kpi-label">✅ Vérifiés</div></div>
         </div>
         <div class="pane-scroll" style="padding-top:10px;">
           <div class="full-wrap">
@@ -1397,6 +1393,8 @@ const ZMC = (() => {
       status: document.getElementById('sbStatus')?.value || '',
       start: document.getElementById('sbStart')?.value || '',
       end: document.getElementById('sbEnd')?.value || '',
+      exitStart: document.getElementById('sbExitStart')?.value || '',
+      exitEnd: document.getElementById('sbExitEnd')?.value || '',
       client: document.getElementById('sbClient')?.value || '',
       finalClient: document.getElementById('sbFinalClient')?.value || ''
     };
@@ -1408,7 +1406,7 @@ const ZMC = (() => {
   }
 
   function resetFilters() {
-    ['sbZone','sbTruck','sbStatus','sbStart','sbEnd','sbClient','sbFinalClient'].forEach(id => {
+    ['sbZone','sbTruck','sbStatus','sbStart','sbEnd','sbExitStart','sbExitEnd','sbClient','sbFinalClient'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -1456,8 +1454,9 @@ const ZMC = (() => {
       data = data.filter(e => e.finalClientId === f.finalClient || e.finalClientName === (state.finalClientMap && state.finalClientMap[f.finalClient]));
     }
     // Inline filters (top bar)
-    const liveZone = document.getElementById('liveZoneFilter')?.value;
-    const liveStatus = document.getElementById('liveStatusFilter')?.value;
+    // Apply filters from global state
+    const liveZone = state.filters.zone;
+    const liveStatus = state.filters.status;
     if (liveZone) data = data.filter(e => e.zoneName === liveZone);
     const now = Date.now();
     if (liveStatus === 'long') data = data.filter(e => (now - new Date(e.entryTime).getTime()) > 2 * 3600000);
@@ -1880,11 +1879,17 @@ const ZMC = (() => {
     tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>';
 
     // Build URL from inline filters (header bar) — local filters only, NO global bar bleed
-    const zone = document.getElementById('histZoneFilter')?.value || '';
-    const truckVal = document.getElementById('histTruckFilter')?.value || '';
-    const status = document.getElementById('histStatusFilter')?.value || '';
-    const start = document.getElementById('histStart')?.value || '';
-    const end = document.getElementById('histEnd')?.value || '';
+    // Read unified global filters directly from state.filters
+    const zone = state.filters.zone;
+    const truckVal = state.filters.truck;
+    const status = state.filters.status;
+    const start = state.filters.start;
+    const end = state.filters.end;
+    const exitStart = state.filters.exitStart;
+    const exitEnd = state.filters.exitEnd;
+    const minDuration   = document.getElementById('histMinDur')?.value || '';
+    const maxDuration   = document.getElementById('histMaxDur')?.value || '';
+    const verifiedOnly  = document.getElementById('histVerifiedOnly')?.checked;
     const limit = parseInt(document.getElementById('histLimit')?.value || '50');
     // Sync sort direction from the dropdown (if user changed it manually)
     const dropSort = document.getElementById('histSortOrder')?.value;
@@ -1903,9 +1908,14 @@ const ZMC = (() => {
         url += `&truck=${encodeURIComponent(truckVal)}`;
       }
     }
-    if (status) url += `&status=${status}`;
-    if (start) url += `&start=${new Date(start).toISOString()}`;
-    if (end) url += `&end=${new Date(end+'T23:59:59').toISOString()}`;
+    if (status)      url += `&status=${status}`;
+    if (start)       url += `&entryStart=${new Date(start).toISOString()}`;
+    if (end)         url += `&entryEnd=${new Date(end+'T23:59:59').toISOString()}`;
+    if (exitStart)   url += `&exitStart=${new Date(exitStart).toISOString()}`;
+    if (exitEnd)     url += `&exitEnd=${new Date(exitEnd+'T23:59:59').toISOString()}`;
+    if (minDuration) url += `&minDuration=${minDuration}`;
+    if (maxDuration) url += `&maxDuration=${maxDuration}`;
+    if (verifiedOnly) url += `&verified=true`;
 
     try {
       const r = await fetch(url, { headers: headers() });
@@ -1935,6 +1945,7 @@ const ZMC = (() => {
     const avgMin = closed.length ? Math.round(totalMin/closed.length) : 0;
     const recapValues = data.filter(e => e.recapImmobilisationMin != null).map(e => e.recapImmobilisationMin);
     const avgRecap = recapValues.length ? Math.round(recapValues.reduce((a,b)=>a+b,0)/recapValues.length) : 0;
+    const verifiedCount = data.filter(e => e.source === 'vérifié' || e.entryConfirmed).length;
     statsBar.style.display='grid';
     document.getElementById('hkpiVisits').textContent = pag?.total || data.length;
     document.getElementById('hkpiTrucks').textContent = new Set(data.map(e=>e.truckName)).size;
@@ -1942,13 +1953,20 @@ const ZMC = (() => {
     document.getElementById('hkpiAvg').textContent = fmtMin(avgMin);
     document.getElementById('hkpiTotal').textContent = `${Math.floor(totalMin/60)}h`;
     document.getElementById('hkpiRecap').textContent = fmtMin(avgRecap);
+    const hkpiVerified = document.getElementById('hkpiVerified');
+    if (hkpiVerified) hkpiVerified.textContent = `${verifiedCount}/${data.length}`;
 
     tbody.innerHTML = data.map(e => {
       const entry = new Date(e.entryTime||e.createdAt);
       const exit = e.exitTime ? new Date(e.exitTime) : null;
       const dur = fmtMin(e.durationMinutes);
       const badge = e.exitTime ? '<span class="tag green">Terminé</span>' : '<span class="tag teal">En cours</span>';
+      const isVerified = e.source === 'vérifié' || e.entryConfirmed;
+      const srcBadge = isVerified
+        ? '<span class="tag" style="background:rgba(74,222,128,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.3);">✅ Vérifié</span>'
+        : '<span class="tag" style="background:rgba(251,146,60,0.12);color:#fb923c;border:1px solid rgba(251,146,60,0.25);">⏳ En attente</span>';
       const typeBadge = e.operationSource === 'auto' || !e.operationSource ? '<span class="tag gray">Auto</span>' : '<span class="tag blue">Manuel</span>';
+
       const planned = e.plannedArrival ? new Date(e.plannedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
       const diff = e.diffArrivalMin != null ? `<span style="color:${e.diffArrivalMin > 0 ? 'var(--red)' : 'var(--green)'};">${e.diffArrivalMin > 0 ? '+' : ''}${e.diffArrivalMin}m</span>` : '—';
       const recap = fmtMin(e.recapImmobilisationMin);
@@ -1965,7 +1983,9 @@ const ZMC = (() => {
         <td class="mono" style="color:var(--text-3);">${planned}</td>
         <td class="mono">${diff}</td>
         <td class="mono" style="font-weight:800;color:${recapColor};">${recap}</td>
+        <td>${srcBadge}</td>
         <td>${typeBadge}</td>
+
         <td style="color:var(--purple);font-size:11px;font-weight:600;">${e.operationName||'—'}</td>
         <td>${badge}</td>
         <td style="display:flex;gap:6px;align-items:center;justify-content:flex-end;padding-right:16px;">
@@ -2064,23 +2084,26 @@ const ZMC = (() => {
   }
 
   async function exportHistoryCSV() {
-    // Re-fetch ALL records matching active filters — not just the current 50-row page
-    const zone   = document.getElementById('histZoneFilter')?.value || '';
-    const truck  = document.getElementById('histTruckFilter')?.value || '';
-    const status = document.getElementById('histStatusFilter')?.value || '';
-    const startVal = document.getElementById('histStart')?.value || '';
-    const endVal   = document.getElementById('histEnd')?.value   || '';
-    // Default = today when no period selected
-    const today = new Date().toISOString().slice(0,10);
-    const start = startVal || today;
-    const end   = endVal   || today;
+    const zone   = state.filters.zone;
+    const truck  = state.filters.truck;
+    const status = state.filters.status;
+    const startVal = state.filters.start;
+    const endVal   = state.filters.end;
+    const exitStartVal = state.filters.exitStart;
+    const exitEndVal = state.filters.exitEnd;
 
     let url = `${state.base}/api/zone-events?limit=10000&page=1`;
     if (zone)   url += `&zone=${encodeURIComponent(zone)}`;
     if (truck)  url += `&truck=${encodeURIComponent(truck)}`;
     if (status) url += `&status=${status}`;
-    url += `&start=${new Date(start).toISOString()}`;
-    url += `&end=${new Date(end + 'T23:59:59').toISOString()}`;
+    if (startVal) url += `&entryStart=${startVal}T00:00:00.000Z`;
+    else if (!startVal && !endVal && !exitStartVal && !exitEndVal) {
+      const today = new Date().toISOString().slice(0,10);
+      url += `&entryStart=${today}T00:00:00.000Z`;
+    }
+    if (endVal) url += `&entryEnd=${endVal}T23:59:59.999Z`;
+    if (exitStartVal) url += `&exitStart=${exitStartVal}T00:00:00.000Z`;
+    if (exitEndVal) url += `&exitEnd=${exitEndVal}T23:59:59.999Z`;
 
     const label = (startVal || endVal) ? (start === end ? start : `${start}_${end}`) : "aujourd-hui";
     toast(`📥 Export en cours (${label.replace('_',' → ')})...`, 'info');
@@ -2097,6 +2120,26 @@ const ZMC = (() => {
       downloadCSV(csv, 'historique_' + label);
       toast('✅ ' + all.length + ' enregistrements exportés', 'success');
     } catch(err) { toast('Erreur export: ' + err.message, 'error'); }
+  }
+
+  async function runCorrectifV5() {
+    if (!confirm('Voulez-vous normaliser et valider tout l\'historique vers la norme V5 Vérifié ?\n\n- Supprime les anciens événements "auto" et glitchs (<15 min)\n- Marque les événements existants comme vérifiés\n- Lance la vérification GPS jour par jour sur les événements en cours')) return;
+    toast('🛠️ Lancement du correctif V5 en cours...', 'info');
+    try {
+      const res = await fetch(`${state.base}/api/zone-events/correctif-v5`, {
+        method: 'POST',
+        headers: headers()
+      });
+      const d = await res.json();
+      if (d.success) {
+        toast(`✅ Correctif terminé: ${d.verifiedCount} vérifiés, ${d.deletedAuto} autos supprimés, ${d.deletedGlitches} glitchs supprimés`, 'success');
+        loadHistory(1);
+      } else {
+        toast(`❌ Erreur: ${d.error || 'inconnue'}`, 'error');
+      }
+    } catch(e) {
+      toast(`❌ Erreur réseau: ${e.message}`, 'error');
+    }
   }
 
   async function scanHistory() {
@@ -3691,7 +3734,7 @@ const ZMC = (() => {
     }, 2000);
   });
 
-  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey, forceGlobalSync, initializeSystem, refreshSystemStatus, makeSortable, goBack };
+  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, runCorrectifV5, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey, forceGlobalSync, initializeSystem, refreshSystemStatus, makeSortable, goBack };
 })();
 
 // ── BOOTSTRAP ──
