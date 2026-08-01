@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const fetch = require('node-fetch');
 const mongoose = require('mongoose');
@@ -3914,28 +3914,10 @@ async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = nu
       }
 
       if (allPoints.length < 1) {
-        // No GPS data — close ALL stale open events for this truck rather than
-        // leaving them as ghost "en cours" forever. Use a conservative exit time.
-        const now_noGps = Date.now();
-        const staleOpen = await ZoneEvent.find({
-          deviceId: String(truck.deviceId),
-          exitTime: null,
-          entryTime: { $lt: now_noGps - 2 * 3600000 } // open & more than 2h old
-        });
-        for (const ev of staleOpen) {
-          // Exit = min(entryTime + 4h, now) — conservative estimate
-          const closeAt = Math.min(ev.entryTime + 4 * 3600000, now_noGps - 60000);
-          await ZoneEvent.findByIdAndUpdate(ev._id, { $set: {
-            exitTime: closeAt,
-            status: 'terminé',
-            durationMinutes: Math.round((closeAt - ev.entryTime) / 60000)
-          }});
-          await Truck.findOneAndUpdate(
-            { deviceId: String(truck.deviceId), _zoneEventZone: ev.zoneName },
-            { _zoneEventZone: null }
-          );
-          console.log(`[Scan] ⚠️  No GPS data — force-closed stale event: ${truck.truckName} @ ${ev.zoneName}`);
-        }
+        // No GPS data — SKIP this truck entirely. Do NOT close events.
+        // GPS API failures (timeouts, rate limits) are common on Render.
+        // Only the live bot (real-time GPS) should close events.
+        console.log(`[Scan] ⚠️ No GPS data for ${truck.truckName} — skipping (events left untouched)`);
         await Truck.findOneAndUpdate({ deviceId: String(truck.deviceId) }, { lastHistoryScanTime: Date.now(), needsHistoryScan: false });
         return;
       }
@@ -4064,22 +4046,33 @@ async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = nu
         }
       }
 
-      // ── STEP 7: Close orphaned open events ───────────────────────────────────────────
+      // ── STEP 7: Close orphaned open events (SAFE VERSION) ─────────────────────────────
+      // Only close if we have strong evidence the truck truly left:
+      //   - At least 5 GPS points after entry, ALL >radius+300m away
+      //   - Event is older than 2 hours (fresh events are left alone)
+      //   - Event was NOT recently verified by the 30-min fixer
+      const nowOrphan = Date.now();
       for (const [orphanZone, openEv] of Object.entries(openEventByZone)) {
+        // Never close events younger than 2 hours
+        if (nowOrphan - openEv.entryTime < 2 * 3600000) continue;
+        // Never close recently verified events
+        if (openEv.lastVerifiedAt && (nowOrphan - openEv.lastVerifiedAt) < 2 * 3600000) continue;
         const zoneConf = allZones.find(z => z.name === orphanZone);
         if (!zoneConf) continue;
+        const zR = zoneConf.radius || 100;
         const ptsAfterEntry = allPoints.filter(p => p.time > openEv.entryTime);
-        if (ptsAfterEntry.length < 3) continue;
-        const recent3 = ptsAfterEntry.slice(-3);
-        const allOut = recent3.every(p => calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng)) > (zoneConf.radius || 100));
-        if (!allOut) continue;
+        if (ptsAfterEntry.length < 5) continue;
+        // Require last 5 points ALL to be >radius+300m away (strong exit evidence)
+        const recent5 = ptsAfterEntry.slice(-5);
+        const allFarOut = recent5.every(p => calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng)) > zR + 300);
+        if (!allFarOut) continue;
         let exitPt = null;
         for (const p of ptsAfterEntry) {
-          if (calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng)) > (zoneConf.radius || 100)) { exitPt = p; break; }
+          if (calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng)) > zR + 300) { exitPt = p; break; }
         }
         const exitTs  = exitPt ? exitPt.time : ptsAfterEntry[0].time;
         const durMins = Math.round((exitTs - openEv.entryTime) / 60000);
-        if (durMins < 3) {
+        if (durMins < 15) {
           await ZoneEvent.findByIdAndDelete(openEv._id);
           console.log(`🗑️ [Orphan] Drive-by deleted: ${truck.truckName} @ ${orphanZone} (${durMins}m)`);
         } else {
@@ -5360,8 +5353,8 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
     // ── Background: Step 1 — Nuclear delete today's events (clean slate) ───
     (async () => {
       try {
-        const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: rangeStartUTC } });
-        console.log(`[ForceSync] 🗑️  Deleted ${delResult.deletedCount} events (last 2 days) — clean slate`);
+        const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: rangeStartUTC }, exitTime: { $ne: null } });
+        console.log(`[ForceSync] 🗑️  Deleted ${delResult.deletedCount} CLOSED events (last 2 days) — open events preserved`);
 
         // Step 2 — Reset all truck zone states
         await Truck.updateMany({}, { $set: { _zoneEventZone: null } });
@@ -5371,17 +5364,8 @@ app.post('/api/admin/force-sync', checkAccess, async (req, res) => {
         console.log(`[ForceSync] 🔍 Starting GPS scan: ${rangeStartISO} → ${nowISO}`);
         const scanResult = await runScanForWindow(rangeStartUTC, now, true, null);
         console.log(`[ForceSync] ✅ NUCLEAR 2-DAY SWEEP COMPLETE — created=${scanResult.created} updated=${scanResult.updated} errors=${scanResult.errors?.length || 0} — ${new Date().toISOString()}`);
-        // Step 4 — Hard cap: close any still-open events older than 2h (safety net)
-        const hardCapCutoff = Date.now() - 2 * 3600000;
-        const stillOpen = await ZoneEvent.find({ exitTime: null, entryTime: { $lt: hardCapCutoff } }).lean();
-        let hardCapped = 0;
-        for (const ev of stillOpen) {
-          const closeAt = Math.min(ev.entryTime + 4 * 3600000, Date.now() - 60000);
-          await ZoneEvent.findByIdAndUpdate(ev._id, { $set: { exitTime: closeAt, status: 'terminé', durationMinutes: Math.round((closeAt - ev.entryTime) / 60000) }});
-          await Truck.findOneAndUpdate({ deviceId: ev.deviceId, _zoneEventZone: ev.zoneName }, { _zoneEventZone: null });
-          hardCapped++;
-        }
-        if (hardCapped) console.log(`[ForceSync] 🛡️  Hard cap closed ${hardCapped} still-open events > 2h old`);
+        // Hard cap REMOVED: Was force-closing open events >2h with 4h cap.
+        // Trucks genuinely parked for days should stay open. Live bot handles real exits.
       } catch(e) { console.error('[ForceSync] Fatal:', e.message); }
     })();
 
@@ -7005,6 +6989,10 @@ setInterval(async () => {
         const z = SYSTEM_SETTINGS.customLocations?.find(loc => loc.name === ev.zoneName);
         if (!z) continue;
 
+        // GUARD: Only act on FRESH coordinates (updated within last 30 min)
+        const coordAge = t.lastUpdate ? (Date.now() - new Date(t.lastUpdate).getTime()) : Infinity;
+        if (coordAge > 30 * 60 * 1000) continue; // Stale coordinates — skip
+
         // Calculate exact distance
         const R = 6371000, r = Math.PI/180;
         const dLat = (t.coordinates.lat - z.lat) * r;
@@ -7014,8 +7002,8 @@ setInterval(async () => {
         
         const radius = z.radius || 100;
         
-        // If truck is > 200m away from the zone border, FORCE CLOSE
-        if (dist > radius + 200) {
+        // Only force close if truck is VERY far away (>radius+500m) with FRESH data
+        if (dist > radius + 500) {
            const exitMs = (t.lastUpdate && new Date(t.lastUpdate).getTime() > ev.entryTime) 
                           ? new Date(t.lastUpdate).getTime() : Date.now();
            const realDur = Math.max(0, Math.round((exitMs - ev.entryTime) / 60000));
@@ -7133,18 +7121,18 @@ setInterval(async () => {
             setTimeout(() => runEntryBacktrack(ev._id, ev.deviceId, zone, ev.entryTime).catch(() => {}), 1000);
           }
         } else {
-          // Truck is NOT in zone → trigger exit forward search
-          console.log(`[Fixer-30m V5] 🚪 ${ev.truckName} no longer in "${ev.zoneName}" → triggering exit search`);
-          setTimeout(() => runExitForwardSearch(ev._id, ev.deviceId, zone, ev.entryTime).catch(() => {}), 1000);
-          exitTriggered++;
+          // Truck live GPS shows outside zone — DON'T aggressively trigger exit search.
+          // The live bot already has dual-threshold exit logic (radius+200m + 3-min pending).
+          // A single live snapshot outside radius is NOT enough to close an event.
+          // Just log it — the live bot will handle the real exit.
+          console.log(`[Fixer-30m V5] 📍 ${ev.truckName} live GPS outside "${ev.zoneName}" (dist=${Math.round(dist)}m) — live bot will handle exit`);
+          // Still stamp verification time so we know the fixer checked
+          await ZoneEvent.findByIdAndUpdate(ev._id, { lastVerifiedAt: now });
         }
       } else {
-        // No live data — stamp verification anyway if recently verified
-        if (!ev.lastVerifiedAt || (now - ev.lastVerifiedAt) > 2 * 3600000) {
-          // Not verified for >2h — trigger exit search to be safe
-          setTimeout(() => runExitForwardSearch(ev._id, ev.deviceId, zone, ev.entryTime).catch(() => {}), 2000);
-          exitTriggered++;
-        }
+        // No live data available — just stamp verification time and skip.
+        // Do NOT trigger exit search. GPS API can be down temporarily.
+        await ZoneEvent.findByIdAndUpdate(ev._id, { lastVerifiedAt: now });
       }
     }
 
@@ -7237,12 +7225,9 @@ setInterval(async () => {
     });
     glitchDeleted = glitchResult.deletedCount || 0;
 
-    // ── JOB 4: Purge ALL remaining legacy 'auto/live-bot/gps-history-scan' events ──
-    // These are leftovers from before V5 that have no operation attached
-    await ZoneEvent.deleteMany({
-      source: { $in: ['live-bot', 'gps-history-scan', 'auto'] },
-      $or: [{ operationId: null }, { operationId: '' }]
-    });
+    // JOB 4 REMOVED: Was deleting ALL auto/live-bot/gps-history-scan events without operations.
+    // This was the single most destructive operation — wiping hundreds of valid events every 30 min.
+    // Cleanup is now handled exclusively by Correctif V5 and GPS Radar (Layer 5).
 
     // ── JOB 5: Sync truck _zoneEventZone states ───────────────────────────────
     const allTrucksWithZone = await Truck.find({ _zoneEventZone: { $ne: null } }).lean();
@@ -7266,11 +7251,10 @@ setInterval(async () => {
 
 
 
-// Every 6 hours: scan last 2 hours (medium, flagged trucks)
-setInterval(() => {
-    console.log('[AutoScan-6h] Scanning last 24 hours...');
-    triggerBackgroundScan(24, false);
-}, 6 * 3600000);
+// 6-hour auto-scan DISABLED: Was too aggressive — calling runScanForWindow which
+// could close events on GPS failure. The midnight validator handles full rescans.
+// The live bot + 30-min fixer handle real-time tracking.
+// setInterval(() => { triggerBackgroundScan(24, false); }, 6 * 3600000);
 
 // ════════════════════════════════════════════════════════════════════
 // ⚡ NUCLEAR MIDNIGHT VALIDATOR — 23:59 Algeria Time (UTC+1)
@@ -7402,12 +7386,19 @@ async function runMidnightValidator() {
     console.log(`[MidnightValidator] Window: ${rangeStartISO} → ${nowISO} | ${truckCount} trucks`);
 
     // ── STEP 1: Nuclear delete — wipe last 2 days events (clean slate) ─────────
-    const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: rangeStartUTC } });
-    console.log(`[MidnightValidator] 🗑️  Deleted ${delResult.deletedCount} events (last 2 days) — clean slate`);
+    const delResult = await ZoneEvent.deleteMany({ entryTime: { $gte: rangeStartUTC }, exitTime: { $ne: null } });
+    console.log(`[MidnightValidator] 🗑️  Deleted ${delResult.deletedCount} CLOSED events (last 2 days) — open events preserved`);
 
-    // ── STEP 2: Reset all truck zone states ──────────────────────────────────
-    await Truck.updateMany({}, { $set: { _zoneEventZone: null } });
-    console.log('[MidnightValidator] 🔄 All truck states reset → null');
+    // ── STEP 2: Reset truck zone states ONLY for trucks without open events ──
+    const trucksWithOpenEvents = await ZoneEvent.distinct('deviceId', { exitTime: null });
+    const openDeviceSet = new Set(trucksWithOpenEvents.map(String));
+    const allTrucksMN = await Truck.find({}, 'deviceId _zoneEventZone').lean();
+    for (const t of allTrucksMN) {
+      if (!openDeviceSet.has(String(t.deviceId)) && t._zoneEventZone) {
+        await Truck.findByIdAndUpdate(t._id, { _zoneEventZone: null });
+      }
+    }
+    console.log('[MidnightValidator] 🔄 Truck states reset (trucks with open events preserved)');
 
     // ── STEP 3: Call runScanForWindow DIRECTLY (no HTTP, guaranteed on Render) ─
     const scanResult = await runScanForWindow(rangeStartUTC, now, true, null);
@@ -7420,17 +7411,9 @@ async function runMidnightValidator() {
     };
     console.log(`[MidnightValidator] ✅ Scan complete: created=${midnightState.lastResult.created} updated=${midnightState.lastResult.updated} errors=${midnightState.lastResult.errors}`);
 
-    // ── STEP 4: Hard cap — close any still-open events > 2h old ─────────────
-    const hardCapCutoff = Date.now() - 2 * 3600000;
-    const stillOpen = await ZoneEvent.find({ exitTime: null, entryTime: { $lt: hardCapCutoff } }).lean();
-    let hardCapped = 0;
-    for (const ev of stillOpen) {
-      const closeAt = Math.min(ev.entryTime + 4 * 3600000, Date.now() - 60000);
-      await ZoneEvent.findByIdAndUpdate(ev._id, { $set: { exitTime: closeAt, status: 'terminé', durationMinutes: Math.round((closeAt - ev.entryTime) / 60000) }});
-      await Truck.findOneAndUpdate({ deviceId: ev.deviceId, _zoneEventZone: ev.zoneName }, { _zoneEventZone: null });
-      hardCapped++;
-    }
-    if (hardCapped) console.log(`[MidnightValidator] 🛡️  Hard cap closed ${hardCapped} events > 2h old`);
+    // STEP 4 REMOVED: Was force-closing ALL open events >2h old with a 4h cap.
+    // This was the #1 cause of the '4h8m' bug. Trucks genuinely parked for
+    // days should stay open. The live bot handles real exits.
 
     // ── STEP 5: Deep GPS history re-verification of last 7 days 'vérifié' events ─
     // This is the "killer bullet": at midnight, we re-verify every single confirmed
