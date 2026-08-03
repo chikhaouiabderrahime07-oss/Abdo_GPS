@@ -3794,10 +3794,70 @@ app.put('/api/zone-events/:id', checkAccess, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // GET /api/zone-events/live — trucks currently inside a zone (with elapsed time)
+// Enhanced: also detects trucks in-zone via GPS that are missing ZoneEvent records
 app.get('/api/zone-events/live', checkAccess, async (req, res) => {
   try {
-    const openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: -1 }).lean();
+    let openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: -1 }).lean();
     const now = Date.now();
+
+    // ── Auto-create missing events for trucks in-zone via GPS ──────────
+    try {
+      const allZones = SYSTEM_SETTINGS.customLocations || [];
+      if (allZones.length > 0) {
+        const gpsRes = await fetch(GPS_API_URL);
+        const gpsJson = await gpsRes.json();
+        const liveSnapshot = gpsJson.data || gpsJson || [];
+
+        const openKeys = new Set(openEvents.map(e => `${e.deviceId}__${e.zoneName}`));
+        let created = 0;
+
+        for (const liveT of liveSnapshot) {
+          const did = String(liveT.id || liveT.imei || '');
+          if (!did) continue;
+          const lat = parseFloat(liveT.lat);
+          const lng = parseFloat(liveT.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+          for (const zone of allZones) {
+            const zLat = parseFloat(zone.lat);
+            const zLng = parseFloat(zone.lng);
+            const zR = zone.radius || 100;
+            if (!Number.isFinite(zLat) || !Number.isFinite(zLng)) continue;
+
+            const dist = calculateDistance(lat, lng, zLat, zLng);
+            if (dist <= zR) {
+              const key = `${did}__${zone.name}`;
+              if (!openKeys.has(key)) {
+                const truckDoc = await Truck.findOne({ deviceId: did }).lean();
+                const tName = truckDoc ? truckDoc.truckName : (liveT.name || did);
+                await ZoneEvent.create({
+                  deviceId: did, truckName: tName, zoneName: zone.name,
+                  entryTime: now, exitTime: null, status: 'en cours',
+                  source: 'vérifié', entryLat: lat, entryLng: lng,
+                  entryConfirmed: false, verificationLayer: 'live-sync'
+                });
+                await Truck.findOneAndUpdate({ deviceId: did }, { _zoneEventZone: zone.name });
+                openKeys.add(key);
+                created++;
+                // Async backtrack to find real entry time
+                const newEv = await ZoneEvent.findOne({ deviceId: did, zoneName: zone.name, exitTime: null }).lean();
+                if (newEv) {
+                  const z = zone;
+                  setTimeout(() => runEntryBacktrack(newEv._id, did, z, now).catch(() => {}), 2000);
+                }
+              }
+            }
+          }
+        }
+        if (created > 0) {
+          console.log(`[Live API] ➕ Created ${created} missing zone events on-the-fly`);
+          openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: -1 }).lean();
+        }
+      }
+    } catch (gpsErr) {
+      console.warn('[Live API] GPS sync failed (non-fatal):', gpsErr.message);
+    }
+
     res.json(openEvents.map(e => {
       const elapsedMs = now - e.entryTime;
       const h = Math.floor(elapsedMs / 3600000);
@@ -3813,7 +3873,8 @@ app.get('/api/zone-events/live', checkAccess, async (req, res) => {
         elapsedFormatted: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`,
         elapsedMinutes: Math.round(elapsedMs / 60000),
         entryLat: e.entryLat, entryLng: e.entryLng,
-        operationName: e.operationName || null
+        operationName: e.operationName || null,
+        source: e.source || 'auto'
       };
     }));
   } catch (e) { res.status(500).json({ error: e.message }); }
