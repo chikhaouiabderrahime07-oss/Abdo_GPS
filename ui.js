@@ -10004,9 +10004,11 @@ exportMaintenanceCSV() {
     const modal = document.getElementById('maintenanceModal');
     if (!modal) { console.warn('maintenanceModal not found in DOM'); return; }
 
-    if (entryData && entryData._id) {
+    const entryId = entryData ? (entryData._id || entryData.id) : null;
+
+    if (entryData && entryId) {
       // ── EDIT mode: populate trucks first, then fill fields ──────
-      this._editingMaintenanceId = entryData._id;
+      this._editingMaintenanceId = entryId;
       const t = document.getElementById('modalMaintTitle');
       if (t) t.textContent = 'Modifier l\'Ordre de Réparation';
 
@@ -10202,6 +10204,97 @@ exportMaintenanceCSV() {
       if (!entry) return alert('Entrée introuvable.');
       this.openMaintenanceModal(entry);
     } catch(e) { alert('Erreur: ' + e.message); }
+  }
+
+  // ── Save maintenance record (add or update) ───────────────────
+  async saveManualMaintenance() {
+    try {
+      const truckSelect = document.getElementById('modalMaintTruck');
+      const sel = truckSelect ? truckSelect.options[truckSelect.selectedIndex] : null;
+      const truckName = sel ? sel.value : '';
+      const deviceId = sel ? (sel.dataset.id || '') : '';
+      if (!truckName) return alert('Veuillez sélectionner un camion.');
+
+      const type = document.getElementById('modalMaintType')?.value || 'Autre';
+      const dateVal = document.getElementById('modalMaintDate')?.value;
+      const date = dateVal ? new Date(dateVal).toISOString() : new Date().toISOString();
+      const odometer = parseInt(document.getElementById('modalMaintOdo')?.value || '0', 10);
+      const location = document.getElementById('modalMaintLocation')?.value || '';
+      const priority = document.getElementById('modalMaintPriority')?.value || 'normal';
+      const technician = document.getElementById('modalMaintTechnician')?.value || '';
+      const cost = parseFloat(document.getElementById('modalMaintLabor')?.value || '0');
+      const description = document.getElementById('modalMaintDescription')?.value || '';
+      const note = document.getElementById('modalMaintNote')?.value || description;
+      const immatriculation = document.getElementById('modalMaintImm')?.value || '';
+      const chassisNumber = document.getElementById('modalMaintChassis')?.value || '';
+
+      // Collect parts from wizard step 2
+      const parts = [];
+      document.querySelectorAll('.maint-part-row').forEach(row => {
+        const chk = row.querySelector('input[type="checkbox"]');
+        if (chk && chk.checked) {
+          parts.push({
+            name: row.dataset.name || chk.dataset.name || '',
+            qty: parseInt(row.querySelector('.part-qty')?.value || '1', 10),
+            price: parseFloat(row.querySelector('.part-price')?.value || '0')
+          });
+        }
+      });
+
+      // Collect tire marks
+      const tires = [];
+      document.querySelectorAll('.mark').forEach(m => {
+        if (m.style.display !== 'none') tires.push(m.id);
+      });
+
+      const body = {
+        truckName, deviceId, type, date, odometer, location,
+        priority, technician, cost, description, note,
+        immatriculation, chassisNumber, parts, tires,
+        status: 'en_cours'
+      };
+
+      const isEdit = !!this._editingMaintenanceId;
+      const url = isEdit
+        ? `${FLEET_CONFIG.API.baseUrl}/api/maintenance/update`
+        : `${FLEET_CONFIG.API.baseUrl}/api/maintenance/add`;
+
+      if (isEdit) body.id = this._editingMaintenanceId;
+
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': localStorage.getItem('fleetAccessCode') || '' },
+        body: JSON.stringify(body)
+      });
+
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${r.status}`);
+      }
+
+      if (window.showToast) showToast(isEdit ? 'Ordre modifié ✅' : 'Ordre enregistré ✅', 'success');
+      this.closeMaintenanceModal();
+      await this.refreshMaintenanceFollowup();
+      if (typeof this.fetchAndRenderMaintenance === 'function') await this.fetchAndRenderMaintenance();
+    } catch(e) {
+      alert('Erreur sauvegarde: ' + e.message);
+      console.error('[saveManualMaintenance]', e);
+    }
+  }
+
+  // ── Generate Ordre de Réparation (save + open PDF) ─────────────
+  async generateOrdreReparation() {
+    // First save the record
+    await this.saveManualMaintenance();
+    // Then open the PDF generator page if available
+    try {
+      const truckName = document.getElementById('modalMaintTruck')?.value || '';
+      const type = document.getElementById('modalMaintType')?.value || '';
+      if (truckName && typeof window.open === 'function') {
+        const url = `ordre_reparation_v21.html?truck=${encodeURIComponent(truckName)}&type=${encodeURIComponent(type)}`;
+        window.open(url, '_blank');
+      }
+    } catch(e) { console.warn('PDF generation:', e.message); }
   }
 
   async deleteMaintenanceEntry(id) {
