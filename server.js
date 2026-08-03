@@ -3821,7 +3821,7 @@ app.get('/api/zone-events/live', checkAccess, async (req, res) => {
           for (const zone of allZones) {
             const zLat = parseFloat(zone.lat);
             const zLng = parseFloat(zone.lng);
-            const zR = zone.radius || 100;
+            const zR = zone.radius || 500;
             if (!Number.isFinite(zLat) || !Number.isFinite(zLng)) continue;
 
             const dist = calculateDistance(lat, lng, zLat, zLng);
@@ -3830,20 +3830,27 @@ app.get('/api/zone-events/live', checkAccess, async (req, res) => {
               if (!openKeys.has(key)) {
                 const truckDoc = await Truck.findOne({ deviceId: did }).lean();
                 const tName = truckDoc ? truckDoc.truckName : (liveT.name || did);
+                // Smart entry time: check if a previous event was force-closed by old bugs
+                const prevClosed = await ZoneEvent.findOne({
+                  deviceId: did, zoneName: zone.name, exitTime: { $ne: null }
+                }).sort({ exitTime: -1 }).lean();
+                const smartEntry = (prevClosed && (now - prevClosed.exitTime) < 48 * 3600000)
+                  ? prevClosed.entryTime : now;
                 await ZoneEvent.create({
                   deviceId: did, truckName: tName, zoneName: zone.name,
-                  entryTime: now, exitTime: null, status: 'en cours',
+                  entryTime: smartEntry, exitTime: null, status: 'en cours',
                   source: 'vérifié', entryLat: lat, entryLng: lng,
-                  entryConfirmed: false, verificationLayer: 'live-sync'
+                  entryConfirmed: smartEntry !== now, verificationLayer: 'live-sync'
                 });
                 await Truck.findOneAndUpdate({ deviceId: did }, { _zoneEventZone: zone.name });
                 openKeys.add(key);
                 created++;
-                // Async backtrack to find real entry time
+                // Async backtrack to refine entry time (staggered to avoid API overload)
                 const newEv = await ZoneEvent.findOne({ deviceId: did, zoneName: zone.name, exitTime: null }).lean();
-                if (newEv) {
+                if (newEv && smartEntry === now) {
                   const z = zone;
-                  setTimeout(() => runEntryBacktrack(newEv._id, did, z, now).catch(() => {}), 2000);
+                  const delay = created * 3000;
+                  setTimeout(() => runEntryBacktrack(newEv._id, did, z, now).catch(() => {}), delay);
                 }
               }
             }
@@ -7320,7 +7327,7 @@ setInterval(async () => {
         for (const zone of allZones) {
           const zLat = parseFloat(zone.lat);
           const zLng = parseFloat(zone.lng);
-          const zRadius = zone.radius || 100;
+          const zRadius = zone.radius || 500;
           if (!Number.isFinite(zLat) || !Number.isFinite(zLng)) continue;
 
           const dist = calculateDistance(lat, lng, zLat, zLng);
