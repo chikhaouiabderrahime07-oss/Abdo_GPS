@@ -10043,9 +10043,6 @@ exportMaintenanceCSV() {
         if (entryData.date) {
           const dateEl = document.getElementById('modalMaintDate');
           if (dateEl) {
-            let sourceBadge = (ev.source === 'vérifié' || ev.entryConfirmed) 
-                ? `<span class="badge badge-verified"><i class="fa-solid fa-check-circle"></i> Vérifié</span>`
-                : `<span class="badge badge-auto" style="background:rgba(245,158,11,0.15);color:#d97706;"><i class="fa-solid fa-robot"></i> Auto</span>`;
             const d = new Date(entryData.date);
             d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
             dateEl.value = d.toISOString().slice(0, 16);
@@ -10182,12 +10179,18 @@ exportMaintenanceCSV() {
     }
   }
 
-  // ── Edit / Delete maintenance entry from history table ───────
+  // ── Edit / Delete maintenance entry from history table OR active orders ───────
+  // Alias for active order cards that call ui.editMaintenance(id)
+  editMaintenance(id) { return this.openEditMaintenanceModal(id); }
+
   async openEditMaintenanceModal(id) {
     if (!id) return;
     try {
-      // Find in cached logs first, fall back to a fresh fetch
-      let entry = (this.allMaintenanceLogs || []).find(l => String(l._id || l.id) === String(id));
+      // Search in active orders first (for 'en cours' operations)
+      let entry = (this.activeMaintenanceOrders || []).find(l => String(l._id || l.id) === String(id));
+      // Then search in cached history logs
+      if (!entry) entry = (this.allMaintenanceLogs || []).find(l => String(l._id || l.id) === String(id));
+      // Fall back to a fresh fetch from API
       if (!entry) {
         const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance?limit=1000`, {
           headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }

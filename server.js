@@ -7239,6 +7239,65 @@ setInterval(async () => {
       }
     }
 
+    // ── JOB 6: Create missing zone events for trucks inside zones ────────────
+    // This bridges the gap: index.html counts trucks via GPS proximity,
+    // but zone-report.html only shows trucks with ZoneEvent records.
+    // Every 30 min, check all live GPS positions against all zones.
+    // If a truck is inside a zone but has NO open event → create one.
+    let createdMissing = 0;
+    if (liveSnapshot.length > 0 && allZones.length > 0) {
+      const allOpenEventsSync = await ZoneEvent.find({ exitTime: null }).lean();
+      const openEventKeys = new Set(allOpenEventsSync.map(e => `${e.deviceId}__${e.zoneName}`));
+
+      for (const liveT of liveSnapshot) {
+        const did = String(liveT.id || liveT.imei || '');
+        if (!did) continue;
+        const lat = parseFloat(liveT.lat);
+        const lng = parseFloat(liveT.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+        for (const zone of allZones) {
+          const zLat = parseFloat(zone.lat);
+          const zLng = parseFloat(zone.lng);
+          const zRadius = zone.radius || 100;
+          if (!Number.isFinite(zLat) || !Number.isFinite(zLng)) continue;
+
+          const dist = calculateDistance(lat, lng, zLat, zLng);
+          if (dist <= zRadius) {
+            const key = `${did}__${zone.name}`;
+            if (!openEventKeys.has(key)) {
+              const truckDoc = await Truck.findOne({ deviceId: did }).lean();
+              const tName = truckDoc ? truckDoc.truckName : (liveT.name || did);
+              const nowMs = Date.now();
+              await ZoneEvent.create({
+                deviceId: did,
+                truckName: tName,
+                zoneName: zone.name,
+                entryTime: nowMs,
+                exitTime: null,
+                status: 'en cours',
+                source: 'vérifié',
+                entryLat: lat,
+                entryLng: lng,
+                entryConfirmed: false,
+                verificationLayer: 'fixer-30m-sync'
+              });
+              await Truck.findOneAndUpdate({ deviceId: did }, { _zoneEventZone: zone.name });
+              openEventKeys.add(key);
+              createdMissing++;
+              console.log(`[Fixer-30m V5] ➕ Created missing event: ${tName} @ ${zone.name} (dist=${Math.round(dist)}m)`);
+              const newEv = await ZoneEvent.findOne({ deviceId: did, zoneName: zone.name, exitTime: null }).lean();
+              if (newEv) {
+                setTimeout(() => runEntryBacktrack(newEv._id, did, zone, nowMs).catch(() => {}), 2000);
+              }
+            }
+          }
+        }
+      }
+      if (createdMissing) console.log(`[Fixer-30m V5] ➕ Created ${createdMissing} missing zone events`);
+    }
+
+
     console.log(`[Fixer-30m V5] ✅ Done: verified=${verifiedCount} | exitTriggered=${exitTriggered} | dups=${deletedDups} | glitches=${glitchDeleted}`);
     fixerState.lastRunAt  = Date.now();
     fixerState.lastResult = { deletedDups, closedGhosts, verifiedCount, exitTriggered, glitchDeleted };
