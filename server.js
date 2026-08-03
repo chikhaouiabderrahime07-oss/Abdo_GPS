@@ -452,7 +452,7 @@ function resolveZoneClientContext(zoneName) {
     clientName,
     finalClientId: zone.finalClientId || null,
     finalClientName,
-    zoneRadius: zone.radius || 100
+    zoneRadius: zone.radius || 500
   };
 }
 
@@ -2176,7 +2176,7 @@ async function runVidangeDetection(truck, dbTruck, config) {
   let currentZone = null;
   for (const loc of maintLocations) {
     const dist = calculateDistance(parseFloat(truck.lat), parseFloat(truck.lng), loc.lat, loc.lng);
-    if (dist <= (loc.radius || 100)) {
+    if (dist <= (loc.radius || 500)) {
       currentZone = loc;
       break;
     }
@@ -2299,7 +2299,7 @@ async function runDecouchageLogic(trucks) {
 
     for (const zone of safeZones) {
       const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), zone.lat, zone.lng);
-      if (dist <= (zone.radius || 100)) {
+      if (dist <= (zone.radius || 500)) {
         isSafe = true;
         break;
       }
@@ -2322,7 +2322,7 @@ async function runDecouchageLogic(trucks) {
     let locationName = null;
     for (const loc of (SYSTEM_SETTINGS.customLocations || [])) {
       const dist = calculateDistance(parseFloat(t.lat), parseFloat(t.lng), loc.lat, loc.lng);
-      if (dist <= (loc.radius || 100)) {
+      if (dist <= (loc.radius || 500)) {
         locationName = loc.name;
         break;
       }
@@ -2518,7 +2518,7 @@ async function runFleetBot() {
         let isInternal = false;
         for (const loc of SYSTEM_SETTINGS.customLocations) {
           const d = calculateDistance(refillLat, refillLng, loc.lat, loc.lng);
-          if (d <= (loc.radius || 100)) {
+          if (d <= (loc.radius || 500)) {
             locName = loc.name;
             isInternal = true;
             break;
@@ -4013,7 +4013,7 @@ async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = nu
         let inZone = null;
         for (const loc of allZones) {
           const dist = calculateDistance(pt.lat, pt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
-          let radius = loc.radius || 100;
+          let radius = loc.radius || 500;
           // STICKY GEOFENCE: If truck is already in this zone, give it a 400m anti-drift buffer
           if (currentSeg && currentSeg.zone.name === loc.name) radius += 400;
           if (dist <= radius) { inZone = loc; break; }
@@ -4127,7 +4127,7 @@ async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = nu
         if (openEv.lastVerifiedAt && (nowOrphan - openEv.lastVerifiedAt) < 2 * 3600000) continue;
         const zoneConf = allZones.find(z => z.name === orphanZone);
         if (!zoneConf) continue;
-        const zR = zoneConf.radius || 100;
+        const zR = zoneConf.radius || 500;
         const ptsAfterEntry = allPoints.filter(p => p.time > openEv.entryTime);
         if (ptsAfterEntry.length < 5) continue;
         // Require last 5 points ALL to be >radius+300m away (strong exit evidence)
@@ -4316,7 +4316,7 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
           let inZone = null;
           for (const loc of allZones) {
             const dist = calculateDistance(pt.lat, pt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
-            if (dist <= (loc.radius || 100)) { inZone = loc; break; }
+            if (dist <= (loc.radius || 500)) { inZone = loc; break; }
           }
 
           if (inZone) {
@@ -4472,7 +4472,7 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
           const recent3 = ptsAfterEntry.slice(-3);
           const allOut = recent3.every(p => {
             const d = calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng));
-            return d > (zoneConf.radius || 100);
+            return d > (zoneConf.radius || 500);
           });
           if (!allOut) continue; // Truck might still be there (GPS drift or parked inside)
 
@@ -4480,7 +4480,7 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
           let exitPt = null;
           for (const p of ptsAfterEntry) {
             const d = calculateDistance(p.lat, p.lng, parseFloat(zoneConf.lat), parseFloat(zoneConf.lng));
-            if (d > (zoneConf.radius || 100)) { exitPt = p; break; }
+            if (d > (zoneConf.radius || 500)) { exitPt = p; break; }
           }
           const exitTs = exitPt ? exitPt.time : ptsAfterEntry[0].time;
           const durMins = Math.round((exitTs - openEv.entryTime) / 60000);
@@ -4588,7 +4588,7 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
   const GLITCH_GAP_MS = 6 * 3600000; // 6h gap between GPS points = truck left the zone
   const zoneLat = parseFloat(zone.lat);
   const zoneLng = parseFloat(zone.lng);
-  const zoneRadius = zone.radius || 100;
+  const zoneRadius = zone.radius || 500;
   const truckConfig = getTruckConfig(deviceId);
 
   try {
@@ -4665,6 +4665,11 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
     if (!event) return;
 
     if (!confirmedAtLeastOnce) {
+      // Protect live-sync events from deletion
+      if (event.verificationLayer === 'live-sync' || event.verificationLayer === 'fixer-30m-sync') {
+        await ZoneEvent.findByIdAndUpdate(eventId, { entryConfirmed: false, source: 'auto' });
+        return;
+      }
       // Could not find genuine GPS dwell → this event is a FAKE (drive-by or GPS noise)
       await ZoneEvent.findByIdAndDelete(eventId);
       // Also clear truck's zone state if it was pointing here
@@ -4710,7 +4715,7 @@ const MIN_DWELL_MINUTES = 15; // Events shorter than this are deleted as glitche
 async function runExitForwardSearch(eventId, deviceId, zone, entryTimeMs) {
   const zoneLat = parseFloat(zone.lat);
   const zoneLng = parseFloat(zone.lng);
-  const zoneRadius = zone.radius || 100;
+  const zoneRadius = zone.radius || 500;
   const truckConfig = getTruckConfig(deviceId);
   const nowMs = Date.now();
 
@@ -4825,7 +4830,7 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
           clientName:      zoneCtx.clientName      || deliveryCtx.clientName      || null,
           finalClientId:   zoneCtx.finalClientId   || deliveryCtx.finalClientId   || null,
           finalClientName: zoneCtx.finalClientName || deliveryCtx.finalClientName || null,
-          zoneRadius: zoneCtx.zoneRadius || zone.radius || 100
+          zoneRadius: zoneCtx.zoneRadius || zone.radius || 500
         }
       },
       { upsert: true, new: false }
@@ -4982,7 +4987,7 @@ async function runZoneEntryExitTracking(truck, dbTruck) {
   let currentZone = null;
   for (const loc of allZones) {
     const dist = calculateDistance(lat, lng, parseFloat(loc.lat), parseFloat(loc.lng));
-    if (dist <= (loc.radius || 100)) { currentZone = loc; break; }
+    if (dist <= (loc.radius || 500)) { currentZone = loc; break; }
   }
 
   const prevZoneName = dbTruck._zoneEventZone || null;
@@ -5076,7 +5081,7 @@ async function runZoneEntryExitTracking(truck, dbTruck) {
     let prevZoneDist = 999999;
     const pz = allZones.find(z => z.name === prevZoneName);
     if (pz) {
-      prevZoneRadius = pz.radius || 100;
+      prevZoneRadius = pz.radius || 500;
       prevZoneDist = calculateDistance(lat, lng, parseFloat(pz.lat), parseFloat(pz.lng));
     }
 
@@ -5218,7 +5223,7 @@ app.post('/api/admin/initialize', checkAccess, async (req, res) => {
             let inZone = null;
             for (const loc of allZones) {
               const dist = calculateDistance(pt.lat, pt.lng, parseFloat(loc.lat), parseFloat(loc.lng));
-              if (dist <= (loc.radius || 100)) { inZone = loc; break; }
+              if (dist <= (loc.radius || 500)) { inZone = loc; break; }
             }
 
             if (inZone) {
@@ -5717,7 +5722,7 @@ app.post('/api/zone-events/correctif-v5', checkAccess, async (req, res) => {
     for (const ev of oldVerified) {
       const z4 = cZones.find(z => z.name === ev.zoneName);
       if (!z4) continue;
-      const lat4 = parseFloat(z4.lat), lng4 = parseFloat(z4.lng), rad4 = z4.radius || 100;
+      const lat4 = parseFloat(z4.lat), lng4 = parseFloat(z4.lng), rad4 = z4.radius || 500;
       try {
         const raw4 = await fetchGpsHistoryWindow(ev.deviceId, ev.entryTime - 300000, (ev.exitTime || ev.entryTime + 86400000) + 300000);
         if (!Array.isArray(raw4) || raw4.length === 0) continue;
@@ -5799,7 +5804,7 @@ app.post('/api/zone-events/gps-radar', checkAccess, async (req, res) => {
         const zone = allZones.find(z => z.name === ev.zoneName);
         if (!zone) { radarState.errors++; continue; }
 
-        const zoneLat = parseFloat(zone.lat), zoneLng = parseFloat(zone.lng), zoneRadius = zone.radius || 100;
+        const zoneLat = parseFloat(zone.lat), zoneLng = parseFloat(zone.lng), zoneRadius = zone.radius || 500;
         const cfg = getTruckConfig(ev.deviceId);
 
         try {
@@ -7068,7 +7073,7 @@ setInterval(async () => {
         const a = Math.sin(dLat/2)**2 + Math.cos(z.lat*r)*Math.cos(t.coordinates.lat*r)*Math.sin(dLng/2)**2;
         const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         
-        const radius = z.radius || 100;
+        const radius = z.radius || 500;
         
         // Only force close if truck is VERY far away (>radius+500m) with FRESH data
         if (dist > radius + 500) {
@@ -7160,7 +7165,7 @@ setInterval(async () => {
 
       const zoneLat = parseFloat(zone.lat);
       const zoneLng = parseFloat(zone.lng);
-      const zoneRadius = zone.radius || 100;
+      const zoneRadius = zone.radius || 500;
 
       // ── STALE GPS CHECK ────────────────────────────────────────────────────
       // If the truck's GPS is frozen (last ping > 4h old) → skip verification
@@ -7217,7 +7222,7 @@ setInterval(async () => {
       if (!zone) continue;
       const zoneLat2 = parseFloat(zone.lat);
       const zoneLng2 = parseFloat(zone.lng);
-      const zoneRadius2 = zone.radius || 100;
+      const zoneRadius2 = zone.radius || 500;
       const truckConfig2 = getTruckConfig(ev.deviceId);
       try {
         const raw2 = await fetchGpsHistoryWindow(ev.deviceId, ev.entryTime - 300000, ev.exitTime + 300000);
@@ -7561,7 +7566,7 @@ async function runMidnightValidator() {
       if (!zone5) continue;
       const zoneLat5 = parseFloat(zone5.lat);
       const zoneLng5 = parseFloat(zone5.lng);
-      const zoneRadius5 = zone5.radius || 100;
+      const zoneRadius5 = zone5.radius || 500;
       const cfg5 = getTruckConfig(ev.deviceId);
 
       try {
@@ -7698,7 +7703,7 @@ app.get('/api/zone-summary', checkAccess, async (req, res) => {
         const dLat = (t.lat - loc.lat) * Math.PI / 180;
         const dLng = (t.lng - loc.lng) * Math.PI / 180;
         const a = Math.sin(dLat/2)**2 + Math.cos(loc.lat*Math.PI/180) * Math.cos(t.lat*Math.PI/180) * Math.sin(dLng/2)**2;
-        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) <= (loc.radius || 100);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) <= (loc.radius || 500);
       }).map(t => t.truckName || t.deviceId);
 
       return {
@@ -7708,7 +7713,7 @@ app.get('/api/zone-summary', checkAccess, async (req, res) => {
         type:             loc.type || 'other',
         lat:              loc.lat,
         lng:              loc.lng,
-        radius:           loc.radius || 100,
+        radius:           loc.radius || 500,
         color:            loc.color || '',
         icon:             loc.icon || '',
         iconEmoji:        loc.iconEmoji || '',

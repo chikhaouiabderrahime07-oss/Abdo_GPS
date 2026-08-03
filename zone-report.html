@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
@@ -1348,6 +1348,10 @@ const ZMC = (() => {
     document.querySelectorAll('.top-tab').forEach(n => n.classList.remove('active'));
     document.getElementById(`tab${tab.charAt(0).toUpperCase()+tab.slice(1)}`)?.classList.add('active');
     document.querySelector(`.top-tab[data-tab="${tab}"]`)?.classList.add('active');
+
+    // Hide global filter bar on Live tab (it has its own filters)
+    const filterBar = document.getElementById('filterBar');
+    if (filterBar) filterBar.style.display = tab === 'live' ? 'none' : 'flex';
     
     if (tab === 'powerbi') {
         const pane = document.querySelector('#tabPowerbi .pane-scroll');
