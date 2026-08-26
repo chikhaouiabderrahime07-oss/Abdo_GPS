@@ -4054,3 +4054,343 @@ span.speed-badge-over {
 :root[data-theme="light"] #zoneManagementModal .zmClientCard:hover {
   background: rgba(59,130,246,0.06) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   NAFTAL FUEL CARD MANAGEMENT SYSTEM — Styles
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Sub-tab navigation */
+.naftal-subtab {
+  padding: 10px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.naftal-subtab:hover { background: var(--bg-hover); color: var(--text-primary); }
+.naftal-subtab.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25);
+}
+
+/* Auth Gate */
+.naftal-auth-gate {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 300px;
+  padding: 30px;
+}
+.naftal-auth-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+}
+.naftal-auth-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--primary-glow);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  font-size: 24px;
+  color: var(--primary);
+}
+
+/* Section containers */
+.naftal-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+/* Truck Selection Grid */
+.naftal-truck-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+/* Cards are now fully inline-styled; keep only hover for performance */
+.naftal-truck-card {
+  /* legacy — kept for any old cards still using this class */
+  background: var(--bg-elevated);
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.naftal-truck-card:hover {
+  border-color: rgba(56,189,248,0.5);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+.naftal-truck-card.selected {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
+}
+.naftal-truck-card-body {
+  font-size: 11px;
+}
+
+.naftal-truck-meta {
+  color: var(--text-muted);
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.naftal-truck-meta i { width: 14px; text-align: center; color: var(--text-secondary); }
+
+/* Card badge */
+.naftal-card-badge {
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--info);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Recap Table */
+.naftal-recap-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.naftal-recap-table th {
+  background: var(--bg-elevated);
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border);
+}
+.naftal-recap-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.naftal-recap-table tbody tr:hover { background: var(--bg-hover); }
+
+/* Status Badges */
+.naftal-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.naftal-status-badge.waiting {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--info);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+.naftal-status-badge.completed {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+.naftal-status-badge.flagged {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* Pipeline (Kanban) */
+.naftal-pipeline {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+.naftal-pipeline-column {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  min-height: 120px;
+}
+.naftal-pipeline-header {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Tracking Cards */
+.naftal-tracking-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px;
+  transition: all 0.2s;
+}
+.naftal-tracking-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+}
+
+/* Deviation Badge */
+.naftal-deviation-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.naftal-deviation-badge.ok {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+}
+.naftal-deviation-badge.flagged {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
+  animation: naftalPulse 2s infinite;
+}
+
+@keyframes naftalPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0); }
+}
+
+/* Statistics Bar */
+.naftal-stats-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.naftal-stat-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+}
+.naftal-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+.naftal-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+/* Modal Overlay */
+.naftal-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  animation: fadeIn 0.2s ease;
+}
+.naftal-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 900px;
+  width: 95%;
+  max-height: 88vh;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  /* overflow handled by inline flex-column layout */
+}
+
+/* Autocomplete Dropdown */
+.naftal-autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 10000;
+  display: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.naftal-autocomplete-item {
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+}
+.naftal-autocomplete-item:hover {
+  background: var(--bg-hover);
+}
+.naftal-autocomplete-item:last-child {
+  border-bottom: none;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .naftal-pipeline { grid-template-columns: repeat(2, 1fr); }
+  .naftal-truck-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+}
+@media (max-width: 640px) {
+  .naftal-pipeline { grid-template-columns: 1fr; }
+  .naftal-subtab { padding: 8px 14px; font-size: 12px; }
+  .naftal-modal { width: 98%; padding: 16px; }
+}
+
+/* Floating Action Bar */
+.naftal-floating-bar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: linear-gradient(135deg, var(--primary-dark), var(--primary));
+  border-radius: 10px;
+  padding: 12px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 20px rgba(56, 189, 248, 0.3);
+  display: flex;
+  justify-content: center;
+  animation: naftalSlideDown 0.3s ease;
+}
+@keyframes naftalSlideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

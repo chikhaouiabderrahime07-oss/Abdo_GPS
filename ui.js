@@ -42,7 +42,9 @@ window.fetch = async function(url, options) {
         const response = await originalFetch(url, options);
 
         // 5. CHECK FOR REJECTION (401/403) — only from OUR server
-        if ((response.status === 401 || response.status === 403) && isOwnApiRequest) {
+        // Exclude naftal-specific auth endpoints from main session revocation
+        const isNaftalAuthRoute = typeof url === 'string' && url.includes('/api/naftal/auth');
+        if ((response.status === 401 || response.status === 403) && isOwnApiRequest && !isNaftalAuthRoute) {
             console.warn("⛔ Access Revoked or Invalid Code");
             localStorage.removeItem('fleetAccessCode');
             // If we are not already on the lock screen
@@ -56,6 +58,69 @@ window.fetch = async function(url, options) {
     }
 };
 
+
+// ═══════════════════════════════════════════════════════════════
+// CUSTOM DIALOG SYSTEM — replaces browser alert/confirm/prompt
+// ═══════════════════════════════════════════════════════════════
+(function() {
+  function _rmDlg() { document.getElementById('_dlgOv')?.remove(); }
+  function _base(inner) {
+    const ov = document.createElement('div');
+    ov.id = '_dlgOv';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:999999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(5px);';
+    ov.innerHTML = `<style>@keyframes _dlgIn{from{opacity:0;transform:scale(.93) translateY(-10px)}to{opacity:1;transform:none}}</style>${inner}`;
+    document.body.appendChild(ov); return ov;
+  }
+  function _card(ico,title,body,footer) {
+    return `<div style="background:#1a2332;border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:26px 26px 20px;max-width:430px;width:90%;box-shadow:0 24px 64px rgba(0,0,0,0.55);animation:_dlgIn 0.17s ease;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"><span style="font-size:20px;">${ico}</span><span style="font-size:14px;font-weight:700;color:#f1f5f9;">${title}</span></div>
+      <div style="color:#94a3b8;font-size:13px;line-height:1.65;margin-bottom:18px;">${body}</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">${footer}</div>
+    </div>`;
+  }
+  function _btn(id,label,primary,danger) {
+    const bg = danger ? '#ef4444' : primary ? '#38bdf8' : 'rgba(255,255,255,0.07)';
+    const col = (primary||danger) ? '#0f172a' : '#94a3b8';
+    return `<button id="${id}" style="padding:8px 20px;border-radius:8px;border:1px solid ${primary||danger?'transparent':'rgba(255,255,255,0.12)'};background:${bg};color:${col};font-weight:700;font-size:13px;cursor:pointer;transition:opacity 0.1s;" onmouseenter="this.style.opacity='.85'" onmouseleave="this.style.opacity='1'">${label}</button>`;
+  }
+  window.ui_showAlert = (msg, title, ico) => new Promise(res => {
+    const ov = _base(_card(ico||'ℹ️', title||'Information', msg, _btn('_ok','OK',true,false)));
+    const done = () => { _rmDlg(); res(); };
+    ov.querySelector('#_ok').onclick = done;
+    const kh = e => { if(e.key==='Enter'||e.key==='Escape'){document.removeEventListener('keydown',kh);done();} };
+    document.addEventListener('keydown',kh);
+  });
+  window.ui_showConfirm = (msg, title, ico, dangerBtn) => new Promise(res => {
+    const ov = _base(_card(ico||'❓', title||'Confirmation', msg, _btn('_no','Annuler',false,false)+_btn('_yes',dangerBtn||'Confirmer',!dangerBtn,!!dangerBtn)));
+    ov.querySelector('#_yes').onclick = () => { _rmDlg(); res(true); };
+    ov.querySelector('#_no').onclick  = () => { _rmDlg(); res(false); };
+    const kh = e => {
+      if(e.key==='Enter'){document.removeEventListener('keydown',kh);_rmDlg();res(true);}
+      if(e.key==='Escape'){document.removeEventListener('keydown',kh);_rmDlg();res(false);}
+    };
+    document.addEventListener('keydown',kh);
+  });
+  window.ui_showPrompt = (msg, def, title) => new Promise(res => {
+    const ov = _base(_card('✏️', title||'Saisie',
+      `${msg}<br><input id="_inp" value="${(def||'').replace(/"/g,'&quot;')}" style="width:100%;margin-top:10px;padding:9px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:#111827;color:#f1f5f9;font-size:13px;outline:none;box-sizing:border-box;">`,
+      _btn('_no','Annuler',false,false)+_btn('_yes','OK',true,false)
+    ));
+    const inp = ov.querySelector('#_inp'); setTimeout(()=>inp.focus(),40);
+    const ok = () => { const v=inp.value; _rmDlg(); res(v); };
+    const no = () => { _rmDlg(); res(null); };
+    ov.querySelector('#_yes').onclick = ok;
+    ov.querySelector('#_no').onclick  = no;
+    const kh = e => {
+      if(e.key==='Enter'){document.removeEventListener('keydown',kh);ok();}
+      if(e.key==='Escape'){document.removeEventListener('keydown',kh);no();}
+    };
+    document.addEventListener('keydown',kh);
+  });
+  // Override native browser dialogs globally
+  window.alert   = m => ui_showAlert(String(m||''));
+  window.confirm = m => { ui_showConfirm(String(m||'')); return true; }; // sync callers get true; async callers use ui_showConfirm
+  window.prompt  = (m,d) => { ui_showPrompt(String(m||''),d); return d||null; };
+})();
 
 /**
  * Fleet Tracker UI Controller - Cloud/Firebase Edition
@@ -117,6 +182,17 @@ class UIController {
     // NAFTAL REPORT STATE
     this.naftalReportLogs = [];
     this.naftalPricePerLiter = 31; // DA/L default
+
+    // NAFTAL MANAGEMENT SYSTEM STATE
+    this.naftalTransportAuth = false;
+    this.naftalGestionnaireAuth = false;
+    this.naftalSelectedTrucks = new Set();
+    this.naftalDeclarationDraft = [];
+    this.naftalCurrentView = 'transport'; // 'transport', 'gestionnaire', 'suivi'
+    this.naftalSortField = 'name';
+    this.naftalSortDir = 'asc';
+    this.naftalFilterStatus = 'all';
+    this.naftalSearchQuery = '';
 
     // ITINERARY ENGINE STATE
     this.itineraryResults = [];
@@ -400,11 +476,10 @@ initElements() {
     this.btnGroupWilaya = document.getElementById('btnGroupWilaya');
     this.btnGroupCity = document.getElementById('btnGroupCity');
     
-    this.routeTruck = document.getElementById('routeTruck');
-    this.routeDestSearch = document.getElementById('routeDestSearch');
-    this.routeAutocompleteDropdown = document.getElementById('routeAutocompleteDropdown');
-    this.calculateRouteBtn = document.getElementById('calculateRouteBtn');
-    this.routeResultsContainer = document.getElementById('routeResultsContainer');
+    // NAFTAL System init
+    if (document.getElementById('naftalSystemContainer')) {
+      this.renderNaftalSystem();
+    }
     
     this.restoreFileInput = document.getElementById('restoreFile');
 	// AUTO-SET DATES TO "YESTERDAY" (Because today's night hasn't happened yet)
@@ -467,6 +542,7 @@ initElements() {
           // Speed limit + Naftal budget from cloud
           if (data.speedLimit) FLEET_CONFIG.SPEED_LIMIT = data.speedLimit;
           if (data.naftalBudget) FLEET_CONFIG.NAFTAL_BUDGET = data.naftalBudget;
+          if (data.naftalManagement) FLEET_CONFIG.NAFTAL_MANAGEMENT = data.naftalManagement;
 
           this.lastSettingsSync = Date.now();
           // --- AUTO-MIGRATE LEGACY CLIENTS ---
@@ -531,7 +607,8 @@ initElements() {
           speedLimit: FLEET_CONFIG.SPEED_LIMIT || 90,
           naftalBudget: FLEET_CONFIG.NAFTAL_BUDGET || 0,
           immobilRules: FLEET_CONFIG.IMMOBIL_RULES,
-          clients: FLEET_CONFIG.CLIENTS
+          clients: FLEET_CONFIG.CLIENTS,
+          naftalManagement: FLEET_CONFIG.NAFTAL_MANAGEMENT
       };
       
       try {
@@ -826,8 +903,7 @@ initElements() {
     if(document.getElementById('addClientBtn')) document.getElementById('addClientBtn').addEventListener('click', () => this.addClient());
     if(this.saveConnectionBtn) this.saveConnectionBtn.addEventListener('click', () => this.saveConnectionSettings());
 
-    this.routeDestSearch.addEventListener('input', (e) => this.handleRouteDestinationSearch(e.target.value));
-    this.calculateRouteBtn.addEventListener('click', () => this.calculateRoute());
+
 
     if(document.getElementById('exportCSVBtn')) document.getElementById('exportCSVBtn').addEventListener('click', () => this.exportCSV());
     if(document.getElementById('exportJSONBtn')) document.getElementById('exportJSONBtn').addEventListener('click', () => this.exportJSON());
@@ -1523,6 +1599,11 @@ exportDecouchageCSV() {
       FLEET_CONFIG.NAFTAL_BUDGET = parseInt(budgetInput.value) || 0;
     }
 
+    // Save NAFTAL Management settings (tolerance only - passwords are server-side)
+    if (!FLEET_CONFIG.NAFTAL_MANAGEMENT) FLEET_CONFIG.NAFTAL_MANAGEMENT = {};
+    const toleranceEl = document.getElementById('naftalRefillTolerance');
+    if (toleranceEl) FLEET_CONFIG.NAFTAL_MANAGEMENT.refillTolerancePercent = parseInt(toleranceEl.value) || 5;
+
     this.saveSettingsToCloud();
     alert('\u2705 Configuration Globale sauvegardée !');
     this.updateDashboard();
@@ -1567,7 +1648,7 @@ exportDecouchageCSV() {
     if (tabName === 'vidangeSection') this.renderVidangeSection(); 
     if (tabName === 'maintenanceFollowup') this.refreshMaintenanceFollowup();
     if (tabName === 'maintenanceHistory') this.fetchAndRenderMaintenance(); 
-    if (tabName === 'routing') this.populateRouteTruckList();
+    if (tabName === 'routing') { this.loadTruckDbCache().then(() => this.renderNaftalSystem()); }
     if (tabName === 'alertsSection') this.refreshAlerts();
     if (tabName === 'settings') { 
          
@@ -1580,6 +1661,10 @@ exportDecouchageCSV() {
         if (budgetEl && FLEET_CONFIG.NAFTAL_BUDGET) {
           budgetEl.value = FLEET_CONFIG.NAFTAL_BUDGET;
         }
+        // Restore NAFTAL management settings
+        const nm = FLEET_CONFIG.NAFTAL_MANAGEMENT || {};
+        const tolEl = document.getElementById('naftalRefillTolerance');
+        if (tolEl && nm.refillTolerancePercent) tolEl.value = nm.refillTolerancePercent;
     }
     if (tabName === 'reports') { 
         this.toggleReportView('fuel'); 
@@ -3087,160 +3172,1623 @@ exportRefuelCSV() {
     this._downloadCSV(csv, `REMPLISSAGES_NAFTAL_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
-// --- PLANNING & ROUTING (FIXED LANGUAGE & CLARITY) ---
-  handleRouteDestinationSearch(query) {
-    if (query.length < 2) { this.routeAutocompleteDropdown.style.display = 'none'; return; }
+// ═══════════════════════════════════════════════════════════════════════════
+//  NAFTAL FUEL CARD MANAGEMENT SYSTEM — UI Module
+// ═══════════════════════════════════════════════════════════════════════════
+
+  // --- Main Entry Point (called when #routing tab is shown) ---
+   renderNaftalSystem() {
+    const container = document.getElementById('naftalSystemContainer');
+    if (!container) return;
     
-    let apiKey = FLEET_CONFIG.GEOAPIFY_API_KEY;
-    if(FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0) apiKey = FLEET_CONFIG.GEOAPIFY_API_KEYS[0];
-
-    // ADDED: &lang=fr to force French names
-    fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&apiKey=${apiKey}&limit=5&country=dz&lang=fr`)
-      .then(res => res.json())
-      .then(data => {
-        this.routeAutocompleteDropdown.innerHTML = '';
-        if (data.features && data.features.length > 0) {
-          data.features.forEach(f => {
-            const p = f.properties;
-            
-            // 1. SMART NAME PRIORITY (Avoids "undefined")
-            const cityName = p.city || p.town || p.village || p.municipality || p.name || "Lieu";
-            
-            // 2. CLEAN WILAYA/STATE
-            let context = p.state || p.county || 'Algérie';
-            
-            // Avoid redundancy (e.g., "Alger, Alger")
-            if (context.toLowerCase() === cityName.toLowerCase()) context = "Wilaya";
-
-            const div = document.createElement('div');
-            div.style.cssText = 'padding: 10px; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: background 0.2s;';
-            div.onmouseover = () => { div.style.background = '#f8fafc'; };
-            div.onmouseout = () => { div.style.background = 'white'; };
-
-            // 3. IMPROVED VISUAL LAYOUT
-            div.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:var(--bg-elevated, #1e293b); font-size:13px;">
-                        <i class="fa-solid fa-map-pin" style="color: var(--teal); margin-right: 8px;"></i> 
-                        <strong>${cityName}</strong>
-                    </span>
-                    <span style="font-size:10px; color:var(--text-muted, #64748b); background:var(--text-primary, #e2e8f0); padding:2px 6px; border-radius:4px; font-weight:bold;">
-                        ${context}
-                    </span>
-                </div>
-                <div style="font-size:10px; color:var(--text-muted, #94a3b8); margin-left:22px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                    ${p.formatted || ''}
-                </div>
-            `;
-
-            div.onclick = () => {
-              if (!this.selectedRouteDestinations) this.selectedRouteDestinations = [];
-              this.selectedRouteDestinations.push({ 
-                city: cityName, 
-                lat: f.geometry.coordinates[1], 
-                lng: f.geometry.coordinates[0],
-                wilaya: p.state || context 
-              });
-              // Update Input Field
-              this.routeDestSearch.value = '';
-              this.routeAutocompleteDropdown.style.display = 'none';
-              this.renderRouteDestinations();
-            };
-            this.routeAutocompleteDropdown.appendChild(div);
-          });
-          this.routeAutocompleteDropdown.style.display = 'block';
-        } else {
-            this.routeAutocompleteDropdown.style.display = 'none';
-        }
-      })
-      .catch(e => console.log("Geo search failed", e));
-  }
-
-  renderRouteDestinations() {
-    const list = document.getElementById('routeDestinationsList');
-    if (!list) return;
-    if (!this.selectedRouteDestinations) this.selectedRouteDestinations = [];
-    
-    list.innerHTML = this.selectedRouteDestinations.map((dest, i) => `
-      <div style="background: var(--primary-subtle); color: var(--primary); padding: 4px 8px; border-radius: 4px; font-size: 12px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-primary);">
-        <span>${i + 1}. ${dest.city}</span>
-        <i class="fa-solid fa-xmark" style="cursor: pointer; opacity: 0.7;" onclick="ui.removeRouteDestination(${i})"></i>
+    // Build sub-tab navigation
+    container.innerHTML = `
+      <div class="naftal-subtabs" style="display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;">
+        <button class="naftal-subtab ${this.naftalCurrentView==='transport'?'active':''}" onclick="ui.naftalSwitchView('transport')">
+          <i class="fa-solid fa-truck-ramp-box"></i> Espace Transport
+        </button>
+        <button class="naftal-subtab ${this.naftalCurrentView==='gestionnaire'?'active':''}" onclick="ui.naftalSwitchView('gestionnaire')">
+          <i class="fa-solid fa-user-tie"></i> Gestionnaire Gasoil
+        </button>
+        <button class="naftal-subtab ${this.naftalCurrentView==='suivi'?'active':''}" onclick="ui.naftalSwitchView('suivi')">
+          <i class="fa-solid fa-satellite-dish"></i> Suivi des Ravitaillements
+        </button>
+        <button class="naftal-subtab ${this.naftalCurrentView==='historique'?'active':''}" onclick="ui.naftalSwitchView('historique')">
+          <i class="fa-solid fa-clock-rotate-left"></i> Historique Naftal
+        </button>
       </div>
-    `).join('');
+      <div id="naftalViewContainer"></div>
+    `;
+    
+    this.naftalSwitchView(this.naftalCurrentView);
   }
 
-  removeRouteDestination(index) {
-    if (this.selectedRouteDestinations) {
-        this.selectedRouteDestinations.splice(index, 1);
-        this.renderRouteDestinations();
+  naftalSwitchView(view) {
+    this.naftalCurrentView = view;
+    document.querySelectorAll('.naftal-subtab').forEach(b => b.classList.remove('active'));
+    const btns = document.querySelectorAll('.naftal-subtab');
+    if (view === 'transport' && btns[0]) btns[0].classList.add('active');
+    if (view === 'gestionnaire' && btns[1]) btns[1].classList.add('active');
+    if (view === 'suivi' && btns[2]) btns[2].classList.add('active');
+    if (view === 'historique' && btns[3]) btns[3].classList.add('active');
+    
+    if (view === 'transport') this.renderNaftalTransport();
+    else if (view === 'gestionnaire') this.renderNaftalGestionnaire();
+    else if (view === 'suivi') this.renderNaftalSuivi();
+    else if (view === 'historique') this.renderNaftalHistorique();
+  }
+
+  // ═══ AUTHENTICATION GATE ═══
+  naftalRenderAuthGate(section, container) {
+    container.innerHTML = `
+      <div class="naftal-auth-gate">
+        <div class="naftal-auth-card">
+          <div class="naftal-auth-icon">
+            <i class="fa-solid ${section==='transport'?'fa-truck-ramp-box':'fa-user-shield'}"></i>
+          </div>
+          <h3>${section==='transport'?'Espace Transport':'Espace Gestionnaire Gasoil'}</h3>
+          <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">Accès restreint — Veuillez saisir le mot de passe.</p>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="password" id="naftalAuthInput_${section}" placeholder="Mot de passe..." 
+              style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);font-size:14px;"
+              onkeydown="if(event.key==='Enter') ui.naftalVerifyPassword('${section}')">
+            <button class="btn-primary" onclick="ui.naftalVerifyPassword('${section}')" 
+              style="padding:10px 20px;border-radius:8px;background:var(--primary);border:none;color:#fff;font-weight:700;cursor:pointer;">
+              <i class="fa-solid fa-lock-open"></i> Accéder
+            </button>
+          </div>
+          <div id="naftalAuthError_${section}" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
+        </div>
+      </div>
+    `;
+    setTimeout(() => document.getElementById(`naftalAuthInput_${section}`)?.focus(), 100);
+  }
+
+  async naftalVerifyPassword(section) {
+    const input = document.getElementById(`naftalAuthInput_${section}`);
+    const errEl = document.getElementById(`naftalAuthError_${section}`);
+    const password = (input?.value || '').trim();
+    if (!password) { errEl.textContent = 'Veuillez saisir le mot de passe.'; errEl.style.display = 'block'; return; }
+    
+    try {
+      const res = await fetch('/api/naftal/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section, password })
+      });
+      if (res.ok) {
+        if (section === 'transport') this.naftalTransportAuth = true;
+        else this.naftalGestionnaireAuth = true;
+        localStorage.setItem(`naftal_${section}_auth`, 'true');
+        this.naftalSwitchView(section);
+      } else {
+        errEl.textContent = 'Mot de passe incorrect.';
+        errEl.style.display = 'block';
+        input.value = '';
+        input.focus();
+      }
+    } catch (e) {
+      errEl.textContent = 'Erreur serveur: ' + e.message;
+      errEl.style.display = 'block';
     }
   }
 
-  calculateRoute() {
-    const truckId = this.routeTruck.value;
-    const destinations = this.selectedRouteDestinations;
+  naftalCheckAuth(section) {
+    if (section === 'transport') return this.naftalTransportAuth || localStorage.getItem('naftal_transport_auth') === 'true';
+    if (section === 'gestionnaire') return this.naftalGestionnaireAuth || localStorage.getItem('naftal_gestionnaire_auth') === 'true';
+    return true;
+  }
 
-    if (!truckId || !destinations || destinations.length === 0) {
-      alert('\u26a0\ufe0f Sélectionnez un camion et au moins une destination.');
+  // ═══ SECTION 1: TRANSPORT ═══
+  renderNaftalTransport() {
+    const vc = document.getElementById('naftalViewContainer');
+    if (!vc) return;
+    
+    if (!this.naftalCheckAuth('transport')) {
+      this.naftalRenderAuthGate('transport', vc);
       return;
     }
-
-    const truck = app.trucks.get(truckId);
-    // Use TRUCK SPECIFIC CONFIG for calculation
-    const config = getTruckConfig(truckId);
     
-    const pricePerLiter = config.fuelPricePerLiter || 29; 
-    const marginLiters = config.fuelSecurityMargin || 100; 
-    const consumption = config.fuelConsumption || 35;
-
-    // Loop over destinations
-    let totalDistance = 0;
-    let currentPoint = { lat: truck.coordinates.lat, lng: truck.coordinates.lng };
-    
-    destinations.forEach(dest => {
-        totalDistance += calculateDistance(currentPoint.lat, currentPoint.lng, dest.lat, dest.lng);
-        currentPoint = dest;
+    const allTrucks = app.getAllTrucks ? app.getAllTrucks() : [];
+    const trucksWithCards = allTrucks.filter(t => {
+      const db = (this.truckDbCache || []).find(d => d.deviceId === (t.id || t.deviceId));
+      return db && db.carteNaftal;
     });
-
-    const roadDistance = Math.round(totalDistance * 1.25);
-    const fuelNeededForTrip = Math.round((roadDistance / 100) * consumption);
-    const remainingAfterTrip = truck.fuelLiters - fuelNeededForTrip;
-    const shortfall = marginLiters - remainingAfterTrip;
     
-    let litersToBuy = 0;
-    let statusColor = 'green';
-    let statusText = '\u2705 SUFFISANT';
-    let cost = 0;
+    // Apply filters & sort
+    let filtered = [...trucksWithCards];
+    const q = this.naftalSearchQuery.toLowerCase();
+    if (q) {
+      filtered = filtered.filter(t => {
+        const db = (this.truckDbCache || []).find(d => d.deviceId === (t.id || t.deviceId)) || {};
+        return (t.name || '').toLowerCase().includes(q) ||
+               (db.carteNaftal || '').toLowerCase().includes(q) ||
+               (db.immatriculation || '').toLowerCase().includes(q);
+      });
+    }
+    
+    // Location filter
+    if (this.naftalFilterStatus === 'external') {
+      filtered = filtered.filter(t => {
+        const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+        const isInside = locs.some(l => l.type === 'douroub' && calculateDistance(t.coordinates?.lat, t.coordinates?.lng, l.lat, l.lng) <= (l.radius || 500) / 1000);
+        return !isInside;
+      });
+    } else if (this.naftalFilterStatus === 'close') {
+      filtered = filtered.filter(t => {
+        const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+        return locs.some(l => l.type === 'douroub' && calculateDistance(t.coordinates?.lat, t.coordinates?.lng, l.lat, l.lng) <= 50);
+      });
+    } else if (this.naftalFilterStatus === 'lowfuel') {
+      filtered = filtered.filter(t => (t.fuelPercentage || 0) <= 20);
+    } else if (this.naftalFilterStatus === 'critical') {
+      filtered = filtered.filter(t => (t.fuelPercentage || 0) <= 5);
+    }
+    
+    // Sort
+    filtered.sort((a, b) => {
+      let va, vb;
+      if (this.naftalSortField === 'fuel') { va = a.fuelPercentage || 0; vb = b.fuelPercentage || 0; }
+      else if (this.naftalSortField === 'name') { va = (a.name || '').toLowerCase(); vb = (b.name || '').toLowerCase(); }
+      else { va = a.fuelPercentage || 0; vb = b.fuelPercentage || 0; }
+      if (this.naftalSortDir === 'asc') return va < vb ? -1 : va > vb ? 1 : 0;
+      return va > vb ? -1 : va < vb ? 1 : 0;
+    });
+    
+    const selectedSet = this.naftalSelectedTrucks;
 
-    if (shortfall > 0) {
-      litersToBuy = shortfall;
-      statusColor = 'orange'; 
-      statusText = `\u26a0\ufe0f FAIRE L'APPOINT`;
-      if (remainingAfterTrip < 0) {
-        statusColor = 'red';
-        statusText = `❌ INSUFFISANT`;
-      }
-      cost = litersToBuy * pricePerLiter;
+    vc.innerHTML = `
+      <div class="naftal-section" style="border-left:4px solid var(--primary);">
+
+        <!-- ── Header ── -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+          <div>
+            <h3 style="margin:0 0 2px 0;color:var(--primary);font-size:15px;"><i class="fa-solid fa-truck-ramp-box"></i> Déclaration Transport</h3>
+            <div style="font-size:11px;color:var(--text-muted);">${filtered.length} camion(s) avec carte Naftal${selectedSet.size > 0 ? ` · <strong style="color:#38bdf8;">${selectedSet.size} sélectionné(s)</strong>` : ''}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+            <input type="text" placeholder="🔍 Camion, carte, immat..."
+              value="${this.naftalSearchQuery}" oninput="ui.naftalSearchQuery=this.value;ui.renderNaftalTransport()"
+              style="padding:7px 14px;border:1px solid var(--border);border-radius:20px;background:var(--bg-elevated);color:var(--text-primary);font-size:12px;width:210px;outline:none;">
+            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
+              ${[['all','Tous'],['external','Externe'],['close','≤50km'],['lowfuel','Faible'],['critical','Critique']].map(([v,l]) => {
+                const active = this.naftalFilterStatus === v;
+                return `<button onclick="ui.naftalFilterStatus='${v}';ui.renderNaftalTransport()" style="padding:4px 11px;border-radius:14px;border:1px solid ${active?'var(--primary)':'var(--border)'};background:${active?'var(--primary)':'transparent'};color:${active?'#fff':'var(--text-muted)'};font-size:10px;cursor:pointer;font-weight:${active?700:400};">${l}</button>`;
+              }).join('')}
+              <select onchange="ui.naftalSortField=this.value.split('_')[0];ui.naftalSortDir=this.value.split('_')[1];ui.renderNaftalTransport()"
+                style="padding:4px 10px;border:1px solid var(--border);border-radius:14px;background:transparent;color:var(--text-muted);font-size:10px;cursor:pointer;">
+                <option value="name_asc">Nom ↑</option><option value="name_desc">Nom ↓</option>
+                <option value="fuel_asc">Carburant ↑</option><option value="fuel_desc">Carburant ↓</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── STICKY selection bar ── -->
+        ${selectedSet.size > 0 ? `
+        <div id="naftalSelBar"
+          style="position:sticky;top:66px;z-index:200;display:flex;align-items:center;gap:10px;padding:10px 16px;margin-bottom:14px;background:rgba(10,20,40,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(56,189,248,0.35);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:opacity 0.25s;"
+          onmouseenter="this.style.opacity='1'"
+          onmouseleave="this.style.opacity=window._naftalBarScrolled?'0.55':'1'">
+          <i class="fa-solid fa-square-check" style="color:var(--primary);font-size:14px;"></i>
+          <span style="font-size:13px;font-weight:700;color:#fff;flex:1;">${selectedSet.size} camion(s) sélectionné(s)</span>
+          <button onclick="ui.naftalOpenDestinationModal()"
+            style="padding:7px 18px;border-radius:8px;background:var(--primary);border:none;color:var(--bg-surface);font-weight:800;cursor:pointer;font-size:12px;letter-spacing:0.3px;">
+            <i class="fa-solid fa-map-location-dot"></i> Assigner Destinations
+          </button>
+          <button onclick="ui.naftalSelectedTrucks.clear();ui.naftalDeclarationDraft=[];ui.renderNaftalTransport()"
+            style="padding:7px 10px;border-radius:8px;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;" title="Annuler">×</button>
+        </div>` : ""}
+
+        <!-- ── Card grid ── -->
+        <div class="naftal-truck-grid">
+          ${filtered.map(t => {
+            const db = (this.truckDbCache || []).find(d => d.deviceId === (t.id || t.deviceId)) || {};
+            const isSelected = selectedSet.has(t.id || t.deviceId);
+            const fp  = Math.round(t.fuelPercentage || 0);
+            const fl  = Math.round(t.fuelLiters || 0);
+            const tCfg = (typeof getTruckConfig === 'function') ? getTruckConfig(t.id || t.deviceId) : {};
+            const cons = tCfg.fuelConsumption || 45;
+            const rangeKm = fl > 0 ? Math.round((fl / cons) * 100) : 0;
+            const spd = Math.round(t.speed || 0);
+
+            // Fuel — use app's semantic vars
+            const fuelLevel = fp <= 5 ? 'critical' : fp <= 15 ? 'low' : fp <= 30 ? 'medium' : 'ok';
+            const fuelColor = {
+              critical: 'var(--danger)',
+              low:      'var(--warning)',
+              medium:   '#fbbf24',
+              ok:       'var(--success)'
+            }[fuelLevel];
+            const fuelGradHex = {
+              critical: '#ef4444,#b91c1c',
+              low:      '#f59e0b,#d97706',
+              medium:   '#fbbf24,#ca8a04',
+              ok:       '#10b981,#059669'
+            }[fuelLevel];
+            const fuelLabel = {
+              critical: '⚠ Critique',
+              low:      '↓ Faible',
+              medium:   '~ Bas',
+              ok:       '✓ OK'
+            }[fuelLevel];
+            const fuelBgAlpha = {
+              critical: 'rgba(239,68,68,0.08)',
+              low:      'rgba(245,158,11,0.08)',
+              medium:   'rgba(251,191,36,0.06)',
+              ok:       'rgba(16,185,129,0.07)'
+            }[fuelLevel];
+
+            // Location / status
+            const isInDED = this._naftalIsInsideDED(t);
+            const locName = this._naftalGetTruckLocation(t);
+            const moving  = spd > 2;
+            const statusLabel = isInDED ? 'Au site' : moving ? 'En route' : 'Arrêté';
+            const statusColor = isInDED ? 'var(--success)' : moving ? 'var(--primary)' : 'var(--text-muted)';
+            const statusBgAlpha = isInDED ? 'rgba(16,185,129,0.1)' : moving ? 'rgba(56,189,248,0.1)' : 'rgba(100,116,139,0.07)';
+            const devId = t.id || t.deviceId;
+            const coords = t.coordinates ? `${t.coordinates.lat.toFixed(4)}, ${t.coordinates.lng.toFixed(4)}` : null;
+
+            return `
+              <div onclick="ui.naftalToggleTruck('${devId}')"
+                style="background:var(--bg-elevated);border:1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'};border-radius:12px;padding:13px;cursor:pointer;transition:border-color 0.15s,box-shadow 0.15s;box-shadow:${isSelected ? '0 0 0 3px rgba(56,189,248,0.15),0 4px 12px rgba(0,0,0,0.2)' : '0 1px 4px rgba(0,0,0,0.15)'};position:relative;overflow:hidden;">
+
+                <!-- Top accent line colored by fuel -->
+                <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,${fuelGradHex});"></div>
+
+                <!-- Row 1: checkbox + name + carte -->
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;margin-top:5px;">
+                  <div style="display:flex;align-items:center;gap:7px;min-width:0;">
+                    <div style="width:15px;height:15px;border-radius:3px;border:1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'};background:${isSelected ? 'var(--primary)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;color:var(--bg-surface);font-weight:900;">${isSelected ? '✓' : ''}</div>
+                    <span style="font-size:13px;font-weight:800;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 0 12px rgba(56,189,248,0.15);">${t.name || 'N/A'}</span>
+                  </div>
+                  <span style="font-size:9px;color:var(--text-muted);background:var(--bg-surface);border:1px solid var(--border);padding:2px 6px;border-radius:4px;white-space:nowrap;margin-left:4px;font-family:monospace;">${db.carteNaftal || '—'}</span>
+                </div>
+
+                <!-- Row 2: status pill + speed + immat -->
+                <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;flex-wrap:wrap;">
+                  <span style="font-size:9px;font-weight:700;color:${statusColor};background:${statusBgAlpha};padding:2px 8px;border-radius:10px;">${statusLabel}</span>
+                  ${moving ? `<span style="font-size:9px;color:var(--primary);font-weight:600;">${spd} km/h</span>` : ''}
+                  ${db.immatriculation ? `<span style="font-size:9px;color:var(--text-muted);margin-left:auto;">${db.immatriculation}</span>` : ''}
+                </div>
+
+                <!-- Row 3: live address (updated by Geoapify) -->
+                <div style="display:flex;align-items:flex-start;gap:5px;margin-bottom:10px;min-height:26px;">
+                  <i class="fa-solid fa-location-dot" style="color:${statusColor};font-size:9px;margin-top:2px;flex-shrink:0;opacity:0.8;"></i>
+                  <div id="naftalLoc_${devId}" style="font-size:10px;color:#000;font-weight:700;line-height:1.35;letter-spacing:0.2px;">${locName}</div>
+                </div>
+
+                <!-- Fuel block -->
+                <div style="background:${fuelBgAlpha};border-radius:8px;padding:9px;margin-bottom:10px;">
+                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;">
+                    <div>
+                      <span style="font-size:22px;font-weight:900;color:${fuelColor};line-height:1;text-shadow:0 0 10px ${fuelColor}50;">${fl}</span>
+                      <span style="font-size:10px;color:var(--text-muted);margin-left:2px;">L</span>
+                    </div>
+                    <div style="text-align:right;">
+                      <div style="font-size:12px;font-weight:800;color:${fuelColor};">${fp}%</div>
+                      <div style="font-size:9px;color:var(--text-muted);">~${rangeKm} km</div>
+                    </div>
+                  </div>
+                  <div style="height:4px;background:rgba(255,255,255,0.07);border-radius:2px;overflow:hidden;">
+                    <div style="height:100%;width:${Math.min(fp, 100)}%;background:linear-gradient(90deg,${fuelGradHex});border-radius:2px;"></div>
+                  </div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;">
+                    <span style="font-size:9px;font-weight:600;color:${fuelColor};">${fuelLabel}</span>
+                    ${coords ? `<span style="font-size:8px;color:var(--text-muted);font-family:monospace;opacity:0.7;">${coords}</span>` : ''}
+                  </div>
+                </div>
+
+                <!-- Action button -->
+                ${isSelected
+                  ? `<div style="display:flex;align-items:center;justify-content:center;gap:5px;padding:6px;border-radius:8px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);font-size:11px;color:var(--primary);font-weight:700;">
+                      <i class="fa-solid fa-check"></i> Sélectionné
+                    </div>`
+                  : `<button onclick="event.stopPropagation();ui.naftalQuickDeclare('${devId}')"
+                      style="width:100%;padding:7px;border-radius:8px;background:var(--primary);border:none;color:var(--bg-surface);font-weight:700;cursor:pointer;font-size:11px;letter-spacing:0.3px;">
+                      <i class="fa-solid fa-plus"></i> Déclarer
+                    </button>`}
+              </div>`;
+          }).join('')}
+        </div>
+
+
+        ${this.naftalDeclarationDraft.length > 0 ? this._naftalRenderRecapTable() : ''}
+      </div>
+    `;
+
+    // ── Sticky bar scroll transparency ──
+    if (selectedSet.size > 0) {
+      const bar = document.getElementById('naftalSelBar');
+      const container = vc.closest('[style*="overflow"]') || document.querySelector('.main-content') || window;
+      const onScroll = () => {
+        const scrolled = (container === window ? window.scrollY : container.scrollTop) > 10;
+        window._naftalBarScrolled = scrolled;
+        if (bar && !bar.matches(':hover')) bar.style.opacity = scrolled ? '0.55' : '1';
+      };
+      (container === window ? window : container).addEventListener('scroll', onScroll, { passive: true });
+      window._naftalBarScrollListener = onScroll;
     }
 
-    this.routeResultsContainer.innerHTML = `
-      <div class="route-result" style="background: var(--bg-surface); padding: 20px; border-radius: 8px; box-shadow: var(--shadow-md); border-top: 5px solid ${statusColor}; margin-top: 20px; border-left: 1px solid var(--border-strong); border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong);">
-        <h3 style="margin: 0 0 15px 0; color: var(--primary);"><i class="fa-solid fa-route"></i> Itinéraire: ${truck.name} <i class="fa-solid fa-arrow-right"></i> ${destinations.map(d => d.city).join(' <i class="fa-solid fa-arrow-right"></i> ')}</h3>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
-          <div><div style="font-size: 12px; color: var(--text-muted);">DISTANCE (Est.)</div><div style="font-size: 18px; font-weight: bold;">${roadDistance} km</div></div>
-          <div><div style="font-size: 12px; color: var(--text-muted);">CONSO (${consumption}L/100)</div><div style="font-size: 18px; font-weight: bold;">${fuelNeededForTrip} L</div></div>
+    // ── Geoapify reverse geocoding for live card addresses ──
+    this._naftalReverseGeocodeCards(filtered);
+  }
+
+  _naftalReverseGeocodeCards(trucks) {
+    const apiKey = (FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0)
+      ? FLEET_CONFIG.GEOAPIFY_API_KEYS[0] : FLEET_CONFIG.GEOAPIFY_API_KEY;
+    if (!apiKey) return;
+    const customLocs = (FLEET_CONFIG.CUSTOM_LOCATIONS || []).map(l => l.name);
+    trucks.forEach(t => {
+      if (!t.coordinates || !t.coordinates.lat) return;
+      const devId = t.id || t.deviceId;
+      const el = document.getElementById(`naftalLoc_${devId}`);
+      if (!el) return;
+      // If already matched a custom site, highlight it and skip Geoapify
+      const knownSite = this._naftalGetTruckLocation(t);
+      if (customLocs.includes(knownSite)) {
+        el.innerHTML = `<span style="color:#000;font-weight:800;">📍 ${knownSite}</span>`;
+        return;
+      }
+      fetch(`https://api.geoapify.com/v1/geocode/reverse?lat=${t.coordinates.lat}&lon=${t.coordinates.lng}&apiKey=${apiKey}&lang=fr`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.features || !data.features[0]) return;
+          const p = data.features[0].properties;
+          // Prefer precise: road/name > quarter > locality > city > state
+          const precise = p.name || p.street || p.road;
+          const quarter = p.suburb || p.city_district || p.quarter;
+          const city = p.city || p.town || p.village || p.municipality;
+          const parts = [precise, quarter, city].filter(Boolean);
+          const addr = parts.length > 0 ? parts.slice(0,2).join(', ') : (p.county || p.state || p.formatted?.split(',')[0] || '');
+          const fresh = document.getElementById(`naftalLoc_${devId}`);
+          if (fresh && addr) {
+            fresh.innerHTML = `<span style="color:#000;font-weight:700;">${addr}</span>`;
+          }
+        }).catch(() => {});
+    });
+  }
+
+
+  _naftalGetTruckLocation(truck) {
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    if (truck.coordinates) {
+      for (const loc of locs) {
+        const d = calculateDistance(truck.coordinates.lat, truck.coordinates.lng, loc.lat, loc.lng);
+        if (d <= (loc.radius || 500) / 1000) return loc.name;
+      }
+    }
+    return truck.currentLocation || truck.address || 'En route';
+  }
+
+  _naftalIsInsideDED(truck) {
+    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
+    if (!truck.coordinates) return false;
+    return locs.some(l => l.type === 'douroub' && calculateDistance(truck.coordinates.lat, truck.coordinates.lng, l.lat, l.lng) <= (l.radius || 500) / 1000);
+  }
+
+  naftalToggleTruck(deviceId) {
+    if (this.naftalSelectedTrucks.has(deviceId)) this.naftalSelectedTrucks.delete(deviceId);
+    else this.naftalSelectedTrucks.add(deviceId);
+    this.renderNaftalTransport();
+  }
+
+  naftalQuickDeclare(deviceId) {
+    this.naftalSelectedTrucks.add(deviceId);
+    this.naftalOpenDestinationModal();
+  }
+
+  // --- Destination Assignment Modal ---
+  naftalOpenDestinationModal() {
+    const selected = [...this.naftalSelectedTrucks];
+    if (selected.length === 0) return;
+    
+    const allTrucks = app.getAllTrucks ? app.getAllTrucks() : [];
+    
+    // ✅ FIX: rebuild draft from scratch — only currently selected trucks
+    // Preserve destinations already entered for trucks still selected
+    const prevDraft = this.naftalDeclarationDraft || [];
+    const newDraft = [];
+    
+    selected.forEach(deviceId => {
+      const existing = prevDraft.find(d => d.deviceId === deviceId);
+      if (existing) {
+        // Keep existing entry (has destination already filled in)
+        newDraft.push(existing);
+      } else {
+        const t = allTrucks.find(tr => (tr.id || tr.deviceId) === deviceId);
+        const db = (this.truckDbCache || []).find(d => d.deviceId === deviceId) || {};
+        if (t) {
+          newDraft.push({
+            deviceId,
+            truckName: t.name || deviceId,
+            carteNaftal: db.carteNaftal || '',
+            immatriculation: db.immatriculation || '',
+            currentLocation: this._naftalGetTruckLocation(t),
+            currentLat: t.coordinates?.lat || 0,
+            currentLng: t.coordinates?.lng || 0,
+            currentFuelLiters: Math.round(t.fuelLiters || 0),
+            currentFuelPercent: Math.round(t.fuelPercentage || 0),  // ✅ matches modal field
+            destination: '',
+            destinationLat: 0,
+            destinationLng: 0,
+            estimatedDistanceKm: 0,
+            estimatedFuelNeeded: 0,
+            estimatedCostDA: 0
+          });
+        }
+      }
+    });
+    this.naftalDeclarationDraft = newDraft;
+
+    
+    // Show modal
+    const modal = document.createElement('div');
+    modal.id = 'naftalDestModal';
+    modal.className = 'naftal-modal-overlay';
+    modal.innerHTML = `
+      <div class="naftal-modal" style="width:min(92vw,880px);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;position:sticky;top:0;background:var(--bg-surface);z-index:1;padding-bottom:12px;border-bottom:1px solid var(--border);">
+          <div>
+            <h3 style="margin:0;color:var(--primary);"><i class="fa-solid fa-map-location-dot"></i> Assigner les Destinations</h3>
+            <p style="margin:4px 0 0 0;font-size:11px;color:var(--text-muted);">${this.naftalDeclarationDraft.length} camion(s) — définissez la destination de chacun</p>
+          </div>
+          <button onclick="document.getElementById('naftalDestModal').remove();ui.naftalDeclarationDraft=[];ui.naftalSelectedTrucks.clear();ui.renderNaftalTransport();" 
+            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:20px;padding:4px;"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div style="background: var(--bg-elevated); padding: 15px; border-radius: 8px;">
-          <h4 style="margin: 0 0 10px 0; color: ${statusColor};">${statusText}</h4>
-          ${litersToBuy > 0 ? '<div style="font-size:24px;font-weight:bold;color:'+statusColor+';">'+litersToBuy+' Litres</div>' : '<p style="color:var(--success);">Reserve OK: '+remainingAfterTrip+'L</p>'}
+        
+        <div style="flex:1;overflow-y:auto;min-height:0;padding:0 2px 4px 2px;">
+          ${this.naftalDeclarationDraft.map((entry, idx) => `
+            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+                <div>
+                  <strong style="font-size:14px;color:var(--text-primary);">${entry.truckName}</strong>
+                  <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">
+                    <i class="fa-solid fa-location-dot" style="color:var(--warning);"></i> Départ: <strong>${entry.currentLocation||'Position GPS'}</strong>
+                    &nbsp;·&nbsp; ⛽ ${entry.currentFuelLiters||0}L (${entry.currentFuelPercent||0}%)
+                  </div>
+                </div>
+                <span style="font-size:10px;background:var(--bg-surface);border:1px solid var(--border);padding:2px 8px;border-radius:5px;color:var(--text-muted);">
+                  <i class="fa-solid fa-credit-card"></i> ${entry.carteNaftal||'N/A'}
+                </span>
+              </div>
+              
+              <div style="display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px;align-items:end;">
+                <div style="position:relative;">
+                  <label style="font-size:10px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">📍 DESTINATION</label>
+                  <input type="text" id="naftalDest_${idx}" value="${entry.destination}" 
+                    placeholder="Ex: Alger, Oran, Biskra..." 
+                    oninput="ui.naftalSearchDestination(${idx}, this.value)" autocomplete="off"
+                    style="padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg-surface);color:var(--text-primary);font-size:13px;width:100%;box-sizing:border-box;">
+                  <div id="naftalDestDropdown_${idx}" class="naftal-autocomplete-dropdown"></div>
+                </div>
+                <div style="text-align:center;min-width:72px;">
+                  <div style="font-size:9px;color:var(--text-muted);font-weight:700;margin-bottom:3px;">DISTANCE</div>
+                  <div style="font-weight:800;color:var(--info);font-size:14px;" id="naftalDistEst_${idx}">${entry.estimatedDistanceKm||'—'} km</div>
+                </div>
+                <div style="text-align:center;min-width:70px;">
+                  <div style="font-size:9px;color:var(--text-muted);font-weight:700;margin-bottom:3px;">BESOIN</div>
+                  <div style="font-weight:800;font-size:13px;" id="naftalFuelEst_${idx}">
+                    ${entry.estimatedFuelNeeded > 0 ? `<span style="color:#f97316;">${entry.estimatedFuelNeeded} L</span>` : entry.estimatedDistanceKm > 0 ? '<span style="color:#22c55e;font-size:11px;">✅ Suffisant</span>' : '<span style="color:var(--text-muted);">— L</span>'}
+                  </div>
+                </div>
+                <div style="text-align:center;min-width:80px;">
+                  <div style="font-size:9px;color:var(--text-muted);font-weight:700;margin-bottom:3px;">COÛT EST.</div>
+                  <div style="font-weight:800;color:var(--success);font-size:14px;" id="naftalCostEst_${idx}">${entry.estimatedCostDA > 0 ? entry.estimatedCostDA.toLocaleString()+' DA' : '—'}</div>
+                </div>
+                <button onclick="ui.naftalRemoveDraftEntry(${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px;"><i class="fa-solid fa-trash"></i></button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);flex-shrink:0;">
+          <button onclick="document.getElementById('naftalDestModal').remove();ui.naftalDeclarationDraft=[];ui.naftalSelectedTrucks.clear();ui.renderNaftalTransport();" style="padding:10px 20px;border-radius:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;">Annuler</button>
+          <button onclick="ui.naftalConfirmDestinations()" style="padding:10px 24px;border-radius:8px;background:var(--primary);border:none;color:#fff;font-weight:700;cursor:pointer;font-size:13px;">
+            <i class="fa-solid fa-check"></i> Confirmer (${this.naftalDeclarationDraft.length} camion${this.naftalDeclarationDraft.length>1?'s':''}})
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  naftalSearchDestination(idx, query) {
+    const dropdown = document.getElementById(`naftalDestDropdown_${idx}`);
+    if (!dropdown || query.length < 2) { if (dropdown) dropdown.style.display = 'none'; return; }
+    
+    // 58 Algerian Wilayas with coordinates
+    const WILAYAS = [
+      {code:'01',name:'Adrar',lat:27.874,lng:-0.284},{code:'02',name:'Chlef',lat:36.165,lng:1.329},
+      {code:'03',name:'Laghouat',lat:33.800,lng:2.865},{code:'04',name:'Oum El Bouaghi',lat:35.870,lng:7.113},
+      {code:'05',name:'Batna',lat:35.556,lng:6.174},{code:'06',name:'Béjaïa',lat:36.752,lng:5.056},
+      {code:'07',name:'Biskra',lat:34.850,lng:5.728},{code:'08',name:'Béchar',lat:31.621,lng:-2.216},
+      {code:'09',name:'Blida',lat:36.470,lng:2.828},{code:'10',name:'Bouira',lat:36.374,lng:3.901},
+      {code:'11',name:'Tamanrasset',lat:22.785,lng:5.523},{code:'12',name:'Tébessa',lat:35.404,lng:8.124},
+      {code:'13',name:'Tlemcen',lat:34.878,lng:-1.315},{code:'14',name:'Tiaret',lat:35.371,lng:1.317},
+      {code:'15',name:'Tizi Ouzou',lat:36.717,lng:4.044},{code:'16',name:'Alger',lat:36.737,lng:3.086},
+      {code:'17',name:'Djelfa',lat:34.670,lng:3.264},{code:'18',name:'Jijel',lat:36.820,lng:5.765},
+      {code:'19',name:'Sétif',lat:36.190,lng:5.409},{code:'20',name:'Saïda',lat:34.830,lng:0.150},
+      {code:'21',name:'Skikda',lat:36.876,lng:6.905},{code:'22',name:'Sidi Bel Abbès',lat:35.190,lng:-0.630},
+      {code:'23',name:'Annaba',lat:36.897,lng:7.765},{code:'24',name:'Guelma',lat:36.462,lng:7.427},
+      {code:'25',name:'Constantine',lat:36.365,lng:6.615},{code:'26',name:'Médéa',lat:36.264,lng:2.751},
+      {code:'27',name:'Mostaganem',lat:35.930,lng:0.089},{code:'28',name:"M'Sila",lat:35.706,lng:4.544},
+      {code:'29',name:'Mascara',lat:35.395,lng:0.139},{code:'30',name:'Ouargla',lat:31.949,lng:5.325},
+      {code:'31',name:'Oran',lat:35.697,lng:-0.634},{code:'32',name:'El Bayadh',lat:33.680,lng:1.014},
+      {code:'33',name:'Illizi',lat:26.483,lng:8.477},{code:'34',name:'Bordj Bou Arréridj',lat:36.073,lng:4.763},
+      {code:'35',name:'Boumerdès',lat:36.769,lng:3.477},{code:'36',name:'El Tarf',lat:36.767,lng:8.308},
+      {code:'37',name:'Tindouf',lat:27.674,lng:-8.147},{code:'38',name:'Tissemsilt',lat:35.607,lng:1.812},
+      {code:'39',name:'El Oued',lat:33.368,lng:6.868},{code:'40',name:'Khenchela',lat:35.435,lng:7.142},
+      {code:'41',name:'Souk Ahras',lat:36.286,lng:7.951},{code:'42',name:'Tipaza',lat:36.589,lng:2.446},
+      {code:'43',name:'Mila',lat:36.450,lng:6.264},{code:'44',name:'Aïn Defla',lat:36.264,lng:1.966},
+      {code:'45',name:'Naâma',lat:33.267,lng:-0.313},{code:'46',name:'Aïn Témouchent',lat:35.298,lng:-1.140},
+      {code:'47',name:'Ghardaïa',lat:32.490,lng:3.674},{code:'48',name:'Relizane',lat:35.738,lng:0.556},
+      {code:'49',name:"El M'Ghair",lat:33.953,lng:5.923},{code:'50',name:'El Meniaa',lat:30.583,lng:2.877},
+      {code:'51',name:'Ouled Djellal',lat:34.418,lng:5.066},{code:'52',name:'Bordj Badji Mokhtar',lat:21.327,lng:0.945},
+      {code:'53',name:'Béni Abbès',lat:30.131,lng:-2.163},{code:'54',name:'Timimoun',lat:29.265,lng:0.241},
+      {code:'55',name:'Touggourt',lat:33.099,lng:6.067},{code:'56',name:'Djanet',lat:24.555,lng:9.481},
+      {code:'57',name:"In Salah",lat:27.196,lng:2.464},{code:'58',name:"In Guezzam",lat:19.566,lng:5.768}
+    ];
+    
+    const q = query.toLowerCase().trim();
+    
+    // Instant local results: wilayas + custom sites
+    const wilayaMatches = WILAYAS.filter(w =>
+      w.name.toLowerCase().includes(q) || w.code === q.padStart(2,'0')
+    ).slice(0, 4).map(w => ({ name: w.name, lat: w.lat, lng: w.lng, type: 'wilaya', badge: `Wilaya ${w.code}` }));
+    
+    const customMatches = (FLEET_CONFIG.CUSTOM_LOCATIONS || []).filter(l =>
+      l.name.toLowerCase().includes(q)
+    ).slice(0, 3).map(l => ({ name: l.name, lat: l.lat, lng: l.lng, type: l.type || 'site', badge: l.type === 'douroub' ? 'Site DED' : 'Client' }));
+    
+    const localResults = [...customMatches, ...wilayaMatches];
+    
+    // Helper to render results
+    const renderDropdown = (results) => {
+      if (!results.length) { dropdown.style.display = 'none'; return; }
+      const seenNames = new Set();
+      const unique = results.filter(r => { if (seenNames.has(r.name)) return false; seenNames.add(r.name); return true; });
+      dropdown.innerHTML = unique.map(r => {
+        const icon = r.type === 'wilaya' ? 'fa-city' : r.type === 'douroub' ? 'fa-building' : r.type === 'geo' ? 'fa-map-pin' : 'fa-location-dot';
+        const badgeColor = r.type === 'wilaya' ? 'var(--primary)' : r.type === 'douroub' ? 'var(--warning)' : 'var(--info)';
+        return `<div class="naftal-autocomplete-item" onclick="ui.naftalSelectDestination(${idx}, '${r.name.replace(/'/g,"\\'")}', ${r.lat}, ${r.lng})">
+          <i class="fa-solid ${icon}" style="color:${badgeColor};margin-right:8px;width:14px;"></i>
+          <strong>${r.name}</strong>
+          <span style="font-size:10px;color:var(--text-muted);margin-left:auto;background:var(--bg-surface);padding:1px 6px;border-radius:4px;">${r.badge||''}</span>
+        </div>`;
+      }).join('');
+      dropdown.style.display = 'block';
+    };
+
+    // Show local results immediately
+    renderDropdown(localResults);
+    
+    // Always fire Geoapify in parallel for richer results (cities, communes, neighborhoods)
+    const apiKey = (FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0)
+      ? FLEET_CONFIG.GEOAPIFY_API_KEYS[0] : FLEET_CONFIG.GEOAPIFY_API_KEY;
+    if (apiKey) {
+      fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&apiKey=${apiKey}&limit=6&filter=countrycode:dz&lang=fr`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.features) return;
+          const geoResults = data.features.map(f => {
+            const p = f.properties;
+            const name = p.city || p.town || p.village || p.suburb || p.name || p.formatted?.split(',')[0] || 'Lieu';
+            const badge = p.state ? p.state.replace('Wilaya de ','W. ').replace('Wilaya d\'','W. ') : 'Algérie';
+            return { name, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], type: 'geo', badge };
+          });
+          // Merge: custom sites first, then wilayas, then geo (dedup by name)
+          renderDropdown([...customMatches, ...wilayaMatches, ...geoResults]);
+        }).catch(() => {});
+    }
+  }
+
+  naftalSelectDestination(idx, name, lat, lng) {
+    const entry = this.naftalDeclarationDraft[idx];
+    if (!entry) return;
+    
+    entry.destination = name;
+    entry.destinationLat = lat;
+    entry.destinationLng = lng;
+    
+    // Immediately show haversine estimate while routing loads
+    const est = this._naftalCalculateEstimate(entry);
+    entry.estimatedDistanceKm = est.distKm;
+    entry.estimatedFuelNeeded = est.litersToAdd;
+    entry.estimatedCostDA = est.costDA;
+    
+    const input = document.getElementById(`naftalDest_${idx}`);
+    if (input) input.value = name;
+    const dropdown = document.getElementById(`naftalDestDropdown_${idx}`);
+    if (dropdown) dropdown.style.display = 'none';
+    
+    this._naftalUpdateEstimateDisplay(idx, est, true);
+    
+    // Try Geoapify Routing for real road distance
+    if (entry.currentLat && entry.currentLng && lat && lng) {
+      const apiKey = (FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0)
+        ? FLEET_CONFIG.GEOAPIFY_API_KEYS[0] : FLEET_CONFIG.GEOAPIFY_API_KEY;
+      if (apiKey) {
+        const distEl = document.getElementById(`naftalDistEst_${idx}`);
+        if (distEl) distEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="font-size:10px;"></i>';
+        fetch(`https://api.geoapify.com/v1/routing?waypoints=${entry.currentLat},${entry.currentLng}|${lat},${lng}&mode=drive&apiKey=${apiKey}`)
+          .then(r => r.json())
+          .then(data => {
+            if (data.features && data.features[0]) {
+              const realDistM = data.features[0].properties.distance;
+              const realDistKm = Math.round(realDistM / 1000);
+              entry.estimatedDistanceKm = realDistKm;
+              // Recalculate fuel with real road distance
+              const config = (typeof getTruckConfig === 'function') ? getTruckConfig(entry.deviceId) : {};
+              const consumption = config.fuelConsumption || 45;
+              const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
+              const securityMargin = config.fuelSecurityMargin || 100;
+              const criticalLevel = config.criticalFuelLevel || 5;
+              const tankCapacity = config.fuelTankCapacity || 600;
+              const fuelForTrip = Math.round((realDistKm / 100) * consumption);
+              const minKeep = (criticalLevel / 100) * tankCapacity;
+              const available = Math.max(0, (entry.currentFuelLiters || 0) - minKeep);
+              const litersToAdd = Math.max(0, Math.ceil(fuelForTrip + securityMargin - available));
+              const costDA = Math.ceil(litersToAdd * naftalPrice);
+              entry.estimatedFuelNeeded = litersToAdd;
+              entry.estimatedCostDA = costDA;
+              this._naftalUpdateEstimateDisplay(idx, { distKm: realDistKm, litersToAdd, costDA }, false);
+            }
+          }).catch(() => {
+            // Keep haversine estimate on error
+            this._naftalUpdateEstimateDisplay(idx, est, false);
+          });
+      }
+    }
+  }
+
+  _naftalUpdateEstimateDisplay(idx, est, loading) {
+    const distEl = document.getElementById(`naftalDistEst_${idx}`);
+    const fuelEl = document.getElementById(`naftalFuelEst_${idx}`);
+    const costEl = document.getElementById(`naftalCostEst_${idx}`);
+    if (distEl) distEl.innerHTML = `${est.distKm} km${loading ? ' <span style="font-size:9px;color:var(--text-muted);">(~)</span>' : ''}`;
+    if (fuelEl) {
+      if (est.litersToAdd > 0) {
+        fuelEl.innerHTML = `<span style="color:#fb923c;">${est.litersToAdd} L</span>`;
+      } else if (est.distKm > 0) {
+        fuelEl.innerHTML = `<span style="color:#4ade80;font-size:11px;">✅ Suffisant</span>`;
+      } else {
+        fuelEl.innerHTML = `<span style="color:var(--text-muted);">— L</span>`;
+      }
+    }
+    if (costEl) costEl.textContent = est.costDA > 0 ? est.costDA.toLocaleString() + ' DA' : '—';
+  }
+
+  _naftalCalculateEstimate(entry) {
+    const config = (typeof getTruckConfig === 'function') ? getTruckConfig(entry.deviceId) : {};
+    const consumption = config.fuelConsumption || 45;   // ✅ 45 L/100km default
+    const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
+    const securityMargin = config.fuelSecurityMargin || 100;
+    const criticalLevel = config.criticalFuelLevel || 5;
+    const tankCapacity = config.fuelTankCapacity || 600;
+    const roadFactor = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.roadDistanceFactor) || 1.25;
+    
+    if (!entry.destinationLat || !entry.destinationLng || !entry.currentLat || !entry.currentLng) {
+      return { distKm: 0, fuelForTrip: 0, litersToAdd: 0, costDA: 0 };
+    }
+    
+    const haversineKm = calculateDistance(entry.currentLat, entry.currentLng, entry.destinationLat, entry.destinationLng);
+    const distKm = Math.round(haversineKm * roadFactor);
+    const fuelForTrip = Math.round((distKm / 100) * consumption);
+    const minKeep = (criticalLevel / 100) * tankCapacity;
+    const availableFuel = Math.max(0, entry.currentFuelLiters - minKeep);
+    const litersToAdd = Math.max(0, Math.ceil(fuelForTrip + securityMargin - availableFuel));
+    const costDA = Math.ceil(litersToAdd * naftalPrice);
+    
+    return { distKm, fuelForTrip, litersToAdd, costDA };
+  }
+
+  naftalRemoveDraftEntry(idx) {
+    const entry = this.naftalDeclarationDraft[idx];
+    if (entry) this.naftalSelectedTrucks.delete(entry.deviceId);
+    this.naftalDeclarationDraft.splice(idx, 1);
+    // Re-render modal
+    const modal = document.getElementById('naftalDestModal');
+    if (modal) { modal.remove(); if (this.naftalDeclarationDraft.length > 0) this.naftalOpenDestinationModal(); }
+    this.renderNaftalTransport();
+  }
+
+  naftalConfirmDestinations() {
+    // Validate all entries have destinations
+    const incomplete = this.naftalDeclarationDraft.filter(e => !e.destination);
+    if (incomplete.length > 0) {
+      alert(`⚠️ \${incomplete.length} camion(s) sans destination. Veuillez assigner une destination à tous les camions.`);
+      return;
+    }
+    document.getElementById('naftalDestModal')?.remove();
+    this.renderNaftalTransport();
+  }
+
+  _naftalRenderRecapTable() {
+    const draft = this.naftalDeclarationDraft;
+    const totalCost = draft.reduce((s, e) => s + (e.estimatedCostDA || 0), 0);
+    const totalLiters = draft.reduce((s, e) => s + (e.estimatedFuelNeeded || 0), 0);
+    
+    return `
+      <div class="naftal-recap-section" style="margin-top:24px;">
+        <h3 style="color:var(--success);margin-bottom:12px;"><i class="fa-solid fa-clipboard-list"></i> Récapitulatif de la Déclaration</h3>
+        <div style="overflow-x:auto;">
+          <table class="naftal-recap-table">
+            <thead>
+              <tr>
+                <th>Camion</th>
+                <th>Carte Naftal</th>
+                <th>Immatriculation</th>
+                <th>Position Actuelle</th>
+                <th>Carburant Actuel</th>
+                <th>Destination</th>
+                <th>Distance Est.</th>
+                <th>Carburant Nécessaire</th>
+                <th>Coût Estimé</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${draft.map((e, i) => {
+                const fp = e.currentFuelPercent || 0;
+                const fuelColor = fp <= 5 ? 'var(--danger)' : fp <= 15 ? 'var(--warning)' : 'var(--success)';
+                return `
+                  <tr style="border-left:3px solid ${fuelColor};">
+                    <td><strong>${e.truckName}</strong></td>
+                    <td><span class="naftal-card-badge"><i class="fa-solid fa-credit-card"></i> ${e.carteNaftal || 'N/A'}</span></td>
+                    <td>${e.immatriculation || '—'}</td>
+                    <td><i class="fa-solid fa-location-dot" style="color:var(--info);"></i> ${e.currentLocation}</td>
+                    <td><span style="color:${fuelColor};font-weight:700;">${Math.round(e.currentFuelLiters || 0)} L (${Math.round(fp)}%)</span></td>
+                    <td><strong style="color:var(--primary);">${e.destination || '—'}</strong></td>
+                    <td>${e.estimatedDistanceKm || '—'} km</td>
+                    <td style="font-weight:700;color:var(--warning);">${e.estimatedFuelNeeded || '—'} L</td>
+                    <td style="font-weight:700;color:var(--success);">${(e.estimatedCostDA || 0).toLocaleString()} DA</td>
+                    <td>
+                      <button onclick="ui.naftalRemoveDraftEntry(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+                      <button onclick="ui.naftalSelectedTrucks.add('${e.deviceId}'); ui.naftalOpenDestinationModal()" style="background:none;border:none;color:var(--info);cursor:pointer;" title="Modifier destination"><i class="fa-solid fa-pen"></i></button>
+                    </td>
+                  </tr>`;
+              }).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="background:var(--bg-elevated);font-weight:700;">
+                <td colspan="7" style="text-align:right;">TOTAL :</td>
+                <td style="color:var(--warning);">${totalLiters} L</td>
+                <td style="color:var(--success);">${totalCost.toLocaleString()} DA</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div style="margin-top:16px;display:flex;justify-content:flex-end;">
+          <button onclick="ui.naftalValidateTransport()" class="btn-primary" 
+            style="padding:12px 30px;background:var(--success);border:none;color:#fff;font-weight:700;font-size:14px;cursor:pointer;border-radius:8px;box-shadow:0 4px 14px rgba(34,197,94,0.3);">
+            <i class="fa-solid fa-check-double"></i> ✅ Valider la Déclaration
+          </button>
         </div>
       </div>
     `;
   }
 
+  async naftalValidateTransport() {
+    if (this.naftalDeclarationDraft.length === 0) return;
+    const incomplete = this.naftalDeclarationDraft.filter(e => !e.destination);
+    if (incomplete.length > 0) { alert('\u26a0\ufe0f Certains camions n\'ont pas de destination.'); return; }
+    
+    if (!confirm(`Valider la d\u00e9claration pour ${this.naftalDeclarationDraft.length} camion(s) ?\n\nUne fois valid\u00e9e, elle ne pourra plus \u00eatre modifi\u00e9e sans le mot de passe master.`)) return;
+    
+    try {
+      // Create declaration
+      const res = await fetch('/api/naftal/declarations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trucks: this.naftalDeclarationDraft })
+      });
+      if (!res.ok) throw new Error('Erreur création déclaration');
+      const decl = await res.json();
+      
+      // Validate it
+      const valRes = await fetch(`/api/naftal/declarations/${decl.declarationId}/validate-transport`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }
+      });
+      if (!valRes.ok) throw new Error('Erreur validation');
+      
+      // Clear draft
+      this.naftalDeclarationDraft = [];
+      this.naftalSelectedTrucks.clear();
+      
+      alert(`✅ Déclaration ${decl.declarationId} validée avec succès !`);
+      this.renderNaftalTransport();
+    } catch (e) {
+      alert('❌ Erreur: ' + e.message);
+    }
+  }
+
+  // ═══ SECTION 2: GESTIONNAIRE GASOIL ═══
+  async renderNaftalGestionnaire() {
+    const vc = document.getElementById('naftalViewContainer');
+    if (!vc) return;
+    
+    if (!this.naftalCheckAuth('gestionnaire')) {
+      this.naftalRenderAuthGate('gestionnaire', vc);
+      return;
+    }
+    
+    const gView = this._gestionView || 'pending';
+    
+    vc.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</div>';
+    
+    try {
+      const [pendingRes, approvedRes, inProgressRes] = await Promise.all([
+        fetch('/api/naftal/declarations?status=transport_validated'),
+        fetch('/api/naftal/declarations?status=gestionnaire_validated'),
+        fetch('/api/naftal/declarations?status=in_progress')
+      ]);
+      const pendingDecls = await pendingRes.json();
+      const approvedDecls = await approvedRes.json();
+      const inProgressDecls = await inProgressRes.json();
+      const allApproved = [...approvedDecls, ...inProgressDecls];
+      
+      // Weekly stats
+      const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
+      const weekDecls = allApproved.filter(d => new Date(d.createdAt) >= weekStart);
+      const weekTotalDA = weekDecls.reduce((s,d) => s + d.trucks.reduce((ts,t) => ts + (t.approvedAmountDA||0), 0), 0);
+      const weekTrucks = weekDecls.reduce((s,d) => s + d.trucks.length, 0);
+      
+      const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
+      
+      vc.innerHTML = `
+        <div class="naftal-section" style="border-left:4px solid var(--info);">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+            <h3 style="margin:0;color:var(--info);"><i class="fa-solid fa-user-tie"></i> Gestionnaire Gasoil</h3>
+            <div style="display:flex;gap:6px;">
+              <button onclick="ui._gestionView='pending';ui.renderNaftalGestionnaire()" 
+                style="padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:${gView==='pending'?'var(--info)':'var(--bg-elevated)'};color:${gView==='pending'?'#fff':'var(--text-primary)'};">
+                <i class="fa-solid fa-hourglass-half"></i> En Attente <span style="background:rgba(255,255,255,0.2);padding:1px 6px;border-radius:10px;margin-left:4px;">${pendingDecls.length}</span>
+              </button>
+              <button onclick="ui._gestionView='approved';ui.renderNaftalGestionnaire()"
+                style="padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:${gView==='approved'?'var(--success)':'var(--bg-elevated)'};color:${gView==='approved'?'#fff':'var(--text-primary)'};">
+                <i class="fa-solid fa-check-circle"></i> Approuvées
+              </button>
+              <button onclick="ui._gestionView='week';ui.renderNaftalGestionnaire()"
+                style="padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:${gView==='week'?'var(--primary)':'var(--bg-elevated)'};color:${gView==='week'?'#fff':'var(--text-primary)'};">
+                <i class="fa-solid fa-calendar-week"></i> Cette Semaine
+              </button>
+            </div>
+          </div>
+
+          ${gView === 'pending' ? `
+            ${pendingDecls.length === 0 ? `
+              <div style="text-align:center;padding:40px;color:var(--text-muted);background:var(--bg-elevated);border-radius:12px;">
+                <i class="fa-solid fa-check-circle" style="font-size:48px;color:var(--success);display:block;margin-bottom:12px;"></i>
+                <strong>Aucune déclaration en attente</strong><br>
+                <span style="font-size:12px;">Toutes les déclarations ont été traitées</span>
+              </div>
+            ` : pendingDecls.map(decl => `
+              <div style="background:var(--bg-elevated);border:2px solid rgba(56,189,248,0.2);border-radius:12px;padding:16px;margin-bottom:16px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                  <div>
+                    <strong style="color:var(--primary);font-size:15px;">${decl.declarationId}</strong>
+                    <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${new Date(decl.createdAt).toLocaleDateString('fr-DZ')} ${new Date(decl.createdAt).toLocaleTimeString('fr-DZ',{hour:'2-digit',minute:'2-digit'})}</span>
+                    <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${decl.trucks.length} camion(s)</span>
+                  </div>
+                  <span class="naftal-status-badge waiting"><i class="fa-solid fa-hourglass-half"></i> Approbation requise</span>
+                </div>
+                
+                <div style="overflow-x:auto;">
+                  <table class="naftal-recap-table" style="font-size:11px;">
+                    <thead><tr>
+                      <th>Camion</th><th>Carte</th>
+                      <th>Départ déclaré</th>
+                      <th>⚡ Position actuelle</th>
+                      <th>Destination</th>
+                      <th>🔴 Carburant LIVE</th>
+                      <th>KM restants</th>
+                      <th>Besoin (L)</th>
+                      <th>Montant à approuver (DA)</th>
+                    </tr></thead>
+                    <tbody>
+                      ${decl.trucks.map((t, i) => {
+                        const est = this._naftalCalculateEstimate(t);
+                        // Live truck data
+                        const allLive = (typeof app !== 'undefined' && app.getAllTrucks) ? app.getAllTrucks() : [];
+                        const live = allLive.find(lt => (lt.id||lt.deviceId) === t.deviceId);
+                        const liveL = live ? Math.round(live.fuelLiters||0) : null;
+                        const livePct = live ? Math.round(live.fuelPercentage||0) : null;
+                        const liveLoc = live ? this._naftalGetTruckLocation(live) : null;
+                        const liveLat = live?.coordinates?.lat || t.currentLat;
+                        const liveLng = live?.coordinates?.lng || t.currentLng;
+                        const roadFactor = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.roadDistanceFactor)||1.25;
+                        const remainKm = (t.destinationLat && t.destinationLng && liveLat && liveLng)
+                          ? Math.round(calculateDistance(liveLat, liveLng, t.destinationLat, t.destinationLng) * roadFactor)
+                          : (t.estimatedDistanceKm || est.distKm);
+                        const fc = livePct != null ? (livePct<=5?'#ef4444':livePct<=15?'#f97316':'#22c55e') : 'var(--text-muted)';
+                        const movedSince = (liveLoc && t.currentLocation && liveLoc !== t.currentLocation);
+                        return `<tr>
+                          <td><strong>${t.truckName}</strong></td>
+                          <td style="font-size:10px;">${t.carteNaftal||'—'}</td>
+                          <td style="font-size:10px;color:var(--text-muted);">📍 ${t.currentLocation||'—'}</td>
+                          <td style="font-size:10px;">${liveLoc ? `<span style="color:${movedSince?'#f97316':'var(--text-primary)'};">⚡ ${liveLoc}${movedSince?' (déplacé)':''}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
+                          <td style="font-weight:700;">🏁 ${t.destination}</td>
+                          <td style="font-weight:800;color:${fc};">
+                            ${liveL!=null ? `${liveL}L <span style="font-size:10px;">(${livePct}%)</span>` : `<span style="color:var(--text-muted);">${Math.round(t.currentFuelLiters||0)}L déclaré</span>`}
+                          </td>
+                          <td style="font-weight:700;color:var(--info);">${remainKm} km</td>
+                          <td style="font-weight:700;color:var(--warning);">${t.estimatedFuelNeeded||est.litersToAdd} L</td>
+                          <td>
+                            <div style="position:relative;display:inline-flex;align-items:center;">
+                              <input type="number" id="naftalApprove_${decl.declarationId}_${i}" 
+                                value="${t.estimatedCostDA||est.costDA}" min="0" step="100"
+                                style="width:110px;padding:7px 36px 7px 10px;border:1.5px solid rgba(34,197,94,0.4);border-radius:8px;background:rgba(34,197,94,0.06);color:#4ade80;font-weight:800;font-size:14px;text-align:right;outline:none;transition:border-color 0.15s;"
+                                onfocus="this.style.borderColor='#4ade80';this.style.background='rgba(34,197,94,0.1)'"
+                                onblur="this.style.borderColor='rgba(34,197,94,0.4)';this.style.background='rgba(34,197,94,0.06)'">
+                              <span style="position:absolute;right:8px;font-size:9px;font-weight:700;color:#4ade80;pointer-events:none;">DA</span>
+                            </div>
+                          </td>
+                        </tr>`;
+                      }).join('')}
+                    </tbody>
+                    <tfoot>
+                      <tr style="background:var(--bg-elevated);font-weight:800;">
+                        <td colspan="8" style="text-align:right;padding-right:8px;">TOTAL :</td>
+                        <td id="naftalTotal_${decl.declarationId}" style="color:var(--success);font-size:14px;">
+                          ${decl.trucks.reduce((s,t) => s+(t.estimatedCostDA||0),0).toLocaleString()} DA
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                
+                <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px;">
+                  <button onclick="ui.naftalValidateGestionnaire('${decl.declarationId}', ${JSON.stringify(decl.trucks.map(t=>t.deviceId)).replace(/"/g,'&quot;')})"
+                    style="padding:10px 24px;background:var(--success);border:none;color:#fff;font-weight:700;cursor:pointer;border-radius:8px;font-size:13px;">
+                    <i class="fa-solid fa-coins"></i> Approuver les Montants
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          ` : ''}
+
+          ${gView === 'approved' ? `
+            <div style="margin-bottom:14px;font-size:12px;color:var(--text-muted);">${allApproved.length} déclaration(s) approuvée(s) — <span style="color:var(--warning);">les montants sont modifiables jusqu'au ravitaillement effectif</span></div>
+            ${allApproved.length === 0 ? '<div style="text-align:center;padding:30px;color:var(--text-muted);">Aucune déclaration approuvée</div>' :
+              allApproved.map(decl => {
+                const totalApproved = decl.trucks.reduce((s,t) => s+(t.approvedAmountDA||0),0);
+                const hasRefill = decl.trucks.some(t => t.refillStatus === 'completed' || t.refillStatus === 'in_progress');
+                const declIdSafe = decl.declarationId.replace(/[^a-zA-Z0-9_-]/g,'');
+                return `
+                  <div id="naftalApprovedCard_${declIdSafe}" style="background:var(--bg-elevated);border:1px solid rgba(34,197,94,0.2);border-radius:10px;padding:14px;margin-bottom:12px;">
+                    <!-- Header -->
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+                      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <strong style="color:var(--primary);">${decl.declarationId}</strong>
+                        <span style="font-size:11px;color:var(--text-muted);">${new Date(decl.createdAt).toLocaleDateString('fr-DZ')}</span>
+                        <span style="font-size:11px;color:var(--text-muted);">${decl.trucks.length} camion(s)</span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-weight:800;font-size:14px;color:var(--success);" id="naftalTotalBadge_${declIdSafe}">${totalApproved.toLocaleString()} DA</span>
+                        ${hasRefill
+                          ? `<span style="font-size:10px;padding:3px 10px;border-radius:8px;background:rgba(16,185,129,0.1);color:var(--success);font-weight:700;"><i class="fa-solid fa-gas-pump"></i> En ravitaillement</span>`
+                          : `<span style="font-size:10px;padding:3px 10px;border-radius:8px;background:rgba(245,158,11,0.1);color:var(--warning);font-weight:600;"><i class="fa-solid fa-pen"></i> Modifiable</span>`}
+                        <span class="naftal-status-badge completed"><i class="fa-solid fa-check"></i> Approuvée</span>
+                      </div>
+                    </div>
+
+                    <!-- Per-truck editable rows -->
+                    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+                      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                        <thead>
+                          <tr style="background:var(--bg-surface);">
+                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Camion</th>
+                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Destination</th>
+                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Carburant act.</th>
+                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Litres app.</th>
+                            <th style="padding:7px 10px;text-align:right;color:var(--text-muted);font-weight:600;">Montant (DA)</th>
+                            <th style="padding:7px 10px;text-align:center;color:var(--text-muted);font-weight:600;">Statut</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${decl.trucks.map((t, i) => {
+                            const refilled = t.refillStatus === 'completed' || t.refillStatus === 'in_progress';
+                            const statusBadge = t.refillStatus === 'completed'
+                              ? `<span style="color:var(--success);font-size:10px;font-weight:700;">✅ Ravitaillé</span>`
+                              : t.refillStatus === 'in_progress'
+                              ? `<span style="color:var(--warning);font-size:10px;font-weight:700;">🔄 En cours</span>`
+                              : `<span style="color:var(--text-muted);font-size:10px;">⏳ En attente</span>`;
+                            const liveTruck = app?.getAllTrucks?.()?.find?.(lt => lt.id === t.deviceId || lt.deviceId === t.deviceId);
+                            const liveFuel  = liveTruck ? `${Math.round(liveTruck.fuelLiters||0)}L (${Math.round(liveTruck.fuelPercentage||0)}%)` : '—';
+                            return `<tr style="border-top:1px solid var(--border);${refilled?'opacity:0.65;':''}">
+                              <td style="padding:8px 10px;font-weight:700;">${t.truckName}</td>
+                              <td style="padding:8px 10px;color:var(--text-muted);">${t.destination||'—'}</td>
+                              <td style="padding:8px 10px;color:var(--primary);">${liveFuel}</td>
+                              <td style="padding:8px 10px;color:var(--info);">${t.approvedLiters||0} L</td>
+                              <td style="padding:8px 10px;text-align:right;">
+                                ${refilled
+                                  ? `<span style="font-weight:800;color:var(--success);">${(t.approvedAmountDA||0).toLocaleString()} DA</span>`
+                                  : `<div style="position:relative;display:inline-flex;align-items:center;">
+                                      <input type="number" id="naftalAmt_${declIdSafe}_${i}"
+                                        data-decl="${decl.declarationId}" data-idx="${i}" data-did="${t.deviceId}"
+                                        value="${t.approvedAmountDA||0}" min="0" step="100"
+                                        oninput="ui._naftalRecalcTotal('${declIdSafe}')"
+                                        style="width:110px;padding:6px 32px 6px 10px;border:1.5px solid rgba(34,197,94,0.35);border-radius:7px;background:rgba(34,197,94,0.06);color:#4ade80;font-weight:800;font-size:13px;text-align:right;outline:none;"
+                                        onfocus="this.style.borderColor='#4ade80'" onblur="this.style.borderColor='rgba(34,197,94,0.35)'">
+                                      <span style="position:absolute;right:8px;font-size:9px;font-weight:700;color:#4ade80;pointer-events:none;">DA</span>
+                                    </div>`}
+                              </td>
+                              <td style="padding:8px 10px;text-align:center;">${statusBadge}</td>
+                            </tr>`;
+                          }).join('')}
+                        </tbody>
+                        <tfoot>
+                          <tr style="background:var(--bg-surface);border-top:2px solid var(--border);">
+                            <td colspan="4" style="padding:8px 10px;font-weight:700;text-align:right;">TOTAL :</td>
+                            <td style="padding:8px 10px;text-align:right;font-weight:900;font-size:14px;color:var(--success);" id="naftalTotalInput_${declIdSafe}">
+                              ${totalApproved.toLocaleString()} DA
+                            </td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+
+                    ${!hasRefill ? `
+                    <!-- Save button -->
+                    <div style="margin-top:10px;display:flex;justify-content:flex-end;gap:8px;">
+                      <button onclick="ui.naftalSaveAmounts('${decl.declarationId}', '${declIdSafe}', ${decl.trucks.length})"
+                        style="padding:8px 20px;border-radius:8px;background:var(--success);border:none;color:#fff;font-weight:700;cursor:pointer;font-size:12px;">
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer les montants
+                      </button>
+                    </div>` : ''}
+                  </div>`;
+              }).join('')}
+          `  : ''}
+
+          ${gView === 'week' ? `
+            <div class="naftal-stats-bar" style="margin-bottom:16px;">
+              <div class="naftal-stat-card">
+                <div class="naftal-stat-value" style="color:var(--primary);">${weekDecls.length}</div>
+                <div class="naftal-stat-label">Déclarations semaine</div>
+              </div>
+              <div class="naftal-stat-card">
+                <div class="naftal-stat-value" style="color:var(--success);">${(weekTotalDA/1000).toFixed(1)}k</div>
+                <div class="naftal-stat-label">DA Approuvés</div>
+              </div>
+              <div class="naftal-stat-card">
+                <div class="naftal-stat-value" style="color:var(--info);">${weekTrucks}</div>
+                <div class="naftal-stat-label">Camions traités</div>
+              </div>
+              <div class="naftal-stat-card">
+                <div class="naftal-stat-value" style="color:var(--warning);">${weekTrucks > 0 ? Math.round(weekTotalDA/weekTrucks).toLocaleString() : 0}</div>
+                <div class="naftal-stat-label">Moy. par camion (DA)</div>
+              </div>
+            </div>
+            
+            ${weekDecls.length === 0 ? '<div style="text-align:center;padding:30px;color:var(--text-muted);">Aucune déclaration cette semaine</div>' : `
+              <div style="overflow-x:auto;">
+                <table class="naftal-recap-table">
+                  <thead><tr><th>Date</th><th>Déclaration</th><th>Camion</th><th>Carte</th><th>Destination</th><th>Approuvé (L)</th><th>Approuvé (DA)</th><th>Status</th></tr></thead>
+                  <tbody>
+                    ${weekDecls.flatMap(decl => decl.trucks.map(t => `
+                      <tr>
+                        <td style="font-size:11px;white-space:nowrap;">${new Date(decl.createdAt).toLocaleDateString('fr-DZ')}</td>
+                        <td><span style="font-size:10px;background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">${decl.declarationId}</span></td>
+                        <td><strong>${t.truckName}</strong></td>
+                        <td>${t.carteNaftal || '—'}</td>
+                        <td>${t.destination || '—'}</td>
+                        <td style="font-weight:700;">${t.approvedLiters || '—'} L</td>
+                        <td style="font-weight:700;color:var(--success);">${(t.approvedAmountDA||0).toLocaleString()} DA</td>
+                        <td>${t.refillStatus === 'completed' ? '<span class="naftal-status-badge completed"><i class="fa-solid fa-check"></i> Ravitaillé</span>'
+                            : t.refillStatus === 'flagged' ? '<span class="naftal-status-badge flagged"><i class="fa-solid fa-flag"></i> Signalé</span>'
+                            : '<span class="naftal-status-badge waiting"><i class="fa-solid fa-hourglass-half"></i> En attente</span>'}</td>
+                      </tr>
+                    `)).join('')}
+                  </tbody>
+                  <tfoot>
+                    <tr style="background:var(--bg-elevated);font-weight:800;">
+                      <td colspan="6" style="text-align:right;">TOTAL SEMAINE :</td>
+                      <td style="color:var(--success);">${weekTotalDA.toLocaleString()} DA</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            `}
+          ` : ''}
+        </div>
+      `;
+    } catch (e) {
+      vc.innerHTML = `<div style="color:var(--danger);padding:20px;">Erreur: ${e.message}</div>`;
+    }
+  }
+
+  // Live recalculate total shown in footer as user types
+  _naftalRecalcTotal(declIdSafe) {
+    let total = 0;
+    let i = 0;
+    while (true) {
+      const inp = document.getElementById(`naftalAmt_${declIdSafe}_${i}`);
+      if (!inp) break;
+      total += parseInt(inp.value) || 0;
+      i++;
+    }
+    const footer = document.getElementById(`naftalTotalInput_${declIdSafe}`);
+    const badge  = document.getElementById(`naftalTotalBadge_${declIdSafe}`);
+    if (footer) footer.textContent = total.toLocaleString() + ' DA';
+    if (badge)  badge.textContent  = total.toLocaleString() + ' DA';
+  }
+
+  // Save updated amounts via PATCH (no password, no view switch needed)
+  async naftalSaveAmounts(declId, declIdSafe, truckCount) {
+    const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
+    const amounts = [];
+    for (let i = 0; i < truckCount; i++) {
+      const inp = document.getElementById(`naftalAmt_${declIdSafe}_${i}`);
+      if (!inp) continue;
+      const da = parseInt(inp.value) || 0;
+      amounts.push({
+        deviceId: inp.dataset.did,
+        approvedAmountDA: da,
+        approvedLiters: Math.round((da / naftalPrice) * 10) / 10
+      });
+    }
+    const total = amounts.reduce((s,a) => s + a.approvedAmountDA, 0);
+    const ok = await ui_showConfirm(
+      `Enregistrer les nouveaux montants ?<br><strong style="color:#4ade80;font-size:15px;">${total.toLocaleString()} DA</strong> total`,
+      'Confirmer modification', '💾'
+    );
+    if (!ok) return;
+    try {
+      const btn = document.querySelector(`[onclick*="naftalSaveAmounts('${declId}'"]`);
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enregistrement...'; }
+      const res = await fetch(`/api/naftal/declarations/${declId}/update-amounts`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amounts })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erreur serveur');
+      }
+      await ui_showAlert(`✅ Montants mis à jour pour <strong>${declId}</strong>`, 'Enregistré', '✅');
+      this.renderNaftalGestionnaire(); // refresh view
+    } catch (e) {
+      await ui_showAlert(`❌ ${e.message}`, 'Erreur', '❌');
+      const btn = document.querySelector(`[onclick*="naftalSaveAmounts('${declId}'"]`);
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer les montants'; }
+    }
+  }
+
+  async naftalValidateGestionnaire(declId, deviceIds) {
+    const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
+    const amounts = deviceIds.map((did, i) => {
+      const input = document.getElementById(`naftalApprove_${declId}_${i}`);
+      const da = parseInt(input?.value) || 0;
+      return { deviceId: did, approvedAmountDA: da, approvedLiters: Math.round((da / naftalPrice) * 10) / 10 };
+    });
+    
+    const total = amounts.reduce((s,a) => s + a.approvedAmountDA, 0);
+    if (!confirm(`Approuver ${amounts.length} camion(s) pour un total de ${total.toLocaleString()} DA ?`)) return;
+    
+    try {
+      const res = await fetch(`/api/naftal/declarations/${declId}/validate-gestionnaire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amounts })
+      });
+      if (!res.ok) throw new Error('Erreur approbation');
+      alert(`✅ Déclaration ${declId} approuvée !`);
+      this._gestionView = 'approved';
+      this.renderNaftalGestionnaire();
+    } catch (e) {
+      alert('❌ ' + e.message);
+    }
+  }
+
+  // ═══ SECTION 3: SUIVI DES RAVITAILLEMENTS ═══
+  async renderNaftalSuivi() {
+    const vc = document.getElementById('naftalViewContainer');
+    if (!vc) return;
+    
+    vc.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</div>';
+    
+    try {
+      const [trackingRes, flaggedRes, statsRes] = await Promise.all([
+        fetch('/api/naftal/tracking'),
+        fetch('/api/naftal/flagged'),
+        fetch('/api/naftal/statistics')
+      ]);
+      const tracking = await trackingRes.json();
+      const flagged = await flaggedRes.json();
+      const stats = await statsRes.json();
+      
+      const waiting = tracking.filter(t => t.refillStatus === 'waiting');
+      const inProgress = tracking.filter(t => t.refillStatus === 'in_progress');
+      const completed = tracking.filter(t => t.refillStatus === 'completed');
+      const flaggedItems = tracking.filter(t => t.refillStatus === 'flagged');
+      
+      vc.innerHTML = `
+        <div class="naftal-section" style="border-left:4px solid var(--accent-teal);">
+          <h3 style="margin:0 0 16px 0;color:var(--accent-teal);"><i class="fa-solid fa-satellite-dish"></i> Suivi des Ravitaillements en Temps Réel</h3>
+          
+          <!-- Stats Bar -->
+          <div class="naftal-stats-bar">
+            <div class="naftal-stat-card">
+              <div class="naftal-stat-value">${stats.totalDeclarations || 0}</div>
+              <div class="naftal-stat-label">Déclarations</div>
+            </div>
+            <div class="naftal-stat-card">
+              <div class="naftal-stat-value" style="color:var(--success);">${(stats.totalApprovedDA || 0).toLocaleString()}</div>
+              <div class="naftal-stat-label">DA Envoyés</div>
+            </div>
+            <div class="naftal-stat-card">
+              <div class="naftal-stat-value" style="color:var(--info);">${(stats.totalActualDA || 0).toLocaleString()}</div>
+              <div class="naftal-stat-label">DA Consommés</div>
+            </div>
+            <div class="naftal-stat-card">
+              <div class="naftal-stat-value" style="color:${(stats.totalSavedDA||0) > 0 ? 'var(--warning)' : 'var(--success)'}">${(stats.totalSavedDA || 0).toLocaleString()}</div>
+              <div class="naftal-stat-label">Écart DA</div>
+            </div>
+            <div class="naftal-stat-card">
+              <div class="naftal-stat-value" style="color:var(--danger);">${stats.flaggedRefills || 0}</div>
+              <div class="naftal-stat-label">🚩 Signalés</div>
+            </div>
+          </div>
+          
+          <!-- Pipeline -->
+          <div class="naftal-pipeline">
+            <div class="naftal-pipeline-column">
+              <div class="naftal-pipeline-header" style="background:rgba(59,130,246,0.1);color:var(--info);">🔵 En Attente (${waiting.length})</div>
+              ${waiting.map(t => this._naftalRenderTrackingCard(t, 'waiting')).join('') || '<div style="padding:12px;color:var(--text-muted);font-size:12px;text-align:center;">Aucun</div>'}
+            </div>
+            <div class="naftal-pipeline-column">
+              <div class="naftal-pipeline-header" style="background:rgba(251,191,35,0.1);color:var(--warning);">🟡 En Cours (${inProgress.length})</div>
+              ${inProgress.map(t => this._naftalRenderTrackingCard(t, 'in_progress')).join('') || '<div style="padding:12px;color:var(--text-muted);font-size:12px;text-align:center;">Aucun</div>'}
+            </div>
+            <div class="naftal-pipeline-column">
+              <div class="naftal-pipeline-header" style="background:rgba(34,197,94,0.1);color:var(--success);">🟢 Complété (${completed.length})</div>
+              ${completed.map(t => this._naftalRenderTrackingCard(t, 'completed')).join('') || '<div style="padding:12px;color:var(--text-muted);font-size:12px;text-align:center;">Aucun</div>'}
+            </div>
+            <div class="naftal-pipeline-column">
+              <div class="naftal-pipeline-header" style="background:rgba(239,68,68,0.1);color:var(--danger);">🔴 Signalé (${flaggedItems.length})</div>
+              ${flaggedItems.map(t => this._naftalRenderTrackingCard(t, 'flagged')).join('') || '<div style="padding:12px;color:var(--text-muted);font-size:12px;text-align:center;">Aucun</div>'}
+            </div>
+          </div>
+          
+          <!-- Flagged Refills Detail -->
+          ${flagged.length > 0 ? `
+            <div style="margin-top:24px;border:2px solid var(--danger);border-radius:10px;padding:16px;background:rgba(239,68,68,0.03);">
+              <h4 style="color:var(--danger);margin:0 0 12px 0;"><i class="fa-solid fa-flag"></i> Ravitaillements Signalés (${flagged.length})</h4>
+              ${flagged.map(f => `
+                <div style="background:var(--bg-elevated);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                  <div>
+                    <strong>${f.truckName}</strong> <span style="font-size:11px;color:var(--text-muted);">(${f.carteNaftal})</span>
+                    <div style="font-size:12px;margin-top:4px;">
+                      Approuvé: <strong>${f.approvedLiters}L</strong> (${(f.approvedAmountDA||0).toLocaleString()} DA) → 
+                      Réel: <strong style="color:var(--danger);">${f.actualLiters}L</strong> (${(f.actualCostDA||0).toLocaleString()} DA)
+                      <span class="naftal-deviation-badge flagged">${f.deviationPercent}% écart</span>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">Station: ${f.stationName || 'Inconnue'} — ${new Date(f.flaggedAt).toLocaleString('fr-DZ')}</div>
+                  </div>
+                  <div style="display:flex;gap:6px;">
+                    <span class="naftal-status-badge ${f.resolution === 'pending' ? 'waiting' : 'completed'}">
+                      ${f.resolution === 'pending' ? '⏳ En attente' : f.resolution === 'confirmed_theft' ? '🚨 Vol confirmé' : f.resolution === 'sensor_error' ? '⚙️ Erreur capteur' : '✅ Classé'}
+                    </span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          
+          <!-- Per-Truck Statistics -->
+          ${Object.keys(stats.perTruck || {}).length > 0 ? `
+            <div style="margin-top:24px;">
+              <h4 style="color:var(--text-primary);margin-bottom:12px;"><i class="fa-solid fa-chart-bar"></i> Statistiques par Camion</h4>
+              <div style="overflow-x:auto;">
+                <table class="naftal-recap-table" style="font-size:12px;">
+                  <thead><tr><th>Camion</th><th>Déclarations</th><th>Approuvé (DA)</th><th>Réel (DA)</th><th>Écart (DA)</th><th>🚩 Signalements</th></tr></thead>
+                  <tbody>
+                    ${Object.entries(stats.perTruck).map(([name, data]) => {
+                      const diff = data.approvedDA - data.actualDA;
+                      return `<tr>
+                        <td><strong>${name}</strong></td>
+                        <td>${data.count}</td>
+                        <td>${data.approvedDA.toLocaleString()}</td>
+                        <td>${data.actualDA.toLocaleString()}</td>
+                        <td style="color:${diff > 0 ? 'var(--danger)' : 'var(--success)'}; font-weight:700;">${diff > 0 ? '+' : ''}${diff.toLocaleString()} DA</td>
+                        <td>${data.flagCount > 0 ? `<span style="color:var(--danger);font-weight:700;">🚩 ${data.flagCount}</span>` : '—'}</td>
+                      </tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    } catch (e) {
+      vc.innerHTML = `<div style="color:var(--danger);padding:20px;">Erreur: ${e.message}</div>`;
+    }
+  }
+
+  _naftalRenderTrackingCard(t, status) {
+    const statusColors = { waiting: 'var(--info)', in_progress: 'var(--warning)', completed: 'var(--success)', flagged: 'var(--danger)' };
+    const color = statusColors[status] || 'var(--text-muted)';
+    
+    let comparison = '';
+    if (t.approvedLiters && t.actualRefillLiters) {
+      const pctApproved = Math.min(100, (t.approvedLiters / Math.max(t.approvedLiters, t.actualRefillLiters)) * 100);
+      const pctActual = Math.min(100, (t.actualRefillLiters / Math.max(t.approvedLiters, t.actualRefillLiters)) * 100);
+      comparison = `
+        <div style="margin-top:6px;">
+          <div style="display:flex;align-items:center;gap:4px;font-size:10px;">
+            <span style="color:var(--success);width:60px;">Approuvé</span>
+            <div style="flex:1;height:5px;background:var(--bg-surface);border-radius:3px;overflow:hidden;"><div style="width:${pctApproved}%;height:100%;background:var(--success);border-radius:3px;"></div></div>
+            <span style="font-weight:700;">${t.approvedLiters}L</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;font-size:10px;margin-top:2px;">
+            <span style="color:${color};width:60px;">Réel</span>
+            <div style="flex:1;height:5px;background:var(--bg-surface);border-radius:3px;overflow:hidden;"><div style="width:${pctActual}%;height:100%;background:${color};border-radius:3px;"></div></div>
+            <span style="font-weight:700;">${t.actualRefillLiters}L</span>
+          </div>
+        </div>
+      `;
+    }
+    
+    return `
+      <div class="naftal-tracking-card" style="border-left:3px solid ${color};">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <strong style="font-size:12px;">${t.truckName}</strong>
+          ${t.deviationPercent != null ? `<span class="naftal-deviation-badge ${status === 'flagged' ? 'flagged' : 'ok'}">${t.deviationPercent}%</span>` : ''}
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;"><i class="fa-solid fa-credit-card"></i> ${t.carteNaftal || 'N/A'} → ${t.destination || '—'}</div>
+        ${t.approvedAmountDA ? `<div style="font-size:11px;margin-top:4px;">Montant: <strong>${(t.approvedAmountDA||0).toLocaleString()} DA</strong> (${t.approvedLiters || 0}L)</div>` : ''}
+        ${comparison}
+        ${t.refillDetectedAt ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;"><i class="fa-solid fa-clock"></i> ${new Date(t.refillDetectedAt).toLocaleString('fr-DZ')}</div>` : ''}
+        ${t.refillStationName ? `<div style="font-size:10px;color:var(--text-muted);"><i class="fa-solid fa-gas-pump"></i> ${t.refillStationName}</div>` : ''}
+      </div>
+    `;
+  }
+
+  // ═══ SECTION 4: HISTORIQUE NAFTAL + CHARTS ═══
+  async renderNaftalHistorique() {
+    const vc = document.getElementById('naftalViewContainer');
+    if (!vc) return;
+    vc.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement historique...</div>';
+
+    try {
+      // Build query from filters
+      const f = this._naftalHistFilters || {};
+      const params = new URLSearchParams();
+      if (f.truck) params.set('truck', f.truck);
+      if (f.card) params.set('card', f.card);
+      if (f.status && f.status !== 'all') params.set('status', f.status);
+      if (f.station) params.set('station', f.station);
+      if (f.from) params.set('from', f.from);
+      if (f.to) params.set('to', f.to);
+      params.set('limit', '500');
+
+      const [histRes, statsRes] = await Promise.all([
+        fetch('/api/naftal/history?' + params.toString()),
+        fetch('/api/naftal/statistics?' + (f.from ? 'from=' + f.from : '') + (f.to ? '&to=' + f.to : ''))
+      ]);
+      const histData = await histRes.json();
+      const stats = await statsRes.json();
+      const items = histData.items || [];
+
+      // === BUILD CHARTS ===
+      const chartsHTML = this._naftalBuildCharts(stats);
+
+      // === BUILD HISTORY TABLE ===
+      const page = this._naftalHistPage || 1;
+      const perPage = 15;
+      const start = (page - 1) * perPage;
+      const paged = items.slice(start, start + perPage);
+      const totalPages = Math.ceil(items.length / perPage);
+
+      vc.innerHTML = `
+        <!-- ══ SECTION 1: STATISTIQUES ══ -->
+        <div class="naftal-section" style="border-left:4px solid var(--primary);margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 style="margin:0;color:var(--primary);"><i class="fa-solid fa-chart-bar"></i> Statistiques Naftal</h3>
+            <span style="font-size:11px;color:var(--text-muted);">${f.from||f.to ? `${f.from||'…'} → ${f.to||'aujourd\'hui'}` : 'Toute la période'}</span>
+          </div>
+
+          <!-- KPI Grid -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;">
+            ${[
+              {label:'Déclarations',value:stats.totalDeclarations||0,color:'var(--primary)',icon:'fa-file-alt'},
+              {label:'Ravitaillements',value:stats.totalRefills||0,color:'var(--success)',icon:'fa-gas-pump'},
+              {label:'DA Envoyés',value:(stats.totalSentDA||0).toLocaleString(),color:'var(--info)',icon:'fa-money-bill',suffix:'DA'},
+              {label:'DA Consommés',value:(stats.totalConsumedDA||0).toLocaleString(),color:'var(--warning)',icon:'fa-receipt',suffix:'DA'},
+              {label:'Écart Total',value:(stats.totalDeviationDA||0).toLocaleString(),color:stats.totalDeviationDA>0?'var(--danger)':'var(--success)',icon:'fa-scale-unbalanced',suffix:'DA'},
+              {label:'🚩 Signalés',value:stats.totalFlagged||0,color:'var(--danger)',icon:'fa-flag'},
+              {label:'Non Résolus',value:stats.unresolvedFlags||0,color:stats.unresolvedFlags>0?'var(--danger)':'var(--text-muted)',icon:'fa-triangle-exclamation'},
+            ].map(k => `
+              <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;">
+                <i class="fa-solid ${k.icon}" style="color:${k.color};font-size:18px;margin-bottom:6px;display:block;"></i>
+                <div style="font-size:20px;font-weight:800;color:${k.color};">${k.value}${k.suffix?'<span style="font-size:11px;margin-left:2px;font-weight:400;">'+k.suffix+'</span>':''}</div>
+                <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${k.label}</div>
+              </div>
+            `).join('')}
+          </div>
+
+          <!-- Charts -->
+          ${this._naftalBuildCharts(stats)}
+        </div>
+
+        <!-- ══ SECTION 2: HISTORIQUE TABLE ══ -->
+        <div class="naftal-section" style="border-left:4px solid var(--warning);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <h3 style="margin:0;color:var(--warning);"><i class="fa-solid fa-clock-rotate-left"></i> Historique des Ravitaillements</h3>
+            <span style="font-size:11px;color:var(--text-muted);">${items.length} enregistrement(s)</span>
+          </div>
+
+          <!-- Filters bar -->
+          <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border);">
+            <input type="text" placeholder="🔍 Camion" value="${f.truck||''}" oninput="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.truck=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;width:110px;">
+            <input type="text" placeholder="💳 Carte" value="${f.card||''}" oninput="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.card=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;width:110px;">
+            <input type="text" placeholder="⛽ Station" value="${f.station||''}" oninput="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.station=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;width:110px;">
+            <select onchange="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.status=this.value" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;">
+              <option value="all">Tous</option>
+              <option value="completed" ${f.status==='completed'?'selected':''}>✅ OK</option>
+              <option value="flagged" ${f.status==='flagged'?'selected':''}>🚩 Signalé</option>
+              <option value="waiting" ${f.status==='waiting'?'selected':''}>⏳ Attente</option>
+            </select>
+            <input type="date" value="${f.from||''}" onchange="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.from=this.value" style="padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;">
+            <span style="line-height:30px;color:var(--text-muted);font-size:11px;">→</span>
+            <input type="date" value="${f.to||''}" onchange="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.to=this.value" style="padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;">
+            <button onclick="ui._naftalHistPage=1;ui.renderNaftalHistorique()" style="padding:6px 14px;border-radius:6px;background:var(--primary);border:none;color:#fff;font-weight:700;cursor:pointer;font-size:11px;"><i class="fa-solid fa-search"></i> Filtrer</button>
+            <button onclick="ui._naftalHistFilters={};ui._naftalHistPage=1;ui.renderNaftalHistorique()" style="padding:6px 10px;border-radius:6px;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-muted);cursor:pointer;font-size:11px;" title="Réinitialiser"><i class="fa-solid fa-rotate-left"></i></button>
+          </div>
+
+          <!-- TABLE -->
+          <div style="overflow-x:auto;">
+
+            <table class="naftal-recap-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Déclaration</th>
+                  <th>Camion</th>
+                  <th>Carte Naftal</th>
+                  <th>Immatriculation</th>
+                  <th>Destination</th>
+                  <th>Station</th>
+                  <th>Approuvé (L)</th>
+                  <th>Réel (L)</th>
+                  <th>Approuvé (DA)</th>
+                  <th>Réel (DA)</th>
+                  <th>Écart</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${paged.length === 0 ? '<tr><td colspan="13" style="text-align:center;color:var(--text-muted);padding:30px;">Aucun ravitaillement trouvé</td></tr>' : 
+                  paged.map(r => {
+                    const date = r.refillDetectedAt ? new Date(r.refillDetectedAt).toLocaleString('fr-DZ', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (r.declCreatedAt ? new Date(r.declCreatedAt).toLocaleDateString('fr-DZ') : '—');
+                    const devColor = r.isFlagged ? 'var(--danger)' : r.deviationPercent != null ? 'var(--success)' : 'var(--text-muted)';
+                    const statusBadge = r.refillStatus === 'completed' ? '<span class="naftal-status-badge completed"><i class="fa-solid fa-check"></i> OK</span>'
+                      : r.refillStatus === 'flagged' ? '<span class="naftal-status-badge flagged"><i class="fa-solid fa-flag"></i> Signalé</span>'
+                      : r.refillStatus === 'waiting' ? '<span class="naftal-status-badge waiting"><i class="fa-solid fa-hourglass-half"></i> Attente</span>'
+                      : '<span class="naftal-status-badge waiting"><i class="fa-solid fa-spinner"></i> En cours</span>';
+                    return `<tr style="${r.isFlagged ? 'background:rgba(239,68,68,0.04);' : ''}">
+                      <td style="white-space:nowrap;font-size:11px;">${date}</td>
+                      <td><span style="font-size:10px;background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">${r.declarationId || '—'}</span></td>
+                      <td><strong>${r.truckName || '—'}</strong></td>
+                      <td><i class="fa-solid fa-credit-card" style="color:var(--info);"></i> ${r.carteNaftal || '—'}</td>
+                      <td style="font-size:11px;">${r.immatriculation || '—'}</td>
+                      <td>${r.destination || '—'}</td>
+                      <td><i class="fa-solid fa-gas-pump" style="color:var(--warning);"></i> ${r.refillStationName || '—'}</td>
+                      <td style="font-weight:700;">${r.approvedLiters != null ? r.approvedLiters + ' L' : '—'}</td>
+                      <td style="font-weight:700;color:${devColor};">${r.actualRefillLiters != null ? r.actualRefillLiters + ' L' : '—'}</td>
+                      <td>${r.approvedAmountDA != null ? r.approvedAmountDA.toLocaleString() + ' DA' : '—'}</td>
+                      <td style="color:${devColor};">${r.actualRefillCostDA != null ? r.actualRefillCostDA.toLocaleString() + ' DA' : '—'}</td>
+                      <td>${r.deviationPercent != null ? '<span class="naftal-deviation-badge ' + (r.isFlagged ? 'flagged' : 'ok') + '">' + r.deviationPercent + '%</span>' : '—'}</td>
+                      <td>${statusBadge}</td>
+                    </tr>`;
+                  }).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- PAGINATION -->
+          ${totalPages > 1 ? `
+            <div style="display:flex;justify-content:center;gap:6px;margin-top:14px;">
+              ${page > 1 ? `<button onclick="ui._naftalHistPage=${page-1};ui.renderNaftalHistorique()" style="padding:6px 12px;border-radius:6px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;font-size:12px;">← Préc</button>` : ''}
+              <span style="padding:6px 12px;font-size:12px;color:var(--text-muted);">Page ${page}/${totalPages}</span>
+              ${page < totalPages ? `<button onclick="ui._naftalHistPage=${page+1};ui.renderNaftalHistorique()" style="padding:6px 12px;border-radius:6px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;font-size:12px;">Suiv →</button>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    } catch (e) {
+      vc.innerHTML = `<div style="color:var(--danger);padding:20px;">Erreur: ${e.message}</div>`;
+    }
+  }
+
+  // --- HTML Bar Charts Builder ---
+  _naftalBuildCharts(stats) {
+    const perTruck = stats.perTruck || {};
+    const perCard  = stats.perCard  || {};
+    const truckNames = Object.keys(perTruck);
+    const cardNames  = Object.keys(perCard);
+    if (truckNames.length === 0 && cardNames.length === 0) {
+      return '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px;"><i class="fa-solid fa-chart-bar" style="margin-right:6px;"></i>Aucune donnée graphique disponible</div>';
+    }
+
+    // ── Chart 1: Litres par camion (horizontal bars) ──
+    let truckRows = '';
+    if (truckNames.length > 0) {
+      const maxL = Math.max(...truckNames.map(n => Math.max(perTruck[n].approvedL||0, perTruck[n].actualL||0)), 1);
+      truckRows = truckNames.map(name => {
+        const d = perTruck[name];
+        const pApproved = Math.round(((d.approvedL||0) / maxL) * 100);
+        const pActual   = Math.round(((d.actualL||0)   / maxL) * 100);
+        const hasFlag   = d.flagCount > 0;
+        const barColor  = hasFlag ? '#f87171' : '#4ade80';
+        const actualColor = hasFlag ? '#ef4444' : '#60a5fa';
+        return `
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+              <span style="font-size:11px;font-weight:700;color:var(--text-primary);">${name}${hasFlag ? ' <span style="color:#f87171;font-size:10px;">🚩×'+d.flagCount+'</span>' : ''}</span>
+              <span style="font-size:10px;color:var(--text-muted);">${d.approvedL||0}L → ${d.actualL||0}L</span>
+            </div>
+            <div style="position:relative;height:16px;background:var(--bg-surface);border-radius:4px;overflow:hidden;">
+              <div style="position:absolute;left:0;top:0;height:50%;width:${pApproved}%;background:${barColor};opacity:0.7;border-radius:2px;transition:width 0.4s;"></div>
+              <div style="position:absolute;left:0;bottom:0;height:50%;width:${pActual}%;background:${actualColor};opacity:0.7;border-radius:2px;transition:width 0.4s;"></div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    // ── Chart 2: DA par carte (horizontal bars) ──
+    let cardRows = '';
+    if (cardNames.length > 0) {
+      const maxDA = Math.max(...cardNames.map(n => Math.max(perCard[n].approvedDA||0, perCard[n].actualDA||0)), 1);
+      cardRows = cardNames.slice(0, 8).map(card => {
+        const d = perCard[card];
+        const pApproved = Math.round(((d.approvedDA||0) / maxDA) * 100);
+        const pActual   = Math.round(((d.actualDA||0)   / maxDA) * 100);
+        const hasFlag   = d.flagCount > 0;
+        return `
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+              <span style="font-size:10px;font-weight:700;color:var(--text-primary);">${card.length > 14 ? card.slice(0,12)+'…' : card}${hasFlag ? ' 🚩' : ''}</span>
+              <span style="font-size:10px;color:var(--text-muted);">${((d.approvedDA||0)/1000).toFixed(1)}k → ${((d.actualDA||0)/1000).toFixed(1)}k DA</span>
+            </div>
+            <div style="position:relative;height:16px;background:var(--bg-surface);border-radius:4px;overflow:hidden;">
+              <div style="position:absolute;left:0;top:0;height:50%;width:${pApproved}%;background:#4ade80;opacity:0.7;border-radius:2px;"></div>
+              <div style="position:absolute;left:0;bottom:0;height:50%;width:${pActual}%;background:${hasFlag?'#f87171':'#60a5fa'};opacity:0.7;border-radius:2px;"></div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    return `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px;">
+        ${truckNames.length > 0 ? `
+        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:12px;color:var(--text-primary);">
+            <i class="fa-solid fa-truck" style="color:var(--primary);margin-right:6px;"></i>Litres par Camion
+            <span style="font-size:9px;color:var(--text-muted);font-weight:400;margin-left:6px;">▬ approuvé &nbsp; ▬ réel</span>
+          </div>
+          ${truckRows}
+        </div>` : ''}
+        ${cardNames.length > 0 ? `
+        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <div style="font-size:12px;font-weight:700;margin-bottom:12px;color:var(--text-primary);">
+            <i class="fa-solid fa-credit-card" style="color:var(--info);margin-right:6px;"></i>Dépenses par Carte
+            <span style="font-size:9px;color:var(--text-muted);font-weight:400;margin-left:6px;">▬ approuvé &nbsp; ▬ réel</span>
+          </div>
+          ${cardRows}
+        </div>` : ''}
+      </div>`;
+  }
+
   goToPlanning(truckId) {
-      this.switchTab('routing');
-      this.routeTruck.value = truckId;
+    this.switchTab('routing');
+    this.naftalSelectedTrucks.add(truckId);
+    this.renderNaftalSystem();
   }
 
   openZoneManagementModal(activeTab) {

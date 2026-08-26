@@ -287,6 +287,82 @@ const ZoneOperationSchema = new mongoose.Schema({
 ZoneOperationSchema.index({ status: 1, deviceId: 1 });
 const ZoneOperation = mongoose.model('ZoneOperation', ZoneOperationSchema);
 
+// ═══════════════════════════════════════════════════════════════
+//  NAFTAL FUEL CARD MANAGEMENT SYSTEM — Schemas
+// ═══════════════════════════════════════════════════════════════
+const NaftalDeclarationSchema = new mongoose.Schema({
+    declarationId: { type: String, unique: true },
+    createdAt: { type: Date, default: Date.now },
+    createdBy: { type: String, default: 'transport' },
+    status: { 
+        type: String, 
+        enum: ['draft', 'transport_validated', 'gestionnaire_validated', 'in_progress', 'completed', 'cancelled'], 
+        default: 'draft' 
+    },
+    isLocked: { type: Boolean, default: false },
+    trucks: [{
+        deviceId: String,
+        truckName: String,
+        carteNaftal: String,
+        immatriculation: String,
+        currentLocation: String,
+        currentLat: Number,
+        currentLng: Number,
+        currentFuelLiters: Number,
+        currentFuelPercent: Number,
+        destination: String,
+        destinationLat: Number,
+        destinationLng: Number,
+        estimatedDistanceKm: Number,
+        estimatedFuelNeeded: Number,
+        estimatedCostDA: Number,
+        approvedAmountDA: Number,
+        approvedLiters: Number,
+        refillStatus: { type: String, enum: ['waiting', 'in_progress', 'completed', 'flagged'], default: 'waiting' },
+        actualRefillLiters: Number,
+        actualRefillCostDA: Number,
+        refillDetectedAt: Date,
+        refillStationLat: Number,
+        refillStationLng: Number,
+        refillStationName: String,
+        deviationPercent: Number,
+        isFlagged: { type: Boolean, default: false },
+        flagReason: String,
+        fuelBeforeRefill: Number,
+        fuelAfterRefill: Number,
+        notes: String
+    }],
+    validatedByTransport: { type: Date },
+    validatedByGestionnaire: { type: Date },
+    completedAt: { type: Date }
+});
+NaftalDeclarationSchema.index({ status: 1, createdAt: -1 });
+NaftalDeclarationSchema.index({ 'trucks.deviceId': 1, 'trucks.refillStatus': 1 });
+const NaftalDeclaration = mongoose.model('NaftalDeclaration', NaftalDeclarationSchema);
+
+const FlaggedRefillSchema = new mongoose.Schema({
+    declarationId: String,
+    deviceId: String,
+    truckName: String,
+    carteNaftal: String,
+    approvedAmountDA: Number,
+    approvedLiters: Number,
+    actualLiters: Number,
+    actualCostDA: Number,
+    deviationPercent: Number,
+    deviationDA: Number,
+    stationName: String,
+    stationLat: Number,
+    stationLng: Number,
+    flaggedAt: { type: Date, default: Date.now },
+    resolvedAt: Date,
+    resolution: { type: String, enum: ['pending', 'confirmed_theft', 'sensor_error', 'dismissed'], default: 'pending' },
+    resolvedBy: String,
+    notes: String
+});
+FlaggedRefillSchema.index({ resolution: 1, flaggedAt: -1 });
+const FlaggedRefill = mongoose.model('FlaggedRefill', FlaggedRefillSchema);
+
 const POWERBI_TOKEN = process.env.POWERBI_TOKEN || 'fleet_powerbi_2025';
 const POWERBI_PUSH_URL = process.env.POWERBI_PUSH_URL || null;
 
@@ -386,7 +462,14 @@ let SYSTEM_SETTINGS = {
   defaultConfig: { fuelTankCapacity: 600, fuelConsumption: 35, fuelSensorKeys: ['io87'], fuelSensorCapacityMap: {} },
   fleetRules: [],
   vidangeOverrides: {},
-  lastDecouchageCheck: null
+  lastDecouchageCheck: null,
+  naftalManagement: {
+    transportPassword: '123Transport1212',
+    gestionnairePassword: '123Gestionnaire@',
+    masterUnlockPassword: 'NaftalMaster2025!',
+    refillTolerancePercent: 5,
+    defaultNaftalPrice: 31
+  }
 };
 
 // ════════════════════════════════════════════════════════════════
@@ -2529,24 +2612,105 @@ async function runFleetBot() {
         const oldLevel = Math.round(latestLiveRefill.oldLevel || refuelAnchorLiters || currentLiters);
         const newLevel = Math.round(latestLiveRefill.newLevel || currentLiters);
 
-const persistedLive = await persistDetectedRefills(deviceId, truckName, [{
-  ...latestLiveRefill,
-  time: latestLiveRefill.time,
-  lat: refillLat,
-  lng: refillLng,
-  addedLiters,
-  oldLevel,
-  newLevel,
-  detectionMode: latestLiveRefill.detectionMode || 'rolling-buffer',
-  confidence: parseFloat(latestLiveRefill.confidence) || null
-}], true, { source: 'live-verified' });
+        const persistedLive = await persistDetectedRefills(deviceId, truckName, [{
+          ...latestLiveRefill,
+          time: latestLiveRefill.time,
+          lat: refillLat,
+          lng: refillLng,
+          addedLiters,
+          oldLevel,
+          newLevel,
+          detectionMode: latestLiveRefill.detectionMode || 'rolling-buffer',
+          confidence: parseFloat(latestLiveRefill.confidence) || null
+        }], true, { source: 'live-verified' });
 
-refuelAnchorLiters = newLevel;
-lastAcceptedRefuelTime = latestLiveRefill.time;
-lastAcceptedRefuelLevel = newLevel;
+        refuelAnchorLiters = newLevel;
+        lastAcceptedRefuelTime = latestLiveRefill.time;
+        lastAcceptedRefuelLevel = newLevel;
 
-const verb = persistedLive.created.length ? 'REFILL' : (persistedLive.updated.length ? 'REFILL-UPGRADE' : 'REFILL-SKIP');
-console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel}L) @ ${locName} [${latestLiveRefill.detectionMode || 'rolling-buffer'}]`);
+        const verb = persistedLive.created.length ? 'REFILL' : (persistedLive.updated.length ? 'REFILL-UPGRADE' : 'REFILL-SKIP');
+        console.log(`✅ ${verb} ${truckName} +${addedLiters}L (${oldLevel}→${newLevel}L) @ ${locName} [${latestLiveRefill.detectionMode || 'rolling-buffer'}]`);
+
+        // ═══ NAFTAL MATCHING: Cross-reference with active declarations ═══
+        try {
+            if (persistedLive.created.length > 0 || persistedLive.updated.length > 0) {
+                const activeDecls = await NaftalDeclaration.find({
+                    status: { $in: ['gestionnaire_validated', 'in_progress'] },
+                    'trucks.deviceId': deviceId,
+                    'trucks.refillStatus': { $in: ['waiting', 'in_progress'] }
+                });
+                
+                for (const decl of activeDecls) {
+                    const truckEntry = decl.trucks.find(t => t.deviceId === deviceId && ['waiting', 'in_progress'].includes(t.refillStatus));
+                    if (!truckEntry) continue;
+                    
+                    const naftalConfig = SYSTEM_SETTINGS.naftalManagement || {};
+                    const tolerance = naftalConfig.refillTolerancePercent || 5;
+                    const naftalPrice = naftalConfig.defaultNaftalPrice || 31;
+                    
+                    // Update truck entry with actual refill data
+                    truckEntry.actualRefillLiters = addedLiters;
+                    truckEntry.actualRefillCostDA = Math.round(addedLiters * naftalPrice);
+                    truckEntry.refillDetectedAt = new Date();
+                    truckEntry.refillStationLat = refillLat;
+                    truckEntry.refillStationLng = refillLng;
+                    truckEntry.refillStationName = locName;
+                    truckEntry.fuelAfterRefill = currentLiters;
+                    
+                    // Calculate deviation
+                    if (truckEntry.approvedLiters && truckEntry.approvedLiters > 0) {
+                        const deviation = Math.abs(truckEntry.approvedLiters - addedLiters) / truckEntry.approvedLiters * 100;
+                        truckEntry.deviationPercent = Math.round(deviation * 10) / 10;
+                        
+                        if (deviation > tolerance) {
+                            truckEntry.isFlagged = true;
+                            truckEntry.refillStatus = 'flagged';
+                            truckEntry.flagReason = addedLiters < truckEntry.approvedLiters 
+                                ? `Sous-remplissage: ${Math.round(truckEntry.approvedLiters - addedLiters)}L manquants (${truckEntry.deviationPercent}%)`
+                                : `Sur-remplissage: ${Math.round(addedLiters - truckEntry.approvedLiters)}L excédentaires (${truckEntry.deviationPercent}%)`;
+                            
+                            // Create flagged refill record
+                            await FlaggedRefill.create({
+                                declarationId: decl.declarationId,
+                                deviceId: deviceId,
+                                truckName: truckEntry.truckName,
+                                carteNaftal: truckEntry.carteNaftal,
+                                approvedAmountDA: truckEntry.approvedAmountDA,
+                                approvedLiters: truckEntry.approvedLiters,
+                                actualLiters: addedLiters,
+                                actualCostDA: truckEntry.actualRefillCostDA,
+                                deviationPercent: truckEntry.deviationPercent,
+                                deviationDA: Math.round(Math.abs((truckEntry.approvedLiters - addedLiters) * naftalPrice)),
+                                stationName: locName,
+                                stationLat: refillLat,
+                                stationLng: refillLng
+                            });
+                            
+                            console.log(`[NAFTAL] 🚩 FLAGGED REFILL: ${truckEntry.truckName} — approved ${truckEntry.approvedLiters}L, actual ${addedLiters}L (${truckEntry.deviationPercent}% deviation)`);
+                        } else {
+                            truckEntry.refillStatus = 'completed';
+                            console.log(`[NAFTAL] ✅ Refill OK: ${truckEntry.truckName} — ${addedLiters}L (${truckEntry.deviationPercent}% deviation, within ${tolerance}% tolerance)`);
+                        }
+                    } else {
+                        truckEntry.refillStatus = 'completed';
+                    }
+                    
+                    // Check if all trucks in declaration are completed/flagged
+                    const allDone = decl.trucks.every(t => ['completed', 'flagged'].includes(t.refillStatus));
+                    if (allDone) {
+                        decl.status = 'completed';
+                        decl.completedAt = new Date();
+                    } else {
+                        decl.status = 'in_progress';
+                    }
+                    
+                    await decl.save();
+                    break; // Only match one declaration per refill
+                }
+            }
+        } catch (naftalErr) {
+            console.error('[NAFTAL] Error matching refill to declaration:', naftalErr.message);
+        }
       } else {
         console.log(`⏭️ ${truckName} Dedupe: skipped near-duplicate live refill @ ${Math.round(latestLiveRefill.newLevel || currentLiters)}L`);
       }
@@ -7629,6 +7793,533 @@ if (process.env.NODE_ENV !== 'production' && !process.env.RENDER) {
 
 
 
+// ═══════════════════════════════════════════════════════════════
+//  NAFTAL FUEL CARD MANAGEMENT — API ENDPOINTS
+// ═══════════════════════════════════════════════════════════════
+
+// --- Auth: Verify section password ---
+app.post('/api/naftal/auth', async (req, res) => {
+    try {
+        const { section, password } = req.body;
+        if (!section || !password) return res.status(400).json({ error: 'Section and password required' });
+        
+        const settings = SYSTEM_SETTINGS || {};
+        const naftalConfig = settings.naftalManagement || {};
+        
+        let valid = false;
+        if (section === 'transport') {
+            valid = naftalConfig.transportPassword && password === naftalConfig.transportPassword;
+        } else if (section === 'gestionnaire') {
+            valid = naftalConfig.gestionnairePassword && password === naftalConfig.gestionnairePassword;
+        } else if (section === 'master') {
+            valid = naftalConfig.masterUnlockPassword && password === naftalConfig.masterUnlockPassword;
+        }
+        
+        if (valid) {
+            res.json({ success: true, section });
+        } else {
+            res.status(403).json({ error: 'Mot de passe incorrect' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- List declarations ---
+app.get('/api/naftal/declarations', async (req, res) => {
+    try {
+        const { status, from, to, limit } = req.query;
+        const filter = {};
+        if (status) filter.status = status;
+        if (from || to) {
+            filter.createdAt = {};
+            if (from) filter.createdAt.$gte = new Date(from);
+            if (to) filter.createdAt.$lte = new Date(to);
+        }
+        const docs = await NaftalDeclaration.find(filter)
+            .sort({ createdAt: -1 })
+            .limit(parseInt(limit) || 100)
+            .lean();
+        res.json(docs);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Create declaration ---
+app.post('/api/naftal/declarations', async (req, res) => {
+    try {
+        const { trucks } = req.body;
+        if (!trucks || !Array.isArray(trucks) || trucks.length === 0) {
+            return res.status(400).json({ error: 'At least one truck required' });
+        }
+        
+        // Generate unique declaration ID
+        const today = new Date();
+        const dateStr = today.toISOString().slice(0,10).replace(/-/g, '');
+        const count = await NaftalDeclaration.countDocuments({ 
+            createdAt: { $gte: new Date(today.toISOString().slice(0,10)) } 
+        });
+        const declarationId = `DECL-${dateStr}-${String(count + 1).padStart(4, '0')}`;
+        
+        const declaration = await NaftalDeclaration.create({
+            declarationId,
+            trucks: trucks.map(t => ({
+                deviceId: t.deviceId,
+                truckName: t.truckName,
+                carteNaftal: t.carteNaftal || '',
+                immatriculation: t.immatriculation || '',
+                currentLocation: t.currentLocation || '',
+                currentLat: t.currentLat,
+                currentLng: t.currentLng,
+                currentFuelLiters: t.currentFuelLiters,
+                currentFuelPercent: t.currentFuelPercent,
+                destination: t.destination,
+                destinationLat: t.destinationLat,
+                destinationLng: t.destinationLng,
+                estimatedDistanceKm: t.estimatedDistanceKm,
+                estimatedFuelNeeded: t.estimatedFuelNeeded,
+                estimatedCostDA: t.estimatedCostDA,
+                notes: t.notes || ''
+            })),
+            status: 'draft'
+        });
+        
+        res.json(declaration);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Update draft declaration ---
+app.put('/api/naftal/declarations/:id', async (req, res) => {
+    try {
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        if (decl.isLocked) return res.status(403).json({ error: 'Declaration is locked' });
+        
+        const { trucks, status } = req.body;
+        if (trucks) decl.trucks = trucks;
+        if (status && ['draft', 'cancelled'].includes(status)) decl.status = status;
+        await decl.save();
+        res.json(decl);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Validate from transport side ---
+app.post('/api/naftal/declarations/:id/validate-transport', async (req, res) => {
+    try {
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        if (decl.status !== 'draft') return res.status(400).json({ error: 'Can only validate draft declarations' });
+        
+        decl.status = 'transport_validated';
+        decl.isLocked = true;
+        decl.validatedByTransport = new Date();
+        await decl.save();
+        
+        console.log(`[NAFTAL] Declaration ${decl.declarationId} validated by transport (${decl.trucks.length} trucks)`);
+        res.json(decl);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Validate from gestionnaire side (approve amounts) ---
+app.post('/api/naftal/declarations/:id/validate-gestionnaire', async (req, res) => {
+    try {
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        // Allow re-approval from transport_validated OR gestionnaire_validated (before any actual refill)
+        const hasAnyRefill = decl.trucks.some(t => t.refillStatus === 'completed' || t.refillStatus === 'in_progress');
+        if (!['transport_validated', 'gestionnaire_validated'].includes(decl.status)) {
+            return res.status(400).json({ error: 'Declaration must be transport_validated or gestionnaire_validated' });
+        }
+        if (hasAnyRefill) {
+            return res.status(400).json({ error: 'Cannot modify — refill already in progress or completed' });
+        }
+        
+        const { amounts } = req.body; // Array of { deviceId, approvedAmountDA, approvedLiters }
+        if (!amounts || !Array.isArray(amounts)) return res.status(400).json({ error: 'Amounts array required' });
+        
+        for (const amt of amounts) {
+            const truck = decl.trucks.find(t => t.deviceId === amt.deviceId);
+            if (truck) {
+                truck.approvedAmountDA = amt.approvedAmountDA;
+                truck.approvedLiters = amt.approvedLiters;
+                truck.refillStatus = 'waiting';
+            }
+        }
+        
+        decl.status = 'gestionnaire_validated';
+        decl.validatedByGestionnaire = new Date();
+        await decl.save();
+        
+        console.log(`[NAFTAL] Declaration ${decl.declarationId} approved by gestionnaire — total: ${amounts.reduce((s,a) => s + (a.approvedAmountDA||0), 0)} DA`);
+        res.json(decl);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
+// --- Update amounts on already-approved declaration (before any actual refill) ---
+app.patch('/api/naftal/declarations/:id/update-amounts', async (req, res) => {
+    try {
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        if (decl.status !== 'gestionnaire_validated') return res.status(400).json({ error: 'Only gestionnaire_validated declarations can be updated' });
+        
+        const hasAnyRefill = decl.trucks.some(t => t.refillStatus === 'completed' || t.refillStatus === 'in_progress');
+        if (hasAnyRefill) return res.status(400).json({ error: 'Cannot modify — a refill is already in progress or completed for this declaration' });
+        
+        const { amounts } = req.body;
+        if (!amounts || !Array.isArray(amounts)) return res.status(400).json({ error: 'Amounts array required' });
+        
+        const naftalPrice = (SYSTEM_SETTINGS?.naftalManagement?.defaultNaftalPrice) || 31;
+        for (const amt of amounts) {
+            const truck = decl.trucks.find(t => t.deviceId === amt.deviceId);
+            if (truck) {
+                truck.approvedAmountDA = amt.approvedAmountDA;
+                truck.approvedLiters   = amt.approvedLiters != null ? amt.approvedLiters : Math.round((amt.approvedAmountDA / naftalPrice) * 10) / 10;
+            }
+        }
+        decl.lastModifiedAt = new Date();
+        await decl.save();
+        
+        console.log(`[NAFTAL] Amounts updated on ${decl.declarationId} — new total: ${amounts.reduce((s,a) => s+(a.approvedAmountDA||0),0)} DA`);
+        res.json(decl);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Unlock a locked declaration (requires master password) ---
+app.post('/api/naftal/declarations/:id/unlock', async (req, res) => {
+    try {
+        const { password } = req.body;
+        const naftalConfig = (SYSTEM_SETTINGS || {}).naftalManagement || {};
+        
+        if (!naftalConfig.masterUnlockPassword || password !== naftalConfig.masterUnlockPassword) {
+            return res.status(403).json({ error: 'Invalid master password' });
+        }
+        
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        
+        decl.isLocked = false;
+        decl.status = 'draft';
+        await decl.save();
+        
+        console.log(`[NAFTAL] Declaration ${decl.declarationId} UNLOCKED by master override`);
+        res.json(decl);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Get tracking data (all in-progress refills) ---
+app.get('/api/naftal/tracking', async (req, res) => {
+    try {
+        const activeDecls = await NaftalDeclaration.find({
+            status: { $in: ['gestionnaire_validated', 'in_progress', 'completed'] }
+        }).sort({ createdAt: -1 }).limit(50).lean();
+        
+        // Flatten all trucks from all active declarations
+        const trackingItems = [];
+        for (const decl of activeDecls) {
+            for (const truck of decl.trucks) {
+                trackingItems.push({
+                    declarationId: decl.declarationId,
+                    declStatus: decl.status,
+                    declCreatedAt: decl.createdAt,
+                    ...truck
+                });
+            }
+        }
+        
+        res.json(trackingItems);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Get flagged refills ---
+app.get('/api/naftal/flagged', async (req, res) => {
+    try {
+        const { status, from, to } = req.query;
+        const filter = {};
+        if (status && status !== 'all') filter.resolution = status;
+        if (from || to) {
+            filter.flaggedAt = {};
+            if (from) filter.flaggedAt.$gte = new Date(from);
+            if (to) filter.flaggedAt.$lte = new Date(to);
+        }
+        const flags = await FlaggedRefill.find(filter).sort({ flaggedAt: -1 }).limit(200).lean();
+        res.json(flags);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Resolve a flagged refill ---
+app.post('/api/naftal/flagged/:id/resolve', async (req, res) => {
+    try {
+        const { password, resolution, notes } = req.body;
+        const naftalConfig = (SYSTEM_SETTINGS || {}).naftalManagement || {};
+        
+        if (!naftalConfig.masterUnlockPassword || password !== naftalConfig.masterUnlockPassword) {
+            return res.status(403).json({ error: 'Invalid master password' });
+        }
+        
+        const flag = await FlaggedRefill.findById(req.params.id);
+        if (!flag) return res.status(404).json({ error: 'Flagged refill not found' });
+        
+        flag.resolution = resolution || 'dismissed';
+        flag.resolvedAt = new Date();
+        flag.resolvedBy = 'admin';
+        if (notes) flag.notes = notes;
+        await flag.save();
+        
+        console.log(`[NAFTAL] Flagged refill ${flag._id} resolved as: ${flag.resolution}`);
+        res.json(flag);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Statistics ---
+app.get('/api/naftal/statistics', async (req, res) => {
+    try {
+        const { from, to } = req.query;
+        const dateFilter = {};
+        if (from) dateFilter.$gte = new Date(from);
+        if (to) dateFilter.$lte = new Date(to);
+        const declFilter = Object.keys(dateFilter).length ? { createdAt: dateFilter } : {};
+        
+        const allDecls = await NaftalDeclaration.find(declFilter).lean();
+        const allFlags = await FlaggedRefill.find(
+            Object.keys(dateFilter).length ? { flaggedAt: dateFilter } : {}
+        ).lean();
+        
+        // Aggregate statistics
+        let totalDeclarations = allDecls.length;
+        let totalTruckEntries = 0;
+        let totalApprovedDA = 0;
+        let totalActualDA = 0;
+        let totalApprovedLiters = 0;
+        let totalActualLiters = 0;
+        let completedRefills = 0;
+        let flaggedRefills = allFlags.length;
+        let pendingRefills = 0;
+        const perTruck = {};
+        const perCard = {};
+        
+        for (const decl of allDecls) {
+            for (const t of decl.trucks) {
+                totalTruckEntries++;
+                totalApprovedDA += t.approvedAmountDA || 0;
+                totalActualDA += t.actualRefillCostDA || 0;
+                totalApprovedLiters += t.approvedLiters || 0;
+                totalActualLiters += t.actualRefillLiters || 0;
+                
+                if (t.refillStatus === 'completed') completedRefills++;
+                if (t.refillStatus === 'waiting') pendingRefills++;
+                
+                // Per truck aggregation
+                if (!perTruck[t.truckName]) perTruck[t.truckName] = { approvedDA: 0, actualDA: 0, approvedL: 0, actualL: 0, count: 0, flagCount: 0 };
+                perTruck[t.truckName].approvedDA += t.approvedAmountDA || 0;
+                perTruck[t.truckName].actualDA += t.actualRefillCostDA || 0;
+                perTruck[t.truckName].approvedL += t.approvedLiters || 0;
+                perTruck[t.truckName].actualL += t.actualRefillLiters || 0;
+                perTruck[t.truckName].count++;
+                if (t.isFlagged) perTruck[t.truckName].flagCount++;
+                
+                // Per card aggregation
+                const card = t.carteNaftal || 'N/A';
+                if (!perCard[card]) perCard[card] = { approvedDA: 0, actualDA: 0, count: 0, flagCount: 0 };
+                perCard[card].approvedDA += t.approvedAmountDA || 0;
+                perCard[card].actualDA += t.actualRefillCostDA || 0;
+                perCard[card].count++;
+                if (t.isFlagged) perCard[card].flagCount++;
+            }
+        }
+        
+        res.json({
+            totalDeclarations,
+            totalTruckEntries,
+            totalApprovedDA,
+            totalActualDA,
+            totalSavedDA: totalApprovedDA - totalActualDA,
+            totalApprovedLiters,
+            totalActualLiters,
+            completedRefills,
+            flaggedRefills,
+            pendingRefills,
+            perTruck,
+            perCard,
+            unresolvedFlags: allFlags.filter(f => f.resolution === 'pending').length
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Change NAFTAL password (requires old password) ---
+app.post('/api/naftal/change-password', async (req, res) => {
+    try {
+        const { section, oldPassword, newPassword } = req.body;
+        if (!section || !oldPassword || !newPassword) {
+            return res.status(400).json({ error: 'section, oldPassword, and newPassword required' });
+        }
+        if (!['transport', 'gestionnaire', 'master'].includes(section)) {
+            return res.status(400).json({ error: 'Invalid section' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ error: 'New password must be at least 6 characters' });
+        }
+        
+        if (!SYSTEM_SETTINGS.naftalManagement) SYSTEM_SETTINGS.naftalManagement = {};
+        const nm = SYSTEM_SETTINGS.naftalManagement;
+        
+        const keyMap = { transport: 'transportPassword', gestionnaire: 'gestionnairePassword', master: 'masterUnlockPassword' };
+        const key = keyMap[section];
+        
+        // Verify old password
+        if (nm[key] && oldPassword !== nm[key]) {
+            return res.status(403).json({ error: 'Ancien mot de passe incorrect' });
+        }
+        
+        nm[key] = newPassword;
+        await saveSettings();
+        
+        console.log(`[NAFTAL] Password changed for section: ${section}`);
+        res.json({ success: true, message: `Mot de passe ${section} mis à jour` });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Full Refill History (all completed/flagged refills from all declarations) ---
+app.get('/api/naftal/history', async (req, res) => {
+    try {
+        const { truck, card, status, station, from, to, limit, skip } = req.query;
+        const declFilter = {};
+        
+        // Only completed or in_progress declarations have refill data
+        declFilter.status = { $in: ['in_progress', 'completed'] };
+        
+        if (from || to) {
+            declFilter.createdAt = {};
+            if (from) declFilter.createdAt.$gte = new Date(from);
+            if (to) declFilter.createdAt.$lte = new Date(to);
+        }
+        
+        const decls = await NaftalDeclaration.find(declFilter)
+            .sort({ createdAt: -1 })
+            .limit(parseInt(limit) || 500)
+            .lean();
+        
+        // Flatten and filter truck entries
+        const history = [];
+        for (const decl of decls) {
+            for (const t of decl.trucks) {
+                // Only include trucks that have refill data
+                if (!t.actualRefillLiters && t.refillStatus === 'waiting') continue;
+                
+                // Apply filters
+                if (truck && !(t.truckName || '').toLowerCase().includes(truck.toLowerCase())) continue;
+                if (card && !(t.carteNaftal || '').toLowerCase().includes(card.toLowerCase())) continue;
+                if (status && status !== 'all' && t.refillStatus !== status) continue;
+                if (station && !(t.refillStationName || '').toLowerCase().includes(station.toLowerCase())) continue;
+                
+                history.push({
+                    declarationId: decl.declarationId,
+                    declCreatedAt: decl.createdAt,
+                    declStatus: decl.status,
+                    truckName: t.truckName,
+                    deviceId: t.deviceId,
+                    carteNaftal: t.carteNaftal,
+                    immatriculation: t.immatriculation,
+                    destination: t.destination,
+                    currentLocation: t.currentLocation,
+                    estimatedDistanceKm: t.estimatedDistanceKm,
+                    estimatedFuelNeeded: t.estimatedFuelNeeded,
+                    estimatedCostDA: t.estimatedCostDA,
+                    approvedAmountDA: t.approvedAmountDA,
+                    approvedLiters: t.approvedLiters,
+                    actualRefillLiters: t.actualRefillLiters,
+                    actualRefillCostDA: t.actualRefillCostDA,
+                    fuelBeforeRefill: t.fuelBeforeRefill,
+                    fuelAfterRefill: t.fuelAfterRefill,
+                    refillDetectedAt: t.refillDetectedAt,
+                    refillStationName: t.refillStationName,
+                    refillStationLat: t.refillStationLat,
+                    refillStationLng: t.refillStationLng,
+                    refillStatus: t.refillStatus,
+                    deviationPercent: t.deviationPercent,
+                    isFlagged: t.isFlagged,
+                    flagReason: t.flagReason,
+                    notes: t.notes
+                });
+            }
+        }
+        
+        // Apply skip for pagination
+        const skipN = parseInt(skip) || 0;
+        const limitN = parseInt(limit) || 100;
+        const paged = history.slice(skipN, skipN + limitN);
+        
+        res.json({ total: history.length, items: paged });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ⛽ NAFTAL AUTONOMOUS SERVER-SIDE MONITOR (no browser needed)
+// ═══════════════════════════════════════════════════════════════
+async function runNaftalMonitor() {
+    try {
+        const now = new Date();
+        const staleThresholdMs = 24 * 60 * 60 * 1000; // 24 hours
+
+        // 1. Check for stale approved declarations (approved but no refill in 24h)
+        const activeDecls = await NaftalDeclaration.find({
+            status: { $in: ['gestionnaire_validated', 'in_progress'] },
+            updatedAt: { $lt: new Date(now - staleThresholdMs) }
+        }).lean();
+
+        for (const decl of activeDecls) {
+            const waitingTrucks = decl.trucks.filter(t => t.refillStatus === 'waiting');
+            if (waitingTrucks.length > 0) {
+                console.warn(`[NAFTAL MONITOR] ⚠️ Déclaration ${decl.declarationId} has ${waitingTrucks.length} truck(s) with no refill after 24h`);
+                // Mark as potentially expired (could send notification here)
+                for (const truck of waitingTrucks) {
+                    console.warn(`  → Camion: ${truck.truckName}, Destination: ${truck.destination}, Carte: ${truck.carteNaftal}`);
+                }
+            }
+        }
+
+        // 2. Stats summary log every hour
+        const minuteOfHour = now.getMinutes();
+        if (minuteOfHour < 10) {
+            const totalActive = await NaftalDeclaration.countDocuments({ status: { $in: ['gestionnaire_validated', 'in_progress'] } });
+            const totalPending = await NaftalDeclaration.countDocuments({ status: 'transport_validated' });
+            const unresolvedFlags = await FlaggedRefill.countDocuments({ resolution: 'pending' });
+            console.log(`[NAFTAL MONITOR] 📊 Active: ${totalActive} | Pending approval: ${totalPending} | Unresolved flags: ${unresolvedFlags}`);
+        }
+
+    } catch (e) {
+        console.error('[NAFTAL MONITOR] Error:', e.message);
+    }
+    
+    // Schedule next run in 10 minutes
+    setTimeout(runNaftalMonitor, 10 * 60 * 1000);
+}
+
 // ── STARTUP BANNER ──
 console.log('\n╔════════════════════════════════════════════════╗');
 console.log('║  🚛  Fleet Analytics Engine v2.0               ║');
@@ -7654,8 +8345,9 @@ mongoose.connect(DB_URI, {
       app.listen(PORT, () => console.log(`🚀 Fleet Analytics Engine running on port ${PORT}`));
       runFleetBot();
       // 🛡️ Self-healing: on every server start, scan last 3 days and recover any missed refuel data
-      // Runs 30s after startup to let the first bot cycle complete first
       setTimeout(() => runStartupBackfill(3).catch(e => console.error('Startup backfill error:', e.message)), 30000);
+      // ⛽ NAFTAL autonomous monitoring (runs every 10 min, no browser needed)
+      setTimeout(runNaftalMonitor, 60000); // first run 1min after boot
     })
     .catch(err => {
       console.error("❌ Mongo Connection Failed:", err.message);

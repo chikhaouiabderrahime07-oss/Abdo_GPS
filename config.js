@@ -140,6 +140,24 @@ const FLEETCONFIG = {
         fuelSensorCapacityMap: {}
     },
 
+    // =====================================================
+    // NAFTAL FUEL CARD MANAGEMENT SYSTEM
+    // =====================================================
+    NAFTAL_MANAGEMENT: {
+        refillTolerancePercent: 5,        // ±5% error margin before flagging a refill as suspicious
+        minDetectionRadiusKm: 5,          // Min GPS movement after refill to register new fuel level
+        maxDetectionRadiusKm: 10,         // Max GPS movement window for stabilized reading
+        stationProximityKm: 2,            // Proximity radius to known Naftal stations
+        transportPassword: '',            // Password for transport declarations (set via Settings)
+        gestionnairePassword: '',         // Password for gestionnaire approval (set via Settings)
+        masterUnlockPassword: '',         // Admin override to unlock validated declarations
+        autoEstimateEnabled: true,        // Auto-calculate fuel cost estimates for gestionnaire
+        declarationLockEnabled: true,     // Lock validated declarations (require master password to reopen)
+        roadDistanceFactor: 1.25,         // Haversine to road distance multiplier
+        noRefillReminderHours: 24,        // Send reminder notification if no refill detected after X hours
+        defaultNaftalPrice: 31            // Default Naftal station price (DA/L)
+    },
+
     // --- RULE BASED SYSTEM ---
     FLEET_RULES: [],
     CUSTOM_LOCATIONS: [],

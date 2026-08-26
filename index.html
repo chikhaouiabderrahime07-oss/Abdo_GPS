@@ -429,7 +429,7 @@
               <i class="fa-solid fa-gas-pump"></i> Carburant
           </button>
           <button class="tab-button btn-calc" data-tab="routing" onclick="switchTab('routing')">
-              <i class="fa-solid fa-calculator"></i> Calc. Trajet
+              <i class="fa-solid fa-credit-card"></i> NAFTAL
           </button>
       </div>
 
@@ -791,21 +791,23 @@
     </div>
 
     <div id="routing" class="tab-content">
-      <div class="controls-section" style="border: 1px dashed var(--maintenance); background: var(--warning-subtle);">
-        <h2 style="color: var(--maintenance);"><i class="fa-solid fa-calculator"></i> Calculateur & Estimation de Consommation</h2>
-        <p style="font-size:13px; color:var(--text-muted); margin-bottom:15px;">Sélectionnez un camion pour utiliser son profil de consommation réel.</p>
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 150px; gap: 16px;">
-          <div class="form-group"><label>Camion (Profil)</label><select id="routeTruck"><option value="">-- Choisir --</option></select></div>
-          <div class="form-group" style="position: relative;">
-            <label>Destination(s) (Ville/Zone)</label>
-            <input type="text" id="routeDestSearch" placeholder="Ex: Oran, puis Biskra...">
-            <div id="routeAutocompleteDropdown" class="autocomplete-dropdown"></div>
-            <div id="routeDestinationsList" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;"></div>
+      <div class="controls-section" style="border: 1px solid rgba(139,92,246,0.2); background: linear-gradient(135deg, rgba(139,92,246,0.03), rgba(59,130,246,0.03));">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <div>
+            <h2 style="color: var(--info); margin:0;"><i class="fa-solid fa-credit-card"></i> Gestion NAFTAL — Cartes Carburant</h2>
+            <p style="font-size:12px; color:var(--text-muted); margin:4px 0 0 0;">Déclarations transport, approbation gestionnaire, et suivi des ravitaillements avec détection de fraude GPS.</p>
           </div>
-          <button class="btn-primary" id="calculateRouteBtn" style="margin-top: auto; background: var(--warning); border:none; box-shadow: 0 4px 12px rgba(234, 88, 12, 0.3);"><i class="fa-solid fa-calculator"></i> Calculer</button>
+          <div style="display:flex;gap:6px;">
+            <span class="naftal-system-badge" style="background:rgba(34,197,94,0.1);color:var(--success);padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid rgba(34,197,94,0.2);">
+              <i class="fa-solid fa-shield-halved"></i> Sécurisé
+            </span>
+            <span class="naftal-system-badge" style="background:rgba(59,130,246,0.1);color:var(--info);padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid rgba(59,130,246,0.2);">
+              <i class="fa-solid fa-satellite-dish"></i> GPS Vérifié
+            </span>
+          </div>
         </div>
+        <div id="naftalSystemContainer"></div>
       </div>
-      <div id="routeResultsContainer"></div>
     </div>
 
     <div id="vidangeSection" class="tab-content">
@@ -1607,6 +1609,26 @@
                 <div class="calibration-box global" style="margin-top:10px;">
                       <textarea id="defaultCalibration" rows="3" placeholder="Calibration (ex: 25=255)"></textarea>
                 </div>
+                <!-- NAFTAL Management Settings -->
+                <div style="margin-top:16px; padding:14px; background:linear-gradient(135deg, rgba(139,92,246,0.05), rgba(59,130,246,0.05)); border:1px solid rgba(139,92,246,0.15); border-radius:8px;">
+                    <h4 style="margin:0 0 12px 0; color:var(--info); font-size:13px;"><i class="fa-solid fa-credit-card"></i> Paramètres NAFTAL</h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                        <div class="form-group" style="background:rgba(239,68,68,0.05); border:1px solid rgba(239,68,68,0.15); border-radius:6px; padding:8px;">
+                            <label style="color:var(--danger);"><i class="fa-solid fa-percent"></i> Tolérance Erreur (%)</label>
+                            <input type="number" id="naftalRefillTolerance" value="5" min="1" max="50" style="border-color:rgba(239,68,68,0.2);">
+                            <small style="color:var(--text-muted);font-size:10px;">Écart max avant signalement</small>
+                        </div>
+                        <div style="grid-column: span 3; background:rgba(59,130,246,0.05); border:1px solid rgba(59,130,246,0.15); border-radius:6px; padding:10px;">
+                            <div style="font-size:12px;color:var(--info);font-weight:700;margin-bottom:6px;"><i class="fa-solid fa-shield-halved"></i> Mots de passe NAFTAL</div>
+                            <div style="font-size:11px;color:var(--text-muted);line-height:1.6;">
+                                Les mots de passe Transport et Gestionnaire sont <strong>sécurisés côté serveur</strong>.<br>
+                                Pour modifier un mot de passe, utilisez la commande API :<br>
+                                <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px;font-size:10px;">POST /api/naftal/change-password</code>
+                                avec <code style="background:var(--bg-elevated);padding:2px 6px;border-radius:4px;font-size:10px;">{ section, oldPassword, newPassword }</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <button class="btn-primary" id="saveDefaultsBtn" style="margin-top:10px;">Enregistrer Global</button>
             </div>
         </div>
@@ -1821,6 +1843,7 @@
       <button onclick="setNotifViewFilter('fuel')" class="notif-filter-btn" data-filter="fuel">Carburant</button>
       <button onclick="setNotifViewFilter('alert')" class="notif-filter-btn" data-filter="alert">Alertes</button>
       <button onclick="setNotifViewFilter('zone')" class="notif-filter-btn" data-filter="zone">Zones</button>
+      <button onclick="setNotifViewFilter('naftal')" class="notif-filter-btn" data-filter="naftal" style="border-color:rgba(239,68,68,0.3);color:var(--danger);">🚩 Naftal</button>
     </div>
     <div id="notifZoneSubFilters" style="display: none; padding: 8px 24px; border-bottom: 1px solid var(--border); background: var(--bg-elevated); flex-wrap: wrap; gap: 6px;">
       <button onclick="setNotifZoneFilter('all')" class="notif-zone-btn active" data-zone="all">Toutes Zones</button>
