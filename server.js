@@ -2705,7 +2705,8 @@ async function runFleetBot() {
                     }
                     
                     await decl.save();
-                    break; // Only match one declaration per refill
+                    console.log(`[NAFTAL] ✅ Matched refill for ${truckEntry.truckName} in declaration ${decl.declarationId}`);
+                    // NOTE: No break — allow checking other declarations in case the same truck appears in multiple
                 }
             }
         } catch (naftalErr) {
@@ -7996,6 +7997,88 @@ app.patch('/api/naftal/declarations/:id/update-amounts', async (req, res) => {
     }
 });
 
+
+// --- Soft-delete a declaration ---
+app.delete('/api/naftal/declarations/:id', async (req, res) => {
+    try {
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+
+        const hasActiveRefill = decl.trucks.some(t => t.refillStatus === 'in_progress');
+        if (hasActiveRefill && req.query.force !== 'true') {
+            return res.status(400).json({ error: 'A refill is in progress. Use ?force=true to delete anyway.' });
+        }
+
+        decl.status = 'cancelled';
+        decl.cancelledAt = new Date();
+        decl.cancelReason = req.body?.reason || 'Supprimé par gestionnaire';
+        await decl.save();
+
+        console.log(`[NAFTAL] Declaration ${decl.declarationId} soft-deleted (cancelled)`);
+        res.json({ ok: true, declarationId: decl.declarationId });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Force-complete a truck refill (manual GPS miss recovery) ---
+app.patch('/api/naftal/declarations/:id/force-complete', async (req, res) => {
+    try {
+        const { deviceId, actualLiters, stationName } = req.body;
+        if (!deviceId) return res.status(400).json({ error: 'deviceId required' });
+
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+
+        const truckEntry = decl.trucks.find(t => t.deviceId === deviceId);
+        if (!truckEntry) return res.status(404).json({ error: 'Truck not found in declaration' });
+
+        const naftalPrice = (SYSTEM_SETTINGS?.naftalManagement?.defaultNaftalPrice) || 31;
+        const liters = parseFloat(actualLiters) || truckEntry.approvedLiters || 0;
+
+        truckEntry.actualRefillLiters = liters;
+        truckEntry.actualRefillCostDA = Math.round(liters * naftalPrice);
+        truckEntry.refillDetectedAt = new Date();
+        truckEntry.refillStationName = stationName || 'Manuel (gestionnaire)';
+        truckEntry.forcedComplete = true;
+
+        // Deviation check
+        if (truckEntry.approvedLiters > 0) {
+            const tolerance = (SYSTEM_SETTINGS?.naftalManagement?.refillTolerancePercent) || 5;
+            const deviation = Math.abs(truckEntry.approvedLiters - liters) / truckEntry.approvedLiters * 100;
+            truckEntry.deviationPercent = Math.round(deviation * 10) / 10;
+            truckEntry.refillStatus = deviation > tolerance ? 'flagged' : 'completed';
+        } else {
+            truckEntry.refillStatus = 'completed';
+        }
+
+        const allDone = decl.trucks.every(t => ['completed', 'flagged'].includes(t.refillStatus));
+        decl.status = allDone ? 'completed' : 'in_progress';
+        if (allDone) decl.completedAt = new Date();
+        await decl.save();
+
+        console.log(`[NAFTAL] Force-complete: ${truckEntry.truckName} — ${liters}L (manual entry)`);
+        res.json(decl);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Reopen cancelled declaration (undo delete) ---
+app.patch('/api/naftal/declarations/:id/reopen', async (req, res) => {
+    try {
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        decl.status = 'gestionnaire_validated';
+        decl.cancelledAt = undefined;
+        decl.cancelReason = undefined;
+        await decl.save();
+        res.json(decl);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // --- Unlock a locked declaration (requires master password) ---
 app.post('/api/naftal/declarations/:id/unlock', async (req, res) => {
     try {
@@ -8035,6 +8118,9 @@ app.get('/api/naftal/tracking', async (req, res) => {
                     declarationId: decl.declarationId,
                     declStatus: decl.status,
                     declCreatedAt: decl.createdAt,
+                    stationLat: truck.refillStationLat || null,
+                    stationLng: truck.refillStationLng || null,
+                    stationName: truck.refillStationName || null,
                     ...truck
                 });
             }
@@ -8209,7 +8295,7 @@ app.get('/api/naftal/history', async (req, res) => {
         const declFilter = {};
         
         // Only completed or in_progress declarations have refill data
-        declFilter.status = { $in: ['in_progress', 'completed'] };
+        declFilter.status = { $in: ['transport_validated', 'gestionnaire_validated', 'in_progress', 'completed', 'cancelled'] };
         
         if (from || to) {
             declFilter.createdAt = {};
@@ -8227,7 +8313,7 @@ app.get('/api/naftal/history', async (req, res) => {
         for (const decl of decls) {
             for (const t of decl.trucks) {
                 // Only include trucks that have refill data
-                if (!t.actualRefillLiters && t.refillStatus === 'waiting') continue;
+                // Show all trucks (even waiting) so gestionnaire can see+delete them
                 
                 // Apply filters
                 if (truck && !(t.truckName || '').toLowerCase().includes(truck.toLowerCase())) continue;
