@@ -325,16 +325,33 @@ const NaftalDeclarationSchema = new mongoose.Schema({
         refillStationLat: Number,
         refillStationLng: Number,
         refillStationName: String,
+        isRefillInternal: { type: Boolean, default: false },
         deviationPercent: Number,
         isFlagged: { type: Boolean, default: false },
         flagReason: String,
         fuelBeforeRefill: Number,
         fuelAfterRefill: Number,
-        notes: String
+        notes: String,
+        extraStops: [{ name: String, lat: Number, lng: Number }],
+        isRemoved: { type: Boolean, default: false },
+        removedAt: { type: Date },
+        removeReason: { type: String }
     }],
     validatedByTransport: { type: Date },
     validatedByGestionnaire: { type: Date },
-    completedAt: { type: Date }
+    completedAt: { type: Date },
+    cancelledAt: { type: Date },
+    cancelReason: { type: String },
+    totalDistanceKm: { type: Number },
+    isSignaled: { type: Boolean, default: false },
+    observations: [{ text: String, by: String, at: { type: Date, default: Date.now } }],
+    modificationLog: [{ logType: String, by: String, at: { type: Date, default: Date.now }, detail: String }],
+    modificationRequest: {
+        reqType: { type: String, enum: ['delete','modify_route','increase_amount','other'] },
+        detail: { type: String },
+        requestedAt: { type: Date },
+        status: { type: String, enum: ['pending','accepted','rejected'], default: 'pending' }
+    }
 });
 NaftalDeclarationSchema.index({ status: 1, createdAt: -1 });
 NaftalDeclarationSchema.index({ 'trucks.deviceId': 1, 'trucks.refillStatus': 1 });
@@ -7809,11 +7826,15 @@ app.post('/api/naftal/auth', async (req, res) => {
         
         let valid = false;
         if (section === 'transport') {
-            valid = naftalConfig.transportPassword && password === naftalConfig.transportPassword;
+            // If no password configured → open access
+            if (!naftalConfig.transportPassword) valid = true;
+            else valid = password === naftalConfig.transportPassword;
         } else if (section === 'gestionnaire') {
-            valid = naftalConfig.gestionnairePassword && password === naftalConfig.gestionnairePassword;
+            if (!naftalConfig.gestionnairePassword) valid = true;
+            else valid = password === naftalConfig.gestionnairePassword;
         } else if (section === 'master') {
-            valid = naftalConfig.masterUnlockPassword && password === naftalConfig.masterUnlockPassword;
+            if (!naftalConfig.masterUnlockPassword) valid = true;
+            else valid = password === naftalConfig.masterUnlockPassword;
         }
         
         if (valid) {
@@ -7831,11 +7852,31 @@ app.get('/api/naftal/declarations', async (req, res) => {
     try {
         const { status, from, to, limit } = req.query;
         const filter = {};
-        if (status) filter.status = status;
+        
+        if (req.query.deviceId) {
+            filter['trucks.deviceId'] = req.query.deviceId;
+        }
+        if (req.query.status) {
+            const statuses = req.query.status.split(',').map(s => s.trim()).filter(Boolean);
+            filter.status = statuses.length === 1 ? statuses[0] : { $in: statuses };
+        }
+        if (req.query.isSignaled === 'true') {
+            // Show manually signaled OR declarations with any flagged truck
+            filter.$or = [{ isSignaled: true }, { 'trucks.refillStatus': 'flagged' }];
+        }
+        if (req.query.isSignaled === 'false') filter.isSignaled = { $ne: true };
+        if (req.query.refillStatus) filter['trucks.refillStatus'] = req.query.refillStatus;
+        if (req.query.modReqStatus) filter['modificationRequest.status'] = req.query.modReqStatus;
+        if (req.query.truckName) filter['trucks.truckName'] = { $regex: req.query.truckName, $options: 'i' };
+        if (req.query.carteNaftal) filter['trucks.carteNaftal'] = { $regex: req.query.carteNaftal, $options: 'i' };
         if (from || to) {
             filter.createdAt = {};
             if (from) filter.createdAt.$gte = new Date(from);
-            if (to) filter.createdAt.$lte = new Date(to);
+            if (to) {
+                const toDate = new Date(to);
+                toDate.setHours(23, 59, 59, 999); // include full day
+                filter.createdAt.$lte = toDate;
+            }
         }
         const docs = await NaftalDeclaration.find(filter)
             .sort({ createdAt: -1 })
@@ -7881,9 +7922,13 @@ app.post('/api/naftal/declarations', async (req, res) => {
                 estimatedDistanceKm: t.estimatedDistanceKm,
                 estimatedFuelNeeded: t.estimatedFuelNeeded,
                 estimatedCostDA: t.estimatedCostDA,
+                extraStops: t.extraStops || [],
                 notes: t.notes || ''
             })),
-            status: 'draft'
+            totalDistanceKm: req.body.totalDistanceKm,
+            status: 'transport_validated',
+            isLocked: true,
+            validatedByTransport: new Date()
         });
         
         res.json(declaration);
@@ -8364,6 +8409,94 @@ app.get('/api/naftal/history', async (req, res) => {
     }
 });
 
+// --- CSV Export ---
+app.get('/api/naftal/export', async (req, res) => {
+    try {
+        const { from, to, type } = req.query;
+        const filter = {};
+        
+        if (type === 'today') {
+            const today = new Date();
+            today.setHours(0,0,0,0);
+            filter.createdAt = { $gte: today };
+        } else if (type === 'week') {
+            const week = new Date();
+            week.setDate(week.getDate() - 7);
+            filter.createdAt = { $gte: week };
+        } else {
+            filter.status = { $in: ['in_progress', 'completed', 'gestionnaire_validated', 'transport_validated', 'cancelled'] };
+            if (from) { filter.createdAt = filter.createdAt || {}; filter.createdAt.$gte = new Date(from); }
+            if (to) { filter.createdAt = filter.createdAt || {}; filter.createdAt.$lte = new Date(to); }
+        }
+        
+        const decls = await NaftalDeclaration.find(filter).sort({ createdAt: -1 }).limit(2000).lean();
+        
+        const rows = [];
+        const headers = ['Date','Déclaration ID','Statut Décl.','Camion','Carte Naftal','Immatriculation','Localisation Départ','Destination','Distance (km)','Besoin Estimé (L)','Montant Approuvé (DA)','Litres Réels','Coût Réel (DA)','Écart (%)','Statut Ravitaillement','Station','Heure Ravitaillement'];
+        rows.push(headers.join(';'));
+        
+        for (const decl of decls) {
+            for (const t of decl.trucks) {
+                rows.push([
+                    new Date(decl.createdAt).toLocaleString('fr-DZ'),
+                    decl.declarationId,
+                    decl.status,
+                    (t.truckName || '').replace(/;/g, ','),
+                    t.carteNaftal || '',
+                    t.immatriculation || '',
+                    (t.currentLocation || '').replace(/;/g, ','),
+                    (t.destination || '').replace(/;/g, ','),
+                    t.estimatedDistanceKm || '',
+                    t.estimatedFuelNeeded || '',
+                    t.approvedAmountDA || '',
+                    t.actualRefillLiters || '',
+                    t.actualRefillCostDA || '',
+                    t.deviationPercent || '',
+                    t.refillStatus || '',
+                    (t.refillStationName || '').replace(/;/g, ','),
+                    t.refillDetectedAt ? new Date(t.refillDetectedAt).toLocaleString('fr-DZ') : ''
+                ].join(';'));
+            }
+        }
+        
+        const bom = '\uFEFF'; // UTF-8 BOM for Excel
+        const csv = bom + rows.join('\n');
+        const filename = `NAFTAL_Export_${new Date().toISOString().slice(0,10)}.csv`;
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(csv);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Today's Stats ---
+app.get('/api/naftal/today-stats', async (req, res) => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const todayDecls = await NaftalDeclaration.find({ createdAt: { $gte: today } }).lean();
+        
+        let totalPending = 0, totalApproved = 0, totalInProgress = 0, totalCompleted = 0;
+        let totalApprovedDA = 0, totalActualDA = 0, totalTrucks = 0;
+        
+        for (const d of todayDecls) {
+            if (d.status === 'transport_validated') totalPending++;
+            if (d.status === 'gestionnaire_validated') totalApproved++;
+            if (d.status === 'in_progress') totalInProgress++;
+            if (d.status === 'completed') totalCompleted++;
+            totalTrucks += (d.trucks || []).length;
+            totalApprovedDA += (d.trucks || []).reduce((s, t) => s + (t.approvedAmountDA || 0), 0);
+            totalActualDA += (d.trucks || []).reduce((s, t) => s + (t.actualRefillCostDA || 0), 0);
+        }
+        
+        res.json({ totalPending, totalApproved, totalInProgress, totalCompleted, totalApprovedDA, totalActualDA, totalTrucks, totalDeclarations: todayDecls.length });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ⛽ NAFTAL AUTONOMOUS SERVER-SIDE MONITOR (no browser needed)
 // ═══════════════════════════════════════════════════════════════
@@ -8405,6 +8538,171 @@ async function runNaftalMonitor() {
     // Schedule next run in 10 minutes
     setTimeout(runNaftalMonitor, 10 * 60 * 1000);
 }
+
+
+// --- Signal / Unsignal a declaration (gestionnaire) ---
+app.patch('/api/naftal/declarations/:id/signal', async (req, res) => {
+    try {
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        decl.isSignaled = !decl.isSignaled;
+        if (!decl.modificationLog) decl.modificationLog = [];
+        decl.modificationLog.push({ logType: 'signal_toggle', by: 'gestionnaire', detail: decl.isSignaled ? 'Signalé par gestionnaire' : 'Signal retiré' });
+        await decl.save();
+        res.json({ ok: true, isSignaled: decl.isSignaled });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- Transport submits modification request ---
+app.post('/api/naftal/declarations/:id/modification-request', async (req, res) => {
+    try {
+        const { reqType, detail, deviceId, truckName } = req.body;
+        if (!reqType || !detail) return res.status(400).json({ error: 'reqType and detail required' });
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        if (!['gestionnaire_validated','in_progress','completed'].includes(decl.status) &&
+            !(reqType === 'restore_truck' && decl.status === 'cancelled')) {
+            return res.status(400).json({ error: 'Can only request modification on approved/active declarations' });
+        }
+        decl.modificationRequest = { reqType, detail, requestedAt: new Date(), status: 'pending', deviceId: deviceId || null, truckName: truckName || null };
+        if (!decl.modificationLog) decl.modificationLog = [];
+        decl.modificationLog.push({ logType: 'mod_request', by: 'transport', detail: '[' + reqType + '] ' + (truckName ? truckName + ': ' : '') + detail });
+        await decl.save();
+        console.log('[NAFTAL] Modification request on ' + decl.declarationId + ': ' + reqType + (truckName ? ' (' + truckName + ')' : ''));
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- Gestionnaire responds to modification request ---
+app.post('/api/naftal/declarations/:id/modification-response', async (req, res) => {
+    try {
+        const { action, note } = req.body;
+        if (!['accepted','rejected'].includes(action)) return res.status(400).json({ error: 'action must be accepted or rejected' });
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        if (!decl.modificationRequest || decl.modificationRequest.status !== 'pending') {
+            return res.status(400).json({ error: 'No pending modification request' });
+        }
+        const reqType = decl.modificationRequest.reqType;
+        decl.modificationRequest.status = action;
+        if (!decl.observations) decl.observations = [];
+        if (!decl.modificationLog) decl.modificationLog = [];
+        if (note) decl.observations.push({ text: note, by: 'gestionnaire' });
+        decl.modificationLog.push({ logType: 'mod_response', by: 'gestionnaire', detail: action.toUpperCase() + ' [' + reqType + ']: ' + (note||'') });
+        if (action === 'accepted') {
+            if (reqType === 'remove_truck') {
+                // Remove only the specific truck from the declaration
+                const targetDeviceId = decl.modificationRequest.deviceId;
+                const targetTruckName = decl.modificationRequest.truckName;
+                const truckEntry = decl.trucks.find(t =>
+                    (targetDeviceId && String(t.deviceId) === String(targetDeviceId)) ||
+                    (targetTruckName && t.truckName === targetTruckName)
+                );
+                if (truckEntry) {
+                    truckEntry.isRemoved = true;
+                    truckEntry.removedAt = new Date();
+                    truckEntry.removeReason = decl.modificationRequest.detail || 'Retrait demandé par transport';
+                    truckEntry.refillStatus = 'waiting'; // neutral
+                }
+                // Check if ALL trucks are now removed → cancel declaration
+                const remaining = decl.trucks.filter(t => !t.isRemoved);
+                if (remaining.length === 0) {
+                    decl.status = 'cancelled';
+                    decl.cancelledAt = new Date();
+                    decl.cancelReason = 'Tous les camions retirés sur demande transport';
+                } else {
+                    // Re-check if remaining trucks are all done
+                    const allDone = remaining.every(t => ['completed','flagged'].includes(t.refillStatus));
+                    if (allDone) { decl.status = 'completed'; decl.completedAt = new Date(); }
+                    // else keep current status
+                }
+                console.log('[NAFTAL] Truck removed from ' + decl.declarationId + ': ' + (targetTruckName||targetDeviceId) + ', ' + remaining.length + ' remaining');
+            } else if (reqType === 'restore_truck') {
+                // Re-activate the specific removed truck
+                const targetDeviceId = decl.modificationRequest.deviceId;
+                const targetTruckName = decl.modificationRequest.truckName;
+                const truckEntry = decl.trucks.find(t =>
+                    (targetDeviceId && String(t.deviceId) === String(targetDeviceId)) ||
+                    (targetTruckName && t.truckName === targetTruckName)
+                );
+                if (truckEntry) {
+                    truckEntry.isRemoved = false;
+                    truckEntry.removedAt = undefined;
+                    truckEntry.removeReason = undefined;
+                    truckEntry.refillStatus = 'waiting'; // back to waiting
+                }
+                // If declaration was somehow cancelled due to full removal, reopen it
+                if (decl.status === 'cancelled' && decl.cancelReason && decl.cancelReason.includes('retirés')) {
+                    decl.status = 'in_progress';
+                    decl.cancelledAt = undefined;
+                    decl.cancelReason = undefined;
+                }
+                console.log('[NAFTAL] Truck restored in ' + decl.declarationId + ': ' + (targetTruckName||targetDeviceId));
+            } else if (reqType === 'delete') {
+                decl.status = 'cancelled';
+                decl.cancelledAt = new Date();
+                decl.cancelReason = 'Annulé sur demande transport (accepté par gestionnaire)';
+            } else if (reqType === 'modify_route') {
+                decl.status = 'transport_validated';
+                decl.validatedByGestionnaire = undefined;
+                decl.trucks.forEach(t => { t.approvedAmountDA = 0; t.approvedLiters = 0; t.refillStatus = 'waiting'; });
+            }
+        }
+        await decl.save();
+        console.log('[NAFTAL] Modification ' + action + ' on ' + decl.declarationId + ' (' + reqType + ')');
+        res.json({ ok: true, status: decl.status });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- Analytics ---
+app.get('/api/naftal/analytics', async (req, res) => {
+    try {
+        const { period } = req.query;
+        const days = period === '7d' ? 7 : period === '3m' ? 90 : period === '12m' ? 365 : 30;
+        const from = new Date(Date.now() - days * 24 * 3600 * 1000);
+        const decls = await NaftalDeclaration.find({ createdAt: { $gte: from } }).lean();
+        const byStatus = {}, byTruck = {}, byDest = {}, byDay = {};
+        let totalDAApproved = 0, totalDAActual = 0, flaggedCount = 0;
+        for (const d of decls) {
+            byStatus[d.status] = (byStatus[d.status] || 0) + 1;
+            const day = new Date(d.createdAt).toISOString().slice(0,10);
+            if (!byDay[day]) byDay[day] = { count: 0, DAapproved: 0, DAactual: 0 };
+            byDay[day].count++;
+            for (const t of (d.trucks || [])) {
+                const da = t.approvedAmountDA || 0;
+                totalDAApproved += da;
+                totalDAActual += t.actualRefillCostDA || 0;
+                byDay[day].DAapproved += da;
+                byDay[day].DAactual += t.actualRefillCostDA || 0;
+                if (t.isFlagged || t.refillStatus === 'flagged') flaggedCount++;
+                if (t.truckName) {
+                    if (!byTruck[t.truckName]) byTruck[t.truckName] = { totalDA: 0, count: 0 };
+                    byTruck[t.truckName].totalDA += da; byTruck[t.truckName].count++;
+                }
+                if (t.destination) byDest[t.destination] = (byDest[t.destination] || 0) + 1;
+            }
+        }
+        const topTrucks = Object.entries(byTruck).sort((a,b)=>b[1].totalDA-a[1].totalDA).slice(0,10).map(([name,v])=>({name,...v}));
+        const topDest = Object.entries(byDest).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([name,count])=>({name,count}));
+        const byDayArr = Object.entries(byDay).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,v])=>({date,...v}));
+        const signaled = await NaftalDeclaration.countDocuments({ isSignaled: true, createdAt: { $gte: from } });
+        res.json({ byStatus, totalDAApproved, totalDAActual, flaggedCount, signaled, byDay: byDayArr, topTrucks, topDest, totalDecls: decls.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// --- Add observation ---
+app.post('/api/naftal/declarations/:id/observation', async (req, res) => {
+    try {
+        const { text, by } = req.body;
+        if (!text) return res.status(400).json({ error: 'text required' });
+        const decl = await NaftalDeclaration.findOne({ declarationId: req.params.id });
+        if (!decl) return res.status(404).json({ error: 'Declaration not found' });
+        if (!decl.observations) decl.observations = [];
+        decl.observations.push({ text, by: by || 'gestionnaire' });
+        await decl.save();
+        res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ── STARTUP BANNER ──
 console.log('\n╔════════════════════════════════════════════════╗');

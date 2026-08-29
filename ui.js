@@ -3181,1975 +3181,2630 @@ exportRefuelCSV() {
 // ═══════════════════════════════════════════════════════════════════════════
 
   // --- Main Entry Point (called when #routing tab is shown) ---
-   renderNaftalSystem() {
-    const container = document.getElementById('naftalSystemContainer');
-    if (!container) return;
-    
-    // Build sub-tab navigation
-    container.innerHTML = `
-      <div class="naftal-subtabs" style="display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap;">
-        <button class="naftal-subtab ${this.naftalCurrentView==='transport'?'active':''}" onclick="ui.naftalSwitchView('transport')">
-          <i class="fa-solid fa-truck-ramp-box"></i> Espace Transport
-        </button>
-        <button class="naftal-subtab ${this.naftalCurrentView==='gestionnaire'?'active':''}" onclick="ui.naftalSwitchView('gestionnaire')">
-          <i class="fa-solid fa-user-tie"></i> Gestionnaire Gasoil
-        </button>
-        <button class="naftal-subtab ${this.naftalCurrentView==='suivi'?'active':''}" onclick="ui.naftalSwitchView('suivi')">
-          <i class="fa-solid fa-satellite-dish"></i> Suivi des Ravitaillements
-        </button>
-        <button class="naftal-subtab ${this.naftalCurrentView==='historique'?'active':''}" onclick="ui.naftalSwitchView('historique')">
-          <i class="fa-solid fa-clock-rotate-left"></i> Historique Naftal
-        </button>
-      </div>
-      <div id="naftalViewContainer"></div>
+
+  injectNaftalStyles() {
+    if (document.getElementById('naftalV5CSS')) return;
+    const s = document.createElement('style');
+    s.id = 'naftalV5CSS';
+    s.textContent = `
+/* ── NAFTAL V5 LIGHT THEME ─────────────────────────────── */
+.nv5-wrap { background:#f8fafc; border-radius:12px; overflow:hidden; font-family:inherit; }
+.nv5-tabs { display:flex; gap:2px; padding:0 16px; background:#fff; border-bottom:1.5px solid #e2e8f0; }
+.nv5-tab { padding:13px 18px; border:none; background:transparent; cursor:pointer; font-size:13px; font-weight:600; color:#64748b; border-bottom:3px solid transparent; margin-bottom:-1.5px; transition:all 0.15s; white-space:nowrap; }
+.nv5-tab.active { color:#0284c7; border-bottom-color:#0284c7; }
+.nv5-tab:hover:not(.active) { color:#1e293b; background:#f8fafc; }
+.nv5-body { padding:16px; min-height:340px; }
+.nv5-subtabs { display:flex; gap:6px; margin-bottom:16px; }
+.nv5-stab { padding:7px 16px; border-radius:20px; border:1.5px solid #e2e8f0; background:#fff; cursor:pointer; font-size:12px; font-weight:600; color:#64748b; transition:all 0.15s; }
+.nv5-stab.active { background:#0284c7; color:#fff; border-color:#0284c7; }
+/* Cards */
+.nv5-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); overflow:hidden; margin-bottom:14px; }
+.nv5-card-head { padding:12px 16px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.nv5-card-body { padding:14px 16px; }
+/* Truck grid */
+.nv5-truck-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(185px,1fr)); gap:12px; }
+.nv5-truck-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; cursor:pointer; overflow:hidden; transition:all 0.18s; box-shadow:0 1px 5px rgba(0,0,0,0.05); }
+.nv5-truck-card:hover { border-color:#7dd3fc; transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,0.1); }
+.nv5-truck-card.sel { border-color:#0284c7 !important; background:#f0f9ff; box-shadow:0 0 0 2px rgba(2,132,199,0.25),0 4px 16px rgba(2,132,199,0.1); }
+.nv5-truck-card.pend { border-color:#f59e0b !important; background:#fffbeb; }
+.nv5-tc-accent { height:4px; width:100%; }
+.nv5-tc-body { padding:12px 13px 11px; }
+.nv5-fuel-track { height:7px; background:#f1f5f9; border-radius:4px; overflow:hidden; flex:1; }
+.nv5-fuel-fill { height:100%; border-radius:4px; transition:width 0.4s; }
+/* Destination panel */
+.nv5-dest-panel { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:18px; box-shadow:0 4px 20px rgba(0,0,0,0.08); }
+.nv5-dest-row { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:10px; margin-bottom:12px; overflow:hidden; }
+.nv5-dest-head { padding:12px 14px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; }
+.nv5-dest-body { padding:12px 14px; }
+.nv5-route-step { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.nv5-route-dot { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+.nv5-inp { width:100%; padding:9px 12px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:12px; outline:none; transition:border-color 0.15s; box-sizing:border-box; background:#fff; color:#1e293b; }
+.nv5-inp:focus { border-color:#38bdf8; }
+.nv5-autocomplete { position:absolute; z-index:9999; background:#fff; border:1.5px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.12); max-height:180px; overflow-y:auto; min-width:260px; }
+.nv5-ac-item { padding:9px 12px; cursor:pointer; font-size:12px; color:#1e293b; border-bottom:1px solid #f1f5f9; transition:background 0.1s; }
+.nv5-ac-item:hover { background:#f0f9ff; }
+.nv5-ac-item:last-child { border-bottom:none; }
+/* KPI strip */
+.nv5-kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:16px; }
+.nv5-kpi-card { border-radius:12px; padding:14px 16px; text-align:center; border:1px solid; }
+/* Table */
+.nv5-table { width:100%; border-collapse:collapse; font-size:12px; }
+.nv5-table th { padding:9px 10px; text-align:left; color:#64748b; font-weight:700; border-bottom:2px solid #e2e8f0; white-space:nowrap; }
+.nv5-table td { padding:10px 12px; border-bottom:1px solid #e2e8f0; color:#1e293b; vertical-align:middle; }
+.nv5-table tbody tr:last-child td { border-bottom:none; }
+.nv5-table tbody tr:hover td { background:#f0f9ff !important; }
+.nv5-table tr:hover td { background:#f8fafc; }
+/* Status badges */
+.nv5-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; }
+/* Filter bar */
+.nv5-filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; align-items:center; padding:12px 14px; background:#fff; border-radius:10px; border:1px solid #e2e8f0; }
+.nv5-sel { padding:7px 10px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:12px; background:#fff; color:#1e293b; outline:none; }
+/* Timeline */
+.nv5-timeline { position:relative; padding-left:24px; }
+.nv5-timeline::before { content:''; position:absolute; left:8px; top:0; bottom:0; width:2px; background:#e2e8f0; }
+.nv5-tl-item { position:relative; margin-bottom:12px; }
+.nv5-tl-dot { position:absolute; left:-24px; width:16px; height:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:8px; color:#fff; }
+/* Analyse */
+.nv5-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+.nv5-chart-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,0.05); }
+/* Misc */
+.nv5-btn { padding:8px 18px; border-radius:8px; border:none; cursor:pointer; font-size:12px; font-weight:700; transition:all 0.15s; }
+.nv5-btn-primary { background:#0284c7; color:#fff; }
+.nv5-btn-primary:hover { background:#0369a1; }
+.nv5-btn-danger { background:#ef4444; color:#fff; }
+.nv5-btn-success { background:#16a34a; color:#fff; }
+.nv5-btn-ghost { background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; }
+.nv5-btn-ghost:hover { background:#e2e8f0; }
+.nv5-mod-banner { background:#fef3c7; border:1.5px solid #f59e0b; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
     `;
-    
+    document.head.appendChild(s);
+  }
+
+
+  naftalCheckAuth(section) {
+    // Restore from sessionStorage on first check
+    if (section === 'transport') {
+      if (!this.naftalTransportAuth) this.naftalTransportAuth = sessionStorage.getItem('nv5_auth_transport') === '1';
+      return !!this.naftalTransportAuth;
+    }
+    if (section === 'gestionnaire') {
+      if (!this.naftalGestionnaireAuth) this.naftalGestionnaireAuth = sessionStorage.getItem('nv5_auth_gestionnaire') === '1';
+      return !!this.naftalGestionnaireAuth;
+    }
+    return false;
+  }
+
+  naftalLogout(section) {
+    if (section === 'transport' || !section) {
+      this.naftalTransportAuth = false;
+      sessionStorage.removeItem('nv5_auth_transport');
+    }
+    if (section === 'gestionnaire' || !section) {
+      this.naftalGestionnaireAuth = false;
+      sessionStorage.removeItem('nv5_auth_gestionnaire');
+    }
+    this.naftalSwitchView(this.naftalCurrentView || 'transport');
+  }
+
+  naftalRenderAuthGate(section) {
+    var icons = { transport: 'fa-truck-ramp-box', gestionnaire: 'fa-user-tie' };
+    var titles = { transport: 'Transport', gestionnaire: 'Gestionnaire Gasoil' };
+    var colors = { transport: '#16a34a', gestionnaire: '#7c3aed' };
+    var col = colors[section] || '#0284c7';
+    return (
+      '<div style="max-width:340px;margin:60px auto;text-align:center;">' +
+        '<div style="width:64px;height:64px;border-radius:50%;background:' + col + '1a;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;">' +
+          '<i class="fa-solid ' + icons[section] + '" style="color:' + col + ';font-size:26px;"></i></div>' +
+        '<h3 style="margin:0 0 6px;color:#1e293b;font-size:18px;">Accès ' + titles[section] + '</h3>' +
+        '<p style="color:#64748b;font-size:13px;margin-bottom:20px;">Entrez votre mot de passe pour continuer</p>' +
+        '<input id="naftalPwdInp" type="password" placeholder="Mot de passe..." ' +
+          'onkeydown="if(event.key===\'Enter\')ui.naftalVerifyPassword(\'' + section + '\')" ' +
+          'style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" autofocus>' +
+        '<button onclick="ui.naftalVerifyPassword(\'' + section + '\')" style="width:100%;padding:12px;background:' + col + ';color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">' +
+          '<i class="fa-solid fa-lock-open"></i> Accéder</button>' +
+        '<div id="naftalPwdErr" style="color:#ef4444;font-size:12px;margin-top:10px;"></div>' +
+      '</div>'
+    );
+  }
+
+  async naftalVerifyPassword(section) {
+    var inp = document.getElementById('naftalPwdInp');
+    var pwd = inp ? inp.value.trim() : '';
+    if (!pwd) { var e=document.getElementById('naftalPwdErr'); if(e) e.textContent='Entrez votre mot de passe.'; return; }
+    var errEl = document.getElementById('naftalPwdErr');
+    var btn = document.querySelector('#nv5Body button[onclick*="naftalVerifyPassword"]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Vérification...'; }
+    try {
+      var r = await fetch('/api/naftal/auth', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ section, password: pwd })
+      });
+      var d = await r.json();
+      if (r.ok && d.success) {
+        if (section === 'transport') {
+          this.naftalTransportAuth = true;
+          sessionStorage.setItem('nv5_auth_transport', '1');
+        } else if (section === 'gestionnaire') {
+          this.naftalGestionnaireAuth = true;
+          sessionStorage.setItem('nv5_auth_gestionnaire', '1');
+        }
+        this.naftalSwitchView(this.naftalCurrentView || 'transport');
+      } else {
+        if (errEl) errEl.textContent = d.error || 'Mot de passe incorrect';
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-lock-open"></i> Accéder'; }
+        if (inp) { inp.select(); inp.focus(); }
+      }
+    } catch(e) {
+      if (errEl) errEl.textContent = 'Erreur serveur: ' + e.message;
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-lock-open"></i> Accéder'; }
+    }
+  }
+
+
+  renderNaftalSystem() {
+    this.injectNaftalStyles();
+    if (!this._geoCache) this._geoCache = {};
+    var c = document.getElementById('naftalSystemContainer');
+    if (!c) return;
+    c.innerHTML =
+      '<div class="nv5-wrap">' +
+        '<div class="nv5-tabs">' +
+          '<button class="nv5-tab" id="nvtab_transport" onclick="ui.naftalSwitchView(\'transport\')">' +
+            '<i class="fa-solid fa-truck-ramp-box"></i> Transport</button>' +
+          '<button class="nv5-tab" id="nvtab_gestionnaire" onclick="ui.naftalSwitchView(\'gestionnaire\')">' +
+            '<i class="fa-solid fa-user-tie"></i> Gestionnaire</button>' +
+          '<button class="nv5-tab" id="nvtab_historique" onclick="ui.naftalSwitchView(\'historique\')">' +
+            '<i class="fa-solid fa-clock-rotate-left"></i> Historique</button>' +
+          '<button class="nv5-tab" id="nvtab_analyse" onclick="ui.naftalSwitchView(\'analyse\')">' +
+            '<i class="fa-solid fa-chart-pie"></i> Analyse</button>' +
+        '</div>' +
+        '<div id="nv5Body" class="nv5-body"></div>' +
+      '</div>';
+    this.naftalCurrentView = this.naftalCurrentView || 'transport';
     this.naftalSwitchView(this.naftalCurrentView);
   }
 
   naftalSwitchView(view) {
-    this._naftalCurrentView = view;
+    this._naftalStopLiveRefresh();
     this.naftalCurrentView = view;
-    document.querySelectorAll('.naftal-subtab').forEach(b => b.classList.remove('active'));
-    const btns = document.querySelectorAll('.naftal-subtab');
-    if (view === 'transport' && btns[0]) btns[0].classList.add('active');
-    if (view === 'gestionnaire' && btns[1]) btns[1].classList.add('active');
-    if (view === 'suivi' && btns[2]) btns[2].classList.add('active');
-    if (view === 'historique' && btns[3]) btns[3].classList.add('active');
-    
-    if (view === 'transport') this.renderNaftalTransport();
-    else if (view === 'gestionnaire') this.renderNaftalGestionnaire();
-    else if (view === 'suivi') this.renderNaftalSuivi();
-    else if (view === 'historique') this.renderNaftalHistorique();
+    ['transport','gestionnaire','historique','analyse'].forEach(function(v) {
+      var t = document.getElementById('nvtab_' + v);
+      if (t) t.classList.toggle('active', v === view);
+    });
+    var body = document.getElementById('nv5Body');
+    if (!body) return;
+    if (view === 'transport') this.renderNaftalTransport(body);
+    else if (view === 'gestionnaire') this.renderNaftalGestionnaire(body);
+    else if (view === 'historique') this.renderNaftalHistorique(body);
+    else if (view === 'analyse') this.renderNaftalAnalyse(body);
   }
 
-  // ═══ AUTHENTICATION GATE ═══
-  naftalRenderAuthGate(section, container) {
-    container.innerHTML = `
-      <div class="naftal-auth-gate">
-        <div class="naftal-auth-card">
-          <div class="naftal-auth-icon">
-            <i class="fa-solid ${section==='transport'?'fa-truck-ramp-box':'fa-user-shield'}"></i>
-          </div>
-          <h3>${section==='transport'?'Espace Transport':'Espace Gestionnaire Gasoil'}</h3>
-          <p style="color:var(--text-muted);font-size:13px;margin-bottom:16px;">Accès restreint — Veuillez saisir le mot de passe.</p>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="password" id="naftalAuthInput_${section}" placeholder="Mot de passe..." 
-              style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg-elevated);color:var(--text-primary);font-size:14px;"
-              onkeydown="if(event.key==='Enter') ui.naftalVerifyPassword('${section}')">
-            <button class="btn-primary" onclick="ui.naftalVerifyPassword('${section}')" 
-              style="padding:10px 20px;border-radius:8px;background:var(--primary);border:none;color:#fff;font-weight:700;cursor:pointer;">
-              <i class="fa-solid fa-lock-open"></i> Accéder
-            </button>
-          </div>
-          <div id="naftalAuthError_${section}" style="color:var(--danger);font-size:12px;margin-top:8px;display:none;"></div>
-        </div>
-      </div>
-    `;
-    setTimeout(() => document.getElementById(`naftalAuthInput_${section}`)?.focus(), 100);
-  }
 
-  async naftalVerifyPassword(section) {
-    const input = document.getElementById(`naftalAuthInput_${section}`);
-    const errEl = document.getElementById(`naftalAuthError_${section}`);
-    const password = (input?.value || '').trim();
-    if (!password) { errEl.textContent = 'Veuillez saisir le mot de passe.'; errEl.style.display = 'block'; return; }
-    
-    try {
-      const res = await fetch('/api/naftal/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ section, password })
-      });
-      if (res.ok) {
-        if (section === 'transport') this.naftalTransportAuth = true;
-        else this.naftalGestionnaireAuth = true;
-        localStorage.setItem(`naftal_${section}_auth`, 'true');
-        this.naftalSwitchView(section);
-      } else {
-        errEl.textContent = 'Mot de passe incorrect.';
-        errEl.style.display = 'block';
-        input.value = '';
-        input.focus();
-      }
-    } catch (e) {
-      errEl.textContent = 'Erreur serveur: ' + e.message;
-      errEl.style.display = 'block';
+  _naftalGetTruckLocation(t) {
+    if (!t) return 'Position inconnue';
+    var skipZones = ['Zone inconnue','Unknown','undefined','En route','In transit','Moving','En mouvement','null',''];
+    if (t.zone && skipZones.indexOf(t.zone) === -1) return t.zone;
+    if (t.address && t.address.length > 3) return t.address;
+    var co = t.coordinates; var lat = co&&co.lat; var lng = co&&co.lng;
+    if (!lat||!lng||(lat===0&&lng===0)) return 'Position inconnue';
+    var locs = (typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.CUSTOM_LOCATIONS)||[];
+    var best = null; var bestDist = Infinity;
+    for (var i=0;i<locs.length;i++) {
+      var l=locs[i]; if (!l.lat||!l.lng) continue;
+      var dLat=(l.lat-lat)*Math.PI/180, dLng=(l.lng-lng)*Math.PI/180;
+      var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat*Math.PI/180)*Math.cos(l.lat*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+      var dist=6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+      var radius=(l.radius||5000)/1000;
+      if (dist<=radius && dist<bestDist) { best=l.name; bestDist=dist; }
     }
+    if (best) return best;
+    return lat.toFixed(2)+'\u00b0N '+Math.abs(lng).toFixed(2)+'\u00b0'+(lng>=0?'E':'W');
   }
 
-  naftalCheckAuth(section) {
-    if (section === 'transport') return this.naftalTransportAuth || localStorage.getItem('naftal_transport_auth') === 'true';
-    if (section === 'gestionnaire') return this.naftalGestionnaireAuth || localStorage.getItem('naftal_gestionnaire_auth') === 'true';
-    return true;
-  }
-
-  // ═══ SECTION 1: TRANSPORT ═══
-  renderNaftalTransport() {
-    const vc = document.getElementById('naftalViewContainer');
-    if (!vc) return;
-    
-    if (!this.naftalCheckAuth('transport')) {
-      this.naftalRenderAuthGate('transport', vc);
+  async _naftalAsyncGeocode(tid, lat, lng) {
+    if (!lat||!lng) return;
+    var cacheKey = lat.toFixed(3)+'_'+lng.toFixed(3);
+    if (!this._geoCache) this._geoCache = {};
+    if (this._geoCache[cacheKey]) {
+      ['nloc_','ndep_'].forEach(function(pfx){
+        var el=document.getElementById(pfx+tid); if(el)el.textContent=this._geoCache[cacheKey];
+      }.bind(this));
       return;
     }
-    
-    const allTrucks = app.getAllTrucks ? app.getAllTrucks() : [];
-    const trucksWithCards = allTrucks.filter(t => {
-      const db = (this.truckDbCache || []).find(d => d.deviceId === (t.id || t.deviceId));
-      return db && db.carteNaftal;
-    });
-    
-    // Apply filters & sort
-    let filtered = [...trucksWithCards];
-    const q = this.naftalSearchQuery.toLowerCase();
-    if (q) {
-      filtered = filtered.filter(t => {
-        const db = (this.truckDbCache || []).find(d => d.deviceId === (t.id || t.deviceId)) || {};
-        return (t.name || '').toLowerCase().includes(q) ||
-               (db.carteNaftal || '').toLowerCase().includes(q) ||
-               (db.immatriculation || '').toLowerCase().includes(q);
+    try {
+      var keys=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.GEOAPIFY_API_KEYS)||[];
+      var key=keys[0]; if(!key)return;
+      var r=await fetch('https://api.geoapify.com/v1/geocode/reverse?lat='+lat+'&lon='+lng+'&lang=fr&apiKey='+key);
+      if(!r.ok)return;
+      var d=await r.json();
+      var props=d.features&&d.features[0]&&d.features[0].properties;
+      if(!props)return;
+      var label=(props.city||props.county||props.state||'');
+      var district=props.district||props.suburb||'';
+      if(district&&label) label=district+', '+label;
+      else if(district) label=district;
+      if(!label) label=props.formatted||'';
+      if(!label) return;
+      this._geoCache[cacheKey]=label;
+      ['nloc_','ndep_'].forEach(function(pfx){
+        var el=document.getElementById(pfx+tid); if(el)el.textContent=label;
       });
-    }
-    
-    // Location filter
-    if (this.naftalFilterStatus === 'external') {
-      filtered = filtered.filter(t => {
-        const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
-        const isInside = locs.some(l => l.type === 'douroub' && calculateDistance(t.coordinates?.lat, t.coordinates?.lng, l.lat, l.lng) <= (l.radius || 500) / 1000);
-        return !isInside;
-      });
-    } else if (this.naftalFilterStatus === 'close') {
-      filtered = filtered.filter(t => {
-        const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
-        return locs.some(l => l.type === 'douroub' && calculateDistance(t.coordinates?.lat, t.coordinates?.lng, l.lat, l.lng) <= 50);
-      });
-    } else if (this.naftalFilterStatus === 'lowfuel') {
-      filtered = filtered.filter(t => (t.fuelPercentage || 0) <= 20);
-    } else if (this.naftalFilterStatus === 'critical') {
-      filtered = filtered.filter(t => (t.fuelPercentage || 0) <= 5);
-    }
-    
-    // Sort
-    filtered.sort((a, b) => {
-      let va, vb;
-      if (this.naftalSortField === 'fuel') { va = a.fuelPercentage || 0; vb = b.fuelPercentage || 0; }
-      else if (this.naftalSortField === 'name') { va = (a.name || '').toLowerCase(); vb = (b.name || '').toLowerCase(); }
-      else { va = a.fuelPercentage || 0; vb = b.fuelPercentage || 0; }
-      if (this.naftalSortDir === 'asc') return va < vb ? -1 : va > vb ? 1 : 0;
-      return va > vb ? -1 : va < vb ? 1 : 0;
-    });
-    
-    const selectedSet = this.naftalSelectedTrucks;
-
-    vc.innerHTML = `
-      <div class="naftal-section" style="border-left:4px solid var(--primary);">
-
-        <!-- ── Header ── -->
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-          <div>
-            <h3 style="margin:0 0 2px 0;color:var(--primary);font-size:15px;"><i class="fa-solid fa-truck-ramp-box"></i> Déclaration Transport</h3>
-            <div style="font-size:11px;color:var(--text-muted);">${filtered.length} camion(s) avec carte Naftal${selectedSet.size > 0 ? ` · <strong style="color:#38bdf8;">${selectedSet.size} sélectionné(s)</strong>` : ''}</div>
-          </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-            <input type="text" placeholder="🔍 Camion, carte, immat..."
-              value="${this.naftalSearchQuery}" oninput="ui.naftalSearchQuery=this.value;ui.renderNaftalTransport()"
-              style="padding:7px 14px;border:1px solid var(--border);border-radius:20px;background:var(--bg-elevated);color:var(--text-primary);font-size:12px;width:210px;outline:none;">
-            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
-              ${[['all','Tous'],['external','Externe'],['close','≤50km'],['lowfuel','Faible'],['critical','Critique']].map(([v,l]) => {
-                const active = this.naftalFilterStatus === v;
-                return `<button onclick="ui.naftalFilterStatus='${v}';ui.renderNaftalTransport()" style="padding:4px 11px;border-radius:14px;border:1px solid ${active?'var(--primary)':'var(--border)'};background:${active?'var(--primary)':'transparent'};color:${active?'#fff':'var(--text-muted)'};font-size:10px;cursor:pointer;font-weight:${active?700:400};">${l}</button>`;
-              }).join('')}
-              <select onchange="ui.naftalSortField=this.value.split('_')[0];ui.naftalSortDir=this.value.split('_')[1];ui.renderNaftalTransport()"
-                style="padding:4px 10px;border:1px solid var(--border);border-radius:14px;background:transparent;color:var(--text-muted);font-size:10px;cursor:pointer;">
-                <option value="name_asc">Nom ↑</option><option value="name_desc">Nom ↓</option>
-                <option value="fuel_asc">Carburant ↑</option><option value="fuel_desc">Carburant ↓</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── STICKY selection bar ── -->
-        ${selectedSet.size > 0 ? `
-        <div id="naftalSelBar"
-          style="position:sticky;top:66px;z-index:200;display:flex;align-items:center;gap:10px;padding:10px 16px;margin-bottom:14px;background:rgba(10,20,40,0.92);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(56,189,248,0.35);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,0.4);transition:opacity 0.25s;"
-          onmouseenter="this.style.opacity='1'"
-          onmouseleave="this.style.opacity=window._naftalBarScrolled?'0.55':'1'">
-          <i class="fa-solid fa-square-check" style="color:var(--primary);font-size:14px;"></i>
-          <span style="font-size:13px;font-weight:700;color:#fff;flex:1;">${selectedSet.size} camion(s) sélectionné(s)</span>
-          <button onclick="ui.naftalOpenDestinationModal()"
-            style="padding:7px 18px;border-radius:8px;background:var(--primary);border:none;color:var(--bg-surface);font-weight:800;cursor:pointer;font-size:12px;letter-spacing:0.3px;">
-            <i class="fa-solid fa-map-location-dot"></i> Assigner Destinations
-          </button>
-          <button onclick="ui.naftalSelectedTrucks.clear();ui.naftalDeclarationDraft=[];ui.renderNaftalTransport()"
-            style="padding:7px 10px;border-radius:8px;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--text-muted);cursor:pointer;font-size:14px;line-height:1;" title="Annuler">×</button>
-        </div>` : ""}
-
-        <!-- ── Card grid ── -->
-        <div class="naftal-truck-grid">
-          ${filtered.map(t => {
-            const db = (this.truckDbCache || []).find(d => d.deviceId === (t.id || t.deviceId)) || {};
-            const isSelected = selectedSet.has(t.id || t.deviceId);
-            const fp  = Math.round(t.fuelPercentage || 0);
-            const fl  = Math.round(t.fuelLiters || 0);
-            const tCfg = (typeof getTruckConfig === 'function') ? getTruckConfig(t.id || t.deviceId) : {};
-            const cons = tCfg.fuelConsumption || 45;
-            const rangeKm = fl > 0 ? Math.round((fl / cons) * 100) : 0;
-            const spd = Math.round(t.speed || 0);
-
-            // Fuel — use app's semantic vars
-            const fuelLevel = fp <= 5 ? 'critical' : fp <= 15 ? 'low' : fp <= 30 ? 'medium' : 'ok';
-            const fuelColor = {
-              critical: 'var(--danger)',
-              low:      'var(--warning)',
-              medium:   '#fbbf24',
-              ok:       'var(--success)'
-            }[fuelLevel];
-            const fuelGradHex = {
-              critical: '#ef4444,#b91c1c',
-              low:      '#f59e0b,#d97706',
-              medium:   '#fbbf24,#ca8a04',
-              ok:       '#10b981,#059669'
-            }[fuelLevel];
-            const fuelLabel = {
-              critical: '⚠ Critique',
-              low:      '↓ Faible',
-              medium:   '~ Bas',
-              ok:       '✓ OK'
-            }[fuelLevel];
-            const fuelBgAlpha = {
-              critical: 'rgba(239,68,68,0.08)',
-              low:      'rgba(245,158,11,0.08)',
-              medium:   'rgba(251,191,36,0.06)',
-              ok:       'rgba(16,185,129,0.07)'
-            }[fuelLevel];
-
-            // Location / status
-            const isInDED = this._naftalIsInsideDED(t);
-            const locName = this._naftalGetTruckLocation(t);
-            const moving  = spd > 2;
-            const statusLabel = isInDED ? 'Au site' : moving ? 'En route' : 'Arrêté';
-            const statusColor = isInDED ? 'var(--success)' : moving ? 'var(--primary)' : 'var(--text-muted)';
-            const statusBgAlpha = isInDED ? 'rgba(16,185,129,0.1)' : moving ? 'rgba(56,189,248,0.1)' : 'rgba(100,116,139,0.07)';
-            const devId = t.id || t.deviceId;
-            const coords = t.coordinates ? `${t.coordinates.lat.toFixed(4)}, ${t.coordinates.lng.toFixed(4)}` : null;
-
-            return `
-              <div onclick="ui.naftalToggleTruck('${devId}')"
-                style="background:var(--bg-elevated);border:1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'};border-radius:12px;padding:13px;cursor:pointer;transition:border-color 0.15s,box-shadow 0.15s;box-shadow:${isSelected ? '0 0 0 3px rgba(56,189,248,0.15),0 4px 12px rgba(0,0,0,0.2)' : '0 1px 4px rgba(0,0,0,0.15)'};position:relative;overflow:hidden;">
-
-                <!-- Top accent line colored by fuel -->
-                <div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,${fuelGradHex});"></div>
-
-                <!-- Row 1: checkbox + name + carte -->
-                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;margin-top:5px;">
-                  <div style="display:flex;align-items:center;gap:7px;min-width:0;">
-                    <div style="width:15px;height:15px;border-radius:3px;border:1.5px solid ${isSelected ? 'var(--primary)' : 'var(--border)'};background:${isSelected ? 'var(--primary)' : 'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;color:var(--bg-surface);font-weight:900;">${isSelected ? '✓' : ''}</div>
-                    <span style="font-size:13px;font-weight:800;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 0 12px rgba(56,189,248,0.15);">${t.name || 'N/A'}</span>
-                  </div>
-                  <span style="font-size:9px;color:var(--text-muted);background:var(--bg-surface);border:1px solid var(--border);padding:2px 6px;border-radius:4px;white-space:nowrap;margin-left:4px;font-family:monospace;">${db.carteNaftal || '—'}</span>
-                </div>
-
-                <!-- Row 2: status pill + speed + immat -->
-                <div style="display:flex;align-items:center;gap:5px;margin-bottom:8px;flex-wrap:wrap;">
-                  <span style="font-size:9px;font-weight:700;color:${statusColor};background:${statusBgAlpha};padding:2px 8px;border-radius:10px;">${statusLabel}</span>
-                  ${moving ? `<span style="font-size:9px;color:var(--primary);font-weight:600;">${spd} km/h</span>` : ''}
-                  ${db.immatriculation ? `<span style="font-size:9px;color:var(--text-muted);margin-left:auto;">${db.immatriculation}</span>` : ''}
-                </div>
-
-                <!-- Row 3: live address (updated by Geoapify) -->
-                <div style="display:flex;align-items:flex-start;gap:5px;margin-bottom:10px;min-height:26px;">
-                  <i class="fa-solid fa-location-dot" style="color:${statusColor};font-size:9px;margin-top:2px;flex-shrink:0;opacity:0.8;"></i>
-                  <div id="naftalLoc_${devId}" style="font-size:10px;color:#000;font-weight:700;line-height:1.35;letter-spacing:0.2px;">${locName}</div>
-                </div>
-
-                <!-- Fuel block -->
-                <div style="background:${fuelBgAlpha};border-radius:8px;padding:9px;margin-bottom:10px;">
-                  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;">
-                    <div>
-                      <span style="font-size:22px;font-weight:900;color:${fuelColor};line-height:1;text-shadow:0 0 10px ${fuelColor}50;">${fl}</span>
-                      <span style="font-size:10px;color:var(--text-muted);margin-left:2px;">L</span>
-                    </div>
-                    <div style="text-align:right;">
-                      <div style="font-size:12px;font-weight:800;color:${fuelColor};">${fp}%</div>
-                      <div style="font-size:9px;color:var(--text-muted);">~${rangeKm} km</div>
-                    </div>
-                  </div>
-                  <div style="height:4px;background:rgba(255,255,255,0.07);border-radius:2px;overflow:hidden;">
-                    <div style="height:100%;width:${Math.min(fp, 100)}%;background:linear-gradient(90deg,${fuelGradHex});border-radius:2px;"></div>
-                  </div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:5px;">
-                    <span style="font-size:9px;font-weight:600;color:${fuelColor};">${fuelLabel}</span>
-                    ${coords ? `<span style="font-size:8px;color:var(--text-muted);font-family:monospace;opacity:0.7;">${coords}</span>` : ''}
-                  </div>
-                </div>
-
-                <!-- Action button -->
-                ${isSelected
-                  ? `<div style="display:flex;align-items:center;justify-content:center;gap:5px;padding:6px;border-radius:8px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.2);font-size:11px;color:var(--primary);font-weight:700;">
-                      <i class="fa-solid fa-check"></i> Sélectionné
-                    </div>`
-                  : `<button onclick="event.stopPropagation();ui.naftalQuickDeclare('${devId}')"
-                      style="width:100%;padding:7px;border-radius:8px;background:var(--primary);border:none;color:var(--bg-surface);font-weight:700;cursor:pointer;font-size:11px;letter-spacing:0.3px;">
-                      <i class="fa-solid fa-plus"></i> Déclarer
-                    </button>`}
-              </div>`;
-          }).join('')}
-        </div>
-
-
-        ${this.naftalDeclarationDraft.length > 0 ? this._naftalRenderRecapTable() : ''}
-      </div>
-    `;
-
-    // ── Sticky bar scroll transparency ──
-    if (selectedSet.size > 0) {
-      const bar = document.getElementById('naftalSelBar');
-      const container = vc.closest('[style*="overflow"]') || document.querySelector('.main-content') || window;
-      const onScroll = () => {
-        const scrolled = (container === window ? window.scrollY : container.scrollTop) > 10;
-        window._naftalBarScrolled = scrolled;
-        if (bar && !bar.matches(':hover')) bar.style.opacity = scrolled ? '0.55' : '1';
-      };
-      (container === window ? window : container).addEventListener('scroll', onScroll, { passive: true });
-      window._naftalBarScrollListener = onScroll;
-    }
-
-    // ── Geoapify reverse geocoding for live card addresses ──
-    this._naftalReverseGeocodeCards(filtered);
+      if(this.naftalDeclarationDraft){
+        this.naftalDeclarationDraft.forEach(function(dr){
+          if(String(dr.deviceId)===String(tid)&&(dr.currentLocation||'').includes('\u00b0'))dr.currentLocation=label;
+        });
+      }
+    } catch(_){}
   }
 
-  _naftalReverseGeocodeCards(trucks) {
-    const apiKey = (FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0)
-      ? FLEET_CONFIG.GEOAPIFY_API_KEYS[0] : FLEET_CONFIG.GEOAPIFY_API_KEY;
-    if (!apiKey) return;
-    const customLocs = (FLEET_CONFIG.CUSTOM_LOCATIONS || []).map(l => l.name);
-    trucks.forEach(t => {
-      if (!t.coordinates || !t.coordinates.lat) return;
-      const devId = t.id || t.deviceId;
-      const el = document.getElementById(`naftalLoc_${devId}`);
-      if (!el) return;
-      // If already matched a custom site, highlight it and skip Geoapify
-      const knownSite = this._naftalGetTruckLocation(t);
-      if (customLocs.includes(knownSite)) {
-        el.innerHTML = `<span style="color:#000;font-weight:800;">📍 ${knownSite}</span>`;
-        return;
-      }
-      fetch(`https://api.geoapify.com/v1/geocode/reverse?lat=${t.coordinates.lat}&lon=${t.coordinates.lng}&apiKey=${apiKey}&lang=fr`)
-        .then(r => r.json())
-        .then(data => {
-          if (!data.features || !data.features[0]) return;
-          const p = data.features[0].properties;
-          // Prefer precise: road/name > quarter > locality > city > state
-          const precise = p.name || p.street || p.road;
-          const quarter = p.suburb || p.city_district || p.quarter;
-          const city = p.city || p.town || p.village || p.municipality;
-          const parts = [precise, quarter, city].filter(Boolean);
-          const addr = parts.length > 0 ? parts.slice(0,2).join(', ') : (p.county || p.state || p.formatted?.split(',')[0] || '');
-          const fresh = document.getElementById(`naftalLoc_${devId}`);
-          if (fresh && addr) {
-            fresh.innerHTML = `<span style="color:#000;font-weight:700;">${addr}</span>`;
+  async _naftalCalcRoute(draft) {
+    if (!draft) return null;
+    var waypoints = [];
+    if (draft.currentLat && draft.currentLng) waypoints.push(draft.currentLat+','+draft.currentLng);
+    (draft.extraStops||[]).forEach(function(s){if(s.lat&&s.lng)waypoints.push(s.lat+','+s.lng);});
+    if (draft.destinationLat && draft.destinationLng) waypoints.push(draft.destinationLat+','+draft.destinationLng);
+    if (waypoints.length < 2) return null;
+    try {
+      var keys=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.GEOAPIFY_API_KEYS)||[];
+      var key=keys[0]; if(!key)return null;
+      var url='https://api.geoapify.com/v1/routing?waypoints='+waypoints.join('|')+'&mode=drive&apiKey='+key;
+      var r=await fetch(url);
+      if(!r.ok)return null;
+      var d=await r.json();
+      var feat=d.features&&d.features[0]&&d.features[0].properties;
+      if(!feat)return null;
+      return { distKm: Math.round((feat.distance||0)/1000), timeMin: Math.round((feat.time||0)/60) };
+    } catch(_){return null;}
+  }
+
+  _naftalFormatStatus(status) {
+    var map = {
+      draft: ['#64748b','#f8fafc','Brouillon'],
+      transport_validated: ['#f59e0b','#fffbeb','Att. gestionnaire'],
+      gestionnaire_validated: ['#16a34a','#f0fdf4','Approuvé'],
+      in_progress: ['#0284c7','#e0f2fe','En cours'],
+      completed: ['#6d28d9','#f5f3ff','Terminé'],
+      cancelled: ['#dc2626','#fef2f2','Annulé']
+    };
+    var m = map[status] || ['#64748b','#f8fafc', status];
+    return '<span class="nv5-badge" style="color:'+m[0]+';background:'+m[1]+';border:1px solid '+m[0]+'33;">'+m[2]+'</span>';
+  }
+
+  _naftalFormatDate(d) {
+    if (!d) return '';
+    return new Date(d).toLocaleString('fr-DZ', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  }
+
+  _naftalStopLiveRefresh() {
+    if (this._naftalLiveTimer) { clearInterval(this._naftalLiveTimer); this._naftalLiveTimer = null; }
+  }
+
+
+  // ── TRANSPORT ─────────────────────────────────────────────────────────────
+
+  renderNaftalTransport(body) {
+    if (!body) return;
+    if (!this.naftalCheckAuth('transport')) {
+      // Try silent auto-auth first (works when no password configured)
+      fetch('/api/naftal/auth', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section:'transport',password:''})})
+        .then(function(r){return r.json();})
+        .then((d) => {
+          if (d.success) {
+            this.naftalTransportAuth = true;
+            sessionStorage.setItem('nv5_auth_transport','1');
+            this.renderNaftalTransport(body);
+          } else {
+            body.innerHTML = this.naftalRenderAuthGate('transport');
           }
-        }).catch(() => {});
-    });
-  }
-
-
-  _naftalGetTruckLocation(truck) {
-    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
-    if (truck.coordinates) {
-      for (const loc of locs) {
-        const d = calculateDistance(truck.coordinates.lat, truck.coordinates.lng, loc.lat, loc.lng);
-        if (d <= (loc.radius || 500) / 1000) return loc.name;
-      }
+        })
+        .catch(() => { body.innerHTML = this.naftalRenderAuthGate('transport'); });
+      return;
     }
-    return truck.currentLocation || truck.address || 'En route';
+    if (!this.naftalSelectedTrucks) this.naftalSelectedTrucks = new Set();
+    if (!this.naftalDeclarationDraft) this.naftalDeclarationDraft = [];
+    this._naftalTransportTab(this.naftalTransportTab || 'select');
   }
 
-  _naftalIsInsideDED(truck) {
-    const locs = FLEET_CONFIG.CUSTOM_LOCATIONS || [];
-    if (!truck.coordinates) return false;
-    return locs.some(l => l.type === 'douroub' && calculateDistance(truck.coordinates.lat, truck.coordinates.lng, l.lat, l.lng) <= (l.radius || 500) / 1000);
+  _naftalTransportTab(tab) {
+    this.naftalTransportTab = tab;
+    var body = document.getElementById('nv5Body');
+    if (!body) return;
+    var html =
+      '<div class="nv5-subtabs">' +
+        '<button onclick="ui._naftalTransportTab(\'select\')" style="padding:8px 18px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;transition:all 0.15s;background:'+(tab==='select'?'#16a34a':'#f0fdf4')+';color:'+(tab==='select'?'#fff':'#16a34a')+';box-shadow:'+(tab==='select'?'0 2px 8px rgba(22,163,74,0.3)':'none')+'">' +
+          '<i class="fa-solid fa-plus"></i> Nouvelle Demande</button>' +
+        '<button onclick="ui._naftalTransportTab(\'myrequests\')" style="padding:8px 18px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;transition:all 0.15s;background:'+(tab==='myrequests'?'#0284c7':'#f0f9ff')+';color:'+(tab==='myrequests'?'#fff':'#0284c7')+';box-shadow:'+(tab==='myrequests'?'0 2px 8px rgba(2,132,199,0.3)':'none')+'">' +
+          '<i class="fa-solid fa-list-check"></i> Mes Demandes</button>' +
+      '</div>' +
+      '<div id="nv5TransportContent"></div>';
+    body.innerHTML = html;
+    var content = document.getElementById('nv5TransportContent');
+    if (tab === 'select') this._naftalRenderSelectView(content);
+    else this._naftalRenderMyRequests(content);
   }
 
-  naftalToggleTruck(deviceId) {
-    if (this.naftalSelectedTrucks.has(deviceId)) this.naftalSelectedTrucks.delete(deviceId);
-    else this.naftalSelectedTrucks.add(deviceId);
-    this.renderNaftalTransport();
-  }
-
-  naftalQuickDeclare(deviceId) {
-    this.naftalSelectedTrucks.add(deviceId);
-    this.naftalOpenDestinationModal();
-  }
-
-  // --- Destination Assignment Modal ---
-  naftalOpenDestinationModal() {
-    const selected = [...this.naftalSelectedTrucks];
-    if (selected.length === 0) return;
-    
-    const allTrucks = app.getAllTrucks ? app.getAllTrucks() : [];
-    
-    // ✅ FIX: rebuild draft from scratch — only currently selected trucks
-    // Preserve destinations already entered for trucks still selected
-    const prevDraft = this.naftalDeclarationDraft || [];
-    const newDraft = [];
-    
-    selected.forEach(deviceId => {
-      const existing = prevDraft.find(d => d.deviceId === deviceId);
-      if (existing) {
-        // Keep existing entry (has destination already filled in)
-        newDraft.push(existing);
-      } else {
-        const t = allTrucks.find(tr => (tr.id || tr.deviceId) === deviceId);
-        const db = (this.truckDbCache || []).find(d => d.deviceId === deviceId) || {};
-        if (t) {
-          newDraft.push({
-            deviceId,
-            truckName: t.name || deviceId,
-            carteNaftal: db.carteNaftal || '',
-            immatriculation: db.immatriculation || '',
-            currentLocation: this._naftalGetTruckLocation(t),
-            currentLat: t.coordinates?.lat || 0,
-            currentLng: t.coordinates?.lng || 0,
-            currentFuelLiters: Math.round(t.fuelLiters || 0),
-            currentFuelPercent: Math.round(t.fuelPercentage || 0),  // ✅ matches modal field
-            destination: '',
-            destinationLat: 0,
-            destinationLng: 0,
-            estimatedDistanceKm: 0,
-            estimatedFuelNeeded: 0,
-            estimatedCostDA: 0
+  async _naftalRenderSelectView(content) {
+    if (!content) content = document.getElementById('nv5TransportContent');
+    if (!content) return;
+    // Pre-fetch active declarations to show truck state in grid
+    try {
+      var ar = await fetch('/api/naftal/declarations?status=transport_validated,gestionnaire_validated,in_progress&limit=500');
+      if (ar.ok) {
+        var activeList = await ar.json();
+        var activeMap = {};
+        activeList.forEach(function(d) {
+          (d.trucks||[]).forEach(function(t) {
+            activeMap[String(t.deviceId)] = { declarationId: d.declarationId, status: d.status };
           });
+        });
+        this._naftalActiveDecls = activeMap;
+      }
+    } catch(_) { this._naftalActiveDecls = {}; }
+    var allT = (typeof app !== 'undefined' ? app.getAllTrucks() : []) || [];
+    var db = this.truckDbCache || [];
+    var naftalTrucks = allT.filter(function(t) {
+      return db.some(function(d){return String(d.deviceId)===String(t.id||t.deviceId)&&d.carteNaftal;});
+    });
+    content.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">' +
+        '<div>' +
+          '<h3 style="margin:0 0 3px;color:#0284c7;font-size:15px;"><i class="fa-solid fa-truck-ramp-box"></i> Sélectionner Camion(s)</h3>' +
+          '<div style="font-size:11px;color:#64748b;">' + naftalTrucks.length + ' camion(s) avec carte Naftal</div>' +
+        '</div>' +
+        '<input id="nv5SearchInp" type="text" placeholder="🔍 Camion, carte, immat..." value="'+(this.naftalSearchQuery||'')+'" ' +
+          'oninput="ui.naftalSearchQuery=this.value;clearTimeout(ui._srchT);ui._srchT=setTimeout(function(){var g=document.getElementById(\'nv5Grid\');if(g)ui._naftalRenderTruckGrid(g);},180);" ' +
+          'style="padding:9px 14px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;width:220px;outline:none;background:#fff;color:#1e293b;" ' +
+          'onfocus="this.style.borderColor=\'#38bdf8\'" onblur="this.style.borderColor=\'#e2e8f0\'">' +
+      '</div>' +
+      '<div id="nv5SelBar"></div>' +
+      '<div id="nv5Grid" class="nv5-truck-grid" style="margin-bottom:14px;"></div>' +
+      '<div id="nv5DestPanel"></div>';
+
+    this._naftalRenderTruckGrid(document.getElementById('nv5Grid'));
+    this._naftalUpdateSelectionBar();
+    if (this.naftalSelectedTrucks.size > 0 && this.naftalDeclarationDraft.length > 0) {
+      this.naftalOpenDestinationModal();
+    }
+  }
+
+  _naftalRenderTruckGrid(gridEl) {
+    if (!gridEl) return;
+    var allT = (typeof app!=='undefined'?app.getAllTrucks():[]) || [];
+    var db = this.truckDbCache || [];
+    var q = (this.naftalSearchQuery||'').toLowerCase();
+    var naftalTrucks = allT.filter(function(t) {
+      var d = db.find(function(x){return String(x.deviceId)===String(t.id||t.deviceId)&&x.carteNaftal;});
+      if (!d) return false;
+      if (!q) return true;
+      return (t.name||'').toLowerCase().includes(q)||(d.carteNaftal||'').toLowerCase().includes(q)||(d.immatriculation||'').toLowerCase().includes(q);
+    });
+    if (!naftalTrucks.length) {
+      gridEl.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;"><i class="fa-solid fa-truck" style="font-size:28px;opacity:0.3;"></i><br><br>Aucun camion trouvé</div>';
+      return;
+    }
+    var sel = this.naftalSelectedTrucks;
+    var draft = this.naftalDeclarationDraft;
+    var activeDecls = this._naftalActiveDecls || {};
+    var html = '';
+    naftalTrucks.forEach(function(t) {
+      var tid = String(t.id||t.deviceId);
+      var db2 = (this.truckDbCache||[]).find(function(x){return String(x.deviceId)===tid;}) || {};
+      var fp = Math.round(t.fuelPercentage||0);
+      var fl = Math.round(t.fuelLiters||0);
+      var fc = fp<=5?'#ef4444':fp<=20?'#f59e0b':'#16a34a';
+      var isSel = sel.has(tid);
+      var isPend = !isSel && draft.some(function(d){return String(d.deviceId)===tid;});
+      var activeDecl = !isSel && !isPend ? activeDecls[tid] : null;
+      var isActiveInDB = !!activeDecl;
+      var loc = this._naftalGetTruckLocation(t);
+      var accentColor = isSel?'#0284c7':fc;
+      var cardClass = 'nv5-truck-card'+(isSel?' sel':isPend?' pend':isActiveInDB?' pend':'');
+
+      html += '<div class="'+cardClass+'" onclick="ui._naftalToggleTruck(\''+tid+'\')">' +
+        '<div class="nv5-tc-accent" style="background:'+accentColor+';"></div>' +
+        '<div class="nv5-tc-body">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:7px;">' +
+            '<span style="font-weight:800;font-size:14px;color:#1e293b;">'+(t.name||tid)+'</span>';
+      if (isSel) {
+        html += '<span style="width:22px;height:22px;border-radius:50%;background:#0284c7;display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 6px rgba(2,132,199,0.4);">' +
+                '<i class="fa-solid fa-check" style="color:#fff;font-size:10px;"></i></span>';
+      } else if (isPend) {
+        html += '<span style="background:#f59e0b;color:#fff;border-radius:5px;padding:2px 7px;font-size:9px;font-weight:700;"><i class="fa-solid fa-hourglass-half"></i> En préparation</span>';
+      } else if (isActiveInDB) {
+        var aStatus = activeDecl.status;
+        var aLabel = aStatus==='transport_validated'?'Att. gestionnaire':aStatus==='gestionnaire_validated'?'Approuvé ✓':'En cours ⟳';
+        var aBg = aStatus==='transport_validated'?'#f59e0b':aStatus==='gestionnaire_validated'?'#16a34a':'#0284c7';
+        html += '<span style="background:'+aBg+';color:#fff;border-radius:5px;padding:2px 7px;font-size:9px;font-weight:700;">'+aLabel+'</span>';
+      }
+      html += '</div>';
+
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px;">' +
+        '<span style="display:inline-flex;align-items:center;gap:3px;background:#e0f2fe;border:1px solid #7dd3fc;border-radius:20px;padding:2px 8px;">' +
+          '<i class="fa-solid fa-credit-card" style="color:#0369a1;font-size:8px;"></i>' +
+          '<span style="font-size:10px;color:#0369a1;font-weight:700;font-family:monospace;">'+(db2.carteNaftal||'N/A')+'</span></span>';
+      if (db2.immatriculation) {
+        html += '<span style="font-size:9px;color:#64748b;background:#f1f5f9;padding:2px 7px;border-radius:20px;border:1px solid #e2e8f0;">'+(db2.immatriculation)+'</span>';
+      }
+      html += '</div>';
+
+      html += '<div style="font-size:10px;color:#64748b;margin-bottom:8px;display:flex;align-items:center;gap:4px;">' +
+        '<i class="fa-solid fa-location-dot" style="color:'+accentColor+';font-size:9px;flex-shrink:0;"></i>' +
+        '<span id="nloc_'+tid+'" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+loc+'</span></div>';
+
+      // Trigger geocode for all trucks (cached)
+      if (t.coordinates && t.coordinates.lat && t.coordinates.lat !== 0) {
+        setTimeout(function(id2,la2,lo2){ui._naftalAsyncGeocode(id2,la2,lo2);},50,tid,t.coordinates.lat,t.coordinates.lng);
+      }
+
+      html += '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<div class="nv5-fuel-track"><div class="nv5-fuel-fill" style="width:'+fp+'%;background:'+fc+';"></div></div>' +
+        '<span style="font-size:12px;font-weight:900;color:'+fc+';min-width:32px;text-align:right;">'+fp+'%</span>' +
+        '<span style="font-size:9px;color:#94a3b8;">'+fl+'L</span></div>';
+
+      html += '</div></div>';
+    }.bind(this));
+    gridEl.innerHTML = html;
+  }
+
+  async _naftalToggleTruck(deviceId) {
+    deviceId = String(deviceId);
+    var allT = (typeof app!=='undefined'?app.getAllTrucks():[]) || [];
+    var t = allT.find(function(x){return String(x.id||x.deviceId)===deviceId;});
+    if (!t) return;
+    var db = (this.truckDbCache||[]).find(function(x){return String(x.deviceId)===deviceId;}) || {};
+
+    // Check if truck has a pending/active declaration
+    try {
+      var chk = await fetch('/api/naftal/declarations?deviceId='+deviceId+'&status=transport_validated,gestionnaire_validated,in_progress&limit=1');
+      if (chk.ok) {
+        var chkD = await chk.json();
+        if (chkD.length > 0 && !this.naftalSelectedTrucks.has(deviceId)) {
+          var existDecl = chkD[0];
+          var truckEntry = (existDecl.trucks||[]).find(function(t){return String(t.deviceId)===deviceId;}) || {};
+
+          // ── REMOVED: truck was withdrawn from this declaration ────────────
+          if (truckEntry.isRemoved) {
+            var removedTruckName = truckEntry.truckName || deviceId;
+            var removedAt = truckEntry.removedAt ? new Date(truckEntry.removedAt).toLocaleDateString('fr-DZ') : '';
+            var removeReason = truckEntry.removeReason || '';
+            var wantRestore = await ui_showConfirm(
+              '🚫 ' + removedTruckName + ' a été retiré de la déclaration ' + existDecl.declarationId + '\n' +
+              (removedAt ? 'Date de retrait : ' + removedAt + '\n' : '') +
+              (removeReason ? 'Motif : ' + removeReason + '\n' : '') +
+              '\nVoulez-vous demander sa RESTAURATION au gestionnaire ?\n' +
+              'Le camion sera réintégré dans la déclaration si le gestionnaire accepte.',
+              'Camion retiré', '🚫', '🔄 Demander restauration'
+            );
+            if (wantRestore) {
+              await this._naftalRequestTruckRestore(existDecl.declarationId, deviceId, removedTruckName);
+            } else {
+              this._naftalTransportTab('myrequests');
+            }
+            return;
+          }
+
+          // ── EN COURS: gestionnaire already validated & refill started ──────
+          if (existDecl.status === 'in_progress') {
+            var truckName = truckEntry.truckName || deviceId;
+            var allTrucks = existDecl.trucks||[];
+            var otherCount = allTrucks.length - 1;
+            var refillInfo = truckEntry.refillStatus === 'in_progress' ? 'Ravitaillement en cours...' :
+                             truckEntry.refillStatus === 'completed'   ? '✅ Ravitaillement terminé' :
+                             truckEntry.refillStatus === 'flagged'     ? '🚩 Anomalie détectée' : 'En attente';
+            var wantDelete = await ui_showConfirm(
+              '🔄 ' + truckName + ' est EN COURS DE RAVITAILLEMENT\n' +
+              existDecl.declarationId + ' (' + allTrucks.length + ' camion(s) total)\n' +
+              refillInfo + '\n\n' +
+              'Voulez-vous demander le RETRAIT de ce camion uniquement ?\n' +
+              (otherCount > 0 ? 'Les ' + otherCount + ' autre(s) camion(s) resteront dans la déclaration.' : 'Ce camion est le seul — la déclaration sera annulée.'),
+              'Retrait camion', '🔄', '📩 Demander retrait de ' + truckName
+            );
+            if (wantDelete) {
+              await this._naftalRequestTruckRemoval(existDecl.declarationId, deviceId, truckName);
+            } else {
+              this._naftalTransportTab('myrequests');
+            }
+            return;
+          }
+
+          // ── TRANSPORT/GEST VALIDATED: can force or go to Mes Demandes ────
+          var statusLabels = {
+            transport_validated: 'En attente gestionnaire',
+            gestionnaire_validated: 'Approuvé — en attente ravitaillement'
+          };
+          var declStatus = statusLabels[existDecl.status] || existDecl.status;
+          var ok = await ui_showConfirm(
+            '⚠️ Ce camion a déjà une demande active:\n' +
+            existDecl.declarationId + ' — ' + declStatus + '\n\n' +
+            '• ANNULER → aller dans Mes Demandes pour modifier/annuler\n' +
+            '• FORCER → créer une nouvelle demande quand même',
+            'Demande existante', '⚠️', '⚡ Forcer nouvelle demande'
+          );
+          if (!ok) {
+            this._naftalTransportTab('myrequests');
+            return;
+          }
         }
       }
+    } catch(_) {}
+
+    if (this.naftalSelectedTrucks.has(deviceId)) {
+      this.naftalSelectedTrucks.delete(deviceId);
+      this.naftalDeclarationDraft = (this.naftalDeclarationDraft||[]).filter(function(d){return String(d.deviceId)!==deviceId;});
+    } else {
+      this.naftalSelectedTrucks.add(deviceId);
+      var loc = this._naftalGetTruckLocation(t);
+      var co = t.coordinates||{};
+      this.naftalDeclarationDraft = this.naftalDeclarationDraft||[];
+      if (!this.naftalDeclarationDraft.find(function(d){return String(d.deviceId)===deviceId;})) {
+        this.naftalDeclarationDraft.push({
+          deviceId: deviceId,
+          truckName: t.name || deviceId,
+          carteNaftal: db.carteNaftal || '',
+          immatriculation: db.immatriculation || '',
+          currentLocation: loc,
+          currentLat: co.lat,
+          currentLng: co.lng,
+          currentFuelLiters: Math.round(t.fuelLiters||0),
+          currentFuelPercent: Math.round(t.fuelPercentage||0),
+          destination: '',
+          destinationLat: null,
+          destinationLng: null,
+          estimatedDistanceKm: 0,
+          estimatedFuelNeeded: 0,
+          estimatedCostDA: 0,
+          extraStops: []
+        });
+        // Show scroll-down hint toast (only once per session)
+        if (!this._naftalScrollHintShown) {
+          this._naftalScrollHintShown = true;
+          var toast = document.createElement('div');
+          toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:12px 22px;border-radius:12px;font-size:13px;font-weight:600;z-index:99999;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,0.3);pointer-events:none;';
+          toast.innerHTML = '<i class="fa-solid fa-circle-arrow-down" style="font-size:16px;color:#22c55e;"></i>&nbsp;Faites défiler vers le bas pour remplir la destination et estimer le montant';
+          document.body.appendChild(toast);
+          setTimeout(function(){ toast.style.transition='opacity 0.5s'; toast.style.opacity='0'; setTimeout(function(){toast.remove();},600); }, 4000);
+        }
+      }
+    }
+    var g = document.getElementById('nv5Grid');
+    if (g) this._naftalRenderTruckGrid(g);
+    this._naftalUpdateSelectionBar();
+    if (this.naftalSelectedTrucks.size > 0) this.naftalOpenDestinationModal();
+    else { var p = document.getElementById('nv5DestPanel'); if(p)p.innerHTML=''; }
+  }
+
+  _naftalRemoveDraftTruck(deviceId) {
+    // Remove a truck from the declaration draft before submission
+    this.naftalSelectedTrucks.delete(String(deviceId));
+    this.naftalDeclarationDraft = (this.naftalDeclarationDraft||[]).filter(function(d){return String(d.deviceId)!==String(deviceId);});
+    // Re-render grid + destination panel
+    var g = document.getElementById('nv5Grid');
+    if (g) this._naftalRenderTruckGrid(g);
+    this._naftalUpdateSelectionBar();
+    this.naftalOpenDestinationModal();
+    // Show feedback toast
+    var toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#16a34a;color:#fff;padding:11px 20px;border-radius:12px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 4px 20px rgba(0,0,0,0.2);pointer-events:none;';
+    toast.innerHTML = '<i class="fa-solid fa-check"></i>&nbsp;Camion retiré de la sélection';
+    document.body.appendChild(toast);
+    setTimeout(function(){ toast.style.transition='opacity 0.5s'; toast.style.opacity='0'; setTimeout(function(){toast.remove();},500); }, 2000);
+  }
+
+  _naftalUpdateSelectionBar() {
+    var bar = document.getElementById('nv5SelBar');
+    if (!bar) return;
+    var count = this.naftalSelectedTrucks ? this.naftalSelectedTrucks.size : 0;
+    if (!count) { bar.innerHTML = ''; return; }
+    bar.innerHTML =
+      '<div style="background:#0284c7;color:#fff;border-radius:10px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">' +
+        '<span style="font-weight:700;"><i class="fa-solid fa-check-circle"></i> '+count+' camion(s) sélectionné(s)</span>' +
+        '<button onclick="ui._naftalClearSelection()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:11px;">✕ Effacer</button>' +
+      '</div>';
+  }
+
+  _naftalClearSelection() {
+    this.naftalSelectedTrucks = new Set();
+    this.naftalDeclarationDraft = [];
+    var g = document.getElementById('nv5Grid');
+    if (g) this._naftalRenderTruckGrid(g);
+    this._naftalUpdateSelectionBar();
+    var p = document.getElementById('nv5DestPanel');
+    if (p) p.innerHTML = '';
+  }
+
+  // ── DESTINATION PANEL ─────────────────────────────────────────────────────
+
+  naftalOpenDestinationModal() {
+    var panel = document.getElementById('nv5DestPanel');
+    if (!panel) return;
+    var draft = this.naftalDeclarationDraft || [];
+    if (!draft.length) { panel.innerHTML=''; return; }
+    var self = this;
+    var naftalPrice = (typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.NAFTAL_MANAGEMENT&&FLEET_CONFIG.NAFTAL_MANAGEMENT.defaultNaftalPrice)||31;
+
+    var html = '<div class="nv5-dest-panel"><h3 style="margin:0 0 14px;color:#0284c7;font-size:14px;"><i class="fa-solid fa-route"></i> Destinations & Estimation</h3>';
+
+    draft.forEach(function(e) {
+      var fp = e.currentFuelPercent||0;
+      var fl = e.currentFuelLiters||0;
+      var fc = fp<=5?'#ef4444':fp<=20?'#f59e0b':'#16a34a';
+      var totalDA = 0; var totalL = 0; var totalKm = 0;
+      if (e.estimatedCostDA) totalDA = e.estimatedCostDA;
+      if (e.estimatedFuelNeeded) totalL = e.estimatedFuelNeeded;
+      if (e.estimatedDistanceKm) totalKm = e.estimatedDistanceKm;
+
+      html += '<div class="nv5-dest-row" id="drow_'+e.deviceId+'">' +
+        '<div class="nv5-dest-head">' +
+          '<div style="display:flex;align-items:center;gap:10px;">' +
+            '<div style="width:36px;height:36px;border-radius:8px;background:'+fc+'22;display:flex;align-items:center;justify-content:center;">' +
+              '<i class="fa-solid fa-truck" style="color:'+fc+';font-size:14px;"></i></div>' +
+            '<div>' +
+              '<div style="font-weight:800;color:#1e293b;font-size:13px;">'+(e.truckName||e.deviceId)+'</div>' +
+              '<div style="display:flex;gap:5px;margin-top:3px;">' +
+                '<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:20px;font-weight:700;">'+(e.carteNaftal||'N/A')+'</span>' +
+                (e.immatriculation?'<span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 7px;border-radius:20px;">'+e.immatriculation+'</span>':'') +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">' +
+            '<button onclick="ui._naftalRemoveDraftTruck(\''+e.deviceId+'\')" title="Retirer ce camion de la déclaration" style="background:#fee2e2;border:1.5px solid #fca5a5;color:#dc2626;padding:4px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:700;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-xmark"></i> Retirer</button>' +
+            '<div style="text-align:right;">' +
+              '<span style="font-size:18px;font-weight:900;color:'+fc+';">'+fp+'%</span>' +
+              '<div style="font-size:10px;color:#64748b;">'+fl+'L</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="padding:0 14px 6px;background:#f8fafc;">' +
+          '<div style="font-size:11px;color:#64748b;margin:8px 0 6px;display:flex;align-items:center;gap:5px;">' +
+            '<i class="fa-solid fa-location-dot" style="color:'+fc+';font-size:10px;"></i>' +
+            '<span id="ndep_'+e.deviceId+'">'+(e.currentLocation||'Inconnue')+'</span>' +
+          '</div>';
+
+      // Route steps
+      html += '<div id="route_'+e.deviceId+'">';
+      // Départ (fixed)
+      html += '<div class="nv5-route-step">' +
+        '<div class="nv5-route-dot" style="background:#22c55e;color:#fff;font-size:8px;"><i class="fa-solid fa-flag"></i></div>' +
+        '<span style="font-size:11px;color:#64748b;flex:1;">Départ: <span id="ndep_lbl_'+e.deviceId+'">'+(e.currentLocation||'Position actuelle')+'</span></span>' +
+      '</div>';
+
+      // Extra stops
+      var stops = e.extraStops || [];
+      stops.forEach(function(stop, sidx) {
+        html += '<div class="nv5-route-step" id="stop_row_'+e.deviceId+'_'+sidx+'">' +
+          '<div class="nv5-route-dot" style="background:#f59e0b;color:#fff;">'+(sidx+1)+'</div>' +
+          '<div style="flex:1;position:relative;">' +
+            '<input type="text" class="nv5-inp" id="stop_inp_'+e.deviceId+'_'+sidx+'" value="'+(stop.name||'')+'" placeholder="Étape '+(sidx+1)+'..." ' +
+              'oninput="ui.naftalUpdateStop(\''+e.deviceId+'\','+sidx+',this.value)" ' +
+              'onfocus="ui._naftalDestInput(\''+e.deviceId+'\',\'stop\','+sidx+')" ' +
+              'style="padding-right:30px;">' +
+            '<div id="nac_'+e.deviceId+'_stop'+sidx+'" style="position:absolute;left:0;right:0;top:36px;z-index:9999;"></div>' +
+          '</div>' +
+          '<button onclick="ui.naftalRemoveStop(\''+e.deviceId+'\','+sidx+')" style="background:#fee2e2;border:none;color:#ef4444;padding:5px 8px;border-radius:6px;cursor:pointer;margin-left:6px;font-size:11px;flex-shrink:0;">✕</button>' +
+        '</div>';
+      });
+
+      // Main destination
+      html += '<div class="nv5-route-step">' +
+        '<div class="nv5-route-dot" style="background:#0284c7;color:#fff;font-size:8px;"><i class="fa-solid fa-flag-checkered"></i></div>' +
+        '<div style="flex:1;position:relative;">' +
+          '<input type="text" class="nv5-inp" id="dest_inp_'+e.deviceId+'" value="'+(e.destination||'')+'" placeholder="Destination principale..." ' +
+            'oninput="clearTimeout(ui._destT_'+e.deviceId.replace(/[^a-z0-9]/gi,'')+');ui._destT_'+e.deviceId.replace(/[^a-z0-9]/gi,'')+'=setTimeout(function(){ui.naftalSearchDestination(\''+e.deviceId+'\',document.getElementById(\'dest_inp_'+e.deviceId+'\').value);},300);">' +
+          '<div id="nac_'+e.deviceId+'_main" style="position:absolute;left:0;right:0;top:36px;z-index:9999;"></div>' +
+        '</div>' +
+      '</div>';
+
+      html += '</div>';// route
+
+      // + Étape button
+      html += '<button onclick="ui.naftalAddStop(\''+e.deviceId+'\')" style="margin:0 0 10px 48px;background:#f0f9ff;border:1.5px dashed #7dd3fc;color:#0284c7;padding:5px 14px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;">' +
+        '<i class="fa-solid fa-plus"></i> + Étape</button>';
+
+      // Estimate strip
+      html += '<div id="nest_'+e.deviceId+'" style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+        '<span style="color:#64748b;font-size:11px;"><i class="fa-solid fa-route" style="color:#0284c7;"></i> '+
+          (totalKm?totalKm+' km':'-- km')+'</span>' +
+        '<span style="color:#64748b;font-size:11px;"><i class="fa-solid fa-gas-pump" style="color:#f59e0b;"></i> '+
+          (totalL?Math.round(totalL)+' L':'-- L')+'</span>' +
+        '<span style="color:#0284c7;font-size:13px;font-weight:800;">'+
+          (totalDA?Math.round(totalDA).toLocaleString('fr-DZ')+' DA':'-- DA')+'</span>' +
+      '</div>';
+
+      html += '</div></div>'; // route-body + dest-row
+
+      // Trigger geocode for departure
+      if (e.currentLat && e.currentLng) {
+        setTimeout(function(id2,la2,lo2){ui._naftalAsyncGeocode(id2,la2,lo2);},50,e.deviceId,e.currentLat,e.currentLng);
+      }
     });
-    this.naftalDeclarationDraft = newDraft;
 
-    
-    // Show modal
-    const modal = document.createElement('div');
-    modal.id = 'naftalDestModal';
-    modal.className = 'naftal-modal-overlay';
-    modal.innerHTML = `
-      <div class="naftal-modal" style="width:min(92vw,880px);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;position:sticky;top:0;background:var(--bg-surface);z-index:1;padding-bottom:12px;border-bottom:1px solid var(--border);">
-          <div>
-            <h3 style="margin:0;color:var(--primary);"><i class="fa-solid fa-map-location-dot"></i> Assigner les Destinations</h3>
-            <p style="margin:4px 0 0 0;font-size:11px;color:var(--text-muted);">${this.naftalDeclarationDraft.length} camion(s) — définissez la destination de chacun</p>
-          </div>
-          <button onclick="document.getElementById('naftalDestModal').remove();ui.naftalDeclarationDraft=[];ui.naftalSelectedTrucks.clear();ui.renderNaftalTransport();" 
-            style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:20px;padding:4px;"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        
-        <div style="flex:1;overflow-y:auto;min-height:0;padding:0 2px 4px 2px;">
-          ${this.naftalDeclarationDraft.map((entry, idx) => `
-            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;">
-              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
-                <div>
-                  <strong style="font-size:14px;color:var(--text-primary);">${entry.truckName}</strong>
-                  <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">
-                    <i class="fa-solid fa-location-dot" style="color:var(--warning);"></i> Départ: <strong>${entry.currentLocation||'Position GPS'}</strong>
-                    &nbsp;·&nbsp; ⛽ ${entry.currentFuelLiters||0}L (${entry.currentFuelPercent||0}%)
-                  </div>
-                </div>
-                <span style="font-size:10px;background:var(--bg-surface);border:1px solid var(--border);padding:2px 8px;border-radius:5px;color:var(--text-muted);">
-                  <i class="fa-solid fa-credit-card"></i> ${entry.carteNaftal||'N/A'}
-                </span>
-              </div>
-              
-              <!-- Primary destination -->
-              <div style="display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px;align-items:end;">
-                <div style="position:relative;">
-                  <label style="font-size:10px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px;">📍 DESTINATION PRINCIPALE</label>
-                  <input type="text" id="naftalDest_${idx}" value="${entry.destination}" 
-                    placeholder="Ex: Alger, Oran, Biskra..." 
-                    oninput="ui.naftalSearchDestination(${idx}, this.value)" autocomplete="off"
-                    style="padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;background:var(--bg-surface);color:var(--text-primary);font-size:13px;width:100%;box-sizing:border-box;">
-                  <div id="naftalDestDropdown_${idx}" class="naftal-autocomplete-dropdown"></div>
-                </div>
-                <div style="text-align:center;min-width:72px;">
-                  <div style="font-size:9px;color:var(--text-muted);font-weight:700;margin-bottom:3px;">DISTANCE</div>
-                  <div style="font-weight:800;color:var(--info);font-size:14px;" id="naftalDistEst_${idx}">${entry.estimatedDistanceKm||'—'} km</div>
-                </div>
-                <div style="text-align:center;min-width:70px;">
-                  <div style="font-size:9px;color:var(--text-muted);font-weight:700;margin-bottom:3px;">BESOIN</div>
-                  <div style="font-weight:800;font-size:13px;" id="naftalFuelEst_${idx}">
-                    ${entry.estimatedFuelNeeded > 0 ? `<span style="color:#f97316;">${entry.estimatedFuelNeeded} L</span>` : entry.estimatedDistanceKm > 0 ? '<span style="color:#22c55e;font-size:11px;">✅ Suffisant</span>' : '<span style="color:var(--text-muted);">— L</span>'}
-                  </div>
-                </div>
-                <div style="text-align:center;min-width:80px;">
-                  <div style="font-size:9px;color:var(--text-muted);font-weight:700;margin-bottom:3px;">COÛT EST.</div>
-                  <div style="font-weight:800;color:var(--success);font-size:14px;" id="naftalCostEst_${idx}">${entry.estimatedCostDA > 0 ? entry.estimatedCostDA.toLocaleString()+' DA' : '—'}</div>
-                </div>
-                <button onclick="ui.naftalRemoveDraftEntry(${idx})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px;"><i class="fa-solid fa-trash"></i></button>
-              </div>
+    var totalAllDA = draft.reduce(function(s,e){return s+(e.estimatedCostDA||0);},0);
+    html +=
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1.5px solid #e2e8f0;">' +
+        '<span style="color:#64748b;font-size:12px;"><i class="fa-solid fa-sigma"></i> Total estimé — '+draft.length+' camion(s): <strong style="color:#0284c7;">'+Math.round(totalAllDA).toLocaleString('fr-DZ')+' DA</strong></span>' +
+        '<button onclick="ui.naftalValidateTransport()" class="nv5-btn nv5-btn-primary" style="padding:11px 28px;">' +
+          '<i class="fa-solid fa-paper-plane"></i> Soumettre la Déclaration ('+draft.length+' camion(s))</button>' +
+      '</div></div>';
 
-              <!-- Extra stops (multiple destinations) -->
-              ${(entry.extraStops||[]).map((stop, si) => `
-                <div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding-left:20px;border-left:2px solid rgba(56,189,248,0.3);">
-                  <span style="font-size:10px;color:var(--text-muted);white-space:nowrap;">Étape ${si+2}</span>
-                  <input type="text" value="${stop.name||''}" placeholder="Deuxième arrêt..."
-                    oninput="ui.naftalUpdateStop(${idx},${si},this.value)"
-                    style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:12px;">
-                  ${stop.distKm ? `<span style="font-size:10px;color:var(--info);white-space:nowrap;">${stop.distKm}km · ${stop.fuelL||0}L · <strong>${(stop.costDA||0).toLocaleString()}DA</strong></span>` : ''}
-                  <button onclick="ui.naftalRemoveStop(${idx},${si})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:13px;padding:2px;"><i class="fa-solid fa-times"></i></button>
-                </div>
-              `).join('')}
-
-              <!-- Total across all stops (if multiple) -->
-              ${(entry.extraStops||[]).length > 0 ? `
-                <div style="margin-top:8px;padding:6px 10px;background:rgba(34,197,94,0.07);border-radius:6px;display:flex;justify-content:space-between;align-items:center;">
-                  <span style="font-size:10px;color:var(--text-muted);">Total trajet (${1+(entry.extraStops||[]).length} arrêts)</span>
-                  <strong style="color:var(--success);font-size:13px;">${((entry.estimatedCostDA||0)+(entry.extraStops||[]).reduce((s,st)=>s+(st.costDA||0),0)).toLocaleString()} DA</strong>
-                </div>
-              ` : ''}
-
-              <!-- Add stop button -->
-              <button onclick="ui.naftalAddStop(${idx})"
-                style="margin-top:6px;padding:5px 12px;border-radius:6px;border:1px dashed rgba(56,189,248,0.4);background:rgba(56,189,248,0.05);color:var(--primary);font-size:11px;cursor:pointer;width:100%;">
-                <i class="fa-solid fa-plus"></i> Ajouter une étape (destination multiple)
-              </button>
-            </div>
-          `).join('')}
-        </div>
-        
-        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border);flex-shrink:0;">
-          <button onclick="document.getElementById('naftalDestModal').remove();ui.naftalDeclarationDraft=[];ui.naftalSelectedTrucks.clear();ui.renderNaftalTransport();" style="padding:10px 20px;border-radius:8px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;">Annuler</button>
-          <button onclick="ui.naftalConfirmDestinations()" style="padding:10px 24px;border-radius:8px;background:var(--primary);border:none;color:#fff;font-weight:700;cursor:pointer;font-size:13px;">
-            <i class="fa-solid fa-check"></i> Confirmer (${this.naftalDeclarationDraft.length} camion${this.naftalDeclarationDraft.length>1?'s':''}})
-          </button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
+    panel.innerHTML = html;
   }
 
-
-  // ── Multi-destination helpers ──
-  naftalAddStop(idx) {
-    const entry = this.naftalDeclarationDraft[idx];
-    if (!entry) return;
-    if (!entry.extraStops) entry.extraStops = [];
-    entry.extraStops.push({ name: '', distKm: 0, fuelL: 0, costDA: 0 });
+  naftalAddStop(tid) {
+    var draft = (this.naftalDeclarationDraft||[]).find(function(d){return String(d.deviceId)===String(tid);});
+    if (!draft) return;
+    if (!draft.extraStops) draft.extraStops = [];
+    draft.extraStops.push({name:'',lat:null,lng:null});
     this.naftalOpenDestinationModal();
   }
 
-  naftalRemoveStop(idx, stopIdx) {
-    const entry = this.naftalDeclarationDraft[idx];
-    if (!entry || !entry.extraStops) return;
-    entry.extraStops.splice(stopIdx, 1);
+  naftalRemoveStop(tid, idx) {
+    var draft = (this.naftalDeclarationDraft||[]).find(function(d){return String(d.deviceId)===String(tid);});
+    if (!draft||!draft.extraStops) return;
+    draft.extraStops.splice(idx,1);
     this.naftalOpenDestinationModal();
   }
 
-  naftalUpdateStop(idx, stopIdx, value) {
-    const entry = this.naftalDeclarationDraft[idx];
-    if (!entry || !entry.extraStops || !entry.extraStops[stopIdx]) return;
-    entry.extraStops[stopIdx].name = value;
-    // Estimate distance and cost for this stop using same logic as main destination
-    const cons = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultFuelConsumption) || 45;
-    const price = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
-    const roadFactor = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.roadDistanceFactor) || 1.25;
-    // If previous stop exists with coords, use it as origin; otherwise use truck position
-    const prevStop = stopIdx > 0 ? entry.extraStops[stopIdx - 1] : null;
-    const fromLat = prevStop?.lat || entry.currentLat;
-    const fromLng = prevStop?.lng || entry.currentLng;
-    if (!fromLat || !fromLng) return; // no coords to estimate
-    // Will be properly calculated when user selects from autocomplete
-    // For now just store name
+  naftalUpdateStop(tid, idx, val) {
+    var draft = (this.naftalDeclarationDraft||[]).find(function(d){return String(d.deviceId)===String(tid);});
+    if (!draft||!draft.extraStops||!draft.extraStops[idx]) return;
+    draft.extraStops[idx].name = val;
   }
 
-  naftalSearchDestination(idx, query) {
-    const dropdown = document.getElementById(`naftalDestDropdown_${idx}`);
-    if (!dropdown || query.length < 2) { if (dropdown) dropdown.style.display = 'none'; return; }
-    
-    // 58 Algerian Wilayas with coordinates
-    const WILAYAS = [
-      {code:'01',name:'Adrar',lat:27.874,lng:-0.284},{code:'02',name:'Chlef',lat:36.165,lng:1.329},
-      {code:'03',name:'Laghouat',lat:33.800,lng:2.865},{code:'04',name:'Oum El Bouaghi',lat:35.870,lng:7.113},
-      {code:'05',name:'Batna',lat:35.556,lng:6.174},{code:'06',name:'Béjaïa',lat:36.752,lng:5.056},
-      {code:'07',name:'Biskra',lat:34.850,lng:5.728},{code:'08',name:'Béchar',lat:31.621,lng:-2.216},
-      {code:'09',name:'Blida',lat:36.470,lng:2.828},{code:'10',name:'Bouira',lat:36.374,lng:3.901},
-      {code:'11',name:'Tamanrasset',lat:22.785,lng:5.523},{code:'12',name:'Tébessa',lat:35.404,lng:8.124},
-      {code:'13',name:'Tlemcen',lat:34.878,lng:-1.315},{code:'14',name:'Tiaret',lat:35.371,lng:1.317},
-      {code:'15',name:'Tizi Ouzou',lat:36.717,lng:4.044},{code:'16',name:'Alger',lat:36.737,lng:3.086},
-      {code:'17',name:'Djelfa',lat:34.670,lng:3.264},{code:'18',name:'Jijel',lat:36.820,lng:5.765},
-      {code:'19',name:'Sétif',lat:36.190,lng:5.409},{code:'20',name:'Saïda',lat:34.830,lng:0.150},
-      {code:'21',name:'Skikda',lat:36.876,lng:6.905},{code:'22',name:'Sidi Bel Abbès',lat:35.190,lng:-0.630},
-      {code:'23',name:'Annaba',lat:36.897,lng:7.765},{code:'24',name:'Guelma',lat:36.462,lng:7.427},
-      {code:'25',name:'Constantine',lat:36.365,lng:6.615},{code:'26',name:'Médéa',lat:36.264,lng:2.751},
-      {code:'27',name:'Mostaganem',lat:35.930,lng:0.089},{code:'28',name:"M'Sila",lat:35.706,lng:4.544},
-      {code:'29',name:'Mascara',lat:35.395,lng:0.139},{code:'30',name:'Ouargla',lat:31.949,lng:5.325},
-      {code:'31',name:'Oran',lat:35.697,lng:-0.634},{code:'32',name:'El Bayadh',lat:33.680,lng:1.014},
-      {code:'33',name:'Illizi',lat:26.483,lng:8.477},{code:'34',name:'Bordj Bou Arréridj',lat:36.073,lng:4.763},
-      {code:'35',name:'Boumerdès',lat:36.769,lng:3.477},{code:'36',name:'El Tarf',lat:36.767,lng:8.308},
-      {code:'37',name:'Tindouf',lat:27.674,lng:-8.147},{code:'38',name:'Tissemsilt',lat:35.607,lng:1.812},
-      {code:'39',name:'El Oued',lat:33.368,lng:6.868},{code:'40',name:'Khenchela',lat:35.435,lng:7.142},
-      {code:'41',name:'Souk Ahras',lat:36.286,lng:7.951},{code:'42',name:'Tipaza',lat:36.589,lng:2.446},
-      {code:'43',name:'Mila',lat:36.450,lng:6.264},{code:'44',name:'Aïn Defla',lat:36.264,lng:1.966},
-      {code:'45',name:'Naâma',lat:33.267,lng:-0.313},{code:'46',name:'Aïn Témouchent',lat:35.298,lng:-1.140},
-      {code:'47',name:'Ghardaïa',lat:32.490,lng:3.674},{code:'48',name:'Relizane',lat:35.738,lng:0.556},
-      {code:'49',name:"El M'Ghair",lat:33.953,lng:5.923},{code:'50',name:'El Meniaa',lat:30.583,lng:2.877},
-      {code:'51',name:'Ouled Djellal',lat:34.418,lng:5.066},{code:'52',name:'Bordj Badji Mokhtar',lat:21.327,lng:0.945},
-      {code:'53',name:'Béni Abbès',lat:30.131,lng:-2.163},{code:'54',name:'Timimoun',lat:29.265,lng:0.241},
-      {code:'55',name:'Touggourt',lat:33.099,lng:6.067},{code:'56',name:'Djanet',lat:24.555,lng:9.481},
-      {code:'57',name:"In Salah",lat:27.196,lng:2.464},{code:'58',name:"In Guezzam",lat:19.566,lng:5.768}
-    ];
-    
-    const q = query.toLowerCase().trim();
-    
-    // Instant local results: wilayas + custom sites
-    const wilayaMatches = WILAYAS.filter(w =>
-      w.name.toLowerCase().includes(q) || w.code === q.padStart(2,'0')
-    ).slice(0, 4).map(w => ({ name: w.name, lat: w.lat, lng: w.lng, type: 'wilaya', badge: `Wilaya ${w.code}` }));
-    
-    const customMatches = (FLEET_CONFIG.CUSTOM_LOCATIONS || []).filter(l =>
-      l.name.toLowerCase().includes(q)
-    ).slice(0, 3).map(l => ({ name: l.name, lat: l.lat, lng: l.lng, type: l.type || 'site', badge: l.type === 'douroub' ? 'Site DED' : 'Client' }));
-    
-    const localResults = [...customMatches, ...wilayaMatches];
-    
-    // Helper to render results
-    const renderDropdown = (results) => {
-      if (!results.length) { dropdown.style.display = 'none'; return; }
-      const seenNames = new Set();
-      const unique = results.filter(r => { if (seenNames.has(r.name)) return false; seenNames.add(r.name); return true; });
-      dropdown.innerHTML = unique.map(r => {
-        const icon = r.type === 'wilaya' ? 'fa-city' : r.type === 'douroub' ? 'fa-building' : r.type === 'geo' ? 'fa-map-pin' : 'fa-location-dot';
-        const badgeColor = r.type === 'wilaya' ? 'var(--primary)' : r.type === 'douroub' ? 'var(--warning)' : 'var(--info)';
-        return `<div class="naftal-autocomplete-item" onclick="ui.naftalSelectDestination(${idx}, '${r.name.replace(/'/g,"\\'")}', ${r.lat}, ${r.lng})">
-          <i class="fa-solid ${icon}" style="color:${badgeColor};margin-right:8px;width:14px;"></i>
-          <strong>${r.name}</strong>
-          <span style="font-size:10px;color:var(--text-muted);margin-left:auto;background:var(--bg-surface);padding:1px 6px;border-radius:4px;">${r.badge||''}</span>
-        </div>`;
-      }).join('');
-      dropdown.style.display = 'block';
-    };
-
-    // Show local results immediately
-    renderDropdown(localResults);
-    
-    // Always fire Geoapify in parallel for richer results (cities, communes, neighborhoods)
-    const apiKey = (FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0)
-      ? FLEET_CONFIG.GEOAPIFY_API_KEYS[0] : FLEET_CONFIG.GEOAPIFY_API_KEY;
-    if (apiKey) {
-      fetch(`https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&apiKey=${apiKey}&limit=6&filter=countrycode:dz&lang=fr`)
-        .then(r => r.json())
-        .then(data => {
-          if (!data.features) return;
-          const geoResults = data.features.map(f => {
-            const p = f.properties;
-            const name = p.city || p.town || p.village || p.suburb || p.name || p.formatted?.split(',')[0] || 'Lieu';
-            const badge = p.state ? p.state.replace('Wilaya de ','W. ').replace('Wilaya d\'','W. ') : 'Algérie';
-            return { name, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], type: 'geo', badge };
-          });
-          // Merge: custom sites first, then wilayas, then geo (dedup by name)
-          renderDropdown([...customMatches, ...wilayaMatches, ...geoResults]);
-        }).catch(() => {});
-    }
+  async naftalSearchDestination(tid, query, target) {
+    // target: 'main' or 'stopN'
+    var acId = 'nac_'+tid+'_'+(target||'main');
+    var acEl = document.getElementById(acId);
+    if (!acEl) return;
+    if (!query||query.length<2) { acEl.innerHTML=''; return; }
+    try {
+      var keys=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.GEOAPIFY_API_KEYS)||[];
+      var key=keys[0]; if(!key){acEl.innerHTML='';return;}
+      var r=await fetch('https://api.geoapify.com/v1/geocode/autocomplete?text='+encodeURIComponent(query)+'&lang=fr&country=dz&limit=5&apiKey='+key);
+      if(!r.ok){acEl.innerHTML='';return;}
+      var d=await r.json();
+      var feats=d.features||[];
+      if(!feats.length){acEl.innerHTML='';return;}
+      var html='<div class="nv5-autocomplete">';
+      feats.forEach(function(f,i){
+        var p=f.properties||{};
+        var label=p.formatted||p.name||'';
+        var lat=p.lat; var lng=p.lon;
+        html+='<div class="nv5-ac-item" onclick="ui.naftalSelectDestination(\''+tid+'\',{name:\''+label.replace(/'/g,"\\'").replace(/"/g,'\\"')+'\',lat:'+lat+',lng:'+lng+',target:\''+(target||'main')+'\'})">'+label+'</div>';
+      });
+      html+='</div>';
+      acEl.innerHTML=html;
+    } catch(_){acEl.innerHTML='';}
   }
 
-  naftalSelectDestination(idx, name, lat, lng) {
-    const entry = this.naftalDeclarationDraft[idx];
-    if (!entry) return;
-    
-    entry.destination = name;
-    entry.destinationLat = lat;
-    entry.destinationLng = lng;
-    
-    // Immediately show haversine estimate while routing loads
-    const est = this._naftalCalculateEstimate(entry);
-    entry.estimatedDistanceKm = est.distKm;
-    entry.estimatedFuelNeeded = est.litersToAdd;
-    entry.estimatedCostDA = est.costDA;
-    
-    const input = document.getElementById(`naftalDest_${idx}`);
-    if (input) input.value = name;
-    const dropdown = document.getElementById(`naftalDestDropdown_${idx}`);
-    if (dropdown) dropdown.style.display = 'none';
-    
-    this._naftalUpdateEstimateDisplay(idx, est, true);
-    
-    // Try Geoapify Routing for real road distance
-    if (entry.currentLat && entry.currentLng && lat && lng) {
-      const apiKey = (FLEET_CONFIG.GEOAPIFY_API_KEYS && FLEET_CONFIG.GEOAPIFY_API_KEYS.length > 0)
-        ? FLEET_CONFIG.GEOAPIFY_API_KEYS[0] : FLEET_CONFIG.GEOAPIFY_API_KEY;
-      if (apiKey) {
-        const distEl = document.getElementById(`naftalDistEst_${idx}`);
-        if (distEl) distEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="font-size:10px;"></i>';
-        fetch(`https://api.geoapify.com/v1/routing?waypoints=${entry.currentLat},${entry.currentLng}|${lat},${lng}&mode=drive&apiKey=${apiKey}`)
-          .then(r => r.json())
-          .then(data => {
-            if (data.features && data.features[0]) {
-              const realDistM = data.features[0].properties.distance;
-              const realDistKm = Math.round(realDistM / 1000);
-              entry.estimatedDistanceKm = realDistKm;
-              // Recalculate fuel with real road distance
-              const config = (typeof getTruckConfig === 'function') ? getTruckConfig(entry.deviceId) : {};
-              const consumption = config.fuelConsumption || 45;
-              const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
-              const securityMargin = config.fuelSecurityMargin || 100;
-              const criticalLevel = config.criticalFuelLevel || 5;
-              const tankCapacity = config.fuelTankCapacity || 600;
-              const fuelForTrip = Math.round((realDistKm / 100) * consumption);
-              const minKeep = (criticalLevel / 100) * tankCapacity;
-              const available = Math.max(0, (entry.currentFuelLiters || 0) - minKeep);
-              const litersToAdd = Math.max(0, Math.ceil(fuelForTrip + securityMargin - available));
-              const costDA = Math.ceil(litersToAdd * naftalPrice);
-              entry.estimatedFuelNeeded = litersToAdd;
-              entry.estimatedCostDA = costDA;
-              this._naftalUpdateEstimateDisplay(idx, { distKm: realDistKm, litersToAdd, costDA }, false);
-            }
-          }).catch(() => {
-            // Keep haversine estimate on error
-            this._naftalUpdateEstimateDisplay(idx, est, false);
-          });
+  _naftalDestInput(tid, type, idx) {
+    // Focus handler for stop inputs
+    var target = type==='stop'?'stop'+idx:'main';
+    var inpId = type==='stop'?'stop_inp_'+tid+'_'+idx:'dest_inp_'+tid;
+    var inp = document.getElementById(inpId);
+    if (!inp) return;
+    inp.addEventListener('input', function() {
+      clearTimeout(ui._acT);
+      ui._acT = setTimeout(function(){ui.naftalSearchDestination(tid, inp.value, target);},300);
+    });
+  }
+
+  async naftalSelectDestination(tid, data) {
+    var draft = (this.naftalDeclarationDraft||[]).find(function(d){return String(d.deviceId)===String(tid);});
+    if (!draft) return;
+    var acId = 'nac_'+tid+'_'+(data.target||'main');
+    var acEl = document.getElementById(acId);
+    if (acEl) acEl.innerHTML='';
+
+    if (!data.target||data.target==='main') {
+      draft.destination = data.name;
+      draft.destinationLat = data.lat;
+      draft.destinationLng = data.lng;
+      var inp = document.getElementById('dest_inp_'+tid);
+      if (inp) inp.value = data.name;
+    } else if (data.target.startsWith('stop')) {
+      var sidx = parseInt(data.target.replace('stop',''));
+      if (!draft.extraStops) draft.extraStops=[];
+      if (draft.extraStops[sidx]) {
+        draft.extraStops[sidx].name=data.name;
+        draft.extraStops[sidx].lat=data.lat;
+        draft.extraStops[sidx].lng=data.lng;
       }
+      var stopInp = document.getElementById('stop_inp_'+tid+'_'+sidx);
+      if (stopInp) stopInp.value=data.name;
     }
-  }
 
-  _naftalUpdateEstimateDisplay(idx, est, loading) {
-    const distEl = document.getElementById(`naftalDistEst_${idx}`);
-    const fuelEl = document.getElementById(`naftalFuelEst_${idx}`);
-    const costEl = document.getElementById(`naftalCostEst_${idx}`);
-    if (distEl) distEl.innerHTML = `${est.distKm} km${loading ? ' <span style="font-size:9px;color:var(--text-muted);">(~)</span>' : ''}`;
-    if (fuelEl) {
-      if (est.litersToAdd > 0) {
-        fuelEl.innerHTML = `<span style="color:#fb923c;">${est.litersToAdd} L</span>`;
-      } else if (est.distKm > 0) {
-        fuelEl.innerHTML = `<span style="color:#4ade80;font-size:11px;">✅ Suffisant</span>`;
-      } else {
-        fuelEl.innerHTML = `<span style="color:var(--text-muted);">— L</span>`;
-      }
+    // Calc route via Geoapify
+    var routeResult = await this._naftalCalcRoute(draft);
+    var price=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.NAFTAL_MANAGEMENT&&FLEET_CONFIG.NAFTAL_MANAGEMENT.defaultNaftalPrice)||31;
+    var cons=45; // L/100km default
+    if (routeResult) {
+      draft.estimatedDistanceKm = routeResult.distKm;
+      draft.estimatedFuelNeeded = Math.round((routeResult.distKm*cons/100)*10)/10;
+      draft.estimatedCostDA = Math.round(draft.estimatedFuelNeeded*price);
+    } else if (draft.destination && draft.currentLat && draft.destinationLat) {
+      // Fallback: haversine
+      var dLat=(draft.destinationLat-draft.currentLat)*Math.PI/180;
+      var dLng=(draft.destinationLng-draft.currentLng)*Math.PI/180;
+      var a=Math.sin(dLat/2)**2+Math.cos(draft.currentLat*Math.PI/180)*Math.cos(draft.destinationLat*Math.PI/180)*Math.sin(dLng/2)**2;
+      var km=Math.round(6371*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
+      draft.estimatedDistanceKm=km;
+      draft.estimatedFuelNeeded=Math.round(km*cons/100*10)/10;
+      draft.estimatedCostDA=Math.round(draft.estimatedFuelNeeded*price);
     }
-    if (costEl) costEl.textContent = est.costDA > 0 ? est.costDA.toLocaleString() + ' DA' : '—';
-  }
 
-  _naftalCalculateEstimate(entry) {
-    const config = (typeof getTruckConfig === 'function') ? getTruckConfig(entry.deviceId) : {};
-    const consumption = config.fuelConsumption || 45;   // ✅ 45 L/100km default
-    const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
-    const securityMargin = config.fuelSecurityMargin || 100;
-    const criticalLevel = config.criticalFuelLevel || 5;
-    const tankCapacity = config.fuelTankCapacity || 600;
-    const roadFactor = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.roadDistanceFactor) || 1.25;
-    
-    if (!entry.destinationLat || !entry.destinationLng || !entry.currentLat || !entry.currentLng) {
-      return { distKm: 0, fuelForTrip: 0, litersToAdd: 0, costDA: 0 };
+    // Update estimate strip
+    var estEl=document.getElementById('nest_'+tid);
+    if (estEl&&draft.estimatedDistanceKm) {
+      estEl.innerHTML=
+        '<span style="color:#64748b;font-size:11px;"><i class="fa-solid fa-route" style="color:#0284c7;"></i> '+draft.estimatedDistanceKm+' km</span>'+
+        '<span style="color:#64748b;font-size:11px;"><i class="fa-solid fa-gas-pump" style="color:#f59e0b;"></i> '+Math.round(draft.estimatedFuelNeeded)+' L</span>'+
+        '<span style="color:#0284c7;font-size:13px;font-weight:800;">'+Math.round(draft.estimatedCostDA).toLocaleString('fr-DZ')+' DA</span>';
     }
-    
-    const haversineKm = calculateDistance(entry.currentLat, entry.currentLng, entry.destinationLat, entry.destinationLng);
-    const distKm = Math.round(haversineKm * roadFactor);
-    const fuelForTrip = Math.round((distKm / 100) * consumption);
-    const minKeep = (criticalLevel / 100) * tankCapacity;
-    const availableFuel = Math.max(0, entry.currentFuelLiters - minKeep);
-    const litersToAdd = Math.max(0, Math.ceil(fuelForTrip + securityMargin - availableFuel));
-    const costDA = Math.ceil(litersToAdd * naftalPrice);
-    
-    return { distKm, fuelForTrip, litersToAdd, costDA };
-  }
-
-  naftalRemoveDraftEntry(idx) {
-    const entry = this.naftalDeclarationDraft[idx];
-    if (entry) this.naftalSelectedTrucks.delete(entry.deviceId);
-    this.naftalDeclarationDraft.splice(idx, 1);
-    // Re-render modal
-    const modal = document.getElementById('naftalDestModal');
-    if (modal) { modal.remove(); if (this.naftalDeclarationDraft.length > 0) this.naftalOpenDestinationModal(); }
-    this.renderNaftalTransport();
-  }
-
-  naftalConfirmDestinations() {
-    // Validate all entries have destinations
-    const incomplete = this.naftalDeclarationDraft.filter(e => !e.destination);
-    if (incomplete.length > 0) {
-      alert(`⚠️ \${incomplete.length} camion(s) sans destination. Veuillez assigner une destination à tous les camions.`);
-      return;
-    }
-    document.getElementById('naftalDestModal')?.remove();
-    this.renderNaftalTransport();
-  }
-
-  _naftalRenderRecapTable() {
-    const draft = this.naftalDeclarationDraft;
-    const totalCost = draft.reduce((s, e) => s + (e.estimatedCostDA || 0), 0);
-    const totalLiters = draft.reduce((s, e) => s + (e.estimatedFuelNeeded || 0), 0);
-    
-    return `
-      <div class="naftal-recap-section" style="margin-top:24px;">
-        <h3 style="color:var(--success);margin-bottom:12px;"><i class="fa-solid fa-clipboard-list"></i> Récapitulatif de la Déclaration</h3>
-        <div style="overflow-x:auto;">
-          <table class="naftal-recap-table">
-            <thead>
-              <tr>
-                <th>Camion</th>
-                <th>Carte Naftal</th>
-                <th>Immatriculation</th>
-                <th>Position Actuelle</th>
-                <th>Carburant Actuel</th>
-                <th>Destination</th>
-                <th>Distance Est.</th>
-                <th>Carburant Nécessaire</th>
-                <th>Coût Estimé</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${draft.map((e, i) => {
-                const fp = e.currentFuelPercent || 0;
-                const fuelColor = fp <= 5 ? 'var(--danger)' : fp <= 15 ? 'var(--warning)' : 'var(--success)';
-                return `
-                  <tr style="border-left:3px solid ${fuelColor};">
-                    <td><strong>${e.truckName}</strong></td>
-                    <td><span class="naftal-card-badge"><i class="fa-solid fa-credit-card"></i> ${e.carteNaftal || 'N/A'}</span></td>
-                    <td>${e.immatriculation || '—'}</td>
-                    <td><i class="fa-solid fa-location-dot" style="color:var(--info);"></i> ${e.currentLocation}</td>
-                    <td><span style="color:${fuelColor};font-weight:700;">${Math.round(e.currentFuelLiters || 0)} L (${Math.round(fp)}%)</span></td>
-                    <td><strong style="color:var(--primary);">${e.destination || '—'}</strong></td>
-                    <td>${e.estimatedDistanceKm || '—'} km</td>
-                    <td style="font-weight:700;color:var(--warning);">${e.estimatedFuelNeeded || '—'} L</td>
-                    <td style="font-weight:700;color:var(--success);">${(e.estimatedCostDA || 0).toLocaleString()} DA</td>
-                    <td>
-                      <button onclick="ui.naftalRemoveDraftEntry(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
-                      <button onclick="ui.naftalSelectedTrucks.add('${e.deviceId}'); ui.naftalOpenDestinationModal()" style="background:none;border:none;color:var(--info);cursor:pointer;" title="Modifier destination"><i class="fa-solid fa-pen"></i></button>
-                    </td>
-                  </tr>`;
-              }).join('')}
-            </tbody>
-            <tfoot>
-              <tr style="background:var(--bg-elevated);font-weight:700;">
-                <td colspan="7" style="text-align:right;">TOTAL :</td>
-                <td style="color:var(--warning);">${totalLiters} L</td>
-                <td style="color:var(--success);">${totalCost.toLocaleString()} DA</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        <div style="margin-top:16px;display:flex;justify-content:flex-end;">
-          <button onclick="ui.naftalValidateTransport()" class="btn-primary" 
-            style="padding:12px 30px;background:var(--success);border:none;color:#fff;font-weight:700;font-size:14px;cursor:pointer;border-radius:8px;box-shadow:0 4px 14px rgba(34,197,94,0.3);">
-            <i class="fa-solid fa-check-double"></i> ✅ Valider la Déclaration
-          </button>
-        </div>
-      </div>
-    `;
+    // Update total
+    this.naftalOpenDestinationModal();
   }
 
   async naftalValidateTransport() {
-    if (this.naftalDeclarationDraft.length === 0) return;
-    const incomplete = this.naftalDeclarationDraft.filter(e => !e.destination);
-    if (incomplete.length > 0) {
-      await ui_showAlert(`⚠️ ${incomplete.length} camion(s) sans destination. Veuillez assigner une destination à tous les camions.`, 'Destination manquante', '⚠️');
-      return;
-    }
-
-    const total = this.naftalDeclarationDraft.reduce((s,e) => s + (e.estimatedCostDA||0), 0);
-    const ok = await ui_showConfirm(
-      `Soumettre la déclaration pour <strong>${this.naftalDeclarationDraft.length} camion(s)</strong> ?<br>` +
-      `<span style="font-size:20px;font-weight:900;color:#4ade80;">${total.toLocaleString()} DA</span> estimés<br>` +
-      `<span style="font-size:11px;color:var(--text-muted);">Elle sera envoyée au gestionnaire pour approbation des montants.</span>`,
-      'Confirmer la déclaration', '📤'
+    var draft = this.naftalDeclarationDraft || [];
+    if (!draft.length) { await ui_showAlert('Aucun camion sélectionné.','Erreur','⚠️'); return; }
+    var allHaveDest = draft.every(function(e){return e.destination&&e.destination.trim();});
+    if (!allHaveDest) { await ui_showAlert('Veuillez définir une destination pour chaque camion.','Destination manquante','📍'); return; }
+    var totalDA = draft.reduce(function(s,e){return s+(e.estimatedCostDA||0);},0);
+    var ok = await ui_showConfirm(
+      'Soumettre '+draft.length+' camion(s) pour ravitaillement?\nTotal estimé: '+Math.round(totalDA).toLocaleString('fr-DZ')+' DA',
+      'Confirmer la Déclaration','🚛','Soumettre'
     );
     if (!ok) return;
-
     try {
-      const res = await fetch('/api/naftal/declarations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trucks: this.naftalDeclarationDraft })
+      var r = await fetch('/api/naftal/declarations', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          trucks: draft.map(function(e){
+            return {
+              deviceId: e.deviceId,
+              truckName: e.truckName,
+              carteNaftal: e.carteNaftal,
+              immatriculation: e.immatriculation,
+              currentLocation: e.currentLocation,
+              currentLat: e.currentLat,
+              currentLng: e.currentLng,
+              currentFuelLiters: e.currentFuelLiters,
+              currentFuelPercent: e.currentFuelPercent,
+              destination: e.destination,
+              destinationLat: e.destinationLat,
+              destinationLng: e.destinationLng,
+              estimatedDistanceKm: e.estimatedDistanceKm,
+              estimatedFuelNeeded: e.estimatedFuelNeeded,
+              estimatedCostDA: e.estimatedCostDA,
+              extraStops: e.extraStops||[],
+              notes: e.notes||''
+            };
+          }),
+          totalDistanceKm: draft.reduce(function(s,e){return s+(e.estimatedDistanceKm||0);},0)
+        })
       });
-      if (!res.ok) throw new Error('Erreur création déclaration');
-      const decl = await res.json();
-
-      const valRes = await fetch(`/api/naftal/declarations/${decl.declarationId}/validate-transport`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }
-      });
-      if (!valRes.ok) throw new Error('Erreur validation');
-
+      if (!r.ok) { var err=await r.json(); await ui_showAlert(err.error||'Erreur serveur','Erreur','❌'); return; }
+      await ui_showAlert('Déclaration soumise avec succès! Le gestionnaire va valider les montants.','Déclaration Envoyée','✅');
+      this.naftalSelectedTrucks = new Set();
       this.naftalDeclarationDraft = [];
-      this.naftalSelectedTrucks.clear();
-
-      await ui_showAlert(`✅ Déclaration <strong>${decl.declarationId}</strong> soumise avec succès !<br><span style="font-size:11px;color:var(--text-muted);">En attente d'approbation gestionnaire.</span>`, 'Déclaration envoyée', '✅');
-      this.renderNaftalTransport();
-    } catch (e) {
-      await ui_showAlert('❌ Erreur: ' + e.message, 'Erreur', '❌');
+      this._naftalTransportTab('myrequests');
+    } catch(e) {
+      await ui_showAlert('Erreur: '+e.message,'Erreur','❌');
     }
   }
 
+  // ── TRANSPORT: MES DEMANDES ────────────────────────────────────────────────
 
-  // ═══ SECTION 2: GESTIONNAIRE GASOIL ═══
-  async renderNaftalGestionnaire() {
-    const vc = document.getElementById('naftalViewContainer');
-    if (!vc) return;
-    
-    if (!this.naftalCheckAuth('gestionnaire')) {
-      this.naftalRenderAuthGate('gestionnaire', vc);
+  async _naftalRenderMyRequests(content) {
+    if (!content) content = document.getElementById('nv5TransportContent');
+    if (!content) return;
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;">Chargement...</div>';
+    try {
+      var r = await fetch('/api/naftal/declarations?limit=100');
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      var decls = await r.json();
+      this._naftalRenderMyRequestsList(content, decls);
+    } catch(e) {
+      content.innerHTML = '<div style="color:#ef4444;padding:20px;">Erreur: '+e.message+'</div>';
+    }
+  }
+
+  _naftalRenderMyRequestsList(content, decls) {
+    var filters = this._naftalMyReqFilters || {};
+    var self = this;
+    var html =
+      '<div class="nv5-filters">' +
+        '<select class="nv5-sel" id="mrf_status" onchange="ui._naftalMyReqFilters={status:this.value};ui._naftalFilterMyReq()">' +
+          '<option value="">Tous les statuts</option>' +
+          '<option value="transport_validated">Att. gestionnaire</option>' +
+          '<option value="gestionnaire_validated">Approuvés</option>' +
+          '<option value="in_progress">En cours</option>' +
+          '<option value="completed">Terminés</option>' +
+          '<option value="cancelled">Annulés</option>' +
+        '</select>' +
+        '<input type="text" class="nv5-sel" id="mrf_truck" placeholder="Camion..." style="width:120px;">' +
+        '<button onclick="ui._naftalFilterMyReq()" class="nv5-btn nv5-btn-primary" style="padding:7px 14px;">Filtrer</button>' +
+        '<button onclick="ui._naftalRenderMyRequests()" class="nv5-btn nv5-btn-ghost" style="padding:7px 14px;"><i class="fa-solid fa-rotate"></i></button>' +
+      '</div>' +
+      '<div id="mrl_list"></div>';
+    content.innerHTML = html;
+    this._naftalMyDeclData = decls;
+    this._naftalRenderMyDeclList(decls);
+  }
+
+  _naftalFilterMyReq() {
+    var statusEl = document.getElementById('mrf_status');
+    var truckEl = document.getElementById('mrf_truck');
+    var status = statusEl ? statusEl.value : '';
+    var truck = truckEl ? truckEl.value.toLowerCase() : '';
+    var decls = this._naftalMyDeclData || [];
+    var filtered = decls.filter(function(d) {
+      if (status && d.status !== status) return false;
+      if (truck && !(d.trucks||[]).some(function(t){return (t.truckName||'').toLowerCase().includes(truck);})) return false;
+      return true;
+    });
+    this._naftalRenderMyDeclList(filtered);
+  }
+
+  _naftalRenderMyDeclList(decls) {
+    var list = document.getElementById('mrl_list');
+    if (!list) return;
+    if (!decls.length) {
+      list.innerHTML = '<div style="text-align:center;padding:40px;color:#64748b;"><i class="fa-solid fa-inbox" style="font-size:32px;opacity:0.3;"></i><br><br>Aucune déclaration</div>';
       return;
     }
-    
-    const gView = this._gestionView || 'pending';
-    
-    vc.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</div>';
-    
+    var self = this;
+    var html = '';
+    decls.forEach(function(d) {
+      var accentColor = d.status==='transport_validated'?'#f59e0b':d.status==='gestionnaire_validated'?'#16a34a':d.status==='in_progress'?'#0284c7':d.status==='completed'?'#6d28d9':'#dc2626';
+      var totalDA = (d.trucks||[]).reduce(function(s,t){return s+(t.approvedAmountDA||t.estimatedCostDA||0);},0);
+      var hasPendingMod = d.modificationRequest && d.modificationRequest.status === 'pending';
+      var modType = hasPendingMod ? (d.modificationRequest.reqType||'') : '';
+      var modLabels = {delete:'Annulation déclaration',remove_truck:'Retrait camion',restore_truck:'Restauration camion',modify_route:'Modification itinéraire'};
+
+      html += '<div class="nv5-card" style="border-left:4px solid '+accentColor+';margin-bottom:12px;">' +
+        '<div class="nv5-card-head">' +
+          '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+            '<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;font-family:monospace;">'+(d.declarationId||'')+'</span>' +
+            '<span style="color:#64748b;font-size:11px;">'+(self._naftalFormatDate(d.createdAt))+'</span>' +
+            self._naftalFormatStatus(d.status) +
+            (hasPendingMod ? '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #fcd34d;">⏳ '+(modLabels[modType]||'Demande modif.')+'</span>' : '') +
+            (d.isSignaled ? '<span style="background:#fee2e2;color:#ef4444;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;"><i class=\"fa-solid fa-flag\"></i> Signalé</span>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:8px;align-items:center;">' +
+            '<span style="color:#64748b;font-size:11px;"><i class=\"fa-solid fa-truck\" style=\"margin-right:3px;\"></i>'+(d.trucks||[]).filter(function(t){return !t.isRemoved;}).length+' camion(s)</span>' +
+            (totalDA ? '<span style="color:#0284c7;font-weight:800;font-size:13px;">'+Math.round(totalDA).toLocaleString('fr-DZ')+' DA</span>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="nv5-card-body" style="padding:8px 14px;">';
+
+      (d.trucks||[]).forEach(function(t, ti) {
+        var fp = t.currentFuelPercent||0;
+        var fc = fp<=5?'#ef4444':fp<=20?'#f59e0b':'#16a34a';
+        var da = t.approvedAmountDA||t.estimatedCostDA||0;
+        var stops = (t.extraStops||[]).filter(function(s){return s.name;});
+        var itin = stops.map(function(s){return s.name;}).join(' → ');
+        if (t.destination) itin = (itin ? itin+' → ' : '') + t.destination;
+        var truckCount = (d.trucks||[]).length;
+
+        var refBadge = '';
+        if (t.isRemoved) {
+          refBadge = '<span style="background:#f3f4f6;color:#9ca3af;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700;">🚫 Retiré</span>';
+        } else if (t.refillStatus==='completed') {
+          refBadge = '<span style="background:#dcfce7;color:#16a34a;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700;">✓ Ravitaillé</span>';
+        } else if (t.refillStatus==='flagged') {
+          refBadge = '<span style="background:#fee2e2;color:#ef4444;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700;">⚑ Anomalie</span>';
+        } else if (t.refillStatus==='in_progress') {
+          refBadge = '<span style="background:#dbeafe;color:#2563eb;font-size:10px;padding:1px 7px;border-radius:20px;font-weight:700;">⟳ En cours</span>';
+        }
+
+        html += '<div style="border:1.5px solid #e2e8f0;border-left:3px solid '+fc+';border-radius:8px;padding:9px 12px;margin-bottom:'+(ti<truckCount-1?'8':'2')+'px;background:'+(t.isRemoved?'#fafafa':'#fff')+';'+(t.isRemoved?'opacity:0.55;':'')+';">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;">' +
+            '<div style="display:flex;align-items:center;gap:8px;">' +
+              '<i class=\"fa-solid fa-truck\" style=\"color:'+fc+';font-size:13px;\"></i>' +
+              '<div>' +
+                '<span style="font-weight:700;color:'+(t.isRemoved?'#94a3b8':'#1e293b')+';font-size:12px;'+(t.isRemoved?'text-decoration:line-through;':'')+'">'+( t.truckName||t.deviceId||'—')+'</span>' +
+                (t.carteNaftal ? '<span style="font-size:10px;color:#0369a1;font-family:monospace;font-weight:700;margin-left:6px;">'+t.carteNaftal+'</span>' : '') +
+              '</div>' +
+              refBadge +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:10px;">' +
+              '<span style="font-weight:700;color:'+fc+';font-size:12px;">'+fp+'% · '+(t.currentFuelLiters||0)+'L</span>' +
+              (da ? '<span style="font-weight:700;color:#0284c7;font-size:12px;border-left:1px solid #e2e8f0;padding-left:10px;">'+Math.round(da).toLocaleString('fr-DZ')+' DA</span>' : '') +
+            '</div>' +
+          '</div>' +
+          (itin ? '<div style="margin-top:6px;padding-top:5px;border-top:1px dashed #f1f5f9;font-size:11px;color:#64748b;display:flex;align-items:flex-start;gap:5px;">' +
+            '<i class=\"fa-solid fa-route\" style=\"color:#0284c7;font-size:10px;margin-top:1px;flex-shrink:0;\"></i>' +
+            '<span>'+(t.currentLocation?'<span style=\"color:#94a3b8;\">'+t.currentLocation+'</span> → ':'')+itin+'</span>' +
+          '</div>' : '') +
+          (t.estimatedDistanceKm ? '<div style="font-size:10px;color:#94a3b8;margin-top:3px;padding-left:17px;">'+t.estimatedDistanceKm+' km · '+Math.round(t.estimatedFuelNeeded||0)+' L estimés</div>' : '') +
+        '</div>';
+      });
+
+      html += '</div>';  // card-body
+      html += '<div style="padding:8px 14px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+      if (d.status === 'transport_validated') {
+        html += '<button onclick="ui.naftalDeleteDeclaration(\''+d.declarationId+'\',false)" class="nv5-btn" style="background:#fee2e2;color:#dc2626;border:1.5px solid #fca5a5;font-size:11px;padding:6px 12px;">' +
+          '<i class=\"fa-solid fa-trash\"></i> Annuler la demande</button>';
+      } else if (['gestionnaire_validated','in_progress','completed'].includes(d.status) && !hasPendingMod) {
+        html += '<button onclick="ui._naftalHandleModification(\''+d.declarationId+'\',\''+d.status+'\')" class="nv5-btn nv5-btn-ghost" style="font-size:11px;padding:6px 14px;">' +
+          '<i class=\"fa-solid fa-pen-to-square\"></i> Modifier / Annuler</button>';
+      }
+      if (hasPendingMod) {
+        html += '<span style="font-size:11px;color:#92400e;"><i class=\"fa-solid fa-clock\"></i> En attente de réponse du gestionnaire…</span>';
+      }
+      html += '</div></div>';
+    });
+    list.innerHTML = html;
+  }
+
+  async _naftalHandleModification(declId, status) {
+    // Build a proper interactive options modal (ui_showAlert escapes HTML — can't use it here)
+    var opts = [
+      { id:'delete',          icon:'🗑️', label:'Annuler la déclaration',          desc:'Elle sera marquée annulée et apparaîtra dans l\'historique.', color:'#ef4444' },
+      { id:'modify_route',    icon:'🗺️', label:"Modifier l'itinéraire",           desc:'Le gestionnaire sera notifié pour approbation.',             color:'#0284c7' },
+      { id:'increase_amount', icon:'💰', label:'Demander + de montant',             desc:'Envoyer une demande d\'augmentation au gestionnaire.',       color:'#16a34a' },
+      { id:'other',           icon:'📝', label:'Autre demande',                     desc:'Message libre au gestionnaire.',                              color:'#6d28d9' }
+    ];
+    return new Promise(function(resolve) {
+      var oid = 'nv5mod_' + Date.now();
+      var overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:16px;';
+      var inner = '<div style="background:#fff;border-radius:16px;padding:24px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.25);">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+          '<h3 style="margin:0;color:#1e293b;font-size:16px;font-weight:800;">⚙️ Que souhaitez-vous faire?</h3>' +
+          '<button id="'+oid+'_x" style="background:none;border:none;font-size:20px;cursor:pointer;color:#94a3b8;line-height:1;">×</button>' +
+        '</div>';
+      opts.forEach(function(opt) {
+        inner += '<div id="'+oid+'_'+opt.id+'" style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid #e2e8f0;border-radius:10px;margin-bottom:8px;cursor:pointer;background:#fff;transition:border-color 0.15s;">' +
+          '<span style="font-size:22px;flex-shrink:0;">'+opt.icon+'</span>' +
+          '<div><div style="font-weight:700;color:#1e293b;font-size:13px;">'+opt.label+'</div>' +
+          '<div style="font-size:11px;color:#64748b;margin-top:2px;">'+opt.desc+'</div></div>' +
+        '</div>';
+      });
+      inner += '</div>';
+      overlay.innerHTML = inner;
+      document.body.appendChild(overlay);
+      var cleanup = function() { try { overlay.remove(); } catch(e){} resolve(); };
+      document.getElementById(oid+'_x').onclick = cleanup;
+      overlay.onclick = function(e) { if (e.target === overlay) cleanup(); };
+      opts.forEach(function(opt) {
+        var el = document.getElementById(oid+'_'+opt.id);
+        if (!el) return;
+        el.onmouseenter = function() { el.style.borderColor = opt.color; el.style.background = '#f8fafc'; };
+        el.onmouseleave = function() { el.style.borderColor = '#e2e8f0'; el.style.background = '#fff'; };
+        el.onclick = function() {
+          overlay.remove();
+          resolve();
+          ui._naftalPickModOpt(declId, opt.id);
+        };
+      });
+    });
+  }
+
+  async _naftalPickModOpt(declId, optType) {
+    // All modification types require a mandatory observation from transport
+    var promptLabels = {
+      delete: 'Expliquez pourquoi vous souhaitez annuler (obligatoire):',
+      modify_route: "Expliquez le changement d'itin\u00e9raire souhait\u00e9 (obligatoire):",
+      increase_amount: 'Montant souhaité et justification (obligatoire):',
+      other: 'Votre message au gestionnaire (obligatoire):'
+    };
+    var detail = await ui_showPrompt(promptLabels[optType] || 'Observation (obligatoire):', '', 'Observation Transport');
+    if (!detail || !detail.trim()) {
+      await ui_showAlert('Une observation est obligatoire pour toute demande de modification.', 'Observation requise', '⚠️');
+      return;
+    }
     try {
-      const [pendingRes, approvedRes, inProgressRes] = await Promise.all([
-        fetch('/api/naftal/declarations?status=transport_validated'),
-        fetch('/api/naftal/declarations?status=gestionnaire_validated'),
-        fetch('/api/naftal/declarations?status=in_progress')
-      ]);
-      const pendingDecls = await pendingRes.json();
-      const approvedDecls = await approvedRes.json();
-      const inProgressDecls = await inProgressRes.json();
-      const allApproved = [...approvedDecls, ...inProgressDecls];
-      
-      // Weekly stats
-      const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
-      const weekDecls = allApproved.filter(d => new Date(d.createdAt) >= weekStart);
-      const weekTotalDA = weekDecls.reduce((s,d) => s + d.trucks.reduce((ts,t) => ts + (t.approvedAmountDA||0), 0), 0);
-      const weekTrucks = weekDecls.reduce((s,d) => s + d.trucks.length, 0);
-      
-      const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
-      
-      vc.innerHTML = `
-        <div class="naftal-section" style="border-left:4px solid var(--info);">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
-            <h3 style="margin:0;color:var(--info);"><i class="fa-solid fa-user-tie"></i> Gestionnaire Gasoil</h3>
-            <div style="display:flex;gap:6px;">
-              <button onclick="ui._gestionView='pending';ui.renderNaftalGestionnaire()" 
-                style="padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:${gView==='pending'?'var(--info)':'var(--bg-elevated)'};color:${gView==='pending'?'#fff':'var(--text-primary)'};">
-                <i class="fa-solid fa-hourglass-half"></i> En Attente <span style="background:rgba(255,255,255,0.2);padding:1px 6px;border-radius:10px;margin-left:4px;">${pendingDecls.length}</span>
-              </button>
-              <button onclick="ui._gestionView='approved';ui.renderNaftalGestionnaire()"
-                style="padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:${gView==='approved'?'var(--success)':'var(--bg-elevated)'};color:${gView==='approved'?'#fff':'var(--text-primary)'};">
-                <i class="fa-solid fa-check-circle"></i> Approuvées
-              </button>
-              <button onclick="ui._gestionView='week';ui.renderNaftalGestionnaire()"
-                style="padding:7px 14px;border-radius:7px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:${gView==='week'?'var(--primary)':'var(--bg-elevated)'};color:${gView==='week'?'#fff':'var(--text-primary)'};">
-                <i class="fa-solid fa-calendar-week"></i> Cette Semaine
-              </button>
-            </div>
-          </div>
+      var r = await fetch('/api/naftal/declarations/'+declId+'/modification-request', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ reqType: optType, detail: detail.trim() })
+      });
+      if (!r.ok) { var e=await r.json(); await ui_showAlert(e.error||'Erreur','Erreur','❌'); return; }
+      var typeLabels = {delete:'annulation',modify_route:"modification d'itinéraire",increase_amount:'augmentation de montant',other:'demande'};
+      await ui_showAlert(
+        '\u2705 Demande de '+(typeLabels[optType]||'modification')+' envoy\u00e9e au gestionnaire.\n\nVotre observation: "'+detail.trim()+'"',
+        'Demande Envoy\u00e9e','\u2705'
+      );
+      this._naftalRenderMyRequests();
+    } catch(e){await ui_showAlert('Erreur: '+e.message,'Erreur','❌');}
+  }
 
-          ${gView === 'pending' ? `
-            ${pendingDecls.length === 0 ? `
-              <div style="text-align:center;padding:40px;color:var(--text-muted);background:var(--bg-elevated);border-radius:12px;">
-                <i class="fa-solid fa-check-circle" style="font-size:48px;color:var(--success);display:block;margin-bottom:12px;"></i>
-                <strong>Aucune déclaration en attente</strong><br>
-                <span style="font-size:12px;">Toutes les déclarations ont été traitées</span>
-              </div>
-            ` : pendingDecls.map(decl => `
-              <div style="background:var(--bg-elevated);border:2px solid rgba(56,189,248,0.2);border-radius:12px;padding:16px;margin-bottom:16px;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                  <div>
-                    <strong style="color:var(--primary);font-size:15px;">${decl.declarationId}</strong>
-                    <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${new Date(decl.createdAt).toLocaleDateString('fr-DZ')} ${new Date(decl.createdAt).toLocaleTimeString('fr-DZ',{hour:'2-digit',minute:'2-digit'})}</span>
-                    <span style="font-size:11px;color:var(--text-muted);margin-left:8px;">${decl.trucks.length} camion(s)</span>
-                  </div>
-                  <span class="naftal-status-badge waiting"><i class="fa-solid fa-hourglass-half"></i> Approbation requise</span>
-                </div>
-                
-                <div style="overflow-x:auto;">
-                  <table class="naftal-recap-table" style="font-size:11px;">
-                    <thead><tr>
-                      <th>Camion</th><th>Carte</th>
-                      <th>Départ déclaré</th>
-                      <th>⚡ Position actuelle</th>
-                      <th>Destination</th>
-                      <th>🔴 Carburant LIVE</th>
-                      <th>KM restants</th>
-                      <th>Besoin (L)</th>
-                      <th>Montant à approuver (DA)</th>
-                    </tr></thead>
-                    <tbody>
-                      ${decl.trucks.map((t, i) => {
-                        const est = this._naftalCalculateEstimate(t);
-                        // Live truck data
-                        const allLive = (typeof app !== 'undefined' && app.getAllTrucks) ? app.getAllTrucks() : [];
-                        const live = allLive.find(lt => (lt.id||lt.deviceId) === t.deviceId);
-                        const liveL = live ? Math.round(live.fuelLiters||0) : null;
-                        const livePct = live ? Math.round(live.fuelPercentage||0) : null;
-                        const liveLoc = live ? this._naftalGetTruckLocation(live) : null;
-                        const liveLat = live?.coordinates?.lat || t.currentLat;
-                        const liveLng = live?.coordinates?.lng || t.currentLng;
-                        const roadFactor = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.roadDistanceFactor)||1.25;
-                        const remainKm = (t.destinationLat && t.destinationLng && liveLat && liveLng)
-                          ? Math.round(calculateDistance(liveLat, liveLng, t.destinationLat, t.destinationLng) * roadFactor)
-                          : (t.estimatedDistanceKm || est.distKm);
-                        const fc = livePct != null ? (livePct<=5?'#ef4444':livePct<=15?'#f97316':'#22c55e') : 'var(--text-muted)';
-                        const movedSince = (liveLoc && t.currentLocation && liveLoc !== t.currentLocation);
-                        return `<tr>
-                          <td><strong>${t.truckName}</strong></td>
-                          <td style="font-size:10px;">${t.carteNaftal||'—'}</td>
-                          <td style="font-size:10px;color:var(--text-muted);">📍 ${t.currentLocation||'—'}</td>
-                          <td style="font-size:10px;">${liveLoc ? `<span style="color:${movedSince?'#f97316':'var(--text-primary)'};">⚡ ${liveLoc}${movedSince?' (déplacé)':''}</span>` : '<span style="color:var(--text-muted)">—</span>'}</td>
-                          <td style="font-weight:700;">🏁 ${t.destination}</td>
-                          <td style="font-weight:800;color:${fc};">
-                            ${liveL!=null ? `${liveL}L <span style="font-size:10px;">(${livePct}%)</span>` : `<span style="color:var(--text-muted);">${Math.round(t.currentFuelLiters||0)}L déclaré</span>`}
-                          </td>
-                          <td style="font-weight:700;color:var(--info);">${remainKm} km</td>
-                          <td style="font-weight:700;color:var(--warning);">${t.estimatedFuelNeeded||est.litersToAdd} L</td>
-                          <td>
-                            <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-                              <div style="display:flex;align-items:stretch;">
-                                <button onclick="var inp=document.getElementById('naftalApprove_${decl.declarationId}_${i}');inp.value=Math.max(0,(parseInt(inp.value)||0)-500);ui._naftalUpdateApproveTotal('${decl.declarationId}');"
-                                  style="padding:0 10px;height:36px;border-radius:6px 0 0 6px;background:rgba(239,68,68,0.1);border:1px solid rgba(34,197,94,0.25);color:var(--danger);cursor:pointer;font-size:18px;font-weight:900;line-height:1;min-width:30px;">−</button>
-                                <input type="number" id="naftalApprove_${decl.declarationId}_${i}"
-                                  value="${t.estimatedCostDA||est.costDA}" min="0" step="500"
-                                  oninput="ui._naftalUpdateApproveTotal('${decl.declarationId}')"
-                                  style="width:90px;padding:7px 4px;border:1px solid rgba(34,197,94,0.3);border-left:none;border-right:none;background:rgba(34,197,94,0.06);color:#4ade80;font-weight:800;font-size:14px;text-align:center;outline:none;">
-                                <button onclick="var inp=document.getElementById('naftalApprove_${decl.declarationId}_${i}');inp.value=(parseInt(inp.value)||0)+500;ui._naftalUpdateApproveTotal('${decl.declarationId}');"
-                                  style="padding:0 10px;height:36px;border-radius:0 6px 6px 0;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);color:var(--success);cursor:pointer;font-size:18px;font-weight:900;line-height:1;min-width:30px;">+</button>
-                              </div>
-                              <span style="font-size:9px;color:var(--text-muted);">≈ <strong>${Math.round((t.estimatedCostDA||est.costDA)/((FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice)||31)*10)/10}</strong> L · DA</span>
-                            </div>
-                          </td>
-
-                        </tr>`;
-                      }).join('')}
-                    </tbody>
-                    <tfoot>
-                      <tr style="background:var(--bg-elevated);font-weight:800;">
-                        <td colspan="8" style="text-align:right;padding-right:8px;">TOTAL :</td>
-                        <td id="naftalTotal_${decl.declarationId}" style="color:var(--success);font-size:14px;">
-                          ${decl.trucks.reduce((s,t) => s+(t.estimatedCostDA||0),0).toLocaleString()} DA
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-                
-                <div style="margin-top:14px;display:flex;justify-content:flex-end;gap:8px;">
-                  <button onclick="ui.naftalValidateGestionnaire('${decl.declarationId}', ${JSON.stringify(decl.trucks.map(t=>t.deviceId)).replace(/"/g,'&quot;')})"
-                    style="padding:10px 24px;background:var(--success);border:none;color:#fff;font-weight:700;cursor:pointer;border-radius:8px;font-size:13px;">
-                    <i class="fa-solid fa-coins"></i> Approuver les Montants
-                  </button>
-                </div>
-              </div>
-            `).join('')}
-          ` : ''}
-
-          ${gView === 'approved' ? `
-            <div style="margin-bottom:14px;font-size:12px;color:var(--text-muted);">${allApproved.length} déclaration(s) approuvée(s) — <span style="color:var(--warning);">les montants sont modifiables jusqu'au ravitaillement effectif</span></div>
-            ${allApproved.length === 0 ? '<div style="text-align:center;padding:30px;color:var(--text-muted);">Aucune déclaration approuvée</div>' :
-              allApproved.map(decl => {
-                const totalApproved = decl.trucks.reduce((s,t) => s+(t.approvedAmountDA||0),0);
-                const hasRefill = decl.trucks.some(t => t.refillStatus === 'completed' || t.refillStatus === 'in_progress');
-                const declIdSafe = decl.declarationId.replace(/[^a-zA-Z0-9_-]/g,'');
-                return `
-                  <div id="naftalApprovedCard_${declIdSafe}" style="background:var(--bg-elevated);border:1px solid rgba(34,197,94,0.2);border-radius:10px;padding:14px;margin-bottom:12px;">
-                    <!-- Header -->
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-                      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-                        <strong style="color:var(--primary);">${decl.declarationId}</strong>
-                        <span style="font-size:11px;color:var(--text-muted);">${new Date(decl.createdAt).toLocaleDateString('fr-DZ')}</span>
-                        <span style="font-size:11px;color:var(--text-muted);">${decl.trucks.length} camion(s)</span>
-                      </div>
-                      <div style="display:flex;align-items:center;gap:8px;">
-                        <span style="font-weight:800;font-size:14px;color:var(--success);" id="naftalTotalBadge_${declIdSafe}">${totalApproved.toLocaleString()} DA</span>
-                        ${hasRefill
-                          ? `<span style="font-size:10px;padding:3px 10px;border-radius:8px;background:rgba(16,185,129,0.1);color:var(--success);font-weight:700;"><i class="fa-solid fa-gas-pump"></i> En ravitaillement</span>`
-                          : `<span style="font-size:10px;padding:3px 10px;border-radius:8px;background:rgba(245,158,11,0.1);color:var(--warning);font-weight:600;"><i class="fa-solid fa-pen"></i> Modifiable</span>`}
-                        <span class="naftal-status-badge completed"><i class="fa-solid fa-check"></i> Approuvée</span>
-                      </div>
-                    </div>
-
-                    <!-- Per-truck editable rows -->
-                    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
-                      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                        <thead>
-                          <tr style="background:var(--bg-surface);">
-                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Camion</th>
-                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Destination</th>
-                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Carburant act.</th>
-                            <th style="padding:7px 10px;text-align:left;color:var(--text-muted);font-weight:600;">Litres app.</th>
-                            <th style="padding:7px 10px;text-align:right;color:var(--text-muted);font-weight:600;">Montant (DA)</th>
-                            <th style="padding:7px 10px;text-align:center;color:var(--text-muted);font-weight:600;">Statut</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          ${decl.trucks.map((t, i) => {
-                            const refilled = t.refillStatus === 'completed' || t.refillStatus === 'in_progress';
-                            const statusBadge = t.refillStatus === 'completed'
-                              ? `<span style="color:var(--success);font-size:10px;font-weight:700;">✅ Ravitaillé</span>`
-                              : t.refillStatus === 'in_progress'
-                              ? `<span style="color:var(--warning);font-size:10px;font-weight:700;">🔄 En cours</span>`
-                              : `<span style="color:var(--text-muted);font-size:10px;">⏳ En attente</span>`;
-                            const liveTruck = app?.getAllTrucks?.()?.find?.(lt => lt.id === t.deviceId || lt.deviceId === t.deviceId);
-                            const liveFuel  = liveTruck ? `${Math.round(liveTruck.fuelLiters||0)}L (${Math.round(liveTruck.fuelPercentage||0)}%)` : '—';
-                            return `<tr style="border-top:1px solid var(--border);${refilled?'opacity:0.65;':''}">
-                              <td style="padding:8px 10px;font-weight:700;">${t.truckName}</td>
-                              <td style="padding:8px 10px;color:var(--text-muted);">${t.destination||'—'}</td>
-                              <td style="padding:8px 10px;color:var(--primary);">${liveFuel}</td>
-                              <td style="padding:8px 10px;color:var(--info);">${t.approvedLiters||0} L</td>
-                              <td style="padding:8px 10px;text-align:right;">
-                                ${refilled
-                                  ? `<span style="font-weight:800;color:var(--success);">${(t.approvedAmountDA||0).toLocaleString()} DA</span>`
-                                  : `<div style="position:relative;display:inline-flex;align-items:center;">
-                                      <input type="number" id="naftalAmt_${declIdSafe}_${i}"
-                                        data-decl="${decl.declarationId}" data-idx="${i}" data-did="${t.deviceId}"
-                                        value="${t.approvedAmountDA||0}" min="0" step="100"
-                                        oninput="ui._naftalRecalcTotal('${declIdSafe}')"
-                                        style="width:110px;padding:6px 32px 6px 10px;border:1.5px solid rgba(34,197,94,0.35);border-radius:7px;background:rgba(34,197,94,0.06);color:#4ade80;font-weight:800;font-size:13px;text-align:right;outline:none;"
-                                        onfocus="this.style.borderColor='#4ade80'" onblur="this.style.borderColor='rgba(34,197,94,0.35)'">
-                                      <span style="position:absolute;right:8px;font-size:9px;font-weight:700;color:#4ade80;pointer-events:none;">DA</span>
-                                    </div>`}
-                              </td>
-                              <td style="padding:8px 10px;text-align:center;">${statusBadge}</td>
-                            </tr>`;
-                          }).join('')}
-                        </tbody>
-                        <tfoot>
-                          <tr style="background:var(--bg-surface);border-top:2px solid var(--border);">
-                            <td colspan="4" style="padding:8px 10px;font-weight:700;text-align:right;">TOTAL :</td>
-                            <td style="padding:8px 10px;text-align:right;font-weight:900;font-size:14px;color:var(--success);" id="naftalTotalInput_${declIdSafe}">
-                              ${totalApproved.toLocaleString()} DA
-                            </td>
-                            <td></td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
-
-                    ${!hasRefill ? `
-                    <!-- Save button -->
-                    <div style="margin-top:10px;display:flex;justify-content:flex-end;gap:8px;">
-                      <button onclick="ui.naftalDeleteDeclaration('${decl.declarationId}', false)"
-                        style="padding:8px 14px;border-radius:8px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);color:var(--danger);font-weight:700;cursor:pointer;font-size:12px;">
-                        <i class="fa-solid fa-trash-can"></i> Annuler
-                      </button>
-                      <button onclick="ui.naftalSaveAmounts('${decl.declarationId}', '${declIdSafe}', ${decl.trucks.length})"
-                        style="padding:8px 20px;border-radius:8px;background:var(--success);border:none;color:#fff;font-weight:700;cursor:pointer;font-size:12px;">
-                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer les montants
-                      </button>
-                    </div>` : ''}
-                  </div>`;
-              }).join('')}
-          `  : ''}
-
-          ${gView === 'week' ? `
-            <div class="naftal-stats-bar" style="margin-bottom:16px;">
-              <div class="naftal-stat-card">
-                <div class="naftal-stat-value" style="color:var(--primary);">${weekDecls.length}</div>
-                <div class="naftal-stat-label">Déclarations semaine</div>
-              </div>
-              <div class="naftal-stat-card">
-                <div class="naftal-stat-value" style="color:var(--success);">${(weekTotalDA/1000).toFixed(1)}k</div>
-                <div class="naftal-stat-label">DA Approuvés</div>
-              </div>
-              <div class="naftal-stat-card">
-                <div class="naftal-stat-value" style="color:var(--info);">${weekTrucks}</div>
-                <div class="naftal-stat-label">Camions traités</div>
-              </div>
-              <div class="naftal-stat-card">
-                <div class="naftal-stat-value" style="color:var(--warning);">${weekTrucks > 0 ? Math.round(weekTotalDA/weekTrucks).toLocaleString() : 0}</div>
-                <div class="naftal-stat-label">Moy. par camion (DA)</div>
-              </div>
-            </div>
-            
-            ${weekDecls.length === 0 ? '<div style="text-align:center;padding:30px;color:var(--text-muted);">Aucune déclaration cette semaine</div>' : `
-              <div style="overflow-x:auto;">
-                <table class="naftal-recap-table">
-                  <thead><tr><th>Date</th><th>Déclaration</th><th>Camion</th><th>Carte</th><th>Destination</th><th>Approuvé (L)</th><th>Approuvé (DA)</th><th>Status</th></tr></thead>
-                  <tbody>
-                    ${weekDecls.flatMap(decl => decl.trucks.map(t => `
-                      <tr>
-                        <td style="font-size:11px;white-space:nowrap;">${new Date(decl.createdAt).toLocaleDateString('fr-DZ')}</td>
-                        <td><span style="font-size:10px;background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">${decl.declarationId}</span></td>
-                        <td><strong>${t.truckName}</strong></td>
-                        <td>${t.carteNaftal || '—'}</td>
-                        <td>${t.destination || '—'}</td>
-                        <td style="font-weight:700;">${t.approvedLiters || '—'} L</td>
-                        <td style="font-weight:700;color:var(--success);">${(t.approvedAmountDA||0).toLocaleString()} DA</td>
-                        <td>${t.refillStatus === 'completed' ? '<span class="naftal-status-badge completed"><i class="fa-solid fa-check"></i> Ravitaillé</span>'
-                            : t.refillStatus === 'flagged' ? '<span class="naftal-status-badge flagged"><i class="fa-solid fa-flag"></i> Signalé</span>'
-                            : '<span class="naftal-status-badge waiting"><i class="fa-solid fa-hourglass-half"></i> En attente</span>'}</td>
-                      </tr>
-                    `)).join('')}
-                  </tbody>
-                  <tfoot>
-                    <tr style="background:var(--bg-elevated);font-weight:800;">
-                      <td colspan="6" style="text-align:right;">TOTAL SEMAINE :</td>
-                      <td style="color:var(--success);">${weekTotalDA.toLocaleString()} DA</td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            `}
-          ` : ''}
-        </div>
-      `;
-    } catch (e) {
-      vc.innerHTML = `<div style="color:var(--danger);padding:20px;">Erreur: ${e.message}</div>`;
+  async _naftalRequestDeletion(declId) {
+    var obs = await ui_showPrompt(
+      'Expliquez pourquoi vous souhaitez annuler cette demande EN COURS.\nLe gestionnaire devra approuver cette annulation.',
+      '',
+      '📩 Demande d\'annulation au gestionnaire'
+    );
+    if (obs === null) return; // user cancelled prompt
+    if (!obs || !obs.trim()) {
+      await ui_showAlert('Une observation est obligatoire pour demander l\'annulation.', 'Observation requise', '⚠️');
+      return;
+    }
+    try {
+      var r = await fetch('/api/naftal/declarations/' + declId + '/modification-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reqType: 'delete', detail: obs.trim() })
+      });
+      var d = await r.json();
+      if (r.ok && (d.ok || d.success)) {
+        await ui_showAlert(
+          '✅ Demande d\'annulation envoyée au gestionnaire.\nVous serez informé de sa décision dans Mes Demandes.',
+          'Demande envoyée', '📩'
+        );
+        this._naftalTransportTab('myrequests');
+      } else {
+        await ui_showAlert(d.error || 'Erreur lors de l\'envoi.', 'Erreur', '❌');
+      }
+    } catch(e) {
+      await ui_showAlert('Erreur réseau: ' + e.message, 'Erreur', '❌');
     }
   }
 
-
-  // Open station on map or Google Maps
-  _naftalOpenStation(lat, lng, name) {
-    if (!lat || !lng) { ui_showAlert('Coordonnées de la station non disponibles.', 'Station', '📍'); return; }
-    if (typeof app !== 'undefined' && app.map && app.map.flyTo) {
-      app.map.flyTo({ center: [parseFloat(lng), parseFloat(lat)], zoom: 16, speed: 1.4 });
-      // Switch to map tab if not already there
-      const mapTab = document.querySelector('[onclick*="renderMap"]') || document.querySelector('[data-tab="map"]');
-      if (mapTab) mapTab.click();
-    } else {
-      window.open(`https://www.google.com/maps?q=${lat},${lng}`, '_blank');
+  async _naftalRequestTruckRemoval(declId, deviceId, truckName) {
+    var obs = await ui_showPrompt(
+      'Expliquez pourquoi vous souhaitez retirer ' + truckName + ' de la déclaration.\n' +
+      'Les autres camions resteront dans la déclaration.\nLe gestionnaire devra approuver ce retrait.',
+      '',
+      '📩 Demande de retrait — ' + truckName
+    );
+    if (obs === null) return;
+    if (!obs || !obs.trim()) {
+      await ui_showAlert('Une observation est obligatoire.', 'Observation requise', '⚠️');
+      return;
+    }
+    try {
+      var r = await fetch('/api/naftal/declarations/' + declId + '/modification-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reqType: 'remove_truck', deviceId: deviceId, truckName: truckName, detail: obs.trim() })
+      });
+      var d = await r.json();
+      if (r.ok && (d.ok || d.success)) {
+        await ui_showAlert(
+          '✅ Demande de retrait de ' + truckName + ' envoyée au gestionnaire.\nLes autres camions ne sont pas affectés.',
+          'Demande envoyée', '📩'
+        );
+        this._naftalTransportTab('myrequests');
+      } else {
+        await ui_showAlert(d.error || 'Erreur lors de l\'envoi.', 'Erreur', '❌');
+      }
+    } catch(e) {
+      await ui_showAlert('Erreur réseau: ' + e.message, 'Erreur', '❌');
     }
   }
 
-  // Delete (soft) a declaration
+  async _naftalRequestTruckRestore(declId, deviceId, truckName) {
+    var obs = await ui_showPrompt(
+      'Expliquez pourquoi vous souhaitez restaurer ' + truckName + ' dans la déclaration.\n' +
+      'Le gestionnaire devra approuver cette restauration.',
+      '',
+      '🔄 Demande de restauration — ' + truckName
+    );
+    if (obs === null) return;
+    if (!obs || !obs.trim()) {
+      await ui_showAlert('Une observation est obligatoire.', 'Observation requise', '⚠️');
+      return;
+    }
+    try {
+      var r = await fetch('/api/naftal/declarations/' + declId + '/modification-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reqType: 'restore_truck', deviceId: deviceId, truckName: truckName, detail: obs.trim() })
+      });
+      var d = await r.json();
+      if (r.ok && (d.ok || d.success)) {
+        await ui_showAlert(
+          '✅ Demande de restauration de ' + truckName + ' envoyée au gestionnaire.\nVous serez informé de sa décision dans Mes Demandes.',
+          'Demande envoyée', '🔄'
+        );
+        this._naftalTransportTab('myrequests');
+      } else {
+        await ui_showAlert(d.error || 'Erreur lors de l\'envoi.', 'Erreur', '❌');
+      }
+    } catch(e) {
+      await ui_showAlert('Erreur réseau: ' + e.message, 'Erreur', '❌');
+    }
+  }
 
-
-  // Helper: build delete/restore button HTML for history rows (avoids nested backtick issues)
-  _naftalDelBtn(r) {
-    var dl = r.declarationId, ds = r.declStatus;
-    if (!dl || ds === 'completed') return '<span style="color:var(--text-muted);font-size:9px;">—</span>';
-    if (ds === 'cancelled') return '<button onclick="ui.naftalReopenDeclaration(\'' + dl + '\')" title="Restaurer" style="background:none;border:none;cursor:pointer;color:#22c55e;font-size:12px;padding:2px 6px;"><i class="fa-solid fa-rotate-left"></i></button>';
-    var force = (ds === 'in_progress') ? 'true' : 'false';
-    return '<button onclick="ui.naftalDeleteDeclaration(\'' + dl + '\',' + force + ')" title="Annuler" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:13px;padding:2px 6px;" onmouseenter="this.style.opacity=\'.5\';" onmouseleave="this.style.opacity=\'1\';"><i class="fa-solid fa-trash-can"></i></button>';
+  async naftalDeleteDeclaration(declId, requireConfirm) {
+    if (requireConfirm !== false) {
+      var ok = await ui_showConfirm('Annuler cette déclaration?','Confirmation','🗑️','Annuler');
+      if (!ok) return;
+    }
+    try {
+      var r = await fetch('/api/naftal/declarations/'+declId,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:'Annulé par transport'})});
+      if (!r.ok) {var e=await r.json();await ui_showAlert(e.error||'Erreur','Erreur','❌');return;}
+      this._naftalRenderMyRequests();
+    } catch(e){await ui_showAlert('Erreur: '+e.message);}
   }
 
   async naftalReopenDeclaration(declId) {
-    const ok = await ui_showConfirm(`Restaurer la déclaration <strong>${declId}</strong> ?<br><span style="font-size:11px;color:var(--text-muted);">Elle repassera en statut "Approuvé".</span>`, 'Restaurer', '🔄');
-    if (!ok) return;
     try {
-      const res = await fetch(`/api/naftal/declarations/${declId}/reopen`, { method: 'PATCH', headers: {'Content-Type':'application/json'} });
-      if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || 'Erreur');
-      await ui_showAlert(`✅ Déclaration <strong>${declId}</strong> restaurée.`, 'Restaurée', '✅');
-      this.renderNaftalHistorique();
-    } catch(e) { await ui_showAlert('❌ ' + e.message, 'Erreur', '❌'); }
+      var r = await fetch('/api/naftal/declarations/'+declId+'/reopen',{method:'PATCH'});
+      if (!r.ok) throw new Error('Erreur');
+      await ui_showAlert('Déclaration ré-ouverte.','OK','✅');
+    } catch(e){await ui_showAlert('Erreur: '+e.message);}
   }
 
-  async naftalDeleteDeclaration(declId, requiresActive) {
-    const msg = requiresActive
-      ? `Annuler la déclaration <strong>${declId}</strong> ?<br><span style="color:var(--warning);font-size:12px;">⚠️ Un ravitaillement est peut-être en cours.</span>`
-      : `Supprimer la déclaration <strong>${declId}</strong> ?<br><span style="font-size:12px;color:var(--text-muted);">Elle sera marquée comme annulée.</span>`;
-    const ok = await ui_showConfirm(msg, 'Confirmer suppression', '🗑️', 'Supprimer');
-    if (!ok) return;
+  // ── GESTIONNAIRE ──────────────────────────────────────────────────────────
+
+  renderNaftalGestionnaire(body) {
+    if (!body) return;
+    if (!this.naftalCheckAuth('gestionnaire')) {
+      fetch('/api/naftal/auth', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({section:'gestionnaire',password:''})})
+        .then(function(r){return r.json();})
+        .then((d) => {
+          if (d.success) {
+            this.naftalGestionnaireAuth = true;
+            sessionStorage.setItem('nv5_auth_gestionnaire','1');
+            this.renderNaftalGestionnaire(body);
+          } else {
+            body.innerHTML = this.naftalRenderAuthGate('gestionnaire');
+          }
+        })
+        .catch(() => { body.innerHTML = this.naftalRenderAuthGate('gestionnaire'); });
+      return;
+    }
+    this._naftalGestTab(this.naftalGestTab || 'pending');
+  }
+
+  _naftalGestTab(tab) {
+    this.naftalGestTab = tab;
+    this._naftalStopLiveRefresh();
+    var body = document.getElementById('nv5Body');
+    if (!body) return;
+    body.innerHTML =
+      '<div class="nv5-subtabs">' +
+        '<button onclick="ui._naftalGestTab(\'pending\')" style="padding:8px 18px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;transition:all 0.15s;background:'+(tab==='pending'?'#d97706':'#fffbeb')+';color:'+(tab==='pending'?'#fff':'#d97706')+';box-shadow:'+(tab==='pending'?'0 2px 8px rgba(217,119,6,0.3)':'none')+'">' +
+          '<i class="fa-solid fa-hourglass-half"></i> En attente</button>' +
+        '<button onclick="ui._naftalGestTab(\'history\')" style="padding:8px 18px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;transition:all 0.15s;background:'+(tab==='history'?'#7c3aed':'#fdf4ff')+';color:'+(tab==='history'?'#fff':'#7c3aed')+';box-shadow:'+(tab==='history'?'0 2px 8px rgba(124,58,237,0.3)':'none')+'">' +
+          '<i class="fa-solid fa-table-list"></i> Historique complet</button>' +
+      '</div>' +
+      '<div id="nv5GestContent"></div>';
+    var content = document.getElementById('nv5GestContent');
+    if (tab === 'pending') this._naftalGestRenderPending(content);
+    else this._naftalGestRenderHistory(content);
+  }
+
+  async _naftalGestRenderPending(content) {
+    if (!content) content = document.getElementById('nv5GestContent');
+    if (!content) return;
+    content.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;">Chargement...</div>';
     try {
-      const res = await fetch(`/api/naftal/declarations/${declId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'Annulé manuellement par gestionnaire' })
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Erreur serveur');
-      }
-      await ui_showAlert(`✅ Déclaration <strong>${declId}</strong> annulée.`, 'Annulée', '✅');
-      // Refresh whichever view is visible
-      const vc = document.getElementById('naftalViewContainer');
-      const cur = this._naftalCurrentView || 'transport';
-      if (cur === 'gestionnaire') this.renderNaftalGestionnaire();
-      else if (cur === 'historique') this.renderNaftalHistorique();
-      else if (cur === 'suivi') this._naftalSuiviRender();
-      else this.renderNaftalGestionnaire();
-    } catch (e) {
-      await ui_showAlert(`❌ ${e.message}`, 'Erreur', '❌');
-    }
-  }
-
-  // Force-complete a truck refill (manual entry when GPS missed it)
-  async _naftalForceComplete(declId, deviceId, truckName) {
-    const litersStr = await ui_showPrompt(
-      `Litres réellement remplis pour <strong>${truckName}</strong> :`,
-      '',
-      '⛽ Saisie manuelle'
-    );
-    if (litersStr === null) return;
-    const liters = parseFloat(litersStr);
-    if (!liters || liters <= 0) { await ui_showAlert('Valeur invalide.', 'Erreur', '❌'); return; }
-    const stationName = await ui_showPrompt('Nom de la station (optionnel) :', 'Station Naftal', '📍');
-    try {
-      const res = await fetch(`/api/naftal/declarations/${declId}/force-complete`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, actualLiters: liters, stationName: stationName || 'Manuel' })
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Erreur serveur');
-      }
-      await ui_showAlert(`✅ Ravitaillement enregistré : <strong>${liters}L</strong> pour ${truckName}`, 'Enregistré', '✅');
-      this.renderNaftalSuivi();
-    } catch (e) {
-      await ui_showAlert(`❌ ${e.message}`, 'Erreur', '❌');
-    }
-  }
-
-  // Live recalculate total shown in footer as user types
-
-  _naftalUpdateApproveTotal(declId) {
-    let total = 0;
-    let i = 0;
-    while (true) {
-      const inp = document.getElementById(`naftalApprove_${declId}_${i}`);
-      if (!inp) break;
-      total += parseInt(inp.value) || 0;
-      i++;
-    }
-    const el = document.getElementById(`naftalTotal_${declId}`);
-    if (el) el.textContent = total.toLocaleString() + ' DA';
-  }
-
-  _naftalRecalcTotal(declIdSafe) {
-    let total = 0;
-    let i = 0;
-    while (true) {
-      const inp = document.getElementById(`naftalAmt_${declIdSafe}_${i}`);
-      if (!inp) break;
-      total += parseInt(inp.value) || 0;
-      i++;
-    }
-    const footer = document.getElementById(`naftalTotalInput_${declIdSafe}`);
-    const badge  = document.getElementById(`naftalTotalBadge_${declIdSafe}`);
-    if (footer) footer.textContent = total.toLocaleString() + ' DA';
-    if (badge)  badge.textContent  = total.toLocaleString() + ' DA';
-  }
-
-  // Save updated amounts via PATCH (no password, no view switch needed)
-  async naftalSaveAmounts(declId, declIdSafe, truckCount) {
-    const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
-    const amounts = [];
-    for (let i = 0; i < truckCount; i++) {
-      const inp = document.getElementById(`naftalAmt_${declIdSafe}_${i}`);
-      if (!inp) continue;
-      const da = parseInt(inp.value) || 0;
-      amounts.push({
-        deviceId: inp.dataset.did,
-        approvedAmountDA: da,
-        approvedLiters: Math.round((da / naftalPrice) * 10) / 10
-      });
-    }
-    const total = amounts.reduce((s,a) => s + a.approvedAmountDA, 0);
-    const ok = await ui_showConfirm(
-      `Enregistrer les nouveaux montants ?<br><strong style="color:#4ade80;font-size:15px;">${total.toLocaleString()} DA</strong> total`,
-      'Confirmer modification', '💾'
-    );
-    if (!ok) return;
-    try {
-      const btn = document.querySelector(`[onclick*="naftalSaveAmounts('${declId}'"]`);
-      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Enregistrement...'; }
-      const res = await fetch(`/api/naftal/declarations/${declId}/update-amounts`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amounts })
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Erreur serveur');
-      }
-      await ui_showAlert(`✅ Montants mis à jour pour <strong>${declId}</strong>`, 'Enregistré', '✅');
-      this.renderNaftalGestionnaire(); // refresh view
-    } catch (e) {
-      await ui_showAlert(`❌ ${e.message}`, 'Erreur', '❌');
-      const btn = document.querySelector(`[onclick*="naftalSaveAmounts('${declId}'"]`);
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Enregistrer les montants'; }
-    }
-  }
-
-  async naftalValidateGestionnaire(declId, deviceIds) {
-    const naftalPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT?.defaultNaftalPrice) || 31;
-    const amounts = deviceIds.map((did, i) => {
-      const input = document.getElementById(`naftalApprove_${declId}_${i}`);
-      const da = parseInt(input?.value) || 0;
-      return { deviceId: did, approvedAmountDA: da, approvedLiters: Math.round((da / naftalPrice) * 10) / 10 };
-    });
-    
-    const total = amounts.reduce((s,a) => s + a.approvedAmountDA, 0);
-    const _ok = await ui_showConfirm(
-      `Approuver <strong>${amounts.length} camion(s)</strong> pour un montant total de<br><span style="font-size:22px;font-weight:900;color:#4ade80;letter-spacing:-0.5px;">${total.toLocaleString()} DA</span>`,
-      'Confirmer l\'approbation', '💰'
-    );
-    if (!_ok) return;
-
-    try {
-      const res = await fetch(`/api/naftal/declarations/${declId}/validate-gestionnaire`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amounts })
-      });
-      if (!res.ok) throw new Error('Erreur approbation');
-      alert(`✅ Déclaration ${declId} approuvée !`);
-      this._gestionView = 'approved';
-      this.renderNaftalGestionnaire();
-    } catch (e) {
-      alert('❌ ' + e.message);
-    }
-  }
-
-  // ═══ SECTION 3: SUIVI DES RAVITAILLEMENTS ═══
-  async renderNaftalSuivi() {
-    const vc = document.getElementById('naftalViewContainer');
-    if (!vc) return;
-
-    // Clear any previous auto-refresh timer
-    if (this._naftalSuiviTimer) { clearInterval(this._naftalSuiviTimer); this._naftalSuiviTimer = null; }
-
-    vc.innerHTML = '<div style="text-align:center;padding:40px;"><i class="fa-solid fa-spinner fa-spin" style="font-size:24px;color:var(--primary);"></i><div style="margin-top:10px;font-size:12px;color:var(--text-muted);">Chargement suivi en temps réel...</div></div>';
-
-    await this._naftalSuiviRender();
-
-    // Auto-refresh every 30s
-    this._naftalSuiviTimer = setInterval(() => {
-      if (document.getElementById('naftalViewContainer') && document.querySelector('[data-suivi-active]')) {
-        this._naftalSuiviRender();
-      } else {
-        clearInterval(this._naftalSuiviTimer);
-        this._naftalSuiviTimer = null;
-      }
-    }, 30000);
-  }
-
-  async _naftalSuiviRender() {
-    const vc = document.getElementById('naftalViewContainer');
-    if (!vc) return;
-    try {
-      const [trackingRes, flaggedRes, statsRes] = await Promise.all([
-        fetch('/api/naftal/tracking'),
-        fetch('/api/naftal/flagged'),
-        fetch('/api/naftal/statistics')
-      ]);
-      const tracking = await trackingRes.json();
-      const flagged  = await flaggedRes.json();
-      const stats    = await statsRes.json();
-
-      // Merge live GPS fuel data into tracking items
-      const allLive = (typeof app !== 'undefined' && app.getAllTrucks) ? app.getAllTrucks() : [];
-      tracking.forEach(t => {
-        const live = allLive.find(lt => (lt.id||lt.deviceId) === t.deviceId);
-        if (live) {
-          t._liveFuelL   = Math.round(live.fuelLiters  || 0);
-          t._liveFuelPct = Math.round(live.fuelPercentage || 0);
-          t._liveSpeed   = live.speed || 0;
-          t._liveLoc     = this._naftalGetTruckLocation(live);
-          t._liveCoords  = live.coordinates;
+      var r = await fetch('/api/naftal/declarations?status=transport_validated&limit=100');
+      var pending = r.ok ? await r.json() : [];
+      var rA = await fetch('/api/naftal/declarations?status=gestionnaire_validated&limit=200');
+      var approved = rA.ok ? await rA.json() : [];
+      // Also fetch active declarations (in_progress) that have pending mod requests
+      var rM = await fetch('/api/naftal/declarations?status=in_progress,gestionnaire_validated&modReqStatus=pending&limit=100');
+      var withModReq = rM.ok ? await rM.json() : [];
+      // Merge withModReq into pending (avoid duplicates)
+      var pendingIds = new Set(pending.map(function(d){return d.declarationId;}));
+      withModReq.forEach(function(d){
+        if (!pendingIds.has(d.declarationId)) {
+          pending.push(d);
+          pendingIds.add(d.declarationId);
         }
       });
+      var today = new Date(); today.setHours(0,0,0,0);
+      var todayApp = approved.filter(function(d){return new Date(d.validatedByGestionnaire||d.createdAt)>=today;});
+      var wkAgo = new Date(Date.now()-7*24*3600*1000);
+      var wkDA = approved.filter(function(d){return new Date(d.createdAt)>=wkAgo;}).reduce(function(s,d){
+        return s+(d.trucks||[]).reduce(function(ss,t){return ss+(t.approvedAmountDA||0);},0);
+      },0);
+      var signaled = pending.filter(function(d){return d.isSignaled;}).length;
+      var pendingModCount = pending.filter(function(d){return d.modificationRequest && d.modificationRequest.status==='pending';}).length;
 
-      const waiting    = tracking.filter(t => t.refillStatus === 'waiting');
-      const inProgress = tracking.filter(t => t.refillStatus === 'in_progress');
-      const completed  = tracking.filter(t => t.refillStatus === 'completed');
-      const flaggedItems = tracking.filter(t => t.refillStatus === 'flagged');
+      var html =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">' +
+          '<h3 style="margin:0;color:#1e293b;font-size:15px;"><i class="fa-solid fa-user-tie" style="color:#8b5cf6;"></i> Gestionnaire Gasoil</h3>' +
+          '<button onclick="ui._naftalGestRenderPending()" class="nv5-btn nv5-btn-ghost" style="padding:7px 14px;font-size:11px;"><i class="fa-solid fa-rotate"></i> Actualiser</button>' +
+        '</div>' +
+        '<div class="nv5-kpi">' +
+          '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border-color:#fcd34d;">' +
+            '<div style="font-size:28px;font-weight:900;color:#d97706;">'+pending.length+'</div>' +
+            '<div style="font-size:11px;color:#92400e;font-weight:600;margin-top:3px;">En attente</div></div>' +
+          '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-color:#86efac;">' +
+            '<div style="font-size:28px;font-weight:900;color:#16a34a;">'+todayApp.length+'</div>' +
+            '<div style="font-size:11px;color:#166534;font-weight:600;margin-top:3px;">Approuvés auj.</div></div>' +
+          '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border-color:#7dd3fc;">' +
+            '<div style="font-size:18px;font-weight:900;color:#0284c7;">'+wkDA.toLocaleString('fr-DZ')+'</div>' +
+            '<div style="font-size:11px;color:#075985;font-weight:600;margin-top:3px;">DA cette sem.</div></div>' +
+          '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#fff1f2,#ffe4e6);border-color:#fca5a5;">' +
+            '<div style="font-size:28px;font-weight:900;color:#dc2626;">'+signaled+'</div>' +
+            '<div style="font-size:11px;color:#991b1b;font-weight:600;margin-top:3px;">Signalés</div></div>' +
+          (pendingModCount ? '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border-color:#fdba74;"><div style="font-size:28px;font-weight:900;color:#ea580c;">'+pendingModCount+'</div><div style="font-size:11px;color:#c2410c;font-weight:600;margin-top:3px;">Demandes modif.</div></div>' : '') +
+        '</div>';
 
-      const now = new Date();
-      const stamp = now.toLocaleTimeString('fr-DZ', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      if (!pending.length) {
+        html += '<div style="text-align:center;padding:40px;color:#64748b;">' +
+          '<i class="fa-solid fa-circle-check" style="font-size:36px;color:#10b981;opacity:0.5;"></i><br><br>' +
+          'Aucune déclaration en attente</div>';
+      } else {
+        // Sort: declarations with pending mod requests first
+        pending.sort(function(a,b){
+          var aHas = (a.modificationRequest&&a.modificationRequest.status==='pending')?0:1;
+          var bHas = (b.modificationRequest&&b.modificationRequest.status==='pending')?0:1;
+          return aHas - bHas;
+        });
+        pending.forEach(function(d) {
+          html += this._naftalRenderGestCard(d);
+        }.bind(this));
+      }
 
-      vc.innerHTML = `
-        <div data-suivi-active="1">
-        <div class="naftal-section" style="border-left:4px solid var(--accent-teal,var(--info));">
+      html += '<div id="nv5LiveTs" style="text-align:right;font-size:10px;color:#94a3b8;margin-top:8px;">' +
+        '<i class="fa-solid fa-circle-dot" style="color:#22c55e;"></i> Données en temps réel — MàJ: '+new Date().toLocaleTimeString('fr-DZ')+'</div>';
 
-          <!-- Header -->
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:8px;">
-            <h3 style="margin:0;color:var(--info);display:flex;align-items:center;gap:8px;">
-              <i class="fa-solid fa-satellite-dish" style="animation:pulse 2s infinite;"></i>
-              Suivi des Ravitaillements
-              <span style="font-size:11px;background:rgba(34,197,94,0.12);color:var(--success);padding:2px 8px;border-radius:10px;font-weight:600;">● LIVE</span>
-            </h3>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:10px;color:var(--text-muted);">Mis à jour: ${stamp}</span>
-              <button onclick="ui._naftalSuiviRender()" title="Actualiser maintenant"
-                style="padding:6px 12px;border-radius:7px;border:1px solid var(--border);background:var(--bg-elevated);color:var(--text-primary);cursor:pointer;font-size:11px;font-weight:600;">
-                <i class="fa-solid fa-rotate"></i> Actualiser
-              </button>
-            </div>
-          </div>
-
-          <!-- KPI Row -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:20px;">
-            ${[
-              {label:'Déclarations',  val: stats.totalDeclarations||0,   color:'var(--primary)', icon:'fa-file-alt'},
-              {label:'En attente',    val: waiting.length,                color:'var(--info)',    icon:'fa-hourglass-half'},
-              {label:'En cours',      val: inProgress.length,             color:'var(--warning)', icon:'fa-spinner'},
-              {label:'Terminés',      val: completed.length,              color:'var(--success)', icon:'fa-check-circle'},
-              {label:'🚩 Signalés',   val: flaggedItems.length,           color:'var(--danger)',  icon:'fa-flag'},
-              {label:'DA Envoyés',    val:(stats.totalApprovedDA||0).toLocaleString()+'DA', color:'var(--success)', icon:'fa-coins'},
-            ].map(k => `
-              <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;">
-                <i class="fa-solid ${k.icon}" style="color:${k.color};font-size:16px;margin-bottom:4px;display:block;"></i>
-                <div style="font-size:18px;font-weight:800;color:${k.color};">${k.val}</div>
-                <div style="font-size:9px;color:var(--text-muted);margin-top:2px;">${k.label}</div>
-              </div>`).join('')}
-          </div>
-
-          <!-- Pipeline -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
-
-            <!-- EN ATTENTE -->
-            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-              <div style="padding:10px 14px;background:rgba(59,130,246,0.08);border-bottom:1px solid rgba(59,130,246,0.15);display:flex;align-items:center;gap:6px;">
-                <span style="width:8px;height:8px;border-radius:50%;background:var(--info);display:inline-block;"></span>
-                <strong style="font-size:12px;color:var(--info);">En Attente (${waiting.length})</strong>
-              </div>
-              <div style="padding:8px;min-height:80px;max-height:500px;overflow-y:auto;">
-                ${waiting.length === 0
-                  ? '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:11px;">Aucun camion en attente</div>'
-                  : waiting.map(t => this._naftalRenderTrackingCard(t,'waiting')).join('')}
-              </div>
-            </div>
-
-            <!-- EN COURS -->
-            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-              <div style="padding:10px 14px;background:rgba(245,158,11,0.08);border-bottom:1px solid rgba(245,158,11,0.15);display:flex;align-items:center;gap:6px;">
-                <span style="width:8px;height:8px;border-radius:50%;background:var(--warning);display:inline-block;animation:pulse 1s infinite;"></span>
-                <strong style="font-size:12px;color:var(--warning);">En Cours (${inProgress.length})</strong>
-              </div>
-              <div style="padding:8px;min-height:80px;max-height:500px;overflow-y:auto;">
-                ${inProgress.length === 0
-                  ? '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:11px;">Aucun en cours</div>'
-                  : inProgress.map(t => this._naftalRenderTrackingCard(t,'in_progress')).join('')}
-              </div>
-            </div>
-
-            <!-- COMPLÉTÉS -->
-            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;overflow:hidden;">
-              <div style="padding:10px 14px;background:rgba(34,197,94,0.08);border-bottom:1px solid rgba(34,197,94,0.15);display:flex;align-items:center;gap:6px;">
-                <span style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;"></span>
-                <strong style="font-size:12px;color:var(--success);">Complétés (${completed.length})</strong>
-              </div>
-              <div style="padding:8px;min-height:80px;max-height:500px;overflow-y:auto;">
-                ${completed.length === 0
-                  ? '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:11px;">Aucun terminé</div>'
-                  : completed.map(t => this._naftalRenderTrackingCard(t,'completed')).join('')}
-              </div>
-            </div>
-
-            <!-- SIGNALÉS -->
-            <div style="background:var(--bg-elevated);border:1px solid rgba(239,68,68,0.3);border-radius:10px;overflow:hidden;">
-              <div style="padding:10px 14px;background:rgba(239,68,68,0.08);border-bottom:1px solid rgba(239,68,68,0.15);display:flex;align-items:center;gap:6px;">
-                <span style="width:8px;height:8px;border-radius:50%;background:var(--danger);display:inline-block;"></span>
-                <strong style="font-size:12px;color:var(--danger);">Signalés (${flaggedItems.length})</strong>
-              </div>
-              <div style="padding:8px;min-height:80px;max-height:500px;overflow-y:auto;">
-                ${flaggedItems.length === 0
-                  ? '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:11px;">Aucun signalement</div>'
-                  : flaggedItems.map(t => this._naftalRenderTrackingCard(t,'flagged')).join('')}
-              </div>
-            </div>
-          </div>
-
-          <!-- Flagged detail -->
-          ${flagged.length > 0 ? `
-            <div style="margin-top:20px;border:2px solid rgba(239,68,68,0.3);border-radius:10px;padding:14px;background:rgba(239,68,68,0.03);">
-              <h4 style="color:var(--danger);margin:0 0 10px 0;font-size:13px;"><i class="fa-solid fa-flag"></i> Écarts Détectés (${flagged.length})</h4>
-              ${flagged.map(f => `
-                <div style="background:var(--bg-elevated);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-                  <div>
-                    <strong style="font-size:13px;">${f.truckName}</strong>
-                    <span style="font-size:10px;color:var(--text-muted);margin-left:6px;">(${f.carteNaftal})</span>
-                    <div style="font-size:11px;margin-top:4px;">
-                      Approuvé: <strong>${f.approvedLiters}L</strong> (${(f.approvedAmountDA||0).toLocaleString()} DA) →
-                      Réel: <strong style="color:var(--danger);">${f.actualLiters}L</strong> (${(f.actualCostDA||0).toLocaleString()} DA)
-                      <span style="background:rgba(239,68,68,0.15);color:var(--danger);padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">${f.deviationPercent}% écart</span>
-                    </div>
-                    <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">
-                      ${f.stationLat && f.stationLng
-                        ? `<a onclick="ui._naftalOpenStation(${f.stationLat},${f.stationLng},'${(f.stationName||'Station').replace(/'/g,"\\'")}');return false;" style="color:var(--warning);cursor:pointer;"><i class="fa-solid fa-gas-pump"></i> ${f.stationName||'—'} <i class="fa-solid fa-up-right-from-square" style="font-size:9px;"></i></a>`
-                        : `<i class="fa-solid fa-gas-pump" style="color:var(--warning);"></i> ${f.stationName||'—'}`}
-                      — ${new Date(f.flaggedAt||f.createdAt).toLocaleString('fr-DZ')}
-                    </div>
-                  </div>
-                  <span style="font-size:10px;padding:3px 9px;border-radius:6px;background:rgba(245,158,11,0.1);color:var(--warning);font-weight:600;">
-                    ${f.resolution === 'pending' ? '⏳ En attente' : f.resolution === 'confirmed_theft' ? '🚨 Vol confirmé' : f.resolution === 'sensor_error' ? '⚙️ Capteur' : '✅ Classé'}
-                  </span>
-                </div>`).join('')}
-            </div>` : ''}
-
-          <!-- Per-truck stats -->
-          ${Object.keys(stats.perTruck||{}).length > 0 ? `
-            <div style="margin-top:20px;">
-              <h4 style="color:var(--text-primary);margin-bottom:10px;font-size:13px;"><i class="fa-solid fa-chart-bar"></i> Statistiques par Camion</h4>
-              <div style="overflow-x:auto;">
-                <table class="naftal-recap-table" style="font-size:11px;">
-                  <thead><tr><th>Camion</th><th>Décl.</th><th>Approuvé (DA)</th><th>Réel (DA)</th><th>Écart (DA)</th><th>🚩</th></tr></thead>
-                  <tbody>
-                    ${Object.entries(stats.perTruck).map(([name,d]) => {
-                      const diff = (d.approvedDA||0) - (d.actualDA||0);
-                      return `<tr>
-                        <td><strong>${name}</strong></td>
-                        <td>${d.count}</td>
-                        <td>${(d.approvedDA||0).toLocaleString()}</td>
-                        <td>${(d.actualDA||0).toLocaleString()}</td>
-                        <td style="color:${diff>0?'var(--danger)':'var(--success)'};font-weight:700;">${diff>0?'+':''}${diff.toLocaleString()} DA</td>
-                        <td>${d.flagCount>0?`<span style="color:var(--danger);font-weight:700;">🚩 ${d.flagCount}</span>`:'—'}</td>
-                      </tr>`;
-                    }).join('')}
-                  </tbody>
-                </table>
-              </div>
-            </div>` : ''}
-
-        </div>
-        </div>
-      `;
-    } catch (e) {
-      const vc2 = document.getElementById('naftalViewContainer');
-      if (vc2) vc2.innerHTML = `<div style="color:var(--danger);padding:20px;border-radius:10px;background:rgba(239,68,68,0.05);">Erreur: ${e.message}</div>`;
+      content.innerHTML = html;
+      this._naftalStartLiveRefresh();
+    } catch(e) {
+      content.innerHTML = '<div style="color:#ef4444;padding:20px;">Erreur: '+e.message+'</div>';
     }
   }
 
-  _naftalRenderTrackingCard(t, status) {
-    const colors = { waiting:'var(--info)', in_progress:'var(--warning)', completed:'var(--success)', flagged:'var(--danger)' };
-    const color = colors[status] || 'var(--text-muted)';
-    const fuelPct = t._liveFuelPct ?? null;
-    const fuelL   = t._liveFuelL   ?? null;
-    const fuelBar = fuelPct != null ? `
-      <div style="margin-top:6px;">
-        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-muted);margin-bottom:2px;">
-          <span>Carburant LIVE</span>
-          <span style="font-weight:700;color:${fuelPct<=15?'var(--danger)':fuelPct<=30?'var(--warning)':'var(--success)'};">${fuelL}L (${fuelPct}%)</span>
-        </div>
-        <div style="height:4px;background:var(--bg-surface);border-radius:2px;overflow:hidden;">
-          <div style="width:${Math.min(fuelPct,100)}%;height:100%;background:${fuelPct<=15?'var(--danger)':fuelPct<=30?'var(--warning)':'var(--success)'};border-radius:2px;transition:width 0.5s;"></div>
-        </div>
-      </div>` : '';
+  _naftalRenderGestCard(d) {
+    var self = this;
+    var hasMod = d.modificationRequest && d.modificationRequest.status === 'pending';
+    var minFP = 100;
+    (d.trucks||[]).forEach(function(t){if((t.currentFuelPercent||0)<minFP)minFP=t.currentFuelPercent||0;});
+    var accentColor = minFP<=5?'#ef4444':minFP<=20?'#f59e0b':'#8b5cf6';
+    var totalApproved = (d.trucks||[]).reduce(function(s,t){return s+(t.approvedAmountDA||t.estimatedCostDA||0);},0);
 
-    let comparison = '';
-    if (t.approvedLiters && t.actualRefillLiters) {
-      const maxL = Math.max(t.approvedLiters, t.actualRefillLiters);
-      const pA = Math.round(Math.min(100, t.approvedLiters / maxL * 100));
-      const pR = Math.round(Math.min(100, t.actualRefillLiters / maxL * 100));
-      comparison = `
-        <div style="margin-top:6px;">
-          <div style="display:flex;align-items:center;gap:4px;font-size:9px;margin-bottom:2px;">
-            <span style="color:var(--success);width:55px;">Approuvé</span>
-            <div style="flex:1;height:4px;background:var(--bg-surface);border-radius:2px;overflow:hidden;"><div style="width:${pA}%;height:100%;background:var(--success);border-radius:2px;"></div></div>
-            <span style="font-weight:700;font-size:10px;">${t.approvedLiters}L</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:4px;font-size:9px;">
-            <span style="color:${color};width:55px;">Réel</span>
-            <div style="flex:1;height:4px;background:var(--bg-surface);border-radius:2px;overflow:hidden;"><div style="width:${pR}%;height:100%;background:${color};border-radius:2px;"></div></div>
-            <span style="font-weight:700;font-size:10px;">${t.actualRefillLiters}L</span>
-          </div>
-        </div>`;
+    var html = '<div class="nv5-card" style="border-left:4px solid '+accentColor+';">' +
+      '<div class="nv5-card-head">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+          '<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;font-family:monospace;">'+(d.declarationId||'')+'</span>' +
+          '<span style="color:#64748b;font-size:11px;">'+(this._naftalFormatDate(d.createdAt))+'</span>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+          '<span style="font-size:12px;color:#64748b;">'+(d.trucks||[]).length+' camion(s)</span>' +
+          '<span style="font-size:12px;font-weight:700;color:'+accentColor+';">~'+Math.round(totalApproved).toLocaleString('fr-DZ')+' DA</span>' +
+          '<button onclick="ui.naftalToggleSignal(\''+d.declarationId+'\')" title="Signaler" ' +
+            'style="background:'+(d.isSignaled?'#ef4444':'#f1f5f9')+';color:'+(d.isSignaled?'#fff':'#64748b')+';border:none;border-radius:6px;padding:5px 9px;cursor:pointer;font-size:11px;">' +
+            '<i class="fa-solid fa-flag"></i></button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="nv5-card-body">';
+
+    // Modification request banner
+    if (hasMod) {
+      var modReq = d.modificationRequest || {};
+      var reqLabels2 = {delete:'🗑️ Annulation déclaration',remove_truck:'🚫 Retrait camion',restore_truck:'🔄 Restauration camion',modify_route:'🗺️ Modification itinéraire',increase_amount:'💰 Augmentation montant',other:'📝 Autre demande'};
+      var reqLabel2 = reqLabels2[modReq.reqType] || modReq.reqType || 'Demande de modification';
+      var modAt = modReq.requestedAt ? new Date(modReq.requestedAt).toLocaleString('fr-DZ') : '';
+      // Show refill status of all trucks in this declaration
+      var truckStatuses = (d.trucks||[]).map(function(t){
+        var rs = t.refillStatus||'waiting';
+        var rsIcon = rs==='completed'?'<span style="color:#16a34a;">✓ Ravitaillé</span>':rs==='flagged'?'<span style="color:#ef4444;">⚑ Flagged</span>':rs==='in_progress'?'<span style="color:#0284c7;">⟳ En cours</span>':'<span style="color:#94a3b8;">En attente</span>';
+        return '<span style="font-weight:700;">'+(t.truckName||t.deviceId)+'</span> '+rsIcon;
+      }).join(' &nbsp;·&nbsp; ');
+      html += '<div class="nv5-mod-banner">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:8px;">' +
+          '<div>' +
+            '<div style="font-weight:800;color:#92400e;font-size:13px;"><i class="fa-solid fa-triangle-exclamation"></i> '+reqLabel2+'</div>' +
+            (modAt?'<div style="font-size:10px;color:#a16207;margin-top:2px;">'+modAt+'</div>':'') +
+          '</div>' +
+          '<div style="font-size:11px;color:#78350f;">'+truckStatuses+'</div>' +
+        '</div>' +
+        (modReq.detail?'<div style="background:#fff7ed;border-radius:6px;padding:8px 10px;margin-bottom:8px;font-size:12px;color:#78350f;border-left:3px solid #f59e0b;">💬 <em>"'+(modReq.detail||'')+'"</em></div>':'') +
+        '<div style="display:flex;gap:8px;">' +
+          '<button onclick="ui.naftalRespondModRequest(\''+d.declarationId+'\',\'accepted\')" class="nv5-btn nv5-btn-success" style="padding:7px 16px;font-size:11px;"><i class="fa-solid fa-check"></i> Accepter</button>' +
+          '<button onclick="ui.naftalRespondModRequest(\''+d.declarationId+'\',\'rejected\')" class="nv5-btn nv5-btn-danger" style="padding:7px 16px;font-size:11px;"><i class="fa-solid fa-times"></i> Refuser</button>' +
+        '</div></div>';
     }
 
-    const stationLink = (t.stationLat || t.refillStationLat) && (t.stationLng || t.refillStationLng)
-      ? `<div style="font-size:9px;margin-top:3px;">
-           <a onclick="ui._naftalOpenStation(${t.stationLat||t.refillStationLat},${t.stationLng||t.refillStationLng},'${((t.stationName||t.refillStationName)||'Station').replace(/'/g,"\\'")}');return false;" style="color:var(--warning);cursor:pointer;text-decoration:none;">
-             <i class="fa-solid fa-gas-pump"></i> ${t.stationName||t.refillStationName||'Station'} <i class="fa-solid fa-up-right-from-square" style="font-size:8px;opacity:0.7;"></i>
-           </a>
-         </div>`
-      : (t.refillStationName ? `<div style="font-size:9px;color:var(--text-muted);margin-top:3px;"><i class="fa-solid fa-gas-pump" style="color:var(--warning);"></i> ${t.refillStationName}</div>` : '');
+    // Per-truck rows with live data
+    html += '<div style="overflow-x:auto;"><table class="nv5-table"><thead><tr>' +
+      '<th>Camion</th><th>Carte</th><th>Position départ</th><th>Itinéraire</th><th>Fuel (live)</th><th>Montant approuvé (DA)</th></tr></thead><tbody>';
 
-    const forceBtn = (status === 'waiting' || status === 'in_progress')
-      ? `<button onclick="ui._naftalForceComplete('${t.declarationId}','${t.deviceId}','${(t.truckName||'').replace(/'/g,"\\'")}');event.stopPropagation();"
-           style="margin-top:8px;width:100%;padding:5px;border-radius:6px;background:rgba(139,92,246,0.12);border:1px solid rgba(139,92,246,0.25);color:var(--info,#8b5cf6);font-size:10px;font-weight:700;cursor:pointer;">
-           <i class="fa-solid fa-hand-sparkles"></i> Saisie manuelle
-         </button>`
-      : '';
+    (d.trucks||[]).forEach(function(t, ti) {
+      // Get LIVE truck data (current moment, not stored at declaration time)
+      var allLiveTrucks = (typeof app!=='undefined'?app.getAllTrucks():[]) || [];
+      var liveTruck = allLiveTrucks.find(function(lt){return String(lt.id||lt.deviceId)===String(t.deviceId);});
+      var fp = liveTruck ? Math.round(liveTruck.fuelPercentage||0) : (t.currentFuelPercent||0);
+      var fl = liveTruck ? Math.round(liveTruck.fuelLiters||0) : (t.currentFuelLiters||0);
+      var fc = fp<=5?'#ef4444':fp<=20?'#f59e0b':'#16a34a';
+      var inputId = 'ga_'+d.declarationId+'_'+ti;
+      var litersId = 'gl_'+d.declarationId+'_'+ti;
+      var currVal = t.approvedAmountDA || Math.round(t.estimatedCostDA||0);
+      var price = (typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.NAFTAL_MANAGEMENT&&FLEET_CONFIG.NAFTAL_MANAGEMENT.defaultNaftalPrice)||31;
+      var liters = currVal ? Math.round(currVal/price*10)/10 : 0;
+      // LIVE position: use real-time GPS location, not stored at declaration creation
+      var liveLoc = liveTruck ? ui._naftalGetTruckLocation(liveTruck) : (t.currentLocation||'—');
+      var liveLat = liveTruck && liveTruck.coordinates ? liveTruck.coordinates.lat : t.currentLat;
+      var liveLng = liveTruck && liveTruck.coordinates ? liveTruck.coordinates.lng : t.currentLng;
 
-    const cancelBtn = (status === 'waiting')
-      ? `<button onclick="ui.naftalDeleteDeclaration('${t.declarationId}',false);event.stopPropagation();"
-           style="margin-top:4px;width:100%;padding:4px;border-radius:6px;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);color:var(--danger);font-size:9px;cursor:pointer;">
-           <i class="fa-solid fa-ban"></i> Annuler déclaration
-         </button>`
-      : '';
+      // Build itinerary string
+      var stops = t.extraStops || [];
+      var itin = stops.map(function(s,i){return (i+1)+'. '+(s.name||'');}).join(' → ');
+      if (t.destination) itin = (itin?itin+' → ':'')+t.destination;
 
-    return `
-      <div style="background:var(--bg-surface);border:1px solid var(--border);border-left:3px solid ${color};border-radius:8px;padding:10px;margin-bottom:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px;">
-          <strong style="font-size:12px;color:var(--text-primary);">${t.truckName||'—'}</strong>
-          ${t.deviationPercent != null ? `<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:${status==='flagged'?'rgba(239,68,68,0.15)':'rgba(34,197,94,0.12)'};color:${status==='flagged'?'var(--danger)':'var(--success)'};font-weight:700;">${t.deviationPercent}%</span>` : ''}
-        </div>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">
-          <i class="fa-solid fa-credit-card"></i> ${t.carteNaftal||'N/A'}
-          ${t.destination ? ` → <strong style="color:var(--text-primary);">${t.destination}</strong>` : ''}
-        </div>
-        ${t._liveLoc ? `<div style="font-size:9px;color:var(--text-muted);margin-top:2px;"><i class="fa-solid fa-location-dot" style="color:${color};"></i> ${t._liveLoc}${t._liveSpeed>2?` · ${Math.round(t._liveSpeed)}km/h`:''}</div>` : ''}
-        ${t.approvedAmountDA ? `<div style="font-size:10px;margin-top:4px;">Montant: <strong style="color:var(--success);">${(t.approvedAmountDA||0).toLocaleString()} DA</strong> (${t.approvedLiters||0}L)</div>` : ''}
-        ${fuelBar}
-        ${comparison}
-        ${stationLink}
-        ${t.refillDetectedAt ? `<div style="font-size:9px;color:var(--text-muted);margin-top:4px;"><i class="fa-solid fa-clock"></i> ${new Date(t.refillDetectedAt).toLocaleString('fr-DZ')}</div>` : ''}
-        ${t.forcedComplete ? `<div style="font-size:9px;color:var(--info);margin-top:2px;"><i class="fa-solid fa-user-check"></i> Validé manuellement</div>` : ''}
-        ${forceBtn}
-        ${cancelBtn}
-      </div>`;
+      // Skip removed trucks or show them greyed out
+      var rowStyle = t.isRemoved
+        ? 'cursor:default;opacity:0.45;background:#f8fafc;'
+        : 'cursor:default;';
+      html += '<tr id="gtr_'+d.declarationId+'_'+ti+'" style="'+rowStyle+'">' +
+        '<td><div style="font-weight:700;color:#1e293b;'+(t.isRemoved?'text-decoration:line-through;color:#94a3b8;':'')+'">'+(t.truckName||'')+'</div>' +
+          (t.isRemoved ? '<div style="font-size:9px;color:#ef4444;font-weight:700;">🚫 Retiré'+(t.removedAt?' le '+new Date(t.removedAt).toLocaleDateString('fr-DZ'):'')+' </div>' : '') +
+          '<div style="font-size:9px;color:#94a3b8;">'+(t.immatriculation||'')+'</div></td>' +
+        '<td style="color:#0369a1;font-weight:700;font-size:11px;">'+(t.carteNaftal||'—')+'</td>' +
+        '<td style="font-size:11px;color:#64748b;max-width:130px;">' +
+          '<span id="gpos_'+d.declarationId+'_'+ti+'">'+liveLoc+'</span>' +
+          (liveLat?'<div id="gpos_geo_'+d.declarationId+'_'+ti+'" style="display:none;"></div>':'') +
+        '</td>' +
+        '<td style="font-size:11px;color:#475569;max-width:160px;">'+(itin||t.destination||'—')+'</td>' +
+        '<td>' +
+          '<div style="display:flex;align-items:center;gap:6px;">' +
+            '<div class="nv5-fuel-track" style="width:60px;"><div class="nv5-fuel-fill" id="gfuel_'+d.declarationId+'_'+ti+'" style="width:'+fp+'%;background:'+fc+';"></div></div>' +
+            '<span id="gfp_'+d.declarationId+'_'+ti+'" style="font-weight:700;color:'+fc+';font-size:12px;">'+fp+'%</span>' +
+          '</div>' +
+          '<div id="gfl_'+d.declarationId+'_'+ti+'" style="font-size:10px;color:#94a3b8;margin-top:2px;">'+fl+'L</div>' +
+        '</td>' +
+        '<td style="min-width:170px;">' +
+          '<div style="background:#f0f9ff;border:1.5px solid #7dd3fc;border-radius:10px;padding:8px 10px;">' +
+            '<div style="font-size:9px;color:#0369a1;font-weight:700;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px;">Montant (DA)</div>' +
+            '<div style="display:flex;align-items:center;gap:5px;">' +
+              '<button onclick="var i=document.getElementById(\''+inputId+'\');i.value=Math.max(0,parseInt(i.value||0)-500);ui._naftalUpdateGestTotal(\''+d.declarationId+'\')" ' +
+                'style="background:#fff;border:1.5px solid #7dd3fc;border-radius:7px;width:30px;height:30px;cursor:pointer;font-weight:900;font-size:14px;color:#0284c7;flex-shrink:0;">−</button>' +
+              '<input id="'+inputId+'" type="number" value="'+currVal+'" min="0" step="500" ' +
+                'oninput="ui._naftalUpdateGestTotal(\''+d.declarationId+'\')" ' +
+                'style="flex:1;min-width:0;text-align:center;border:1.5px solid #7dd3fc;border-radius:7px;padding:6px 4px;font-size:14px;font-weight:900;color:#0284c7;background:#fff;">' +
+              '<button onclick="var i=document.getElementById(\''+inputId+'\');i.value=parseInt(i.value||0)+500;ui._naftalUpdateGestTotal(\''+d.declarationId+'\')" ' +
+                'style="background:#0284c7;border:none;border-radius:7px;width:30px;height:30px;cursor:pointer;font-weight:900;font-size:14px;color:#fff;flex-shrink:0;">+</button>' +
+            '</div>' +
+            '<div id="'+litersId+'" style="font-size:10px;color:#0369a1;font-weight:600;margin-top:5px;text-align:center;">≈ '+liters+' L</div>' +
+          '</div>' +
+        '</td>' +
+      '</tr>';
+
+      // Trigger geocode for LIVE departure location
+      if (liveLat && liveLng) {
+        var gposId = 'gpos_'+d.declarationId+'_'+ti;
+        (function(gid, la, lo) {
+          setTimeout(function() {
+            var el = document.getElementById(gid);
+            if (!el) return;
+            // Always try to geocode for better name
+            ui._naftalAsyncGeocode(gid+'_LIVE', la, lo);
+            setTimeout(function(){
+              var label = ui._geoCache && ui._geoCache[la.toFixed(3)+'_'+lo.toFixed(3)];
+              if (label && el) el.textContent = label;
+            }, 2500);
+          }, 100);
+        })(gposId, liveLat, liveLng);
+      }
+    });
+
+    html += '</tbody></table></div>';
+
+    // Total + actions
+    var allEstimated = (d.trucks||[]).reduce(function(s,t){return s+(t.approvedAmountDA||Math.round(t.estimatedCostDA||0));},0);
+    html +=
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid #f1f5f9;flex-wrap:wrap;gap:8px;">' +
+        '<div style="font-size:13px;color:#64748b;">Total: <strong id="gtotal_'+d.declarationId+'" style="color:#0284c7;">'+Math.round(allEstimated).toLocaleString('fr-DZ')+' DA</strong></div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button onclick="ui.naftalRefuseDeclaration(\''+d.declarationId+'\')" class="nv5-btn" style="background:#fee2e2;color:#dc2626;padding:8px 18px;">' +
+            '<i class="fa-solid fa-ban"></i> Refuser</button>' +
+          '<button onclick="ui.naftalValidateGestionnaire(\''+d.declarationId+'\')" class="nv5-btn nv5-btn-success" style="padding:8px 24px;">' +
+            '<i class="fa-solid fa-check"></i> Approuver</button>' +
+        '</div>' +
+      '</div></div></div>';
+
+    return html;
   }
 
-  _naftalRenderTrackingCard(t, status) {
-    const statusColors = { waiting: 'var(--info)', in_progress: 'var(--warning)', completed: 'var(--success)', flagged: 'var(--danger)' };
-    const color = statusColors[status] || 'var(--text-muted)';
-    
-    let comparison = '';
-    if (t.approvedLiters && t.actualRefillLiters) {
-      const pctApproved = Math.min(100, (t.approvedLiters / Math.max(t.approvedLiters, t.actualRefillLiters)) * 100);
-      const pctActual = Math.min(100, (t.actualRefillLiters / Math.max(t.approvedLiters, t.actualRefillLiters)) * 100);
-      comparison = `
-        <div style="margin-top:6px;">
-          <div style="display:flex;align-items:center;gap:4px;font-size:10px;">
-            <span style="color:var(--success);width:60px;">Approuvé</span>
-            <div style="flex:1;height:5px;background:var(--bg-surface);border-radius:3px;overflow:hidden;"><div style="width:${pctApproved}%;height:100%;background:var(--success);border-radius:3px;"></div></div>
-            <span style="font-weight:700;">${t.approvedLiters}L</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:4px;font-size:10px;margin-top:2px;">
-            <span style="color:${color};width:60px;">Réel</span>
-            <div style="flex:1;height:5px;background:var(--bg-surface);border-radius:3px;overflow:hidden;"><div style="width:${pctActual}%;height:100%;background:${color};border-radius:3px;"></div></div>
-            <span style="font-weight:700;">${t.actualRefillLiters}L</span>
-          </div>
-        </div>
-      `;
+  _naftalUpdateGestTotal(declId) {
+    var totalEl = document.getElementById('gtotal_'+declId);
+    if (!totalEl) return;
+    var price=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.NAFTAL_MANAGEMENT&&FLEET_CONFIG.NAFTAL_MANAGEMENT.defaultNaftalPrice)||31;
+    var total = 0; var i = 0;
+    while (true) {
+      var inp = document.getElementById('ga_'+declId+'_'+i);
+      var lEl = document.getElementById('gl_'+declId+'_'+i);
+      if (!inp) break;
+      var v = parseInt(inp.value)||0;
+      total += v;
+      if (lEl) lEl.textContent = '\u2248 '+Math.round(v/price*10)/10+' L';
+      i++;
     }
-    
-    return `
-      <div class="naftal-tracking-card" style="border-left:3px solid ${color};">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <strong style="font-size:12px;">${t.truckName}</strong>
-          ${t.deviationPercent != null ? `<span class="naftal-deviation-badge ${status === 'flagged' ? 'flagged' : 'ok'}">${t.deviationPercent}%</span>` : ''}
-        </div>
-        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;"><i class="fa-solid fa-credit-card"></i> ${t.carteNaftal || 'N/A'} → ${t.destination || '—'}</div>
-        ${t.approvedAmountDA ? `<div style="font-size:11px;margin-top:4px;">Montant: <strong>${(t.approvedAmountDA||0).toLocaleString()} DA</strong> (${t.approvedLiters || 0}L)</div>` : ''}
-        ${comparison}
-        ${t.refillDetectedAt ? `<div style="font-size:10px;color:var(--text-muted);margin-top:4px;"><i class="fa-solid fa-clock"></i> ${new Date(t.refillDetectedAt).toLocaleString('fr-DZ')}</div>` : ''}
-        ${t.refillStationName ? `<div style="font-size:10px;color:var(--text-muted);"><i class="fa-solid fa-gas-pump"></i> ${t.refillStationName}</div>` : ''}
-      </div>
-    `;
+    totalEl.textContent = Math.round(total).toLocaleString('fr-DZ')+' DA';
   }
 
-  // ═══ SECTION 4: HISTORIQUE NAFTAL + CHARTS ═══
-  async renderNaftalHistorique() {
-    const vc = document.getElementById('naftalViewContainer');
-    if (!vc) return;
-    vc.innerHTML = '<div style="text-align:center;padding:30px;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement historique...</div>';
+  _naftalStartLiveRefresh() {
+    this._naftalStopLiveRefresh();
+    var self = this;
+    this._naftalLiveTimer = setInterval(function() { self._naftalUpdateLiveData(); }, 30000);
+  }
 
+  _naftalUpdateLiveData() {
+    var allT = (typeof app!=='undefined'?app.getAllTrucks():[]) || [];
+    var ts = document.getElementById('nv5LiveTs');
+    if (ts) ts.innerHTML = '<i class="fa-solid fa-circle-dot" style="color:#22c55e;"></i> Données en temps réel — MàJ: '+new Date().toLocaleTimeString('fr-DZ');
+    // Update all gfuel_ and gfp_ elements
+    allT.forEach(function(t) {
+      var tid = String(t.id||t.deviceId);
+      var fp = Math.round(t.fuelPercentage||0);
+      var fl = Math.round(t.fuelLiters||0);
+      var fc = fp<=5?'#ef4444':fp<=20?'#f59e0b':'#16a34a';
+      // Try all possible row indices
+      for (var i=0; i<10; i++) {
+        // We can't easily match by truck id in the gestionnaire table without more info
+        // So we'll just update if we find nloc_ elements for this truck
+        var locEl = document.getElementById('nloc_'+tid);
+        if (locEl) break; // card still exists
+      }
+    });
+  }
+
+  async naftalValidateGestionnaire(declId) {
+    var amounts = [];
+    var i = 0;
+    while (true) {
+      var inp = document.getElementById('ga_'+declId+'_'+i);
+      if (!inp) break;
+      var val = parseInt(inp.value)||0;
+      var price=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.NAFTAL_MANAGEMENT&&FLEET_CONFIG.NAFTAL_MANAGEMENT.defaultNaftalPrice)||31;
+      amounts.push({ deviceId: 'idx_'+i, approvedAmountDA: val, approvedLiters: Math.round(val/price*10)/10, inputIdx: i });
+      i++;
+    }
+    if (!amounts.length) return;
+    // Get actual truck deviceIds from the declaration
     try {
-      // Build query from filters
-      const f = this._naftalHistFilters || {};
-      const params = new URLSearchParams();
-      if (f.truck) params.set('truck', f.truck);
-      if (f.card) params.set('card', f.card);
-      if (f.status && f.status !== 'all') params.set('status', f.status);
-      if (f.station) params.set('station', f.station);
-      if (f.from) params.set('from', f.from);
-      if (f.to) params.set('to', f.to);
-      params.set('limit', '500');
+      var dr = await fetch('/api/naftal/declarations?limit=1');
+      // Actually fetch the specific declaration
+      var allD = await (await fetch('/api/naftal/declarations?limit=500')).json();
+      var decl = allD.find(function(d){return d.declarationId===declId;});
+      if (!decl) { await ui_showAlert('Déclaration non trouvée','Erreur','❌'); return; }
+      var total = amounts.reduce(function(s,a){return s+a.approvedAmountDA;},0);
+      var ok = await ui_showConfirm(
+        'Approuver la déclaration '+declId+' pour un total de '+Math.round(total).toLocaleString('fr-DZ')+' DA?',
+        'Confirmer Approbation','✅','Approuver'
+      );
+      if (!ok) return;
+      var mappedAmounts = decl.trucks.map(function(t, idx) {
+        var inp = document.getElementById('ga_'+declId+'_'+idx);
+        var price2=(typeof FLEET_CONFIG!=='undefined'&&FLEET_CONFIG.NAFTAL_MANAGEMENT&&FLEET_CONFIG.NAFTAL_MANAGEMENT.defaultNaftalPrice)||31;
+        var da = inp ? (parseInt(inp.value)||0) : 0;
+        return { deviceId: t.deviceId, approvedAmountDA: da, approvedLiters: Math.round(da/price2*10)/10 };
+      });
+      var r = await fetch('/api/naftal/declarations/'+declId+'/validate-gestionnaire', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({amounts: mappedAmounts})
+      });
+      if (!r.ok) { var e=await r.json(); await ui_showAlert(e.error||'Erreur','Erreur','❌'); return; }
+      await ui_showAlert('Déclaration approuvée avec succès! Les camions peuvent maintenant se ravitailler.','Approuvé','✅');
+      this._naftalGestRenderPending();
+    } catch(e) { await ui_showAlert('Erreur: '+e.message,'Erreur','❌'); }
+  }
 
-      const [histRes, statsRes] = await Promise.all([
-        fetch('/api/naftal/history?' + params.toString()),
-        fetch('/api/naftal/statistics?' + (f.from ? 'from=' + f.from : '') + (f.to ? '&to=' + f.to : ''))
-      ]);
-      const histData = await histRes.json();
-      const stats = await statsRes.json();
-      const items = histData.items || [];
+  async naftalRefuseDeclaration(declId) {
+    var reason = await ui_showPrompt('Raison du refus:','','Refuser la déclaration');
+    if (!reason) return;
+    try {
+      var r = await fetch('/api/naftal/declarations/'+declId, {
+        method:'DELETE', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({reason:'Refusé par gestionnaire: '+reason})
+      });
+      if (!r.ok) throw new Error('Erreur');
+      await ui_showAlert('Déclaration refusée.','Refusé','⊘');
+      this._naftalGestRenderPending();
+    } catch(e) { await ui_showAlert('Erreur: '+e.message); }
+  }
 
-      // === BUILD CHARTS ===
-      const chartsHTML = this._naftalBuildCharts(stats);
+  async naftalToggleSignal(declId) {
+    try {
+      var r = await fetch('/api/naftal/declarations/'+declId+'/signal', {method:'PATCH'});
+      var d = await r.json();
+      this._naftalGestRenderPending();
+    } catch(e) {}
+  }
 
-      // === BUILD HISTORY TABLE ===
-      const page = this._naftalHistPage || 1;
-      const perPage = 15;
-      const start = (page - 1) * perPage;
-      const paged = items.slice(start, start + perPage);
-      const totalPages = Math.ceil(items.length / perPage);
+  async naftalRespondModRequest(declId, action) {
+    var note = '';
+    if (action === 'accepted') {
+      note = await ui_showPrompt('Note / observation (optionnel):','','Accepter la demande');
+    } else {
+      note = await ui_showPrompt('Raison du refus:','','Refuser la demande');
+      if (!note) return;
+    }
+    try {
+      var r = await fetch('/api/naftal/declarations/'+declId+'/modification-response', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action: action, note: note||''})
+      });
+      if (!r.ok) throw new Error('Erreur');
+      await ui_showAlert(action==='accepted'?'Demande acceptée.':'Demande refusée.','OK','✅');
+      this._naftalGestRenderPending();
+    } catch(e) { await ui_showAlert('Erreur: '+e.message); }
+  }
 
-      vc.innerHTML = `
-        <!-- ══ SECTION 1: STATISTIQUES ══ -->
-        <div class="naftal-section" style="border-left:4px solid var(--primary);margin-bottom:16px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <h3 style="margin:0;color:var(--primary);"><i class="fa-solid fa-chart-bar"></i> Statistiques Naftal</h3>
-            <span style="font-size:11px;color:var(--text-muted);">${f.from||f.to ? `${f.from||'…'} → ${f.to||'aujourd\'hui'}` : 'Toute la période'}</span>
-          </div>
+  // ── GESTIONNAIRE: HISTORIQUE COMPLET ──────────────────────────────────────
 
-          <!-- KPI Grid -->
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;">
-            ${[
-              {label:'Déclarations',value:stats.totalDeclarations||0,color:'var(--primary)',icon:'fa-file-alt'},
-              {label:'Ravitaillements',value:stats.totalRefills||0,color:'var(--success)',icon:'fa-gas-pump'},
-              {label:'DA Envoyés',value:(stats.totalSentDA||0).toLocaleString(),color:'var(--info)',icon:'fa-money-bill',suffix:'DA'},
-              {label:'DA Consommés',value:(stats.totalConsumedDA||0).toLocaleString(),color:'var(--warning)',icon:'fa-receipt',suffix:'DA'},
-              {label:'Écart Total',value:(stats.totalDeviationDA||0).toLocaleString(),color:stats.totalDeviationDA>0?'var(--danger)':'var(--success)',icon:'fa-scale-unbalanced',suffix:'DA'},
-              {label:'🚩 Signalés',value:stats.totalFlagged||0,color:'var(--danger)',icon:'fa-flag'},
-              {label:'Non Résolus',value:stats.unresolvedFlags||0,color:stats.unresolvedFlags>0?'var(--danger)':'var(--text-muted)',icon:'fa-triangle-exclamation'},
-            ].map(k => `
-              <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center;">
-                <i class="fa-solid ${k.icon}" style="color:${k.color};font-size:18px;margin-bottom:6px;display:block;"></i>
-                <div style="font-size:20px;font-weight:800;color:${k.color};">${k.value}${k.suffix?'<span style="font-size:11px;margin-left:2px;font-weight:400;">'+k.suffix+'</span>':''}</div>
-                <div style="font-size:10px;color:var(--text-muted);margin-top:3px;">${k.label}</div>
-              </div>
-            `).join('')}
-          </div>
+  async _naftalGestRenderHistory(content) {
+    if (!content) content = document.getElementById('nv5GestContent');
+    if (!content) return;
+    var self = this;
+    var filterHtml =
+      '<div class="nv5-filters">' +
+        '<select class="nv5-sel" id="ghf_status" onchange="ui._naftalLoadGestHistory()">' +
+          '<option value="">Tous statuts</option>' +
+          '<option value="transport_validated">Att. gestionnaire</option>' +
+          '<option value="gestionnaire_validated">Approuvés</option>' +
+          '<option value="in_progress">En cours</option>' +
+          '<option value="completed">Terminés</option>' +
+          '<option value="cancelled">Annulés</option>' +
+        '</select>' +
+        '<select class="nv5-sel" id="ghf_signal" onchange="ui._naftalLoadGestHistory()">' +
+          '<option value="">Tous</option>' +
+          '<option value="true">Signalés</option>' +
+          '<option value="false">Non signalés</option>' +
+        '</select>' +
+        '<select class="nv5-sel" id="ghf_refill" onchange="ui._naftalLoadGestHistory()">' +
+          '<option value="">Refill: Tous</option>' +
+          '<option value="waiting">En attente</option>' +
+          '<option value="completed">OK</option>' +
+          '<option value="flagged">Signalé</option>' +
+        '</select>' +
+        '<input type="text" class="nv5-sel" id="ghf_truck" placeholder="Camion..." style="width:110px;" oninput="clearTimeout(ui._ghT);ui._ghT=setTimeout(function(){ui._naftalLoadGestHistory();},400);">' +
+        '<input type="date" class="nv5-sel" id="ghf_from">' +
+        '<input type="date" class="nv5-sel" id="ghf_to">' +
+        '<button onclick="ui._naftalLoadGestHistory()" class="nv5-btn nv5-btn-primary" style="padding:7px 14px;">Filtrer</button>' +
+        '<button onclick="ui.naftalExportCSV()" class="nv5-btn nv5-btn-ghost" style="padding:7px 14px;"><i class="fa-solid fa-file-excel"></i> Excel</button>' +
+      '</div>' +
+      '<div id="nv5GestHistTable">Chargement...</div>';
+    content.innerHTML = filterHtml;
+    this._naftalLoadGestHistory();
+  }
 
-          <!-- Charts -->
-          ${this._naftalBuildCharts(stats)}
-        </div>
+  async _naftalLoadGestHistory() {
+    var el = document.getElementById('nv5GestHistTable');
+    if (!el) return;
+    el.innerHTML = '<div style="text-align:center;padding:20px;color:#64748b;">Chargement...</div>';
+    var status = (document.getElementById('ghf_status')||{}).value||'';
+    var signal = (document.getElementById('ghf_signal')||{}).value||'';
+    var refill = (document.getElementById('ghf_refill')||{}).value||'';
+    var truck = (document.getElementById('ghf_truck')||{}).value||'';
+    var from = (document.getElementById('ghf_from')||{}).value||'';
+    var to = (document.getElementById('ghf_to')||{}).value||'';
+    var qs = new URLSearchParams({limit:'200'});
+    if (status) qs.set('status',status);
+    if (signal) qs.set('isSignaled',signal);
+    if (refill) qs.set('refillStatus',refill);
+    var carte = (document.getElementById('hf_carte')||{}).value||'';
+    if (truck) qs.set('truckName',truck);
+    if (carte) qs.set('carteNaftal',carte);
+    if (from) qs.set('from',from);
+    if (to) qs.set('to',to);
+    try {
+      var r = await fetch('/api/naftal/declarations?'+qs.toString());
+      var decls = r.ok ? await r.json() : [];
+      this._naftalRenderGestHistTable(el, decls);
+    } catch(e) { el.innerHTML='<div style="color:#ef4444;padding:20px;">Erreur: '+e.message+'</div>'; }
+  }
 
-        <!-- ══ SECTION 2: HISTORIQUE TABLE ══ -->
-        <div class="naftal-section" style="border-left:4px solid var(--warning);">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-            <h3 style="margin:0;color:var(--warning);"><i class="fa-solid fa-clock-rotate-left"></i> Historique des Ravitaillements</h3>
-            <div style="display:flex;gap:6px;align-items:center;">
-              <button onclick="ui._naftalHistView='refills';ui.renderNaftalHistorique()" style="padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:${(ui._naftalHistView||'refills')==='refills'?'var(--warning)':'var(--bg-elevated)'};color:${(ui._naftalHistView||'refills')==='refills'?'#fff':'var(--text-primary)'};">⛽ Ravitaillements</button>
-              <button onclick="ui._naftalHistView='declarations';ui.renderNaftalHistorique()" style="padding:5px 12px;border-radius:6px;border:none;cursor:pointer;font-size:11px;font-weight:700;background:${(ui._naftalHistView||'refills')==='declarations'?'var(--primary)':'var(--bg-elevated)'};color:${(ui._naftalHistView||'refills')==='declarations'?'#fff':'var(--text-primary)'};">📋 Déclarations</button>
-              <span style="font-size:11px;color:var(--text-muted);">${items.length} enregistrement(s)</span>
-            </div>
-          </div>
+  _naftalRenderGestHistTable(el, decls) {
+    if (!decls.length) {
+      el.innerHTML='<div style="text-align:center;padding:40px;color:#64748b;"><i class="fa-solid fa-inbox" style="font-size:32px;opacity:0.3;"></i><br><br>Aucune déclaration trouvée</div>';
+      return;
+    }
+    var gTblId = 'nv5GestTbl_'+Date.now();
+    var thStyle = 'padding:10px 12px;border-bottom:2px solid #cbd5e1;cursor:pointer;user-select:none;white-space:nowrap;font-size:11px;font-weight:700;color:#374151;background:#f1f5f9;text-transform:uppercase;letter-spacing:0.03em;';
+    var mkTh = function(label, col, align) {
+      return '<th data-sortcol="'+col+'" onclick="ui._naftalSortTable(\''+gTblId+'\','+col+')" style="'+thStyle+(align?'text-align:'+align+';':'')+'">'
+        +label+'<span style="color:#94a3b8;font-size:9px;margin-left:3px;">⇅</span></th>';
+    };
+    var html = '<div style="overflow-x:auto;"><table id="'+gTblId+'" class="nv5-table"><thead><tr>'
+      +mkTh('Date / ID',0)+mkTh('Statut',1)+mkTh('Camion',2)
+      +mkTh('Carte',3)+mkTh('Pos. départ',4)+mkTh('Destination',5)
+      +mkTh('DA App.',6,'right')+mkTh('DA Réel',7,'right')
+      +mkTh('Refill',8,'center')+'<th style="'+thStyle+'">📍 Lieu</th>'
+      +'<th style="'+thStyle+'">Actions</th>'
+      +'</tr></thead><tbody>';
+    var rowN = 0;
+    var prevDeclId = null;
+    decls.forEach(function(d) {
+      var hasMod = d.modificationRequest && d.modificationRequest.status==='pending';
+      var trucks = d.trucks||[];
+      var isFirstDecl = d.declarationId !== prevDeclId;
+      prevDeclId = d.declarationId;
+      trucks.forEach(function(t, ti) {
+        rowN++;
+        var da = t.approvedAmountDA||0;
+        var daReal = t.actualRefillCostDA||0;
+        var stops = (t.extraStops||[]).filter(function(s){return s.name;});
+        var fullRoute = stops.map(function(s){return s.name;}).join(' → ');
+        if (t.destination) fullRoute = (fullRoute?fullRoute+' → ':'')+t.destination;
 
-          <!-- Filters bar -->
-          <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;padding:12px;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border);">
-            <input type="text" placeholder="🔍 Camion" value="${f.truck||''}" oninput="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.truck=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;width:110px;">
-            <input type="text" placeholder="💳 Carte" value="${f.card||''}" oninput="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.card=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;width:110px;">
-            <input type="text" placeholder="⛽ Station" value="${f.station||''}" oninput="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.station=this.value" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;width:110px;">
-            <select onchange="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.status=this.value" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;">
-              <option value="all">Tous</option>
-              <option value="completed" ${f.status==='completed'?'selected':''}>✅ OK</option>
-              <option value="flagged" ${f.status==='flagged'?'selected':''}>🚩 Signalé</option>
-              <option value="waiting" ${f.status==='waiting'?'selected':''}>⏳ Attente</option>
-            </select>
-            <input type="date" value="${f.from||''}" onchange="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.from=this.value" style="padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;">
-            <span style="line-height:30px;color:var(--text-muted);font-size:11px;">→</span>
-            <input type="date" value="${f.to||''}" onchange="ui._naftalHistFilters=ui._naftalHistFilters||{};ui._naftalHistFilters.to=this.value" style="padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);font-size:11px;">
-            <button onclick="ui._naftalHistPage=1;ui.renderNaftalHistorique()" style="padding:6px 14px;border-radius:6px;background:var(--primary);border:none;color:#fff;font-weight:700;cursor:pointer;font-size:11px;"><i class="fa-solid fa-search"></i> Filtrer</button>
-            <button onclick="ui._naftalHistFilters={};ui._naftalHistPage=1;ui.renderNaftalHistorique()" style="padding:6px 10px;border-radius:6px;background:var(--bg-surface);border:1px solid var(--border);color:var(--text-muted);cursor:pointer;font-size:11px;" title="Réinitialiser"><i class="fa-solid fa-rotate-left"></i></button>
-          </div>
+        var refillBadge = t.refillStatus==='completed'
+          ? '<span style="background:#dcfce7;color:#15803d;font-size:10px;padding:2px 7px;border-radius:12px;font-weight:700;white-space:nowrap;">✓ Ravitaillé</span>'
+          : t.refillStatus==='flagged'
+          ? '<span style="background:#fee2e2;color:#dc2626;font-size:10px;padding:2px 7px;border-radius:12px;font-weight:700;white-space:nowrap;">⚑ Flagged</span>'
+          : t.refillStatus==='in_progress'
+          ? '<span style="background:#dbeafe;color:#1d4ed8;font-size:10px;padding:2px 7px;border-radius:12px;font-weight:700;white-space:nowrap;">⟳ En cours</span>'
+          : '<span style="color:#94a3b8;font-size:12px;">—</span>';
 
-          <!-- TABLE -->
-          <div style="overflow-x:auto;">
+        // Location cell
+        var sn = t.refillStationName||''; var slat=t.refillStationLat; var slng=t.refillStationLng;
+        var isInt=t.isRefillInternal; var dt=t.refillDetectedAt;
+        var dtStr=dt?new Date(dt).toLocaleString('fr-DZ',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+        var locCell;
+        if(slat&&slng){
+          var gmUrl='https://www.google.com/maps?q='+slat+','+slng;
+          var locLabel=sn&&sn!=='Station Externe'?sn:(slat.toFixed(4)+', '+slng.toFixed(4));
+          locCell='<a href="'+gmUrl+'" target="_blank" rel="noopener" data-lat="'+slat+'" data-lng="'+slng
+            +'" style="color:#0284c7;text-decoration:none;font-size:11px;display:flex;align-items:center;gap:4px;white-space:nowrap;">'
+            +'<i class="fa-solid fa-location-dot" style="color:'+(isInt?'#d97706':'#ef4444')+';font-size:12px;"></i>'
+            +'<span class="nv5-geo-label" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;">'+locLabel+'</span>'
+            +'</a>'
+            +(isInt?'<span style="background:#fef3c7;color:#d97706;font-size:9px;padding:1px 5px;border-radius:8px;font-weight:700;margin-left:2px;">⚠ Interne</span>':'')
+            +(dtStr?'<div style="font-size:9px;color:#94a3b8;margin-top:1px;">'+dtStr+'</div>':'');
+        } else {
+          locCell='<span style="color:#cbd5e1;font-size:12px;">—</span>';
+        }
 
-            <table class="naftal-recap-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Déclaration</th>
-                  <th>Camion</th>
-                  <th>Carte Naftal</th>
-                  <th>Immatriculation</th>
-                  <th>Destination</th>
-                  <th>Station</th>
-                  <th>Approuvé (L)</th>
-                  <th>Réel (L)</th>
-                  <th>Approuvé (DA)</th>
-                  <th>Réel (DA)</th>
-                  <th>Écart</th>
-                  <th>Status</th>
-                  <th style="width:36px;"></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${paged.length === 0 ? '<tr><td colspan="13" style="text-align:center;color:var(--text-muted);padding:30px;">Aucun ravitaillement trouvé</td></tr>' : 
-                  paged.map(r => {
-                    const date = r.refillDetectedAt ? new Date(r.refillDetectedAt).toLocaleString('fr-DZ', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : (r.declCreatedAt ? new Date(r.declCreatedAt).toLocaleDateString('fr-DZ') : '—');
-                    const devColor = r.isFlagged ? 'var(--danger)' : r.deviationPercent != null ? 'var(--success)' : 'var(--text-muted)';
-                    const statusBadge = r.refillStatus === 'completed' ? '<span class="naftal-status-badge completed"><i class="fa-solid fa-check"></i> OK</span>'
-                      : r.refillStatus === 'flagged' ? '<span class="naftal-status-badge flagged"><i class="fa-solid fa-flag"></i> Signalé</span>'
-                      : r.refillStatus === 'waiting' ? '<span class="naftal-status-badge waiting"><i class="fa-solid fa-hourglass-half"></i> Attente</span>'
-                      : '<span class="naftal-status-badge waiting"><i class="fa-solid fa-spinner"></i> En cours</span>';
-                    return `<tr style="${r.isFlagged ? 'background:rgba(239,68,68,0.04);' : ''}">
-                      <td style="white-space:nowrap;font-size:11px;">${date}</td>
-                      <td><span style="font-size:10px;background:var(--bg-elevated);padding:2px 6px;border-radius:4px;">${r.declarationId || '—'}</span></td>
-                      <td><strong>${r.truckName || '—'}</strong></td>
-                      <td><i class="fa-solid fa-credit-card" style="color:var(--info);"></i> ${r.carteNaftal || '—'}</td>
-                      <td style="font-size:11px;">${r.immatriculation || '—'}</td>
-                      <td>${r.destination || '—'}</td>
-                                             <td style="white-space:nowrap;">${r.refillStationLat && r.refillStationLng ? `<a onclick="ui._naftalOpenStation(${r.refillStationLat},${r.refillStationLng},'${(r.refillStationName||'Station').replace(/'/g,"\\'")}');return false;" style="cursor:pointer;color:var(--warning);text-decoration:none;white-space:nowrap;" title="Voir sur la carte"><i class="fa-solid fa-gas-pump"></i> ${r.refillStationName||'—'} <i class="fa-solid fa-up-right-from-square" style="font-size:9px;opacity:0.6;"></i></a>` : `<span style="color:var(--text-muted);">${r.refillStationName||'—'}</span>`}</td>
-                      <td style="font-weight:700;">${r.approvedLiters != null ? r.approvedLiters + ' L' : '—'}</td>
-                      <td style="font-weight:700;color:${devColor};">${r.actualRefillLiters != null ? r.actualRefillLiters + ' L' : '—'}</td>
-                      <td>${r.approvedAmountDA != null ? r.approvedAmountDA.toLocaleString() + ' DA' : '—'}</td>
-                      <td style="color:${devColor};">${r.actualRefillCostDA != null ? r.actualRefillCostDA.toLocaleString() + ' DA' : '—'}</td>
-                      <td>${r.deviationPercent != null ? '<span class="naftal-deviation-badge ' + (r.isFlagged ? 'flagged' : 'ok') + '">' + r.deviationPercent + '%</span>' : '—'}</td>
-                      <td>${statusBadge}</td>
-                      <td style="text-align:center;">${this._naftalDelBtn(r)}</td>
-                     </tr>`;
-                  }).join('')}
-              </tbody>
-            </table>
-          </div>
+        var declInfo = ti===0
+          ? '<div style="font-size:10px;color:#475569;font-weight:600;">'+this._naftalFormatDate(d.createdAt)+'</div>'
+            +'<span style="background:#dbeafe;color:#1d4ed8;padding:1px 7px;border-radius:4px;font-size:10px;font-weight:800;font-family:monospace;">'+d.declarationId+'</span>'
+            +(hasMod?'<div style="margin-top:3px;"><span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;">⏳ Modif.</span></div>':'')
+          : '<div style="font-size:9px;color:#94a3b8;padding-left:8px;border-left:2px solid #e2e8f0;">↳ suite</div>';
 
-          <!-- PAGINATION -->
-          ${totalPages > 1 ? `
-            <div style="display:flex;justify-content:center;gap:6px;margin-top:14px;">
-              ${page > 1 ? `<button onclick="ui._naftalHistPage=${page-1};ui.renderNaftalHistorique()" style="padding:6px 12px;border-radius:6px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;font-size:12px;">← Préc</button>` : ''}
-              <span style="padding:6px 12px;font-size:12px;color:var(--text-muted);">Page ${page}/${totalPages}</span>
-              ${page < totalPages ? `<button onclick="ui._naftalHistPage=${page+1};ui.renderNaftalHistorique()" style="padding:6px 12px;border-radius:6px;background:var(--bg-elevated);border:1px solid var(--border);color:var(--text-primary);cursor:pointer;font-size:12px;">Suiv →</button>` : ''}
-            </div>
-          ` : ''}
-        </div>
-      `;
-    } catch (e) {
-      vc.innerHTML = `<div style="color:var(--danger);padding:20px;">Erreur: ${e.message}</div>`;
+        // Stronger visual group separator: top border when first truck of a new declaration
+        var rowTopBorder = (ti===0 && rowN>1) ? 'border-top:2px solid #94a3b8;' : '';
+        var removed = t.isRemoved;
+        var rowBg = removed ? '#fafafa' : (ti%2===0 ? '#ffffff' : '#f8fafc');
+
+        html += '<tr style="background:'+rowBg+';border-bottom:1px solid #e2e8f0;'+rowTopBorder+(removed?'opacity:0.5;':'')+'">'+
+          '<td style="padding:9px 12px;vertical-align:top;min-width:130px;">'+declInfo+'</td>'+
+          '<td style="padding:9px 12px;vertical-align:top;white-space:nowrap;">'+(ti===0?this._naftalFormatStatus(d.status):'')+'</td>'+
+          '<td style="padding:9px 12px;font-weight:700;color:'+(removed?'#94a3b8':'#111827')+';white-space:nowrap;'+(removed?'text-decoration:line-through;':'')+'">'+
+            (t.truckName||'—')+'<div style="font-size:9px;color:#6b7280;font-weight:400;">'+(t.immatriculation||'')+'</div></td>'+
+          '<td style="padding:9px 12px;color:#0369a1;font-weight:700;font-family:monospace;font-size:12px;">'+(t.carteNaftal||'—')+'</td>'+
+          '<td style="padding:9px 12px;font-size:11px;color:#374151;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(t.currentLocation||'—')+'</td>'+
+          '<td style="padding:9px 12px;font-size:11px;color:#374151;max-width:180px;">'+(fullRoute||'—')+'</td>'+
+          '<td style="padding:9px 12px;text-align:right;font-weight:700;color:#0369a1;white-space:nowrap;font-size:12px;">'+(da?Math.round(da).toLocaleString('fr-DZ')+' DA':'—')+'</td>'+
+          '<td style="padding:9px 12px;text-align:right;white-space:nowrap;font-size:12px;"><div style="font-weight:700;color:'+(daReal>da&&da>0?'#dc2626':'#15803d')+';">'+(daReal?Math.round(daReal).toLocaleString('fr-DZ')+' DA':'—')+'</div>'
+            +(daReal&&da>0?'<div style="font-size:9px;color:'+(daReal>da?'#dc2626':'#15803d')+';">'+(daReal>da?'+':'')+Math.round((daReal-da)/da*100)+'%</div>':'')+'</td>'+
+          '<td style="padding:9px 12px;text-align:center;">'+refillBadge+'</td>'+
+          '<td style="padding:9px 12px;min-width:130px;">'+locCell+'</td>'+
+          '<td style="padding:9px 12px;white-space:nowrap;">'+
+            (ti===0?'<button onclick="ui.naftalToggleSignal(\''+d.declarationId+'\',this)" style="background:'+(d.isSignaled?'#fee2e2':'#f1f5f9')+';border:1.5px solid '+(d.isSignaled?'#fca5a5':'#d1d5db')+';color:'+(d.isSignaled?'#dc2626':'#6b7280')+';padding:4px 9px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;" title="Signaler/Désignaler"><i class="fa-solid fa-flag"></i></button>':'')+
+            (d.status==='cancelled'&&ti===0?'<button onclick="ui.naftalReopenDeclaration(\''+d.declarationId+'\',this)" style="background:#eff6ff;border:1.5px solid #93c5fd;color:#1d4ed8;padding:4px 9px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-left:4px;">Rouvrir</button>':'')
+          +'</td>'+
+        '</tr>';
+      }.bind(this));
+    }.bind(this));
+    html += '</tbody></table></div>';
+    html += '<div style="font-size:11px;color:#475569;margin-top:10px;text-align:right;font-weight:600;">'+rowN+' camion(s) dans '+decls.length+' déclaration(s)</div>';
+    el.innerHTML = html;
+    setTimeout(function(){if(window.ui)ui._naftalGeocodeTableLocations(el);}, 200);
+  }
+
+  // ── HISTORIQUE TAB (global) ────────────────────────────────────────────────
+
+  async renderNaftalHistorique(body) {
+    if (!body) return;
+    var self = this;
+    var filterHtml =
+      '<h3 style="margin:0 0 14px;color:#1e293b;font-size:15px;"><i class="fa-solid fa-clock-rotate-left" style="color:#6d28d9;"></i> Historique Global</h3>' +
+      '<div class="nv5-filters" style="gap:8px;flex-wrap:wrap;">' +
+        '<select class="nv5-sel" id="hf_status" onchange="ui._naftalLoadHistorique()">' +
+          '<option value="transport_validated,gestionnaire_validated,in_progress,completed">Actives + Terminées</option>' +
+          '<option value="">Tous statuts</option>' +
+          '<option value="transport_validated">Att. gestionnaire</option>' +
+          '<option value="gestionnaire_validated">Approuvées</option>' +
+          '<option value="in_progress">En cours</option>' +
+          '<option value="completed">Terminées</option>' +
+          '<option value="cancelled">Annulées</option>' +
+        '</select>' +
+        '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#475569;background:#fef3c7;padding:5px 10px;border-radius:20px;border:1.5px solid #f59e0b;">' +
+          '<input type="checkbox" id="hf_show_cancelled" onchange="ui._naftalLoadHistorique()" style="accent-color:#f59e0b;"> 🗑️ Annulées' +
+        '</label>' +
+        '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#475569;background:#ede9fe;padding:5px 10px;border-radius:20px;border:1.5px solid #7c3aed;">' +
+          '<input type="checkbox" id="hf_show_modif" onchange="ui._naftalLoadHistorique()" style="accent-color:#7c3aed;"> 🔄 Avec demande modif.' +
+        '</label>' +
+        '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;color:#475569;background:#fee2e2;padding:5px 10px;border-radius:20px;border:1.5px solid #ef4444;">' +
+          '<input type="checkbox" id="hf_show_flagged" onchange="ui._naftalLoadHistorique()" style="accent-color:#ef4444;"> 🚩 Signalées' +
+        '</label>' +
+        '<input type="text" class="nv5-sel" id="hf_truck" placeholder="🔍 Camion..." style="width:120px;" oninput="clearTimeout(ui._hT2);ui._hT2=setTimeout(function(){ui._naftalLoadHistorique();},400);">' +
+        '<input type="date" class="nv5-sel" id="hf_from" onchange="ui._naftalLoadHistorique()" title="Depuis" style="width:140px;">  ' +
+        '<input type="date" class="nv5-sel" id="hf_to" onchange="ui._naftalLoadHistorique()" title="Jusqu\'au" style="width:140px;">  ' +
+        '<input type="text" class="nv5-sel" id="hf_carte" placeholder="💳 Carte Naftal..." style="width:130px;" oninput="clearTimeout(ui._hT3);ui._hT3=setTimeout(function(){ui._naftalLoadHistorique();},400);">  ' +
+        '<button onclick="ui._naftalLoadHistorique()" class="nv5-btn nv5-btn-primary" style="padding:7px 14px;"><i class="fa-solid fa-filter"></i> Filtrer</button>' +
+        '<button onclick="ui._naftalHistReset()" class="nv5-btn nv5-btn-ghost" style="padding:7px 12px;font-size:11px;">✕ Reset</button>' +
+        '<button onclick="ui.naftalExportCSV()" class="nv5-btn nv5-btn-ghost" style="padding:7px 14px;"><i class="fa-solid fa-file-excel"></i> Excel</button>' +
+      '</div>' +
+      '<div id="nv5HistContent">Chargement...</div>';
+    body.innerHTML = filterHtml;
+    // Default date range: yesterday → today
+    var _today = new Date(); var _yest = new Date(_today);
+    _yest.setDate(_yest.getDate() - 1);
+    var _fmt = function(d){return d.toISOString().slice(0,10);};
+    var _fromEl = document.getElementById('hf_from'); var _toEl = document.getElementById('hf_to');
+    if (_fromEl && !_fromEl.value) _fromEl.value = _fmt(_yest);
+    if (_toEl && !_toEl.value) _toEl.value = _fmt(_today);
+    this._naftalLoadHistorique();
+  }
+
+  _naftalHistReset() {
+    var s = document.getElementById('hf_status');
+    if (s) s.value = 'transport_validated,gestionnaire_validated,in_progress,completed';
+    ['hf_show_cancelled','hf_show_modif','hf_show_flagged','hf_truck','hf_carte'].forEach(function(id){
+      var e = document.getElementById(id);
+      if (e) { if (e.type==='checkbox') e.checked=false; else e.value=''; }
+    });
+    // Restore yesterday → today defaults
+    var today = new Date(); var yest = new Date(today);
+    yest.setDate(yest.getDate()-1);
+    var fmt = function(d){return d.toISOString().slice(0,10);};
+    var f = document.getElementById('hf_from'); var t = document.getElementById('hf_to');
+    if (f) f.value = fmt(yest);
+    if (t) t.value = fmt(today);
+    this._naftalLoadHistorique();
+  }
+
+    async _naftalLoadHistorique() {
+    var el = document.getElementById('nv5HistContent');
+    if (!el) return;
+    el.innerHTML='<div style="text-align:center;padding:20px;color:#64748b;">Chargement...</div>';
+    var status = (document.getElementById('hf_status')||{}).value||'transport_validated,gestionnaire_validated,in_progress,completed';
+    var showCancelled = (document.getElementById('hf_show_cancelled')||{}).checked;
+    var showModif = (document.getElementById('hf_show_modif')||{}).checked;
+    var showFlagged = (document.getElementById('hf_show_flagged')||{}).checked;
+    var truck = (document.getElementById('hf_truck')||{}).value||'';
+    var from = (document.getElementById('hf_from')||{}).value||'';
+    var to = (document.getElementById('hf_to')||{}).value||'';
+    var qs = new URLSearchParams({limit:'500'});
+    var statusList = status ? status.split(',') : ['transport_validated','gestionnaire_validated','in_progress','completed'];
+    if (showCancelled && !statusList.includes('cancelled')) statusList.push('cancelled');
+    if (showFlagged && !statusList.includes('cancelled')) statusList.push('cancelled'); // flagged trucks can be in cancelled decls
+    qs.set('status', statusList.join(','));
+    if (showModif) qs.set('modReqStatus','pending,approved,refused');
+    if (showFlagged) qs.set('isSignaled','true');
+    if (truck) qs.set('truckName',truck);
+    if (from) qs.set('from',from);
+    if (to) qs.set('to',to);
+    try {
+      var r = await fetch('/api/naftal/declarations?'+qs.toString());
+      var decls = r.ok ? await r.json() : [];
+      this._naftalRenderHistTable(el, decls);
+    } catch(e){el.innerHTML='<div style="color:#ef4444;padding:20px;">Erreur: '+e.message+'</div>';}
+  }
+
+  _naftalRenderHistTable(el, decls) {
+    if (!decls.length) {
+      el.innerHTML = '<div style="text-align:center;padding:50px 20px;color:#94a3b8;">' +
+        '<i class="fa-solid fa-inbox" style="font-size:36px;opacity:0.35;display:block;margin-bottom:12px;"></i>' +
+        '<div style="font-size:14px;font-weight:600;">Aucune donnée trouvée</div>' +
+        '<div style="font-size:12px;margin-top:4px;">Essayez d\'élargir la période ou les filtres</div>' +
+        '</div>';
+      return;
+    }
+
+    var statusMeta = {
+      completed:              { bg:'#f0fdf4', border:'#86efac', color:'#16a34a', icon:'fa-circle-check',  label:'Terminé' },
+      gestionnaire_validated: { bg:'#eff6ff', border:'#93c5fd', color:'#2563eb', icon:'fa-check-double',  label:'Approuvé' },
+      transport_validated:    { bg:'#fffbeb', border:'#fcd34d', color:'#d97706', icon:'fa-clock',         label:'En attente gest.' },
+      in_progress:            { bg:'#f0f9ff', border:'#7dd3fc', color:'#0284c7', icon:'fa-spinner',       label:'En cours' },
+      cancelled:              { bg:'#fafafa', border:'#e2e8f0', color:'#94a3b8', icon:'fa-ban',           label:'Annulé' },
+      flagged:                { bg:'#fff1f2', border:'#fca5a5', color:'#ef4444', icon:'fa-triangle-exclamation', label:'Anomalie' }
+    };
+
+    var html = '<div style="display:flex;flex-direction:column;gap:14px;">';
+
+    decls.forEach(function(d) {
+      var sm = statusMeta[d.status] || statusMeta['in_progress'];
+      var trucks = (d.trucks||[]);
+      var totalDA = trucks.reduce(function(s,t){return s+(t.approvedAmountDA||0);},0);
+      var totalReal = trucks.reduce(function(s,t){return s+(t.actualRefillCostDA||0);},0);
+      var totalLiters = trucks.reduce(function(s,t){return s+(t.actualRefillLiters||t.approvedLiters||0);},0);
+      var hasFlag = trucks.some(function(t){return t.isFlagged||t.refillStatus==='flagged';});
+      var hasRemoved = trucks.some(function(t){return t.isRemoved;});
+      var activeTrucks = trucks.filter(function(t){return !t.isRemoved;});
+
+      // ── Declaration card ──────────────────────────────────────────────────
+      html += '<div style="background:#fff;border:1.5px solid '+sm.border+';border-radius:14px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.05);">';
+
+      // Card header
+      html += '<div style="background:'+sm.bg+';padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-bottom:1.5px solid '+sm.border+';">' +
+        '<div style="display:flex;align-items:center;gap:10px;">' +
+          '<div style="width:34px;height:34px;border-radius:8px;background:'+sm.color+'22;display:flex;align-items:center;justify-content:center;">' +
+            '<i class="fa-solid '+sm.icon+'" style="color:'+sm.color+';font-size:14px;"></i>' +
+          '</div>' +
+          '<div>' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+              '<span style="font-weight:900;color:#1e293b;font-family:monospace;font-size:13px;">'+(d.declarationId||'—')+'</span>' +
+              '<span style="background:'+sm.color+';color:#fff;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;">'+(hasFlag?'⚑ ':'')+sm.label+'</span>' +
+              (d.isSignaled ? '<span style="background:#fee2e2;color:#ef4444;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;"><i class="fa-solid fa-flag"></i> Signalé</span>' : '') +
+              (hasRemoved ? '<span style="background:#f3f4f6;color:#6b7280;font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;">🚫 Retrait partiel</span>' : '') +
+            '</div>' +
+            '<div style="font-size:11px;color:#64748b;margin-top:2px;">' +
+              '<i class="fa-regular fa-calendar" style="margin-right:4px;"></i>'+this._naftalFormatDate(d.createdAt) +
+              '&nbsp;·&nbsp;<i class="fa-solid fa-truck" style="margin-right:3px;"></i>'+activeTrucks.length+' camion'+(activeTrucks.length>1?'s':'') +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:16px;text-align:right;">' +
+          (totalDA ? '<div><div style="font-size:15px;font-weight:900;color:#0284c7;">'+Math.round(totalDA).toLocaleString('fr-DZ')+' DA</div><div style="font-size:10px;color:#64748b;">DA Approuvé</div></div>' : '') +
+          (totalReal ? '<div><div style="font-size:15px;font-weight:900;color:'+(totalReal>totalDA&&totalDA>0?'#ef4444':'#16a34a')+';">'+Math.round(totalReal).toLocaleString('fr-DZ')+' DA</div><div style="font-size:10px;color:#64748b;">DA Réel</div></div>' : '') +
+          (totalLiters ? '<div><div style="font-size:15px;font-weight:900;color:#8b5cf6;">'+Math.round(totalLiters)+' L</div><div style="font-size:10px;color:#64748b;">Litres</div></div>' : '') +
+        '</div>' +
+      '</div>';
+
+      // Truck rows
+      html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
+        '<thead><tr style="background:#f8fafc;">' +
+          '<th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Camion</th>' +
+          '<th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Carte</th>' +
+          '<th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Itinéraire</th>' +
+          '<th style="padding:8px 14px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">DA Approuvé</th>' +
+          '<th style="padding:8px 14px;text-align:right;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">DA Réel</th>' +
+          '<th style="padding:8px 14px;text-align:center;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Refill</th>' +
+          '<th style="padding:8px 14px;text-align:left;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">📍 Lieu</th>' +
+        '</tr></thead><tbody>';
+
+      trucks.forEach(function(t, ti) {
+        var stops = (t.extraStops||[]).filter(function(s){return s.name;});
+        var itin = stops.map(function(s){return s.name;}).join(' → ');
+        if (t.destination) itin = (itin ? itin + ' → ' : '') + t.destination;
+        var da = t.approvedAmountDA || 0;
+        var daReal = t.actualRefillCostDA || 0;
+        var deviation = da > 0 && daReal > 0 ? Math.round((daReal - da) / da * 100) : null;
+
+        var refillBadge;
+        if (t.isRemoved) {
+          refillBadge = '<span style="background:#f3f4f6;color:#9ca3af;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;">🚫 Retiré</span>';
+        } else if (t.refillStatus === 'completed') {
+          refillBadge = '<span style="background:#dcfce7;color:#16a34a;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;">✓ Fait</span>';
+        } else if (t.refillStatus === 'flagged') {
+          refillBadge = '<span style="background:#fee2e2;color:#ef4444;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;">⚑ Flagged</span>';
+        } else if (t.refillStatus === 'in_progress') {
+          refillBadge = '<span style="background:#dbeafe;color:#2563eb;font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;">⟳ En cours</span>';
+        } else {
+          refillBadge = '<span style="color:#94a3b8;font-size:12px;">—</span>';
+        }
+
+        var rowBg = t.isRemoved ? '#fafafa' : (ti % 2 === 0 ? '#fff' : '#f8fafc');
+        var textOp = t.isRemoved ? 'opacity:0.5;' : '';
+
+        // Location cell
+        var sn = t.refillStationName || '';
+        var slat = t.refillStationLat, slng = t.refillStationLng;
+        var isInt = t.isRefillInternal;
+        var dt = t.refillDetectedAt;
+        var dtStr = dt ? new Date(dt).toLocaleString('fr-DZ',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+        var locCell;
+        if (slat && slng) {
+          var gmUrl = 'https://www.google.com/maps?q='+slat+','+slng;
+          var locLabel = sn && sn !== 'Station Externe' ? sn : (slat.toFixed(4)+', '+slng.toFixed(4));
+          locCell = '<a href="'+gmUrl+'" target="_blank" rel="noopener" data-lat="'+slat+'" data-lng="'+slng+'"' +
+            ' title="GPS: '+slat.toFixed(6)+', '+slng.toFixed(6)+(dtStr?' — '+dtStr:'')+'"' +
+            ' style="color:#0284c7;text-decoration:none;font-size:11px;display:flex;align-items:center;gap:4px;">' +
+            '<i class="fa-solid fa-location-dot" style="color:'+(isInt?'#d97706':'#ef4444')+';font-size:12px;flex-shrink:0;"></i>' +
+            '<span class="nv5-geo-label" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">'+locLabel+'</span></a>' +
+            (isInt ? '<span style="background:#fef3c7;color:#d97706;font-size:9px;padding:1px 5px;border-radius:8px;font-weight:700;">⚠️ Int.</span>' : '') +
+            (dtStr ? '<div style="font-size:9px;color:#94a3b8;margin-top:1px;">'+dtStr+'</div>' : '');
+        } else {
+          locCell = '<span style="color:#cbd5e1;font-size:12px;">—</span>';
+        }
+
+        html += '<tr style="background:'+rowBg+';border-bottom:1px solid #f1f5f9;'+textOp+'">' +
+          '<td style="padding:9px 14px;white-space:nowrap;">' +
+            '<div style="font-weight:700;color:'+(t.isRemoved?'#94a3b8':'#1e293b')+';font-size:12px;'+(t.isRemoved?'text-decoration:line-through;':'')+'">'+(t.truckName||t.deviceId||'—')+'</div>' +
+            (t.immatriculation ? '<div style="font-size:9px;color:#94a3b8;">'+t.immatriculation+'</div>' : '') +
+          '</td>' +
+          '<td style="padding:9px 14px;font-weight:700;color:#0369a1;font-family:monospace;font-size:11px;white-space:nowrap;">'+(t.carteNaftal||'—')+'</td>' +
+          '<td style="padding:9px 14px;font-size:11px;color:#475569;max-width:200px;">'+(itin||'<span style="color:#cbd5e1;">—</span>')+'</td>' +
+          '<td style="padding:9px 14px;text-align:right;font-weight:700;color:#0284c7;white-space:nowrap;">'+(da?Math.round(da).toLocaleString('fr-DZ')+' DA':'<span style="color:#cbd5e1;">—</span>')+'</td>' +
+          '<td style="padding:9px 14px;text-align:right;white-space:nowrap;">' +
+            (daReal ? '<div style="font-weight:700;color:'+(daReal>da&&da>0?'#ef4444':'#16a34a')+';">'+Math.round(daReal).toLocaleString('fr-DZ')+' DA</div>' : '<span style="color:#cbd5e1;">—</span>') +
+            (deviation !== null ? '<div style="font-size:9px;color:'+(deviation>0?'#ef4444':'#16a34a')+';font-weight:700;">'+(deviation>0?'+':'')+deviation+'%</div>' : '') +
+          '</td>' +
+          '<td style="padding:9px 14px;text-align:center;">'+refillBadge+'</td>' +
+          '<td style="padding:9px 14px;">'+locCell+'</td>' +
+        '</tr>';
+      }.bind(this));
+
+      html += '</tbody></table></div>';
+
+      // Modification log (collapsed, if any)
+      if (d.modificationLog && d.modificationLog.length) {
+        html += '<div style="padding:8px 16px;background:#fffbeb;border-top:1px solid #fde68a;font-size:10px;color:#92400e;display:flex;align-items:flex-start;gap:6px;">' +
+          '<i class="fa-solid fa-clock-rotate-left" style="margin-top:1px;flex-shrink:0;"></i>' +
+          '<div>' + d.modificationLog.slice(-3).map(function(l){
+            return '<span style="font-weight:700;">['+l.by+']</span> '+l.detail;
+          }).join('&nbsp;·&nbsp;') + '</div>' +
+        '</div>';
+      }
+
+      html += '</div>'; // end card
+    }.bind(this));
+
+    html += '</div>'; // end list
+    html += '<div style="font-size:11px;color:#94a3b8;margin-top:12px;text-align:right;padding:0 4px;">' +
+      decls.reduce(function(s,d){return s+(d.trucks||[]).length;},0)+' camion(s) dans '+decls.length+' déclaration(s)</div>';
+
+    el.innerHTML = html;
+    setTimeout(function(){if(window.ui)ui._naftalGeocodeTableLocations(el);}, 150);
+  }
+
+    // ── ANALYSE TAB ────────────────────────────────────────────────────────────
+
+  async renderNaftalAnalyse(body) {
+    if (!body) return;
+    body.innerHTML =
+      '<h3 style="margin:0 0 14px;color:#1e293b;font-size:15px;"><i class="fa-solid fa-chart-pie" style="color:#0284c7;"></i> Analyse & Statistiques</h3>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">' +
+        '<button onclick="ui._naftalLoadAnalytics(\'7d\')" class="nv5-btn nv5-btn-ghost" id="anp_7d" style="padding:6px 14px;">7j</button>' +
+        '<button onclick="ui._naftalLoadAnalytics(\'30d\')" class="nv5-btn nv5-btn-primary" id="anp_30d" style="padding:6px 14px;">30j</button>' +
+        '<button onclick="ui._naftalLoadAnalytics(\'3m\')" class="nv5-btn nv5-btn-ghost" id="anp_3m" style="padding:6px 14px;">3 mois</button>' +
+        '<button onclick="ui._naftalLoadAnalytics(\'12m\')" class="nv5-btn nv5-btn-ghost" id="anp_12m" style="padding:6px 14px;">12 mois</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;padding:8px 0;border-bottom:1px solid #e2e8f0;">' +
+        '<button onclick="ui._naftalAnalyseSubTab(\'charts\')" id="asub_charts" style="padding:7px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:#0284c7;color:#fff;">📊 Graphiques</button>' +
+        '<button onclick="ui._naftalAnalyseSubTab(\'trucks\')" id="asub_trucks" style="padding:7px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:#f1f5f9;color:#64748b;">🚛 Par Camion</button>' +
+        '<button onclick="ui._naftalAnalyseSubTab(\'cards\')" id="asub_cards" style="padding:7px 16px;border-radius:20px;border:none;cursor:pointer;font-size:12px;font-weight:700;background:#f1f5f9;color:#64748b;">💳 Par Carte</button>' +
+      '</div>' +
+      '<div id="nv5AnalyseContent"><div style="text-align:center;padding:30px;color:#64748b;">Chargement...</div></div>';
+    this._naftalCurrentAnalysePeriod = '30d';
+    this._naftalCurrentAnalyseTab = 'charts';
+    this._naftalLoadAnalytics('30d');
+  }
+
+  _naftalAnalyseSubTab(tab) {
+    this._naftalCurrentAnalyseTab = tab;
+    ['charts','trucks','cards'].forEach(function(t) {
+      var btn = document.getElementById('asub_'+t);
+      if (btn) {
+        btn.style.background = t===tab?'#0284c7':'#f1f5f9';
+        btn.style.color = t===tab?'#fff':'#64748b';
+      }
+    });
+    this._naftalLoadAnalytics(this._naftalCurrentAnalysePeriod||'30d');
+  }
+
+  async _naftalLoadAnalytics(period) {
+    this._naftalCurrentAnalysePeriod = period;
+    ['7d','30d','3m','12m'].forEach(function(p) {
+      var btn = document.getElementById('anp_'+p);
+      if (btn) { btn.className = 'nv5-btn '+(p===period?'nv5-btn-primary':'nv5-btn-ghost'); btn.style.padding='6px 14px'; }
+    });
+    var el = document.getElementById('nv5AnalyseContent');
+    if (!el) return;
+    el.innerHTML = '<div style="text-align:center;padding:30px;color:#64748b;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</div>';
+    var tab = this._naftalCurrentAnalyseTab || 'charts';
+    try {
+      var r = await fetch('/api/naftal/analytics?period='+period);
+      var data = r.ok ? await r.json() : {};
+      if (tab === 'charts') this._naftalRenderAnalytics(el, data, period);
+      else if (tab === 'trucks') this._naftalRenderTruckStatsTable(el, data, period);
+      else if (tab === 'cards') this._naftalRenderCardStatsTable(el, data, period);
+    } catch(e){el.innerHTML='<div style="color:#ef4444;padding:20px;">Erreur: '+e.message+'</div>';}
+  }
+
+  _naftalRenderAnalytics(el, data, period) {
+    var totalApp = data.totalDAApproved||0;
+    var totalReal = data.totalDAActual||0;
+    var savings = totalApp - totalReal;
+    var conformRate = totalApp>0?Math.round((1-Math.abs(savings)/totalApp)*100):0;
+    var self = this;
+
+    var kpiHtml =
+      '<div class="nv5-kpi" style="margin-bottom:16px;">' +
+        '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border-color:#7dd3fc;">' +
+          '<div style="font-size:18px;font-weight:900;color:#0284c7;">'+(Math.round(totalApp/1000))+'k DA</div>' +
+          '<div style="font-size:11px;color:#075985;font-weight:600;margin-top:2px;">DA Approuvé</div></div>' +
+        '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-color:#86efac;">' +
+          '<div style="font-size:18px;font-weight:900;color:#16a34a;">'+(Math.round(totalReal/1000))+'k DA</div>' +
+          '<div style="font-size:11px;color:#166534;font-weight:600;margin-top:2px;">DA Réel</div></div>' +
+        '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,'+(savings>=0?'#f0fdf4,#dcfce7':'#fff1f2,#ffe4e6')+');border-color:'+(savings>=0?'#86efac':'#fca5a5')+'">' +
+          '<div style="font-size:18px;font-weight:900;color:'+(savings>=0?'#16a34a':'#dc2626')+';">'+(savings>=0?'+':'')+Math.round(savings/1000)+'k DA</div>' +
+          '<div style="font-size:11px;color:'+(savings>=0?'#166534':'#991b1b')+';font-weight:600;margin-top:2px;">'+(savings>=0?'Économies':'Dépassement')+'</div></div>' +
+        '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#fdf4ff,#f3e8ff);border-color:#d8b4fe;">' +
+          '<div style="font-size:18px;font-weight:900;color:#7c3aed;">'+conformRate+'%</div>' +
+          '<div style="font-size:11px;color:#5b21b6;font-weight:600;margin-top:2px;">Conformité</div></div>' +
+        '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border-color:#fcd34d;">' +
+          '<div style="font-size:18px;font-weight:900;color:#d97706;">'+(data.totalDecls||0)+'</div>' +
+          '<div style="font-size:11px;color:#92400e;font-weight:600;margin-top:2px;">Déclarations</div></div>' +
+        '<div class="nv5-kpi-card" style="background:linear-gradient(135deg,#fff1f2,#ffe4e6);border-color:#fca5a5;">' +
+          '<div style="font-size:18px;font-weight:900;color:#dc2626;">'+(data.flaggedCount||0)+'</div>' +
+          '<div style="font-size:11px;color:#991b1b;font-weight:600;margin-top:2px;">Flagged</div></div>' +
+      '</div>';
+
+    var chartsHtml =
+      '<div class="nv5-chart-grid">' +
+        '<div class="nv5-chart-card" style="grid-column:1/-1;">' +
+          '<h4 style="margin:0 0 12px;color:#1e293b;">Déclarations & DA par jour</h4>' +
+          '<canvas id="ch_daily" height="80"></canvas></div>' +
+        '<div class="nv5-chart-card">' +
+          '<h4 style="margin:0 0 12px;color:#1e293b;">Répartition par statut</h4>' +
+          '<canvas id="ch_status" height="160"></canvas></div>' +
+        '<div class="nv5-chart-card">' +
+          '<h4 style="margin:0 0 12px;color:#1e293b;">DA Approuvé vs Réel</h4>' +
+          '<canvas id="ch_dacomp" height="160"></canvas></div>' +
+        '<div class="nv5-chart-card">' +
+          '<h4 style="margin:0 0 12px;color:#1e293b;">Top 10 Camions (DA)</h4>' +
+          '<canvas id="ch_trucks" height="200"></canvas></div>' +
+        '<div class="nv5-chart-card">' +
+          '<h4 style="margin:0 0 12px;color:#1e293b;">Top 10 Destinations</h4>' +
+          '<canvas id="ch_dests" height="200"></canvas></div>' +
+      '</div>';
+
+    el.innerHTML = kpiHtml + chartsHtml;
+
+    // Load Chart.js then render
+    var self2 = this;
+    if (typeof Chart !== 'undefined') {
+      self2._naftalRenderCharts(data);
+    } else {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+      s.onload = function() { self2._naftalRenderCharts(data); };
+      document.head.appendChild(s);
     }
   }
 
-  // --- HTML Bar Charts Builder ---
-  _naftalBuildCharts(stats) {
-    const perTruck = stats.perTruck || {};
-    const perCard  = stats.perCard  || {};
-    const truckNames = Object.keys(perTruck);
-    const cardNames  = Object.keys(perCard);
-    if (truckNames.length === 0 && cardNames.length === 0) {
-      return '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:13px;"><i class="fa-solid fa-chart-bar" style="margin-right:6px;"></i>Aucune donnée graphique disponible</div>';
-    }
 
-    // ── Chart 1: Litres par camion (horizontal bars) ──
-    let truckRows = '';
-    if (truckNames.length > 0) {
-      const maxL = Math.max(...truckNames.map(n => Math.max(perTruck[n].approvedL||0, perTruck[n].actualL||0)), 1);
-      truckRows = truckNames.map(name => {
-        const d = perTruck[name];
-        const pApproved = Math.round(((d.approvedL||0) / maxL) * 100);
-        const pActual   = Math.round(((d.actualL||0)   / maxL) * 100);
-        const hasFlag   = d.flagCount > 0;
-        const barColor  = hasFlag ? '#f87171' : '#4ade80';
-        const actualColor = hasFlag ? '#ef4444' : '#60a5fa';
-        return `
-          <div style="margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-              <span style="font-size:11px;font-weight:700;color:var(--text-primary);">${name}${hasFlag ? ' <span style="color:#f87171;font-size:10px;">🚩×'+d.flagCount+'</span>' : ''}</span>
-              <span style="font-size:10px;color:var(--text-muted);">${d.approvedL||0}L → ${d.actualL||0}L</span>
-            </div>
-            <div style="position:relative;height:16px;background:var(--bg-surface);border-radius:4px;overflow:hidden;">
-              <div style="position:absolute;left:0;top:0;height:50%;width:${pApproved}%;background:${barColor};opacity:0.7;border-radius:2px;transition:width 0.4s;"></div>
-              <div style="position:absolute;left:0;bottom:0;height:50%;width:${pActual}%;background:${actualColor};opacity:0.7;border-radius:2px;transition:width 0.4s;"></div>
-            </div>
-          </div>`;
-      }).join('');
-    }
+  _naftalRenderTruckStatsTable(el, data, period) {
+    var self = this;
+    var days = period==='7d'?7:period==='3m'?90:period==='12m'?365:30;
+    var fromDate = new Date(Date.now() - days*864e5).toISOString().slice(0,10);
+    el.innerHTML = '<div style="text-align:center;padding:20px;color:#64748b;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</div>';
+    fetch('/api/naftal/declarations?from='+fromDate+'&limit=2000')
+    .then(function(r){return r.json();})
+    .then(function(decls) {
+      // Aggregate per truck
+      var tMap = {};
+      decls.forEach(function(d) {
+        (d.trucks||[]).forEach(function(t) {
+          var key = t.truckName||t.deviceId||'?';
+          if (!tMap[key]) tMap[key] = {
+            name:key, immat:t.immatriculation||'', cartes:new Set(), decls:0,
+            daApp:0, daReal:0, litresApp:0, litresReal:0, flagged:0,
+            lastStation:'', lastLat:null, lastLng:null, lastRefillAt:null
+          };
+          var tr = tMap[key];
+          if (t.carteNaftal) tr.cartes.add(t.carteNaftal);
+          tr.decls++;
+          tr.daApp += t.approvedAmountDA||0;
+          tr.daReal += t.actualRefillCostDA||0;
+          tr.litresApp += t.approvedLiters||0;
+          tr.litresReal += t.actualRefillLiters||0;
+          if (t.refillStatus==='flagged'||t.isFlagged) tr.flagged++;
+          if (t.refillDetectedAt && (!tr.lastRefillAt || new Date(t.refillDetectedAt)>new Date(tr.lastRefillAt))) {
+            tr.lastRefillAt = t.refillDetectedAt;
+            tr.lastStation = t.refillStationName||'';
+            tr.lastLat = t.refillStationLat||null;
+            tr.lastLng = t.refillStationLng||null;
+          }
+        });
+      });
+      var trucks = Object.values(tMap).sort(function(a,b){return b.daApp-a.daApp;});
+      var grandDA = trucks.reduce(function(s,t){return s+t.daApp;},0);
+      var tblId = 'trkTbl_'+Date.now();
 
-    // ── Chart 2: DA par carte (horizontal bars) ──
-    let cardRows = '';
-    if (cardNames.length > 0) {
-      const maxDA = Math.max(...cardNames.map(n => Math.max(perCard[n].approvedDA||0, perCard[n].actualDA||0)), 1);
-      cardRows = cardNames.slice(0, 8).map(card => {
-        const d = perCard[card];
-        const pApproved = Math.round(((d.approvedDA||0) / maxDA) * 100);
-        const pActual   = Math.round(((d.actualDA||0)   / maxDA) * 100);
-        const hasFlag   = d.flagCount > 0;
-        return `
-          <div style="margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-              <span style="font-size:10px;font-weight:700;color:var(--text-primary);">${card.length > 14 ? card.slice(0,12)+'…' : card}${hasFlag ? ' 🚩' : ''}</span>
-              <span style="font-size:10px;color:var(--text-muted);">${((d.approvedDA||0)/1000).toFixed(1)}k → ${((d.actualDA||0)/1000).toFixed(1)}k DA</span>
-            </div>
-            <div style="position:relative;height:16px;background:var(--bg-surface);border-radius:4px;overflow:hidden;">
-              <div style="position:absolute;left:0;top:0;height:50%;width:${pApproved}%;background:#4ade80;opacity:0.7;border-radius:2px;"></div>
-              <div style="position:absolute;left:0;bottom:0;height:50%;width:${pActual}%;background:${hasFlag?'#f87171':'#60a5fa'};opacity:0.7;border-radius:2px;"></div>
-            </div>
-          </div>`;
-      }).join('');
-    }
+      // Filter input
+      var filterBar = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">' +
+        '<input id="trkFilter" type="text" placeholder="🔍 Filtrer camion / immat / carte..." style="padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;flex:1;min-width:180px;" oninput="ui._naftalFilterStatsTable(\''+tblId+'\',this.value)">' +
+        '<button onclick="ui._naftalExportRows(ui._naftalGetTableRows(\''+tblId+'\'), \'NAFTAL_Camions_'+period+'\')" style="padding:7px 14px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;"><i class="fa-solid fa-file-excel"></i> Exporter Excel</button>' +
+        '</div>';
 
-    return `
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px;">
-        ${truckNames.length > 0 ? `
-        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
-          <div style="font-size:12px;font-weight:700;margin-bottom:12px;color:var(--text-primary);">
-            <i class="fa-solid fa-truck" style="color:var(--primary);margin-right:6px;"></i>Litres par Camion
-            <span style="font-size:9px;color:var(--text-muted);font-weight:400;margin-left:6px;">▬ approuvé &nbsp; ▬ réel</span>
-          </div>
-          ${truckRows}
-        </div>` : ''}
-        ${cardNames.length > 0 ? `
-        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
-          <div style="font-size:12px;font-weight:700;margin-bottom:12px;color:var(--text-primary);">
-            <i class="fa-solid fa-credit-card" style="color:var(--info);margin-right:6px;"></i>Dépenses par Carte
-            <span style="font-size:9px;color:var(--text-muted);font-weight:400;margin-left:6px;">▬ approuvé &nbsp; ▬ réel</span>
-          </div>
-          ${cardRows}
-        </div>` : ''}
-      </div>`;
+      var th = 'style="padding:10px 12px;border-bottom:2px solid #e2e8f0;cursor:pointer;user-select:none;white-space:nowrap;background:#f8fafc;"';
+      var mkTh = function(l,i,al){return '<th '+th+' onclick="ui._naftalSortTable(\''+tblId+'\','+i+')" '+(al?'style="'+th.slice(7,-1)+';text-align:'+al+';"':'')+'>' +l+'<span style="color:#94a3b8;font-size:9px;"> ⇅</span></th>';};
+      var html = '<h4 style="margin:0 0 10px;color:#1e293b;font-size:14px;">🚛 Consommation par Camion — Période: '+period+'</h4>' +
+        filterBar +
+        '<div style="overflow-x:auto;"><table id="'+tblId+'" class="nv5-table" style="width:100%;border-collapse:collapse;">' +
+        '<thead><tr>' +
+          mkTh('Camion',0) + mkTh('Immat.',1) + mkTh('Carte(s)',2) +
+          mkTh('Décl.',3,'right') + mkTh('DA Approuvé',4,'right') +
+          mkTh('DA Réel',5,'right') + mkTh('Δ DA',6,'right') +
+          mkTh('L Approuvés',7,'right') + mkTh('L Réels',8,'right') +
+          mkTh('% Total',9,'center') + mkTh('Anomalies',10,'center') +
+          mkTh('Dernier Lieu Ravitaillement',11) +
+        '</tr></thead><tbody>';
+
+      trucks.forEach(function(t,i) {
+        var share = grandDA>0?Math.round(t.daApp/grandDA*100):0;
+        var delta = t.daReal - t.daApp;
+        var deltaCol = delta>0?'#ef4444':delta<0?'#16a34a':'#64748b';
+        var cartes = Array.from(t.cartes).join(', ') || '—';
+        // Location link
+        var locCell;
+        if (t.lastLat && t.lastLng) {
+          var gmUrl = 'https://www.google.com/maps?q='+t.lastLat+','+t.lastLng;
+          var locLabel = (t.lastStation && t.lastStation !== 'Station Externe') ? t.lastStation : (t.lastLat.toFixed(4)+', '+t.lastLng.toFixed(4));
+          locCell = '<a href="'+gmUrl+'" target="_blank" rel="noopener" data-lat="'+t.lastLat+'" data-lng="'+t.lastLng+'" title="GPS: '+t.lastLat.toFixed(6)+', '+t.lastLng.toFixed(6)+'" style="color:#0284c7;text-decoration:none;font-size:11px;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-location-dot" style="color:#ef4444;font-size:12px;"></i><span class="nv5-geo-label">'+locLabel+'</span></a>';
+          if (t.lastRefillAt) locCell += '<div style="font-size:9px;color:#94a3b8;">'+new Date(t.lastRefillAt).toLocaleString('fr-DZ',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</div>';
+        } else { locCell = '<span style="color:#94a3b8;">\u2014</span>'; }
+
+        html += '<tr style="background:'+(i%2===0?'#fff':'#f8fafc')+';border-bottom:1px solid #e2e8f0;">' +
+          '<td style="padding:9px 12px;font-weight:700;color:#1e293b;white-space:nowrap;">'+t.name+'</td>' +
+          '<td style="padding:9px 12px;font-size:11px;color:#64748b;">'+t.immat+'</td>' +
+          '<td style="padding:9px 12px;font-size:11px;color:#0369a1;font-family:monospace;">'+cartes+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;color:#475569;">'+t.decls+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;font-weight:700;color:#0284c7;white-space:nowrap;">'+Math.round(t.daApp).toLocaleString('fr-DZ')+' DA</td>' +
+          '<td style="padding:9px 12px;text-align:right;font-weight:700;color:#1e293b;white-space:nowrap;">'+(t.daReal?Math.round(t.daReal).toLocaleString('fr-DZ')+' DA':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;font-weight:700;white-space:nowrap;color:'+deltaCol+';">'+(t.daReal?(delta>0?'+':'')+Math.round(delta).toLocaleString('fr-DZ')+' DA':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;color:#64748b;white-space:nowrap;">'+(t.litresApp?Math.round(t.litresApp)+' L':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;color:#64748b;white-space:nowrap;">'+(t.litresReal?Math.round(t.litresReal)+' L':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:center;"><div style="display:flex;align-items:center;gap:5px;"><div style="width:40px;background:#e2e8f0;border-radius:4px;height:7px;overflow:hidden;"><div style="height:100%;background:#0284c7;width:'+share+'%;border-radius:4px;"></div></div><span style="font-size:11px;font-weight:700;color:#0284c7;min-width:28px;">'+share+'%</span></div></td>' +
+          '<td style="padding:9px 12px;text-align:center;">'+(t.flagged?'<span style="background:#fee2e2;color:#ef4444;font-weight:700;border-radius:20px;padding:2px 8px;font-size:10px;">⚑ '+t.flagged+'</span>':'<span style="color:#94a3b8;">—</span>')+'</td>' +
+          '<td style="padding:9px 12px;">'+locCell+'</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+
+      var totDA = trucks.reduce(function(s,t){return s+t.daApp;},0);
+      var totReal = trucks.reduce(function(s,t){return s+t.daReal;},0);
+      html += '<div style="margin-top:14px;padding:12px 16px;background:#f0f9ff;border-radius:10px;border:1px solid #7dd3fc;display:flex;gap:20px;flex-wrap:wrap;">' +
+        '<div><div style="font-size:20px;font-weight:900;color:#0284c7;">'+trucks.length+'</div><div style="font-size:11px;color:#0369a1;">Camions actifs</div></div>' +
+        '<div><div style="font-size:20px;font-weight:900;color:#0284c7;">'+Math.round(totDA/1000)+'k DA</div><div style="font-size:11px;color:#0369a1;">DA total approuvé</div></div>' +
+        '<div><div style="font-size:20px;font-weight:900;color:#16a34a;">'+Math.round(totReal/1000)+'k DA</div><div style="font-size:11px;color:#0369a1;">DA réel consommé</div></div>' +
+        '<div><div style="font-size:20px;font-weight:900;color:#0284c7;">'+decls.length+'</div><div style="font-size:11px;color:#0369a1;">Déclarations total</div></div>' +
+        '</div>';
+      el.innerHTML = html;
+      setTimeout(function(){if(window.ui)ui._naftalGeocodeTableLocations(el);},150);
+    }).catch(function(e){el.innerHTML='<div style="color:#ef4444;padding:20px;">Erreur: '+e.message+'</div>';});
   }
+
+    _naftalRenderCardStatsTable(el, data, period) {
+    var days = period==='7d'?7:period==='3m'?90:period==='12m'?365:30;
+    var fromDate = new Date(Date.now() - days*864e5).toISOString().slice(0,10);
+    el.innerHTML = '<div style="text-align:center;padding:20px;color:#64748b;"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</div>';
+    fetch('/api/naftal/declarations?from='+fromDate+'&limit=2000')
+    .then(function(r){return r.json();})
+    .then(function(decls) {
+      var cardMap = {};
+      decls.forEach(function(d) {
+        (d.trucks||[]).forEach(function(t) {
+          var carte = t.carteNaftal||'—';
+          if (!cardMap[carte]) cardMap[carte] = {
+            carte:carte, trucks:{}, decls:0,
+            daApp:0, daReal:0, litresApp:0, litresReal:0, flagged:0,
+            lastStation:'', lastLat:null, lastLng:null, lastRefillAt:null
+          };
+          var c = cardMap[carte];
+          c.trucks[t.truckName||t.deviceId||'?'] = true;
+          c.decls++;
+          c.daApp += t.approvedAmountDA||0;
+          c.daReal += t.actualRefillCostDA||0;
+          c.litresApp += t.approvedLiters||0;
+          c.litresReal += t.actualRefillLiters||0;
+          if (t.refillStatus==='flagged'||t.isFlagged) c.flagged++;
+          if (t.refillDetectedAt && (!c.lastRefillAt || new Date(t.refillDetectedAt)>new Date(c.lastRefillAt))) {
+            c.lastRefillAt = t.refillDetectedAt;
+            c.lastStation = t.refillStationName||'';
+            c.lastLat = t.refillStationLat||null;
+            c.lastLng = t.refillStationLng||null;
+          }
+        });
+      });
+      var cards = Object.values(cardMap).sort(function(a,b){return b.daApp-a.daApp;});
+      if (!cards.length) { el.innerHTML='<div style="text-align:center;padding:30px;color:#64748b;">Aucune donnée de carte pour cette période</div>'; return; }
+      var grandDA = cards.reduce(function(s,c){return s+c.daApp;},0);
+      var tblId = 'cardTbl_'+Date.now();
+
+      var filterBar = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">' +
+        '<input id="cardFilter" type="text" placeholder="🔍 Filtrer par carte / camion..." style="padding:7px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12px;flex:1;min-width:180px;" oninput="ui._naftalFilterStatsTable(\''+tblId+'\',this.value)">' +
+        '<button onclick="ui._naftalExportRows(ui._naftalGetTableRows(\''+tblId+'\'), \'NAFTAL_Cartes_'+period+'\')" style="padding:7px 14px;background:#16a34a;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;"><i class="fa-solid fa-file-excel"></i> Exporter Excel</button>' +
+        '</div>';
+
+      var th = 'style="padding:10px 12px;border-bottom:2px solid #e2e8f0;cursor:pointer;user-select:none;white-space:nowrap;background:#f8fafc;"';
+      var mkTh = function(l,i,al){return '<th '+th+' onclick="ui._naftalSortTable(\''+tblId+'\','+i+')" '+(al?'style="'+th.slice(7,-1)+';text-align:'+al+';"':'')+'>' +l+'<span style="color:#94a3b8;font-size:9px;"> ⇅</span></th>';};
+      var html = '<h4 style="margin:0 0 10px;color:#1e293b;font-size:14px;">💳 Suivi par Carte Naftal — Période: '+period+'</h4>' +
+        '<p style="font-size:11px;color:#64748b;margin:0 0 10px;">Le suivi DA/L est consolidé sur la carte, indépendamment du camion.</p>' +
+        filterBar +
+        '<div style="overflow-x:auto;"><table id="'+tblId+'" class="nv5-table" style="width:100%;border-collapse:collapse;">' +
+        '<thead><tr>' +
+          mkTh('Carte Naftal',0) + mkTh('Camion(s)',1) +
+          mkTh('Décl.',2,'right') + mkTh('DA Approuvé',3,'right') +
+          mkTh('DA Réel',4,'right') + mkTh('Δ DA',5,'right') +
+          mkTh('L Approuvés',6,'right') + mkTh('L Réels',7,'right') +
+          mkTh('% Total',8,'center') + mkTh('Anomalies',9,'center') +
+          mkTh('Dernier Lieu Ravitaillement',10) +
+        '</tr></thead><tbody>';
+
+      cards.forEach(function(c,i) {
+        var share = grandDA>0?Math.round(c.daApp/grandDA*100):0;
+        var delta = c.daReal - c.daApp;
+        var deltaCol = delta>0?'#ef4444':delta<0?'#16a34a':'#64748b';
+        var truckNames = Object.keys(c.trucks).join(', ');
+        var multiTruck = Object.keys(c.trucks).length > 1;
+        var locCell;
+        if (c.lastLat && c.lastLng) {
+          var gmUrl = 'https://www.google.com/maps?q='+c.lastLat+','+c.lastLng;
+          var locLabel = (c.lastStation && c.lastStation !== 'Station Externe') ? c.lastStation : (c.lastLat.toFixed(4)+', '+c.lastLng.toFixed(4));
+          locCell = '<a href="'+gmUrl+'" target="_blank" rel="noopener" data-lat="'+c.lastLat+'" data-lng="'+c.lastLng+'" title="GPS: '+c.lastLat.toFixed(6)+', '+c.lastLng.toFixed(6)+'" style="color:#0284c7;text-decoration:none;font-size:11px;display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-location-dot" style="color:#ef4444;font-size:12px;"></i><span class="nv5-geo-label">'+locLabel+'</span></a>';
+          if (c.lastRefillAt) locCell += '<div style="font-size:9px;color:#94a3b8;">'+new Date(c.lastRefillAt).toLocaleString('fr-DZ',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</div>';
+        } else { locCell = '<span style="color:#94a3b8;">\u2014</span>'; }
+
+        html += '<tr style="background:'+(i%2===0?'#fff':'#f8fafc')+';border-bottom:1px solid #e2e8f0;">' +
+          '<td style="padding:9px 12px;font-weight:900;color:#0369a1;font-family:monospace;font-size:13px;">'+c.carte+(multiTruck?'<div style="font-size:9px;color:#f59e0b;font-family:inherit;font-weight:700;">⚡ Multi-camions</div>':'')+'</td>' +
+          '<td style="padding:9px 12px;font-size:11px;color:#475569;">'+truckNames+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;color:#475569;">'+c.decls+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;font-weight:700;color:#0284c7;white-space:nowrap;">'+Math.round(c.daApp).toLocaleString('fr-DZ')+' DA</td>' +
+          '<td style="padding:9px 12px;text-align:right;font-weight:700;color:#1e293b;white-space:nowrap;">'+(c.daReal?Math.round(c.daReal).toLocaleString('fr-DZ')+' DA':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;font-weight:700;white-space:nowrap;color:'+deltaCol+';">'+(c.daReal?(delta>0?'+':'')+Math.round(delta).toLocaleString('fr-DZ')+' DA':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;color:#64748b;white-space:nowrap;">'+(c.litresApp?Math.round(c.litresApp)+' L':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:right;color:#64748b;white-space:nowrap;">'+(c.litresReal?Math.round(c.litresReal)+' L':'—')+'</td>' +
+          '<td style="padding:9px 12px;text-align:center;"><div style="display:flex;align-items:center;gap:5px;"><div style="width:40px;background:#e2e8f0;border-radius:4px;height:7px;overflow:hidden;"><div style="height:100%;background:#0369a1;width:'+share+'%;border-radius:4px;"></div></div><span style="font-size:11px;font-weight:700;color:#0369a1;min-width:28px;">'+share+'%</span></div></td>' +
+          '<td style="padding:9px 12px;text-align:center;">'+(c.flagged?'<span style="background:#fee2e2;color:#ef4444;font-weight:700;border-radius:20px;padding:2px 8px;font-size:10px;">⚑ '+c.flagged+'</span>':'<span style="color:#94a3b8;">—</span>')+'</td>' +
+          '<td style="padding:9px 12px;">'+locCell+'</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+      var totDA = cards.reduce(function(s,c){return s+c.daApp;},0);
+      var totReal = cards.reduce(function(s,c){return s+c.daReal;},0);
+      html += '<div style="margin-top:14px;padding:12px 16px;background:#eff6ff;border-radius:10px;border:1px solid #bfdbfe;display:flex;gap:20px;flex-wrap:wrap;">' +
+        '<div><div style="font-size:20px;font-weight:900;color:#0369a1;">'+cards.length+'</div><div style="font-size:11px;color:#1d4ed8;">Cartes actives</div></div>' +
+        '<div><div style="font-size:20px;font-weight:900;color:#0369a1;">'+Math.round(totDA/1000)+'k DA</div><div style="font-size:11px;color:#1d4ed8;">DA total approuvé</div></div>' +
+        '<div><div style="font-size:20px;font-weight:900;color:#16a34a;">'+Math.round(totReal/1000)+'k DA</div><div style="font-size:11px;color:#1d4ed8;">DA réel consommé</div></div>' +
+        '<div><div style="font-size:20px;font-weight:900;color:#0369a1;">'+cards.filter(function(c){return Object.keys(c.trucks).length>1;}).length+'</div><div style="font-size:11px;color:#1d4ed8;">Cartes multi-camions</div></div>' +
+        '</div>';
+      el.innerHTML = html;
+      setTimeout(function(){if(window.ui)ui._naftalGeocodeTableLocations(el);},150);
+    }).catch(function(e){el.innerHTML='<div style="color:#ef4444;padding:20px;">Erreur: '+e.message+'</div>';});
+  }
+
+    async _naftalGeocodeTableLocations(container) {
+    // Reverse-geocode all [data-lat][data-lng] links in the container via Geoapify
+    var links = (container||document).querySelectorAll('a[data-lat][data-lng]');
+    if (!links.length) return;
+    var keys = (typeof FLEET_CONFIG!=='undefined' && FLEET_CONFIG.GEOAPIFY_API_KEYS) || [];
+    var apiKey = keys[0] || null;
+    if (!apiKey) return; // no key, keep raw coords
+    var cache = this._geoCache || (this._geoCache = {});
+    var delay = 0;
+    links.forEach((link) => {
+      var lat = parseFloat(link.dataset.lat);
+      var lng = parseFloat(link.dataset.lng);
+      if (!lat || !lng) return;
+      var ckey = lat.toFixed(3)+'_'+lng.toFixed(3);
+      var span = link.querySelector('.nv5-geo-label');
+      if (!span) return;
+      if (cache[ckey]) { span.textContent = cache[ckey]; return; }
+      // Throttle: 200ms per request
+      delay += 220;
+      setTimeout(() => {
+        fetch('https://api.geoapify.com/v1/geocode/reverse?lat='+lat+'&lon='+lng+'&lang=fr&apiKey='+apiKey)
+          .then(r => r.json())
+          .then(d => {
+            var props = d.features && d.features[0] && d.features[0].properties;
+            if (!props) return;
+            var city = props.city || props.county || props.state || '';
+            var street = props.street || props.name || '';
+            var label = street ? (street+(city?', '+city:'')) : (city || props.formatted || '');
+            if (!label) label = props.formatted || '';
+            if (label) {
+              cache[ckey] = label;
+              span.textContent = label;
+              link.title = 'GPS: '+lat.toFixed(6)+', '+lng.toFixed(6)+' — '+label;
+            }
+          })
+          .catch(() => {}); // keep raw coords on error
+      }, delay);
+    });
+  }
+
+  _naftalFilterStatsTable(tblId, query) {
+    var tbl = document.getElementById(tblId);
+    if (!tbl) return;
+    var q = query.toLowerCase();
+    Array.from(tbl.querySelectorAll('tbody tr')).forEach(function(row) {
+      var text = row.textContent.toLowerCase();
+      row.style.display = q && !text.includes(q) ? 'none' : '';
+    });
+  }
+
+  _naftalGetTableRows(tblId) {
+    var tbl = document.getElementById(tblId);
+    if (!tbl) return [];
+    return Array.from(tbl.querySelectorAll('tr')).map(function(r) {
+      return Array.from(r.querySelectorAll('th,td')).map(function(c) {
+        // Get text content, fall back to title attr for links
+        var a = c.querySelector('a');
+        return a ? (a.title||a.textContent||'').trim() : c.textContent.trim();
+      });
+    }).filter(function(r){return r.some(function(c){return c;});});
+  }
+
+    _naftalRenderCharts(data) {
+    if (typeof Chart === 'undefined') return;
+    Chart.defaults.font.family = 'inherit';
+    Chart.defaults.font.size = 11;
+
+    // 1. Daily bar chart
+    var dailyData = data.byDay || [];
+    var labels = dailyData.map(function(d){return d.date.slice(5);});
+    var daCounts = dailyData.map(function(d){return d.count||0;});
+    var daApproved = dailyData.map(function(d){return Math.round((d.DAapproved||0)/1000);});
+    var c1 = document.getElementById('ch_daily');
+    if (c1 && !c1._chart) {
+      c1._chart = new Chart(c1.getContext('2d'), {
+        data: { labels: labels, datasets: [
+          {type:'bar', label:'Nb Déclarations', data:daCounts, backgroundColor:'rgba(2,132,199,0.35)', borderColor:'#0284c7', borderWidth:1.5, yAxisID:'y', order:2},
+          {type:'line', label:'DA Approuvé (milliers)', data:daApproved, borderColor:'#16a34a', backgroundColor:'rgba(22,163,74,0.08)', tension:0.4, pointRadius:3, pointHoverRadius:5, yAxisID:'y2', order:1}
+        ]},
+        options: {
+          responsive:true, interaction:{mode:'index', intersect:false},
+          plugins:{ legend:{ display:true, position:'top', labels:{usePointStyle:true, padding:16, font:{size:11}} },
+            tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': '+(ctx.datasetIndex===0?ctx.raw:ctx.raw+'k DA'); } } } },
+          scales:{y:{beginAtZero:true,position:'left',title:{display:true,text:'Déclarations',color:'#0284c7'},grid:{color:'#f1f5f9'}},y2:{beginAtZero:true,position:'right',title:{display:true,text:'DA (milliers)',color:'#16a34a'},grid:{drawOnChartArea:false}}}
+        }
+      });
+    }
+
+    // 2. Status donut
+    var statusMap = {'transport_validated':'Att. gest.','gestionnaire_validated':'Approuvés','in_progress':'En cours','completed':'Terminés','cancelled':'Annulés'};
+    var statusColors = ['#f59e0b','#16a34a','#0284c7','#6d28d9','#dc2626'];
+    var byStatus = data.byStatus || {};
+    var statusLabels = Object.keys(byStatus).map(function(k){return statusMap[k]||k;});
+    var statusVals = Object.values(byStatus);
+    var c2 = document.getElementById('ch_status');
+    if (c2 && statusLabels.length && !c2._chart) {
+      c2._chart = new Chart(c2.getContext('2d'), {
+        type:'doughnut',
+        data:{labels:statusLabels,datasets:[{data:statusVals,backgroundColor:statusColors.slice(0,statusVals.length),borderWidth:2,borderColor:'#fff'}]},
+        options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{position:'bottom',labels:{boxWidth:14,padding:12,font:{size:11},generateLabels:function(chart){var ds=chart.data.datasets[0]||{};var vals=ds.data||[];var bgColors=ds.backgroundColor||[];return (chart.data.labels||[]).map(function(lbl,i){return{text:(lbl||'?')+' ('+( vals[i]!==undefined?vals[i]:0)+')',fillStyle:bgColors[i]||'#ccc',strokeStyle:'#fff',lineWidth:1,index:i,datasetIndex:0,hidden:false};});}}},tooltip:{callbacks:{label:function(ctx){var tot=(ctx.dataset.data||[]).reduce(function(a,b){return a+(b||0);},0);return (ctx.label||'?')+': '+(ctx.raw||0)+' d\u00e9claration(s) ('+Math.round((ctx.raw||0)/(tot||1)*100)+'%)';}}}}}
+      });
+    }
+
+    // 3. DA comparison line
+    var daComp = data.byDay || [];
+    var c3 = document.getElementById('ch_dacomp');
+    if (c3 && !c3._chart) {
+      c3._chart = new Chart(c3.getContext('2d'), {
+        type:'line',
+        data:{labels:daComp.map(function(d){return d.date.slice(5);}),
+          datasets:[
+            {label:'DA Approuvé',data:daComp.map(function(d){return Math.round((d.DAapproved||0)/1000);}),borderColor:'#0284c7',tension:0.4,pointRadius:2,fill:false},
+            {label:'DA Réel',data:daComp.map(function(d){return Math.round((d.DAactual||0)/1000);}),borderColor:'#16a34a',tension:0.4,pointRadius:2,fill:false}
+          ]
+        },
+        options:{responsive:true,interaction:{mode:'index',intersect:false},scales:{y:{beginAtZero:true,title:{display:true,text:'DA (milliers DA)',color:'#1e293b'},grid:{color:'#f1f5f9'}}},plugins:{legend:{display:true,position:'top',labels:{usePointStyle:true,padding:14,font:{size:11}}},tooltip:{callbacks:{label:function(ctx){return ctx.dataset.label+': '+ctx.raw+'k DA';}}}}}
+      });
+    }
+
+    // 4. Top trucks bar
+    var topT = data.topTrucks || [];
+    var c4 = document.getElementById('ch_trucks');
+    if (c4 && topT.length && !c4._chart) {
+      c4._chart = new Chart(c4.getContext('2d'), {
+        type:'bar',
+        data:{labels:topT.map(function(t){return t.name;}),
+          datasets:[{label:'DA total',data:topT.map(function(t){return Math.round((t.totalDA||0)/1000);}),backgroundColor:'rgba(139,92,246,0.7)',borderColor:'#6d28d9',borderWidth:1.5}]},
+        options:{indexAxis:'y',responsive:true,scales:{x:{beginAtZero:true,title:{display:true,text:'DA Total (milliers)',color:'#6d28d9'},grid:{color:'#f5f3ff'}}},plugins:{legend:{display:true,position:'top',labels:{usePointStyle:true,font:{size:11}}},tooltip:{callbacks:{label:function(ctx){return 'DA total: '+Math.round(ctx.raw)+'k DA';}}}}}
+      });
+    }
+
+    // 5. Top destinations
+    var topD = data.topDest || [];
+    var c5 = document.getElementById('ch_dests');
+    if (c5 && topD.length && !c5._chart) {
+      c5._chart = new Chart(c5.getContext('2d'), {
+        type:'bar',
+        data:{labels:topD.map(function(d){return d.name;}),
+          datasets:[{label:'Déclarations',data:topD.map(function(d){return d.count;}),backgroundColor:'rgba(245,158,11,0.7)',borderColor:'#f59e0b',borderWidth:1.5}]},
+        options:{indexAxis:'y',responsive:true,scales:{x:{beginAtZero:true,title:{display:true,text:'Nombre de déclarations'},grid:{color:'#fff7ed'}}},plugins:{legend:{display:true,position:'top',labels:{usePointStyle:true,font:{size:11}}},tooltip:{callbacks:{label:function(ctx){return 'Déclarations: '+ctx.raw;}}}}}
+      });
+    }
+  }
+
+  // ── EXPORT ─────────────────────────────────────────────────────────────────
+
+  async naftalExportCSV(queryStr) {
+    var fname = 'NAFTAL_Export_'+new Date().toISOString().slice(0,10);
+    var self = this;
+    var params = new URLSearchParams(queryStr||'');
+    params.set('limit','5000');
+    [['status','ghf_status'],['status','hf_status'],['isSignaled','ghf_signal'],['isSignaled','hf_signal'],
+     ['truckName','ghf_truck'],['truckName','hf_truck'],['from','ghf_from'],['from','hf_from'],
+     ['to','ghf_to'],['to','hf_to']].forEach(function(p){
+      var el=document.getElementById(p[1]);
+      if(el&&el.value&&!params.has(p[0]))params.set(p[0],el.value);
+    });
+    try {
+      var r = await fetch('/api/naftal/declarations?'+params.toString());
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      var decls = await r.json();
+      if (!decls.length) { await ui_showAlert('Aucune d\u00e9claration \u00e0 exporter.','Export','📋'); return; }
+      var headers = ['Date','D\u00e9claration ID','Statut','Camion','Immatriculation','Carte Naftal',
+        'Position D\u00e9part','It\u00e9raire Complet','DA Approuv\u00e9','DA R\u00e9el','Statut Refill','Signal\u00e9'];
+      var rows = [headers];
+      var sMap = {transport_validated:'Att. gestionnaire',gestionnaire_validated:'Approuv\u00e9',
+        in_progress:'En cours',completed:'Termin\u00e9',cancelled:'Annul\u00e9'};
+      var rMap = {waiting:'En attente',in_progress:'En cours',completed:'Compl\u00e9t\u00e9',flagged:'Anomalie'};
+      decls.forEach(function(d) {
+        (d.trucks||[]).forEach(function(t) {
+          var stops=(t.extraStops||[]).filter(function(s){return s.name;});
+          var itin=stops.map(function(s){return s.name;}).join(' > ');
+          if(t.destination)itin=(itin?itin+' > ':'')+t.destination;
+          rows.push([
+            new Date(d.createdAt).toLocaleString('fr-DZ'),
+            d.declarationId||'', sMap[d.status]||d.status,
+            t.truckName||t.deviceId||'', t.immatriculation||'', t.carteNaftal||'',
+            t.currentLocation||'', itin,
+            t.approvedAmountDA||0, t.actualRefillCostDA||0,
+            rMap[t.refillStatus]||'', d.isSignaled?'Oui':'Non'
+          ]);
+        });
+      });
+      self._naftalExportRows(rows, fname);
+    } catch(e) { await ui_showAlert('Erreur export: '+e.message,'Erreur','❌'); }
+  }
+
+  _naftalExportRows(rows, fname) {
+    var self = this;
+    var doExport = function() {
+      try {
+        var wb = XLSX.utils.book_new();
+        var ws = XLSX.utils.aoa_to_sheet(rows);
+        var colW = (rows[0]||[]).map(function(h,ci){
+          var mx = String(h||'').length;
+          rows.forEach(function(r){if(r[ci]!==undefined)mx=Math.max(mx,String(r[ci]).length);});
+          return {wch:Math.min(Math.max(mx+2,10),45)};
+        });
+        ws['!cols'] = colW;
+        ws['!freeze'] = {xSplit:0,ySplit:1};
+        XLSX.utils.book_append_sheet(wb, ws, 'NAFTAL');
+        XLSX.writeFile(wb, fname+'.xlsx');
+      } catch(e2){console.error('XLSX:',e2);}
+    };
+    if (typeof XLSX !== 'undefined') { doExport(); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js';
+    s.onload = doExport;
+    s.onerror = function() {
+      var csv=rows.map(function(r){return r.map(function(c){return '"'+String(c||'').replace(/"/g,'""')+'"';}).join(';');}).join('\r\n');
+      var blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download=fname+'.csv';document.body.appendChild(a);a.click();
+      setTimeout(function(){document.body.removeChild(a);},500);
+    };
+    document.head.appendChild(s);
+  }
+
+  _naftalDownloadExcel(csvText, fname) {
+    var self = this;
+    if (typeof XLSX !== 'undefined') { self._xlsxFromCSV(csvText, fname); return; }
+    var s = document.createElement('script');
+    s.src = 'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js';
+    s.onload = function() { self._xlsxFromCSV(csvText, fname); };
+    s.onerror = function() {
+      var blob=new Blob(['\uFEFF'+csvText],{type:'text/csv;charset=utf-8;'});
+      var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+      a.download=fname+'.csv';document.body.appendChild(a);a.click();
+      setTimeout(function(){document.body.removeChild(a);},500);
+    };
+    document.head.appendChild(s);
+  }
+
+  _xlsxFromCSV(csvText, fname) {
+    try {
+      var wb=XLSX.read(csvText,{type:'string',FS:';'});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      var ref=XLSX.utils.decode_range(ws['!ref']||'A1');
+      var colWidths=[];
+      for(var c=ref.s.c;c<=ref.e.c;c++){
+        var max=8;
+        for(var row=ref.s.r;row<=ref.e.r;row++){
+          var cell=ws[XLSX.utils.encode_cell({r:row,c:c})];
+          if(cell&&cell.v)max=Math.max(max,String(cell.v).length);
+        }
+        colWidths.push({wch:Math.min(max+2,40)});
+      }
+      ws['!cols']=colWidths;
+      XLSX.writeFile(wb,fname+'.xlsx');
+    } catch(e){console.error('XLSX error:',e);}
+  }
+
+  _naftalDownloadExcelFromRows(rows, fname) {
+    this._naftalExportRows(rows, fname);
+  }
+
+
 
   goToPlanning(truckId) {
     this.switchTab('routing');
@@ -12304,4 +12959,85 @@ window.setScheme = function(name) {
   if(btn) btn.classList.add('active');
 };
 
+// ── NAFTAL GLOBAL DIALOG HELPERS ────────────────────────────────────────────
+// Used throughout the NAFTAL v5 module as await ui_showAlert(msg, title, icon)
+
+function ui_showAlert(msg, title, icon) {
+  return new Promise(function(resolve) {
+    var id = 'nv5dlg_' + Date.now();
+    var esc = function(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    var overlay = document.createElement('div');
+    overlay.id = id;
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);text-align:center;">' +
+        '<div style="font-size:32px;margin-bottom:12px;">'+(icon||'ℹ️')+'</div>' +
+        (title ? '<h3 style="margin:0 0 8px;color:#1e293b;font-size:17px;">'+esc(title)+'</h3>' : '') +
+        '<p style="margin:0 0 20px;color:#475569;font-size:14px;white-space:pre-wrap;">'+esc(msg)+'</p>' +
+        '<button id="'+id+'_ok" style="background:#0284c7;color:#fff;border:none;border-radius:10px;padding:10px 28px;font-size:14px;font-weight:700;cursor:pointer;">OK</button>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    document.getElementById(id+'_ok').onclick = function() {
+      overlay.remove();
+      resolve(true);
+    };
+    overlay.onclick = function(e) { if (e.target === overlay) { overlay.remove(); resolve(true); } };
+  });
+}
+
+function ui_showConfirm(msg, title, icon, dangerLabel) {
+  return new Promise(function(resolve) {
+    var id = 'nv5dlg_' + Date.now();
+    var esc = function(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    var overlay = document.createElement('div');
+    overlay.id = id;
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);text-align:center;">' +
+        '<div style="font-size:32px;margin-bottom:12px;">'+(icon||'❓')+'</div>' +
+        (title ? '<h3 style="margin:0 0 8px;color:#1e293b;font-size:17px;">'+esc(title)+'</h3>' : '') +
+        '<p style="margin:0 0 20px;color:#475569;font-size:14px;white-space:pre-wrap;">'+esc(msg)+'</p>' +
+        '<div style="display:flex;gap:10px;justify-content:center;">' +
+          '<button id="'+id+'_cancel" style="background:#f1f5f9;color:#475569;border:none;border-radius:10px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;">Annuler</button>' +
+          '<button id="'+id+'_ok" style="background:#ef4444;color:#fff;border:none;border-radius:10px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;">'+(dangerLabel||'Confirmer')+'</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    document.getElementById(id+'_ok').onclick = function() { overlay.remove(); resolve(true); };
+    document.getElementById(id+'_cancel').onclick = function() { overlay.remove(); resolve(false); };
+    overlay.onclick = function(e) { if (e.target === overlay) { overlay.remove(); resolve(false); } };
+  });
+}
+
+function ui_showPrompt(msg, defaultVal, title) {
+  return new Promise(function(resolve) {
+    var id = 'nv5dlg_' + Date.now();
+    var esc = function(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    var overlay = document.createElement('div');
+    overlay.id = id;
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML =
+      '<div style="background:#fff;border-radius:16px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25);">' +
+        (title ? '<h3 style="margin:0 0 12px;color:#1e293b;font-size:17px;">'+esc(title)+'</h3>' : '') +
+        '<p style="margin:0 0 12px;color:#475569;font-size:14px;">'+esc(msg)+'</p>' +
+        '<textarea id="'+id+'_inp" rows="4" style="width:100%;padding:10px 12px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;resize:vertical;outline:none;box-sizing:border-box;font-family:inherit;">'+esc(defaultVal||'')+'</textarea>' +
+        '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">' +
+          '<button id="'+id+'_cancel" style="background:#f1f5f9;color:#475569;border:none;border-radius:10px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;">Annuler</button>' +
+          '<button id="'+id+'_ok" style="background:#0284c7;color:#fff;border:none;border-radius:10px;padding:9px 20px;font-size:13px;font-weight:700;cursor:pointer;">Valider</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    var inp = document.getElementById(id+'_inp');
+    inp.focus();
+    inp.selectionStart = inp.selectionEnd = inp.value.length;
+    document.getElementById(id+'_ok').onclick = function() { var v=inp.value; overlay.remove(); resolve(v); };
+    document.getElementById(id+'_cancel').onclick = function() { overlay.remove(); resolve(null); };
+    inp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && e.ctrlKey) { var v=inp.value; overlay.remove(); resolve(v); }
+      if (e.key === 'Escape') { overlay.remove(); resolve(null); }
+    });
+    overlay.onclick = function(e) { if (e.target === overlay) { overlay.remove(); resolve(null); } };
+  });
+}
+// ────────────────────────────────────────────────────────────────────────────
 
