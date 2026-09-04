@@ -7104,43 +7104,71 @@ app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
 // POST /api/maintenance/rescan-vidange — scan all trucks and check vidange status
 app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
   try {
-    const trucks = await Truck.find({}, 'deviceId truckName').lean();
+    const { from, to, filter, autoCreate } = req.body || {};
 
-    // Fetch live GPS data from provider
+    // 1. Date window
+    const now = Date.now();
+    const startMs = from ? new Date(from + 'T00:00:00.000Z').getTime() : (now - 30 * 24 * 3600 * 1000);
+    const endMs   = to   ? new Date(to + 'T23:59:59.999Z').getTime()   : now;
+
+    // 2. Identify maintenance zones
+    const settings = SYSTEM_SETTINGS || {};
+    const allCustomLocs = settings.customLocations || [];
+    const maintLocations = allCustomLocs.filter(l => l.type === 'maintenance');
+    const maintZoneNames = maintLocations.map(l => l.name);
+
+    // 3. Query ZoneEvent for maintenance zone visits in this period
+    // Matches by zoneType === 'maintenance' OR by known maintenance zone names
+    const query = {
+      $or: [
+        { zoneType: 'maintenance' },
+        { zoneName: { $in: maintZoneNames } }
+      ],
+      entryTime: { $gte: startMs, $lte: endMs }
+    };
+    const zoneVisits = await ZoneEvent.find(query).sort({ entryTime: -1 }).lean();
+
+    // 4. Fetch all trucks & existing maintenance records for cross-referencing
+    const trucks = await Truck.find({}, 'deviceId truckName').lean();
+    const truckMap = {};
+    trucks.forEach(t => { if (t.deviceId) truckMap[String(t.deviceId)] = t.truckName || String(t.deviceId); });
+
+    const existingMaintenances = await Maintenance.find({
+      date: { $gte: new Date(startMs - 48 * 3600 * 1000), $lte: new Date(endMs + 48 * 3600 * 1000) }
+    }).sort({ date: -1 }).lean();
+
+    // Fetch live GPS data for odometer baseline
     let gpsData = {};
     try {
       const https = require('https');
       const agent = new https.Agent({ rejectUnauthorized: false });
       const gpsResp = await fetch(GPS_API_URL, { 
         agent,
-        dispatcher: undefined, // Node 22 uses dispatcher, not agent
-        signal: AbortSignal.timeout(30000)
+        dispatcher: undefined,
+        signal: AbortSignal.timeout(15000)
       });
       const gpsItems = await gpsResp.json();
-      console.log(`[VidangeScan] GPS fetch OK: ${Array.isArray(gpsItems) ? gpsItems.length : 'non-array'} items`);
       if (Array.isArray(gpsItems)) {
         gpsItems.forEach(t => { const key = t.imei || t.id || ''; if (key) gpsData[String(key)] = t; });
-        console.log(`[VidangeScan] GPS map: ${Object.keys(gpsData).length} entries, sample odo: ${gpsItems[0]?.odometer}`);
       }
-    } catch(gpsErr) { console.log('[VidangeScan] GPS fetch FAILED:', gpsErr.message); }
+    } catch(gpsErr) { console.warn('[VidangeScan] Live GPS fetch fallback:', gpsErr.message); }
 
     const results = [];
+    let autoCreatedCount = 0;
 
-    for (const truck of trucks) {
-      const tid = String(truck.deviceId);
-      const tName = truck.truckName || tid;
+    for (const visit of zoneVisits) {
+      const tid = String(visit.deviceId);
+      const tName = visit.truckName || truckMap[tid] || tid;
 
-      // Get odometer from live GPS or fallback to 0
+      // Filter check
+      if (filter && filter !== 'all' && filter !== tid) continue;
+
+      // Odometer estimation at visit time
       const gps = gpsData[tid] || {};
-      // Odometer: Wialon returns it directly in gps.odometer (in km, as string)
-      let odometerKm = Math.round(parseFloat(gps.odometer || 0));
-      // Fallback: some Teltonika devices store it in params.io192 (in meters)
-      if (!odometerKm && gps.params && gps.params.io192) {
-        odometerKm = Math.round(parseInt(gps.params.io192) / 1000);
-      }
+      let liveOdo = Math.round(parseFloat(gps.odometer || 0));
+      if (!liveOdo && gps.params?.io192) liveOdo = Math.round(parseInt(gps.params.io192) / 1000);
 
-      // Get truck config (per-truck overrides or defaults)
-      const settings = SYSTEM_SETTINGS || {};
+      // Truck vidange configuration
       const truckCfg = (settings.truckConfigs && settings.truckConfigs[tid]) || {};
       const cfg = {
         vidangeStartKm: truckCfg.vidangeStartKm || settings.vidangeStartKm || 5000,
@@ -7148,61 +7176,120 @@ app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
         vidangeAlertKm: truckCfg.vidangeAlertKm || settings.vidangeAlertKm || 500
       };
 
-      // Get last completed maintenance of ANY type (not just Vidange)
+      // Last recorded vidange
       const lastVidange = await Maintenance.findOne(
-        { deviceId: tid, type: { $in: ['Vidange', 'Vidange Compl\u00e8te', 'Maintenance G\u00e9n\u00e9rale', 'Maintenance'] }, status: 'termine' },
+        { deviceId: tid, type: { $in: ['Vidange', 'Vidange Complète', 'Maintenance Générale', 'Maintenance'] }, status: 'termine' },
         'odometer date type',
         { sort: { odometer: -1 } }
       ).lean();
       const lastVidangeKm = lastVidange ? (lastVidange.odometer || 0) : null;
 
-      // Calculate status
-      const startKm = parseInt(cfg.vidangeStartKm, 10) || 5000;
-      const rotKm   = parseInt(cfg.vidangeRotationKm, 10) || 25000;
-      const alertKm = parseInt(cfg.vidangeAlertKm, 10) || 500;
+      // Calculate vidange status
+      const _ovr = settings.vidangeOverrides?.[tid];
+      const skipUntilKm = _ovr?.lastVidangeKm || _ovr?.odometerAtConfirm || _ovr?.skipUntilKm || null;
+      const vidangeStatus = calculateVidangeStatus(liveOdo, cfg, skipUntilKm);
 
-      let nextKm = 0;
-      if (lastVidangeKm && lastVidangeKm > 0) {
-        nextKm = lastVidangeKm + rotKm;
-      } else {
-        if (odometerKm < startKm) {
-          nextKm = startKm;
-        } else {
-          const rotsPassed = Math.floor((odometerKm - startKm) / rotKm) + 1;
-          nextKm = startKm + (rotsPassed * rotKm);
-        }
+      // Duration in minutes
+      const durMins = visit.durationMinutes || (visit.exitTime ? Math.round((visit.exitTime - visit.entryTime) / 60000) : 0);
+
+      // Logic: Was Vidange due or alerted? -> Vidange, otherwise Maintenance Générale
+      let detectedType = 'Maintenance Générale';
+      if (vidangeStatus.alert || vidangeStatus.isOverdue) {
+        detectedType = 'Vidange';
       }
 
-      const kmUntilNext = nextKm - odometerKm;
-      const isAlert = kmUntilNext <= alertKm;
-      const isOverdue = kmUntilNext <= 0;
+      // Cross-reference with existing Maintenance records (within +/- 48h for same truck)
+      const matchedMaint = existingMaintenances.find(m => {
+        if (m.deviceId !== tid && m.truckName !== tName) return false;
+        const diffHours = Math.abs(new Date(m.date).getTime() - visit.entryTime) / 3600000;
+        return diffHours <= 48;
+      });
 
-      let statusLabel = 'OK';
-      if (isOverdue) statusLabel = 'EN RETARD';
-      else if (isAlert) statusLabel = 'ALERTE';
+      let isRecorded = !!matchedMaint;
+      let existingRecord = matchedMaint ? {
+        id: matchedMaint._id,
+        type: matchedMaint.type,
+        status: matchedMaint.status,
+        date: matchedMaint.date,
+        odometer: matchedMaint.odometer
+      } : null;
+
+      // Auto-create if requested and not yet recorded (min 15 mins stay)
+      if (autoCreate && !isRecorded && durMins >= 15) {
+        try {
+          const newDoc = await Maintenance.create({
+            truckName: tName,
+            deviceId: tid,
+            type: detectedType,
+            location: visit.zoneName,
+            odometer: liveOdo || 0,
+            date: new Date(visit.entryTime),
+            exitDate: visit.exitTime ? new Date(visit.exitTime) : null,
+            status: visit.exitTime ? 'termine' : 'en_cours',
+            isAuto: true,
+            note: `Auto-détecté par Scan GPS: ${durMins} min en zone (${visit.zoneName})`
+          });
+          if (detectedType === 'Vidange') {
+            await acknowledgeVidange(tid, tName, liveOdo);
+          }
+          isRecorded = true;
+          existingRecord = {
+            id: newDoc._id,
+            type: detectedType,
+            status: visit.exitTime ? 'termine' : 'en_cours',
+            date: newDoc.date,
+            odometer: liveOdo
+          };
+          autoCreatedCount++;
+        } catch(creErr) {
+          console.warn('[VidangeScan] Auto-create failed:', creErr.message);
+        }
+      }
 
       results.push({
         deviceId: tid,
         truckName: tName,
-        odometerKm,
+        zoneName: visit.zoneName,
+        entryTime: visit.entryTime,
+        exitTime: visit.exitTime,
+        durationMinutes: durMins,
+        odometerKm: liveOdo,
         lastVidangeKm,
-        lastVidangeDate: lastVidange ? lastVidange.date : null,
-        nextVidangeKm: nextKm,
-        kmUntilNext,
-        status: statusLabel,
-        isAlert,
-        isOverdue
+        detectedType,
+        isRecorded,
+        existingRecord,
+        vidangeStatus: {
+          isAlert: vidangeStatus.alert,
+          isOverdue: vidangeStatus.isOverdue,
+          kmUntilNext: vidangeStatus.kmUntilNext,
+          nextDueKm: vidangeStatus.nextDueKm
+        }
       });
     }
 
-    // Sort: overdue first, then alerts, then OK
+    // Sort: unrecorded first, then newest first
     results.sort((a, b) => {
-      const order = { 'EN RETARD': 0, 'ALERTE': 1, 'OK': 2 };
-      return (order[a.status] || 2) - (order[b.status] || 2);
+      if (a.isRecorded !== b.isRecorded) return a.isRecorded ? 1 : -1;
+      return b.entryTime - a.entryTime;
     });
 
-    res.json({ success: true, count: results.length, results });
+    res.json({
+      success: true,
+      count: results.length,
+      period: { from, to },
+      maintenanceZones: maintZoneNames,
+      autoCreatedCount,
+      stats: {
+        totalVisits: results.length,
+        vidanges: results.filter(r => r.detectedType === 'Vidange').length,
+        maintenanceGenerale: results.filter(r => r.detectedType === 'Maintenance Générale').length,
+        recorded: results.filter(r => r.isRecorded).length,
+        unrecorded: results.filter(r => !r.isRecorded).length
+      },
+      results
+    });
   } catch (e) {
+    console.error('❌ /api/maintenance/rescan-vidange error:', e.message);
     res.status(500).json({ error: e.message });
   }
 });

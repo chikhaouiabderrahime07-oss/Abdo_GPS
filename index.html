@@ -1993,9 +1993,14 @@
             <div class="settings-content" style="margin-top:10px;">
                 <p style="font-size:12px; color:var(--text-muted); margin-bottom:15px;">Sélectionnez une sauvegarde automatique et choisissez les modules à restaurer.</p>
                 <div style="display:flex; gap:15px; flex-wrap:wrap; align-items:center;">
-                    <select id="autoBackupSelect" style="flex:1; padding:8px; border-radius:5px; background:var(--bg-surface); border:1px solid var(--border); color:var(--text);">
-                      <option>Chargement...</option>
-                    </select>
+                    <div style="flex:1; display:flex; gap:6px; align-items:center;">
+                      <select id="autoBackupSelect" style="flex:1; padding:8px; border-radius:5px; background:var(--bg-surface); border:1px solid var(--border); color:var(--text);">
+                        <option value="">Chargement...</option>
+                      </select>
+                      <button type="button" onclick="ui.loadAutoBackups()" title="Actualiser les sauvegardes" style="background:var(--bg-surface); border:1px solid var(--border); border-radius:5px; padding:8px 12px; color:var(--text); cursor:pointer;">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                      </button>
+                    </div>
                     
                     <div style="display:flex; gap:15px; flex-wrap:wrap; font-size:13px; align-items:center; background:var(--bg-surface); padding:8px; border-radius:5px;">
                         <label style="cursor:pointer"><input type="checkbox" id="rbSettings" value="settings" checked> Paramètres</label>

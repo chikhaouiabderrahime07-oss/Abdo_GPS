@@ -1,0 +1,26 @@
+
+╔════════════════════════════════════════════════╗
+║  🚛  Fleet Analytics Engine v2.0               ║
+║  📍  dedsite.online                             ║
+║  👨‍💻  Dev: Chikhaoui Abderrahime                 ║
+║  📊  Zone Mission Control + Power BI API        ║
+╚════════════════════════════════════════════════╝
+
+✅ MongoDB connection established
+✅ MongoDB Connected! Starting App...
+[Init] System already initialized. Live-bot ENABLED.
+[Init] System already initialized. Live-bot ENABLED.
+🚀 Fleet Analytics Engine running on port 3000
+[Init] System already initialized. Live-bot ENABLED.
+[LocalBurst] 🚀 Localhost detected — triggering 7-day burst scan for ALL trucks...
+[Init] System already initialized. Live-bot ENABLED.
+[AutoSync] Vidange overrides: all up to date
+[Scan] ⚠️ No GPS data for T006 — skipping (events left untouched)
+[SCAN] HOWO T079 provider errors: 1 consecutive
+[Scan] ⚠️ No GPS data for T022 — skipping (events left untouched)
+[Scan] ⚠️ No GPS data for T017 — skipping (events left untouched)
+[Scan] ⚠️ No GPS data for HOWO T079 — skipping (events left untouched)
+[MidnightScheduler] ⏰ Next run in 23.5h at 2026-09-05T21:59:00.001Z (Algeria 23:59)
+[MidnightScheduler] ✅ Midnight validator + auto-backup scheduled
+[AutoBackup] 📦 Starting daily FULL backup...
+[AutoBackup] ✅ Backup saved: C:\Users\ABDOU\Desktop\Telegram\before ma\backups\backup_2026-09-04.json
