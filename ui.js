@@ -679,10 +679,7 @@ initElements() {
     const filtered = q ? locs.filter(l => (l.name||'').toLowerCase().includes(q) || (l.wilaya||'').toLowerCase().includes(q)) : locs;
 
     if (!filtered.length) {
-      container.innerHTML = `<div style="text-align:center;padding:32px 16px;color:var(--text-muted,#888);font-size:13px;">
-        <div style="font-size:32px;margin-bottom:8px;">📍</div>Aucun site trouvé.<br>
-        <button onclick="ui.openZoneClientModal(null)" style="margin-top:12px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:9px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer;">+ Créer le premier site</button>
-      </div>`;
+      container.innerHTML = `<div style="text-align:center;padding:32px 16px;color:var(--text-muted,#888);font-size:13px;"> <div style="font-size:32px;margin-bottom:8px;">📍</div>Aucun site trouvé.<br> <button onclick="ui.openZoneClientModal(null)" style="margin-top:12px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:white;border:none;border-radius:9px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer;">+ Créer le premier site</button> </div>`;
       return;
     }
 
@@ -726,10 +723,7 @@ initElements() {
     const filtered = q ? clients.filter(c => (c.name||'').toLowerCase().includes(q) || (c.industry||'').toLowerCase().includes(q)) : clients;
 
     if (!filtered.length) {
-      container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px 16px;color:var(--text-muted,#888);font-size:13px;">
-        <div style="font-size:32px;margin-bottom:8px;">👔</div>Aucun client.<br>
-        <button onclick="ui.openClientEditorModal(null)" style="margin-top:12px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:white;border:none;border-radius:9px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer;">+ Créer le premier client</button>
-      </div>`;
+      container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:32px 16px;color:var(--text-muted,#888);font-size:13px;"> <div style="font-size:32px;margin-bottom:8px;">👔</div>Aucun client.<br> <button onclick="ui.openClientEditorModal(null)" style="margin-top:12px;background:linear-gradient(135deg,#8b5cf6,#6366f1);color:white;border:none;border-radius:9px;padding:8px 16px;font-weight:700;font-size:12px;cursor:pointer;">+ Créer le premier client</button> </div>`;
       return;
     }
 
@@ -2208,9 +2202,7 @@ exportDecouchageCSV() {
 
       card.innerHTML = `
         <!-- Colored header bar — clickable → Google Maps satellite -->
-        <div style="background:${cardAccentGrad}; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;"
-             onclick="event.stopPropagation(); window.open('${mapsUrl}','_blank')"
-             title="Voir sur Google Maps satellite">
+        <div class="tcm-link" style="background:${cardAccentGrad}; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" title="Voir sur Google Maps satellite">
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="font-size:16px;font-weight:900;color:white;letter-spacing:-0.5px;">${truck.name}</span>
             ${truck.speed >= 1 ? '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.9);display:inline-block;box-shadow:0 0 6px rgba(255,255,255,0.8);"></span>' : '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);display:inline-block;"></span>'}
@@ -2253,7 +2245,7 @@ exportDecouchageCSV() {
           <div style="margin-bottom: 12px; padding: 10px; background: ${vidangeBg}; border: 1px solid ${vidangeColor}40; border-left: 3px solid ${vidangeColor}; border-radius: var(--radius-md); font-size: 12px;">
             <strong style="color: ${vidangeColor};"><i class="fa-solid fa-wrench"></i> ${vidangeTitle}</strong>
             <div style="margin-top: 4px; color:var(--text-secondary);">Prévue à ${truck.vidange.nextKm}km (${vidangeRemainingText})</div>
-            <button class="btn-primary" style="margin-top:8px; width:100%; background: ${vidangeColor}; box-shadow: 0 4px 12px ${vidangeColor}40; border:none;" onclick="ui.quickAddVidange('${truck.id}')">
+            <button class="btn-primary tcv-btn" data-tid="${truck.id}" style="margin-top:8px; width:100%; background: ${vidangeColor}; box-shadow: 0 4px 12px ${vidangeColor}40; border:none;">
               <i class="fa-solid fa-circle-check"></i> Déclarer Vidange
             </button>
           </div>
@@ -2270,21 +2262,33 @@ exportDecouchageCSV() {
         ` : ''}
         
           <div style="display:flex; gap:6px; border-top:1px solid var(--border-light); padding-top:10px;">
-            <button onclick="event.stopPropagation(); window.ui.viewOnMap(${truck.coordinates?.lat||0}, ${truck.coordinates?.lng||0})"
+            <button class="tc-suivre" data-lat="${truck.coordinates?.lat||0}" data-lng="${truck.coordinates?.lng||0}"
               style="flex:1; background:${cardAccentGrad}; color:white; font-size:11px; padding:8px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px ${cardAccentColor}40;">
               <i class="fa-solid fa-map-location-dot"></i> Suivre
             </button>
-            <button onclick="event.stopPropagation(); window.ui.openRefModal('${truck.id}')"
+            <button class="tc-docs" data-tid="${truck.id}"
               style="flex:1; background:linear-gradient(135deg,#38bdf8,#0284c7); color:white; font-size:11px; padding:8px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px rgba(56,189,248,0.3);">
               <i class="fa-solid fa-file-contract"></i> Docs
             </button>
-            <button onclick="event.stopPropagation(); window.ui.openMaintenanceModal('${truck.id}')"
+            <button class="tc-maint" data-tid="${truck.id}"
               style="flex:1; background:var(--bg-elevated); color:var(--text-secondary); font-size:11px; padding:8px; border:1px solid var(--border-light); border-radius:8px; cursor:pointer; font-weight:700;">
               <i class="fa-solid fa-wrench"></i> Maint.
             </button>
           </div>
         </div>
       `;
+
+      // ── Bind card event handlers (no inline onclick in innerHTML) ──
+      const _tml = card.querySelector('.tcm-link');
+      if (_tml) { (function(u,el){ el.onclick = function(e){ e.stopPropagation(); window.open(u,'_blank'); }; })(mapsUrl, _tml); }
+      const _tvb = card.querySelector('.tcv-btn');
+      if (_tvb) { (function(el){ el.onclick = function(){ ui.quickAddVidange(el.dataset.tid); }; })(_tvb); }
+      const _tsv = card.querySelector('.tc-suivre');
+      if (_tsv) { (function(el){ el.onclick = function(e){ e.stopPropagation(); window.ui.viewOnMap(parseFloat(el.dataset.lat), parseFloat(el.dataset.lng)); }; })(_tsv); }
+      const _tdc = card.querySelector('.tc-docs');
+      if (_tdc) { (function(el){ el.onclick = function(e){ e.stopPropagation(); window.ui.openRefModal(el.dataset.tid); }; })(_tdc); }
+      const _tmt = card.querySelector('.tc-maint');
+      if (_tmt) { (function(el){ el.onclick = function(e){ e.stopPropagation(); window.ui.openMaintenanceModal(el.dataset.tid); }; })(_tmt); }
 
       this.trucksContainer.appendChild(card);
     });
@@ -2498,41 +2502,6 @@ exportDecouchageCSV() {
     controls.className = 'sub-filters';
     controls.innerHTML = `<button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button> <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">Urgent</button> <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">Bientôt</button> <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">OK</button>`;
     this.vidangeSectionContainer.appendChild(controls);
-
-    // ── Resync Vidange Button ──────────────────────────────────────
-    const resyncBtn = document.createElement('button');
-    resyncBtn.id = 'vidangeResyncBtn';
-    resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange';
-    resyncBtn.style.cssText = 'margin:8px 0 4px;padding:7px 16px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:7px;transition:opacity .2s;';
-    resyncBtn.onmouseenter = () => resyncBtn.style.opacity = '0.85';
-    resyncBtn.onmouseleave = () => resyncBtn.style.opacity = '1';
-    resyncBtn.onclick = async () => {
-      resyncBtn.disabled = true;
-      resyncBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Synchronisation...';
-      try {
-        const base = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.API && FLEET_CONFIG.API.baseUrl) ? FLEET_CONFIG.API.baseUrl : '';
-        const code = localStorage.getItem('accessCode') || '';
-        const r = await fetch(base + '/api/admin/sync-vidange-overrides', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-access-code': code }
-        });
-        const d = await r.json();
-        if (d.success) {
-          resyncBtn.innerHTML = '<i class="fa-solid fa-check"></i> ' + d.synced + ' synchronises, ' + d.skipped + ' deja OK';
-          resyncBtn.style.background = 'linear-gradient(135deg,#10b981,#059669)';
-          if (typeof ui !== 'undefined' && ui.syncSettings) { await ui.syncSettings(); ui.renderVidangeSection(); }
-          setTimeout(() => { resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange'; resyncBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)'; resyncBtn.disabled = false; }, 4000);
-        } else {
-          resyncBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Erreur: ' + (d.error || '?');
-          resyncBtn.style.background = '#e63946';
-          setTimeout(() => { resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange'; resyncBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)'; resyncBtn.disabled = false; }, 4000);
-        }
-      } catch(e) {
-        resyncBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> Erreur reseau';
-        resyncBtn.style.background = '#e63946';
-        setTimeout(() => { resyncBtn.innerHTML = '<i class="fa-solid fa-rotate"></i> Resynchroniser Historique Vidange'; resyncBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)'; resyncBtn.disabled = false; }, 4000);
-      }
-    };
-    this.vidangeSectionContainer.appendChild(resyncBtn);
 
     const header = document.createElement('div');
     header.className = 'accordion-header';
@@ -11416,13 +11385,15 @@ exportMaintenanceCSV() {
     if (!truck || !this.maintTruckInfoPanel) return;
     const db = this.truckDbCache.find(d => String(d.deviceId) === String(truckId)) || {};
 
-    this.maintTruckInfoPanel.style.display = 'block';
+    const _mtpBtn = this.maintTruckInfoPanel.querySelector('.mtp-open-btn');
+        if (_mtpBtn) { _mtpBtn.onclick = (function(el){ return function(){ ui.openNewMaintenanceOrder(el.dataset.truckId); }; })(_mtpBtn); }
+        this.maintTruckInfoPanel.style.display = 'block';
     this.maintTruckInfoPanel.innerHTML = `
       <div class="truck-info-panel">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
           <h3 style="margin:0; color:#f59e0b;"><i class="fa-solid fa-truck"></i> ${truck.name}</h3>
           <div style="display:flex; gap:6px;">
-            <button class="btn-primary" onclick="ui.openNewMaintenanceOrder('${truckId}')" style="background:#f59e0b; border:none; font-size:12px; padding:6px 12px;">
+            <button class="btn-primary" class="mtp-open-btn" data-truck-id="${truckId}" style="background:#f59e0b; border:none; font-size:12px; padding:6px 12px;">
               <i class="fa-solid fa-plus"></i> Créer Ordre
             </button>
           </div>
