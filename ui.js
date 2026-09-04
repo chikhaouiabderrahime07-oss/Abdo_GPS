@@ -149,6 +149,8 @@ class UIController {
     this.vidangeAccordionState = true;
     this.fuelFilterState = 'all'; 
     this.vidangeFilterState = 'all';
+    this.vidangeSortDesc = false;
+    this.vidangeSortField = 'km'; // 'km' or 'name'
     this.zoneGroupingMode = 'city'; 
     this.searchQuery = '';
 
@@ -2491,7 +2493,13 @@ exportDecouchageCSV() {
 
   renderVidangeSection() {
     this.vidangeSectionContainer.innerHTML = '';
-    let trucks = app.getAllTrucks().sort((a, b) => this.vidangeSortDesc ? (b.vidange.kmUntilNext - a.vidange.kmUntilNext) : (a.vidange.kmUntilNext - b.vidange.kmUntilNext));
+    let trucks = app.getAllTrucks().sort((a, b) => {
+      if (this.vidangeSortField === 'name') {
+        const cmp = (a.name || '').localeCompare(b.name || '', 'fr');
+        return this.vidangeSortDesc ? -cmp : cmp;
+      }
+      return this.vidangeSortDesc ? (b.vidange.kmUntilNext - a.vidange.kmUntilNext) : (a.vidange.kmUntilNext - b.vidange.kmUntilNext);
+    });
     trucks = this.filterBySearch(trucks);
 
     if (this.vidangeFilterState === 'urgent') trucks = trucks.filter(t => t.vidange.alert);
@@ -2500,7 +2508,7 @@ exportDecouchageCSV() {
 
     const controls = document.createElement('div');
     controls.className = 'sub-filters';
-    controls.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button> <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">🔴 Urgent</button> <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">🟡 Bientôt</button> <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">✅ OK</button></div><div style="display:flex;gap:6px;align-items:center;"><span style="font-size:11px;color:var(--text-muted,#94a3b8);font-weight:600;">Trier:</span><button class="filter-pill ${!this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortDesc=false;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Plus urgent en premier"><i class="fa-solid fa-arrow-up-short-wide"></i> Urgent d'abord</button><button class="filter-pill ${this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortDesc=true;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Plus OK en premier"><i class="fa-solid fa-arrow-down-wide-short"></i> OK d'abord</button></div></div>`;
+    controls.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button> <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">🔴 Urgent</button> <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">🟡 Bientôt</button> <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">✅ OK</button></div><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><span style="font-size:11px;color:var(--text-muted,#94a3b8);font-weight:600;">Trier:</span><button class="filter-pill ${this.vidangeSortField==='km'&&!this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortField='km';ui.vidangeSortDesc=false;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Plus urgent en premier"><i class="fa-solid fa-arrow-up-short-wide"></i> Urgent d\u2019abord</button><button class="filter-pill ${this.vidangeSortField==='km'&&this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortField='km';ui.vidangeSortDesc=true;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Plus OK en premier"><i class="fa-solid fa-arrow-down-wide-short"></i> OK d\u2019abord</button><button class="filter-pill ${this.vidangeSortField==='name'&&!this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortField='name';ui.vidangeSortDesc=false;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Nom A→Z"><i class="fa-solid fa-arrow-down-a-z"></i> Nom A→Z</button><button class="filter-pill ${this.vidangeSortField==='name'&&this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortField='name';ui.vidangeSortDesc=true;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Nom Z→A"><i class="fa-solid fa-arrow-up-z-a"></i> Nom Z→A</button></div></div>`;
     this.vidangeSectionContainer.appendChild(controls);
 
     const header = document.createElement('div');
@@ -8565,7 +8573,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
           if(btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Chargement...';
           
           const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backup/download`, {
-              headers: { 'x-access-code': localStorage.getItem('fleetToken') }
+              headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') }
           });
           if (!res.ok) throw new Error('Access Denied');
           const blob = await res.blob();
@@ -8638,7 +8646,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
   async loadAutoBackups() {
       try {
           const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/backups/list`, {
-              headers: { 'x-access-code': localStorage.getItem('fleetToken') }
+              headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') }
           });
           const files = await res.json();
           const select = document.getElementById('autoBackupSelect');
@@ -8685,7 +8693,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
               method: 'POST',
               headers: { 
                 'Content-Type': 'application/json',
-                'x-access-code': localStorage.getItem('fleetToken')
+                'x-access-code': localStorage.getItem('fleetAccessCode')
               },
               body: JSON.stringify({ filename, modules })
           });

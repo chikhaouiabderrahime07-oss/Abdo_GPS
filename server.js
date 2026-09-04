@@ -7111,15 +7111,18 @@ app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
     try {
       const https = require('https');
       const agent = new https.Agent({ rejectUnauthorized: false });
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000);
-      const gpsResp = await fetch(GPS_API_URL, { agent, signal: controller.signal });
-      clearTimeout(timeout);
+      const gpsResp = await fetch(GPS_API_URL, { 
+        agent,
+        dispatcher: undefined, // Node 22 uses dispatcher, not agent
+        signal: AbortSignal.timeout(30000)
+      });
       const gpsItems = await gpsResp.json();
+      console.log(`[VidangeScan] GPS fetch OK: ${Array.isArray(gpsItems) ? gpsItems.length : 'non-array'} items`);
       if (Array.isArray(gpsItems)) {
-        gpsItems.forEach(t => { if (t.id) gpsData[String(t.id)] = t; });
+        gpsItems.forEach(t => { const key = t.imei || t.id || ''; if (key) gpsData[String(key)] = t; });
+        console.log(`[VidangeScan] GPS map: ${Object.keys(gpsData).length} entries, sample odo: ${gpsItems[0]?.odometer}`);
       }
-    } catch(gpsErr) { console.log('[VidangeScan] GPS fetch failed, using DB only:', gpsErr.message); }
+    } catch(gpsErr) { console.log('[VidangeScan] GPS fetch FAILED:', gpsErr.message); }
 
     const results = [];
 
@@ -7129,14 +7132,12 @@ app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
 
       // Get odometer from live GPS or fallback to 0
       const gps = gpsData[tid] || {};
-      let odometerKm = 0;
-      const modelName = (gps.model || '').toUpperCase();
-      if ((modelName.includes('HOWO') || !gps.params?.io192) && gps.odometer) {
-        odometerKm = Math.round(parseFloat(gps.odometer) || 0);
-      } else {
-        odometerKm = Math.round((parseInt(gps.params?.io192 || 0)) / 1000);
+      // Odometer: Wialon returns it directly in gps.odometer (in km, as string)
+      let odometerKm = Math.round(parseFloat(gps.odometer || 0));
+      // Fallback: some Teltonika devices store it in params.io192 (in meters)
+      if (!odometerKm && gps.params && gps.params.io192) {
+        odometerKm = Math.round(parseInt(gps.params.io192) / 1000);
       }
-      if (!odometerKm && gps.odometer) odometerKm = Math.round(parseFloat(gps.odometer) || 0);
 
       // Get truck config (per-truck overrides or defaults)
       const settings = SYSTEM_SETTINGS || {};
