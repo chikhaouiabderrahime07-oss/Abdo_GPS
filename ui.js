@@ -913,7 +913,7 @@ initElements() {
     if(document.getElementById('exportJSONBtn')) document.getElementById('exportJSONBtn').addEventListener('click', () => this.exportJSON());
     if(document.getElementById('clearHistoryBtn')) document.getElementById('clearHistoryBtn').addEventListener('click', () => this.clearHistory());
     
-    this.globalSearchInput.addEventListener('input', (e) => {
+    if (this.globalSearchInput) { this.globalSearchInput.addEventListener('input', (e) => {
         this.searchQuery = e.target.value.toLowerCase().trim();
         const count = document.getElementById('searchResultCount');
         if (count) {
@@ -933,6 +933,7 @@ initElements() {
           this._showSearchPopover();
         }
     });
+    }
     this.globalSearchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && this.searchQuery) {
           this.switchTab('dashboard');

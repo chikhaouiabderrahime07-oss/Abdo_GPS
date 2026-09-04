@@ -459,33 +459,58 @@
       var res = document.getElementById('paletteResults');
       if (!res) return;
       q = (q || '').trim().toLowerCase();
-      if (q.length < 1) { closeSearchPalette(); openSearchPalette(); return; }
+      if (!q) {
+        res.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;"><i class="fa-solid fa-truck" style="font-size:24px;opacity:0.3;display:block;margin-bottom:8px;"></i>Tapez pour rechercher dans la flotte...</div>';
+        return;
+      }
       var trucks = (window.app && typeof window.app.getAllTrucks === 'function') ? window.app.getAllTrucks() : [];
       var dbCache = (window.ui && window.ui.truckDbCache) ? window.ui.truckDbCache : [];
       var results = trucks.filter(function(t) {
-        var db = dbCache.find(function(d){ return String(d.deviceId)===String(t.id||t.deviceId); }) || {};
-        return (t.name||'').toLowerCase().includes(q) ||
-               (db.immatriculation||'').toLowerCase().includes(q) ||
-               (db.carteNaftal||'').toLowerCase().includes(q) ||
-               (db.chassisNumber||'').toLowerCase().includes(q);
+        var db = dbCache.find(function(d){ return String(d.deviceId) === String(t.id || t.deviceId); }) || {};
+        var qlow = q;
+        return (t.name||'').toLowerCase().indexOf(qlow) !== -1
+            || (db.immatriculation||'').toLowerCase().indexOf(qlow) !== -1
+            || (db.carteNaftal||'').toLowerCase().indexOf(qlow) !== -1
+            || (db.chassisNumber||'').toLowerCase().indexOf(qlow) !== -1;
       }).slice(0, 12);
+
       if (!results.length) {
-        res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted,#94a3b8);font-size:13px;">Aucun résultat pour "'+q+'"</div>';
+        res.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:13px;">Aucun camion pour &quot;' + q + '&quot;</div>';
         return;
       }
-      res.innerHTML = results.map(function(t) {
-        var db = dbCache.find(function(d){ return String(d.deviceId)===String(t.id||t.deviceId); }) || {};
-        var fp = Math.round(t.fuelPercentage||0);
-        var fc = fp<=10?'#ef4444':fp<=25?'#f59e0b':'#16a34a';
-        return '<div onclick="closeSearchPalette();if(window.ui&&window.ui.viewOnMap)window.ui.viewOnMap('+(t.coordinates&&t.coordinates.lat?t.coordinates.lat:0)+','+(t.coordinates&&t.coordinates.lng?t.coordinates.lng:0)+')" style="padding:12px 20px;cursor:pointer;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border-light,#f1f5f9);" onmouseover="this.style.background='var(--bg-elevated,#f8fafc)'" onmouseout="this.style.background=''">'+
-          '<div style="width:36px;height:36px;border-radius:10px;background:'+fc+'20;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-solid fa-truck" style="color:'+fc+';font-size:14px;"></i></div>'+
-          '<div style="flex:1;min-width:0;">'+
-            '<div style="font-weight:700;color:var(--text-primary,#1e293b);font-size:13px;">'+t.name+'</div>'+
-            '<div style="font-size:11px;color:var(--text-muted,#94a3b8);margin-top:1px;">'+(db.immatriculation?db.immatriculation+' · ':'')+( db.carteNaftal?'Carte: '+db.carteNaftal:'')+' '+(t.location&&t.location.name?'📍 '+t.location.name:'')+'</div>'+
-          '</div>'+
-          '<div style="text-align:right;flex-shrink:0;"><span style="font-size:14px;font-weight:900;color:'+fc+';">'+fp+'%</span><div style="font-size:9px;color:var(--text-muted,#94a3b8);">'+(Math.round(t.fuelLiters||0))+'L</div></div>'+
-        '</div>';
-      }).join('');
+
+      // Use DOM to avoid any inline-string quoting issues
+      res.innerHTML = '';
+      results.forEach(function(t) {
+        var db = dbCache.find(function(d){ return String(d.deviceId) === String(t.id || t.deviceId); }) || {};
+        var fp = Math.round(t.fuelPercentage || 0);
+        var fc = fp <= 10 ? '#ef4444' : fp <= 25 ? '#f59e0b' : '#16a34a';
+        var lat = (t.coordinates && t.coordinates.lat) ? t.coordinates.lat : 0;
+        var lng = (t.coordinates && t.coordinates.lng) ? t.coordinates.lng : 0;
+        var meta = (db.immatriculation ? db.immatriculation + ' · ' : '') +
+                   (db.carteNaftal ? 'Carte: ' + db.carteNaftal : '') +
+                   (t.location && t.location.name ? ' 📍 ' + t.location.name : '');
+
+        var row = document.createElement('div');
+        row.style.cssText = 'padding:12px 20px;cursor:pointer;display:flex;align-items:center;gap:14px;border-bottom:1px solid #f1f5f9;';
+        row.innerHTML =
+          '<div style="width:36px;height:36px;border-radius:10px;background:' + fc + '20;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+          '<i class="fa-solid fa-truck" style="color:' + fc + ';font-size:14px;"></i></div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="font-weight:700;color:#1e293b;font-size:13px;">' + t.name + '</div>' +
+            '<div style="font-size:11px;color:#94a3b8;margin-top:1px;">' + meta + '</div>' +
+          '</div>' +
+          '<div style="text-align:right;flex-shrink:0;">' +
+            '<span style="font-size:14px;font-weight:900;color:' + fc + ';">' + fp + '%</span>' +
+            '<div style="font-size:9px;color:#94a3b8;">' + Math.round(t.fuelLiters || 0) + 'L</div>' +
+          '</div>';
+        row.onmouseover = function() { this.style.background = '#f8fafc'; };
+        row.onmouseout  = function() { this.style.background = ''; };
+        row.onclick     = (function(lt, lg) {
+          return function() { closeSearchPalette(); if (window.ui && window.ui.viewOnMap) window.ui.viewOnMap(lt, lg); };
+        })(lat, lng);
+        res.appendChild(row);
+      });
     }
     // Keyboard shortcut: / to open palette
     document.addEventListener('keydown', function(e) {
@@ -2411,7 +2436,7 @@ window.addEventListener('unhandledrejection', function(e) {
       { label: 'Configuration', icon: 'fa-sliders', action: () => switchTab('settings'), keywords: 'config parametre settings' },
       { label: 'Notifications', icon: 'fa-bell', action: () => toggleNotificationPanel(), keywords: 'notif notification alert' },
       { label: 'Ouvrir Carte 3D', icon: 'fa-earth-africa', action: () => resetMapContext(), keywords: 'carte 3d map' },
-      { label: 'Audit GPS', icon: 'fa-user-secret', action: () => window.open('gps-checker.html','_blank'), keywords: 'audit gps checker' }, }, keywords: 'score chauffeur driver scoring' },
+      { label: 'Audit GPS', icon: 'fa-user-secret', action: () => window.open('gps-checker.html','_blank'), keywords: 'audit gps checker' },
       { label: 'PDF Maintenance', icon: 'fa-file-pdf', action: () => showToast('Sélectionnez un ordre de maintenance pour générer le PDF', 'info'), keywords: 'pdf export maintenance' },
     ];
 
