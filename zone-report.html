@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
@@ -537,7 +537,108 @@
       .charts-grid { grid-template-columns: 1fr; }
       .pb-how-grid { grid-template-columns: 1fr; }
     }
+
+    /* ═══ AI Widget Logo ═══ */
+    .ai-widget { position:relative; width:54px; height:54px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+    .ai-widget-sm { width:36px; height:36px; }
+    .ai-core {
+      width:38%; height:38%; border-radius:50%;
+      background:radial-gradient(circle at 35% 35%, #60a5fa, #2563eb, #1e3a8a);
+      box-shadow:0 0 18px rgba(37,99,235,0.7), inset 0 0 8px rgba(255,255,255,0.3);
+      animation: ai-pulse 2.4s ease-in-out infinite;
+      position:relative; z-index:2;
+    }
+    .ai-orbit {
+      position:absolute; border-radius:50%;
+      width:80%; height:80%;
+      border:1.5px solid rgba(96,165,250,0.5);
+      animation:ai-orbit1 3.2s linear infinite;
+    }
+    .ai-orbit::after {
+      content:''; position:absolute; width:7px; height:7px;
+      background:#60a5fa; border-radius:50%;
+      top:-3.5px; left:50%; transform:translateX(-50%);
+      box-shadow:0 0 6px #60a5fa;
+    }
+    .ai-orbit-2 {
+      width:65%; height:65%;
+      border-color:rgba(167,139,250,0.4);
+      animation:ai-orbit1 2s linear infinite reverse;
+    }
+    .ai-orbit-2::after { background:#a78bfa; box-shadow:0 0 6px #a78bfa; top:auto; bottom:-3.5px; }
+    .ai-ring3 {
+      position:absolute; width:100%; height:100%; border-radius:50%;
+      border:1px solid rgba(96,165,250,0.15);
+      animation:ai-ring-pulse 3s ease-in-out infinite;
+    }
+    @keyframes ai-pulse {
+      0%,100%{box-shadow:0 0 18px rgba(37,99,235,0.7),inset 0 0 8px rgba(255,255,255,0.3);}
+      50%{box-shadow:0 0 28px rgba(37,99,235,0.9),0 0 50px rgba(96,165,250,0.3),inset 0 0 12px rgba(255,255,255,0.4);}
+    }
+    @keyframes ai-orbit1 { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    @keyframes ai-ring-pulse {
+      0%,100%{transform:scale(1);opacity:0.4;}
+      50%{transform:scale(1.08);opacity:0.8;}
+    }
+    .ai-widget.burst .ai-core { animation:ai-burst 0.5s ease-out; }
+    .ai-widget.burst .ai-orbit { animation:ai-orbit1 0.4s linear infinite; }
+    @keyframes ai-burst {
+      0%{transform:scale(1)} 40%{transform:scale(1.5)} 70%{transform:scale(0.85)} 100%{transform:scale(1)}
+    }
+    .abdo-logo-box { display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none; transition:transform 0.2s; }
+    .abdo-logo-box:hover { transform:scale(1.05); }
+    .abdo-logo-box:active { transform:scale(0.95); }
+    .abdo-logo-box:hover .ai-core { box-shadow:0 0 0 3px rgba(96,165,250,0.3),0 0 20px rgba(96,165,250,0.5) !important; }
+    .abdo-logo-box:hover .ai-orbit { animation-duration:1.2s !important; }
+    .abdo-logo-box:hover .ai-orbit-2 { animation-duration:1.8s !important; }
+    .abdo-brand-name { font-weight:900; font-size:14px; color:var(--text); transition:color 0.3s; }
+    .abdo-brand-sub { font-size:10px; color:var(--text-3); opacity:0.7; transition:opacity 0.3s; }
+    .abdo-logo-box:hover .abdo-brand-name { color:#60a5fa !important; text-shadow:0 0 12px rgba(96,165,250,0.6); }
+    .abdo-logo-box:hover .abdo-brand-sub { opacity:1 !important; }
+    .refresh-indicator { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-3); background:var(--bg-3); padding:4px 10px; border-radius:20px; border:1px solid var(--border); }
+    .refresh-indicator i { color:var(--teal); }
+
   </style>
+  <script>
+  // ── Animated Favicon (same as main app) ──────────────────────────────
+  (function(){
+    var canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 32;
+    var ctx = canvas.getContext('2d');
+    var angle = 0;
+    var link = document.createElement('link');
+    link.rel = 'icon'; link.type = 'image/png';
+    document.head.appendChild(link);
+    function drawFrame(){
+      ctx.clearRect(0,0,32,32);
+      ctx.fillStyle='#0f172a';
+      ctx.beginPath(); ctx.arc(16,16,15,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(96,165,250,0.3)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(16,16,12,0,Math.PI*2); ctx.stroke();
+      ctx.fillStyle='#60a5fa';
+      ctx.beginPath();
+      ctx.arc(16+Math.cos(angle)*12, 16+Math.sin(angle)*12, 2.5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle='#818cf8';
+      ctx.beginPath();
+      ctx.arc(16+Math.cos(angle+Math.PI)*8, 16+Math.sin(angle+Math.PI)*8, 1.8, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle='#f472b6';
+      ctx.beginPath();
+      ctx.arc(16+Math.cos(angle+2.1)*10, 16+Math.sin(angle+2.1)*10, 1.4, 0, Math.PI*2);
+      ctx.fill();
+      var hue = (angle * 30) % 360;
+      ctx.fillStyle='hsl('+hue+',70%,55%)';
+      ctx.beginPath(); ctx.arc(16,16,3.5+Math.sin(angle*3)*1,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#fff';
+      ctx.beginPath(); ctx.arc(16,16,1.8,0,Math.PI*2); ctx.fill();
+      link.href = canvas.toDataURL('image/png');
+      angle += 0.18;
+    }
+    setInterval(drawFrame, 150);
+    drawFrame();
+  })();
+  </script>
 </head>
 <body>
 
@@ -557,18 +658,23 @@
 
   <!-- HEADER -->
   <header id="header">
-    <div class="hdr-logo">
-      <div class="logo-icon" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;font-weight:900;font-size:11px;border-radius:10px;width:36px;height:36px;display:flex;align-items:center;justify-content:center;letter-spacing:-0.5px;">DF</div>
+    <div class="abdo-logo-box" onclick="zmcTriggerLogo(this)" title="Douroub FleetOS — Zone Mission Control">
+      <div class="ai-widget ai-widget-sm" id="zmcAiWidget">
+        <div class="ai-ring3"></div>
+        <div class="ai-orbit"></div>
+        <div class="ai-orbit ai-orbit-2"></div>
+        <div class="ai-core"></div>
+      </div>
       <div>
-        <div class="logo-text" style="font-weight:900;font-size:14px;">Douroub FleetOS</div>
-        <div class="logo-sub" style="font-size:10px;opacity:0.6;">Zone Mission Control · by Abderrahime Chikhaoui</div>
+        <div class="abdo-brand-name">Douroub FleetOS</div>
+        <div class="abdo-brand-sub">Zone Mission Control · by Abderrahime Chikhaoui</div>
       </div>
     </div>
     <div class="hdr-sep"></div>
     <div class="hdr-title">dedgps.site</div>
     <div class="hdr-right">
       <div class="live-badge"><div class="live-dot"></div>LIVE</div>
-      <span id="lastRefreshTime" style="font-size:10px;color:var(--text-3);"></span>
+      <div class="refresh-indicator"><i class="fa-solid fa-clock-rotate-left"></i> <span id="lastRefreshTime">--:--:--</span></div>
       <button class="hdr-btn" onclick="window.location.href='/'" title="Retourner à la carte principale"><i class="fa-solid fa-arrow-left"></i></button>
       <button class="hdr-btn" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
       <button class="hdr-btn" onclick="ZMC.toggleTheme()" id="themeBtn" title="Changer thème"><i class="fa-solid fa-circle-half-stroke"></i></button>
@@ -4133,6 +4239,41 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchPillStatus();
   setInterval(function(){ fTick(); mTick(); }, 1000);
   setInterval(fetchPillStatus, 5 * 60000);
+})();
+</script>
+
+<script>
+// ── AI Widget Logo Click Effect ──
+function zmcTriggerLogo(box) {
+  var w = box.querySelector('.ai-widget');
+  if (!w) return;
+  w.classList.add('burst');
+  setTimeout(function(){ w.classList.remove('burst'); }, 600);
+}
+
+// ── Auto-update refresh time display ──
+(function(){
+  function updateRefreshTime() {
+    var el = document.getElementById('lastRefreshTime');
+    if (el) {
+      var now = new Date();
+      el.textContent = now.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    }
+  }
+  var origRefresh = null;
+  var checkInterval = setInterval(function(){
+    if (typeof ZMC !== 'undefined' && ZMC.refreshAll && !origRefresh) {
+      origRefresh = ZMC.refreshAll.bind(ZMC);
+      ZMC.refreshAll = function() {
+        var result = origRefresh();
+        updateRefreshTime();
+        return result;
+      };
+      updateRefreshTime();
+      clearInterval(checkInterval);
+    }
+  }, 500);
+  window.addEventListener('load', function(){ setTimeout(updateRefreshTime, 2000); });
 })();
 </script>
 </body>
