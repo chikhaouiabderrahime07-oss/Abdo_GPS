@@ -6883,7 +6883,7 @@ app.post('/api/admin/sync-vidange-overrides', checkAccess, async (req, res) => {
 
     // Find all completed vidange records grouped by deviceId
     const vidanges = await Maintenance.find({
-      type: { $in: ['Vidange', 'Vidange Complète'] },
+      type: { $in: ['Vidange', 'Vidange Complète', 'Maintenance Générale', 'Maintenance'] },
       status: { $nin: ['annule', 'annulé'] },
       odometer: { $gt: 0 }
     }).sort({ odometer: 1 }).lean();
@@ -7105,16 +7105,38 @@ app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
 app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
   try {
     const trucks = await Truck.find({}, 'deviceId truckName').lean();
-    const gpsData = latestGpsData || {}; // use cached GPS snapshot
+
+    // Fetch live GPS data from provider
+    let gpsData = {};
+    try {
+      const https = require('https');
+      const agent = new https.Agent({ rejectUnauthorized: false });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000);
+      const gpsResp = await fetch(GPS_API_URL, { agent, signal: controller.signal });
+      clearTimeout(timeout);
+      const gpsItems = await gpsResp.json();
+      if (Array.isArray(gpsItems)) {
+        gpsItems.forEach(t => { if (t.id) gpsData[String(t.id)] = t; });
+      }
+    } catch(gpsErr) { console.log('[VidangeScan] GPS fetch failed, using DB only:', gpsErr.message); }
+
     const results = [];
 
     for (const truck of trucks) {
       const tid = String(truck.deviceId);
       const tName = truck.truckName || tid;
 
-      // Get odometer from live GPS cache or last known
+      // Get odometer from live GPS or fallback to 0
       const gps = gpsData[tid] || {};
-      const odometerKm = parseInt(gps.odometer || gps.mileage || 0, 10);
+      let odometerKm = 0;
+      const modelName = (gps.model || '').toUpperCase();
+      if ((modelName.includes('HOWO') || !gps.params?.io192) && gps.odometer) {
+        odometerKm = Math.round(parseFloat(gps.odometer) || 0);
+      } else {
+        odometerKm = Math.round((parseInt(gps.params?.io192 || 0)) / 1000);
+      }
+      if (!odometerKm && gps.odometer) odometerKm = Math.round(parseFloat(gps.odometer) || 0);
 
       // Get truck config (per-truck overrides or defaults)
       const settings = SYSTEM_SETTINGS || {};
@@ -7125,11 +7147,11 @@ app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
         vidangeAlertKm: truckCfg.vidangeAlertKm || settings.vidangeAlertKm || 500
       };
 
-      // Get last completed vidange
+      // Get last completed maintenance of ANY type (not just Vidange)
       const lastVidange = await Maintenance.findOne(
-        { deviceId: tid, type: 'Vidange', status: 'termine' },
-        'odometer date',
-        { sort: { date: -1 } }
+        { deviceId: tid, type: { $in: ['Vidange', 'Vidange Compl\u00e8te', 'Maintenance G\u00e9n\u00e9rale', 'Maintenance'] }, status: 'termine' },
+        'odometer date type',
+        { sort: { odometer: -1 } }
       ).lean();
       const lastVidangeKm = lastVidange ? (lastVidange.odometer || 0) : null;
 
@@ -8823,6 +8845,51 @@ mongoose.connect(DB_URI, {
       // Still start the server so health endpoint is reachable
       app.listen(PORT, () => console.log(`🚀 Server running (DB FAILED) on port ${PORT}`));
     });
+
+// ═══ AUTO-SYNC VIDANGE OVERRIDES — runs on startup + every 24h ═══
+async function autoSyncVidangeOverrides() {
+  try {
+    await loadSettings();
+    const entries = await Maintenance.find({
+      type: { $in: ['Vidange', 'Vidange Complète', 'Maintenance Générale', 'Maintenance'] },
+      status: { $nin: ['annule', 'annulé'] },
+      odometer: { $gt: 0 }
+    }).sort({ odometer: 1 }).lean();
+
+    const byDevice = {};
+    for (const v of entries) {
+      if (!v.deviceId) continue;
+      const key = String(v.deviceId);
+      if (!byDevice[key] || v.odometer > byDevice[key].odometer) {
+        byDevice[key] = v;
+      }
+    }
+
+    let synced = 0;
+    for (const deviceId of Object.keys(byDevice)) {
+      const v = byDevice[deviceId];
+      const odometerKm = Math.round(v.odometer);
+      const _ovr = SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[deviceId];
+      const currentLastKm = _ovr ? (parseInt(_ovr.lastVidangeKm || _ovr.odometerAtConfirm || 0)) : 0;
+      if (odometerKm > currentLastKm) {
+        await acknowledgeVidange(deviceId, v.truckName || deviceId, odometerKm);
+        synced++;
+      }
+    }
+    if (synced > 0) {
+      await saveSettings();
+      console.log('[AutoSync] Vidange overrides synced: ' + synced + ' trucks updated');
+    } else {
+      console.log('[AutoSync] Vidange overrides: all up to date');
+    }
+  } catch(e) { console.error('[AutoSync] Error:', e.message); }
+}
+
+// Run on startup (after 5s delay to let DB connect)
+setTimeout(autoSyncVidangeOverrides, 5000);
+// Run every 24 hours
+setInterval(autoSyncVidangeOverrides, 24 * 60 * 60 * 1000);
+
 } else {
   console.error("❌ FATAL: Missing DB_URI");
   app.listen(PORT, () => console.log(`🚀 Server running (No DB Mode) on port ${PORT}`));

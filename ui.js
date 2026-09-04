@@ -10970,7 +10970,7 @@ exportMaintenanceCSV() {
     await this.loadActiveMaintenanceOrders();
     // Load recent completed vidanges to power smart "already done" logic
     try {
-      const rv = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-entries?type=Vidange&status=termine&limit=500`);
+      const rv = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-entries?status=termine&limit=1000`);
       if (rv.ok) {
         const entries = await rv.json();
         // Build map: deviceId -> lastVidangeKm

@@ -1279,9 +1279,7 @@
                 <button class="btn-secondary" onclick="ui.refreshMaintenanceFollowup()">
                     <i class="fa-solid fa-sync"></i>
                 </button>
-                <button id="vidangeRescanBtn" class="btn-secondary" onclick="ui.openVidangeScanModal()" style="border-color:rgba(22,163,74,0.3);color:#16a34a;font-weight:700;">
-                    <i class="fa-solid fa-magnifying-glass"></i> Scanner GPS Complet
-                </button>
+
             </div>
         </div>
 
@@ -1356,6 +1354,7 @@
                   <button class="btn-secondary" id="applyMaintFiltersBtn"><i class="fa-solid fa-filter"></i> Filtrer</button>
                   <button class="btn-primary" id="exportMaintBtn" style="background: var(--danger); border:none;"><i class="fa-solid fa-file-excel"></i> Exporter</button>
                   <button class="btn-primary" onclick="if(window.FleetPDF){FleetPDF.generateMaintenanceHistoryReport(window.ui.allMaintenanceLogs||[])}" style="background: var(--primary); border:none;"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                  <button class="btn-secondary" onclick="ui.openVidangeScanModal()" style="border-color:rgba(22,163,74,0.3);color:#16a34a;font-weight:700;"><i class="fa-solid fa-satellite-dish"></i> Scanner GPS Complet</button>
               </div>
         </div>
 

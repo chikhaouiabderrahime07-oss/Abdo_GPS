@@ -541,6 +541,8 @@
     /* ═══ AI Widget Logo ═══ */
     .ai-widget { position:relative; width:54px; height:54px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
     .ai-widget-sm { width:36px; height:36px; }
+    .ai-widget-lg { width:72px; height:72px; }
+    .ai-widget-lg .ai-core { width:36%; height:36%; }
     .ai-core {
       width:38%; height:38%; border-radius:50%;
       background:radial-gradient(circle at 35% 35%, #60a5fa, #2563eb, #1e3a8a);
@@ -642,6 +644,46 @@
 </head>
 <body>
 
+<!-- ═══ SPLASH SCREEN — Douroub FleetOS Logo ═══════════════════ -->
+<div id="splashScreen" style="position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#0f172a;">
+  <div class="ai-widget ai-widget-lg" id="splashAiWidget" onclick="zmcTriggerLogo(this)" style="cursor:pointer;margin-bottom:20px;">
+    <div class="ai-ring3"></div>
+    <div class="ai-orbit"></div>
+    <div class="ai-orbit ai-orbit-2"></div>
+    <div class="ai-core"></div>
+  </div>
+  <div style="text-align:center;margin-bottom:30px;">
+    <div style="font-size:1.6rem;font-weight:900;background:linear-gradient(135deg,#2563eb,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:1px;">Douroub FleetOS</div>
+    <div style="font-size:10px;letter-spacing:3px;color:#94a3b8;font-weight:600;margin-top:4px;text-transform:uppercase;">by Abderrahime Chikhaoui</div>
+    <div style="font-size:10px;color:#64748b;margin-top:6px;letter-spacing:1px;">Zone Mission Control</div>
+  </div>
+  <div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(255,255,255,.06);">
+    <div id="splashBar" style="height:100%;width:0;background:linear-gradient(90deg,#2563eb,#7c3aed);border-radius:0 2px 2px 0;"></div>
+  </div>
+</div>
+<style>#splashScreen{transition:opacity .45s ease,transform .4s ease;}</style>
+<script>
+(function(){
+  try{
+    var t=localStorage.getItem('zmc_theme')||'dark';
+    if(t!=='dark'){document.getElementById('splashScreen').style.background='#fff';
+      document.querySelector('#splashScreen div[style*="color:#94a3b8"]').style.color='#666';
+      document.querySelector('#splashScreen div[style*="color:#64748b"]').style.color='#aaa';
+    }
+    setTimeout(function(){var b=document.getElementById('splashBar');if(b)b.style.cssText+='width:85%;transition:width 1.2s ease';},50);
+  }catch(e){}
+  window.addEventListener('load',function(){
+    setTimeout(function(){
+      var b=document.getElementById('splashBar');
+      if(b){b.style.cssText+='width:100%;transition:width .3s ease';}
+      setTimeout(function(){
+        var sp=document.getElementById('splashScreen');
+        if(sp){sp.style.opacity='0';sp.style.transform='scale(1.02)';setTimeout(function(){sp.remove();},450);}
+      },350);
+    },700);
+  });
+})();
+</script>
 <!-- LOGIN SCREEN (hidden — auto-login via localStorage) -->
 <div id="loginScreen" style="display:none;">
   <div class="login-box">
