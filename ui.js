@@ -3280,9 +3280,12 @@ exportRefuelCSV() {
           '<i class="fa-solid ' + icons[section] + '" style="color:' + col + ';font-size:26px;"></i></div>' +
         '<h3 style="margin:0 0 6px;color:#1e293b;font-size:18px;">Accès ' + titles[section] + '</h3>' +
         '<p style="color:#64748b;font-size:13px;margin-bottom:20px;">Entrez votre mot de passe pour continuer</p>' +
-        '<input id="naftalPwdInp" type="password" placeholder="Mot de passe..." style="border:1.5px solid #94a3b8;background:#f0f4f8;color:#1e293b;border-radius:8px;padding:10px 14px;font-size:14px;width:100%;box-sizing:border-box;outline:none;" onfocus="this.style.borderColor=\"#0284c7\";this.style.boxShadow=\"0 0 0 3px rgba(2,132,199,0.15)\"" onblur="this.style.borderColor=\"#94a3b8\";this.style.boxShadow=\"none\"" ' +
-          'onkeydown="if(event.key===\'Enter\')ui.naftalVerifyPassword(\'' + section + '\')" ' +
-          'style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" autofocus>' +
+        '<input id="naftalPwdInp" type="password" placeholder="Mot de passe..."' +
+          ' style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;background:#f0f4f8;color:#1e293b;"' +
+          ' onfocus="this.style.borderColor=\'#0284c7\';this.style.boxShadow=\'0 0 0 3px rgba(2,132,199,0.15)\'"' +
+          ' onblur="this.style.borderColor=\'#e2e8f0\';this.style.boxShadow=\'none\'"' +
+          ' onkeydown="if(event.key===\'Enter\')ui.naftalVerifyPassword(\'' + section + '\')"' +
+          ' autofocus>' +
         '<button onclick="ui.naftalVerifyPassword(\'' + section + '\')" style="width:100%;padding:12px;background:' + col + ';color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">' +
           '<i class="fa-solid fa-lock-open"></i> Accéder</button>' +
         '<div id="naftalPwdErr" style="color:#ef4444;font-size:12px;margin-top:10px;"></div>' +
