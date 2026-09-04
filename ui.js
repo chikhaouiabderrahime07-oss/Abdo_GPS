@@ -2597,6 +2597,20 @@ exportDecouchageCSV() {
 
   // \u2705 QUICK ACTION: declare a Vidange from an alert (opens Maintenance modal prefilled)
   quickAddVidange(deviceId) {
+    // Smart check: if truck already has recent vidange at current km, skip directly to next
+    const trucks = window.app ? window.app.getAllTrucks() : [];
+    const truck = trucks.find(t => String(t.id || t.deviceId) === String(truckId));
+    if (truck && this._lastVidangeMap) {
+      const lastKm = this._lastVidangeMap[String(truckId)];
+      const currentKm = truck.odometer || 0;
+      const settings = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.SYSTEM_SETTINGS) ? FLEET_CONFIG.SYSTEM_SETTINGS : {};
+      const rotKm = settings.vidangeRotationKm || 25000;
+      if (lastKm && (currentKm - lastKm) < rotKm * 0.95) {
+        const nextKm = lastKm + rotKm;
+        if (!confirm(`Ce camion a déjà une vidange enregistrée à ${lastKm.toLocaleString('fr-DZ')} km.\nProchaine vidange prévue à ${nextKm.toLocaleString('fr-DZ')} km (dans ${(nextKm - currentKm).toLocaleString('fr-DZ')} km).\n\nCréer quand même un nouvel ordre?`)) return;
+      }
+    }
+
     try {
       const trucks = app.getAllTrucks();
       const t = trucks.find(x => String(x.id) === String(deviceId));
@@ -3315,7 +3329,7 @@ exportRefuelCSV() {
           '<i class="fa-solid ' + icons[section] + '" style="color:' + col + ';font-size:26px;"></i></div>' +
         '<h3 style="margin:0 0 6px;color:#1e293b;font-size:18px;">Accès ' + titles[section] + '</h3>' +
         '<p style="color:#64748b;font-size:13px;margin-bottom:20px;">Entrez votre mot de passe pour continuer</p>' +
-        '<input id="naftalPwdInp" type="password" placeholder="Mot de passe..." ' +
+        '<input id="naftalPwdInp" type="password" placeholder="Mot de passe..." style="border:1.5px solid #94a3b8;background:#f0f4f8;color:#1e293b;border-radius:8px;padding:10px 14px;font-size:14px;width:100%;box-sizing:border-box;outline:none;" onfocus="this.style.borderColor=\"#0284c7\";this.style.boxShadow=\"0 0 0 3px rgba(2,132,199,0.15)\"" onblur="this.style.borderColor=\"#94a3b8\";this.style.boxShadow=\"none\"" ' +
           'onkeydown="if(event.key===\'Enter\')ui.naftalVerifyPassword(\'' + section + '\')" ' +
           'style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;" autofocus>' +
         '<button onclick="ui.naftalVerifyPassword(\'' + section + '\')" style="width:100%;padding:12px;background:' + col + ';color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">' +
@@ -11006,73 +11020,357 @@ exportMaintenanceCSV() {
   async refreshMaintenanceFollowup() {
     await this.loadTruckDbCache();
     await this.loadActiveMaintenanceOrders();
+    // Load recent completed vidanges to power smart "already done" logic
+    try {
+      const rv = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance-entries?type=Vidange&status=termine&limit=500`);
+      if (rv.ok) {
+        const entries = await rv.json();
+        // Build map: deviceId -> lastVidangeKm
+        this._lastVidangeMap = {};
+        (entries.items || entries).forEach(e => {
+          const did = String(e.deviceId || e.truckId || '');
+          if (!did) return;
+          const km = Number(e.odometer || e.odometerKm || 0);
+          if (!this._lastVidangeMap[did] || km > this._lastVidangeMap[did]) {
+            this._lastVidangeMap[did] = km;
+          }
+        });
+      }
+    } catch(_) { this._lastVidangeMap = this._lastVidangeMap || {}; }
     this.renderActiveOrdersDashboard();
   }
 
-  async runVidangeRescan() {
-    const btn = document.getElementById('vidangeRescanBtn');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Scan en cours...'; }
+  // Keep old name as alias for backward compat
+  runVidangeRescan() { this.openVidangeScanModal(); }
+
+  openVidangeScanModal() {
+    // Remove existing modal if any
+    const existing = document.getElementById('vidangeScanModal');
+    if (existing) existing.remove();
+
+    // Compute default date range: last 30 days
+    const now = new Date();
+    const toStr = now.toISOString().slice(0,10);
+    const from30 = new Date(now - 30*24*3600*1000);
+    const fromStr = from30.toISOString().slice(0,10);
+
+    const modal = document.createElement('div');
+    modal.id = 'vidangeScanModal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:77777;background:rgba(15,23,42,0.65);backdrop-filter:blur(4px);display:flex;align-items:flex-start;justify-content:center;padding-top:60px;overflow-y:auto;';
+    modal.innerHTML = `
+      <div style="background:var(--bg-card,#fff);border-radius:18px;box-shadow:0 32px 100px rgba(0,0,0,0.35);width:100%;max-width:760px;border:1.5px solid var(--border,#e2e8f0);margin-bottom:40px;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;gap:12px;padding:20px 24px;border-bottom:1px solid var(--border,#e2e8f0);">
+          <div style="width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,#0284c7,#4f46e5);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <i class="fa-solid fa-magnifying-glass-chart" style="color:#fff;font-size:18px;"></i>
+          </div>
+          <div>
+            <div style="font-size:16px;font-weight:900;color:var(--text-primary,#1e293b);">Scanner GPS — Vidange Complète</div>
+            <div style="font-size:12px;color:var(--text-muted,#94a3b8);">Analyse complète de la flotte avec recalcul des prochaines échéances</div>
+          </div>
+          <button onclick="document.getElementById('vidangeScanModal').remove()" style="margin-left:auto;background:none;border:none;font-size:20px;color:var(--text-muted,#94a3b8);cursor:pointer;padding:4px 8px;border-radius:8px;" onmouseover="this.style.background='#fee2e2';this.style.color='#ef4444'" onmouseout="this.style.background='none';this.style.color=''">✕</button>
+        </div>
+
+        <!-- Config Zone -->
+        <div style="padding:20px 24px;" id="vidangeScanConfig">
+
+          <!-- Period -->
+          <div style="margin-bottom:18px;">
+            <div style="font-size:12px;font-weight:700;color:var(--text-secondary,#374151);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;"><i class="fa-solid fa-calendar-days" style="color:#0284c7;margin-right:6px;"></i>Période d'analyse</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <div>
+                <label style="font-size:11px;color:#94a3b8;font-weight:600;">Du</label>
+                <input type="date" id="vscanFrom" value="${fromStr}" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;background:var(--bg-elevated,#f8fafc);box-sizing:border-box;margin-top:4px;">
+              </div>
+              <div>
+                <label style="font-size:11px;color:#94a3b8;font-weight:600;">Au</label>
+                <input type="date" id="vscanTo" value="${toStr}" style="width:100%;padding:10px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:13px;color:#1e293b;background:var(--bg-elevated,#f8fafc);box-sizing:border-box;margin-top:4px;">
+              </div>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:8px;">
+              ${['7j','30j','90j','1an'].map((l,i) => {
+                const days = [7,30,90,365][i];
+                return `<button onclick="var d=new Date(Date.now()-${days}*86400000);document.getElementById('vscanFrom').value=d.toISOString().slice(0,10);" style="padding:4px 10px;border:1.5px solid #e2e8f0;border-radius:16px;font-size:11px;font-weight:700;background:#fff;color:#64748b;cursor:pointer;" onmouseover="this.style.borderColor='#0284c7';this.style.color='#0284c7'" onmouseout="this.style.borderColor='#e2e8f0';this.style.color='#64748b'">Derniers ${l}</button>`;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Options -->
+          <div style="margin-bottom:18px;background:var(--bg-elevated,#f8fafc);border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
+            <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;"><i class="fa-solid fa-sliders" style="color:#7c3aed;margin-right:6px;"></i>Options de scan</div>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:8px;">
+              <input type="checkbox" id="vscanAutoCreate" checked style="width:16px;height:16px;accent-color:#0284c7;">
+              <span style="font-size:13px;color:#374151;font-weight:600;">Recalculer automatiquement les prochaines échéances</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:8px;">
+              <input type="checkbox" id="vscanShowAll" style="width:16px;height:16px;accent-color:#0284c7;">
+              <span style="font-size:13px;color:#374151;font-weight:600;">Afficher uniquement les camions nécessitant attention</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+              <input type="checkbox" id="vscanIncludeNoOdo" style="width:16px;height:16px;accent-color:#0284c7;">
+              <span style="font-size:13px;color:#374151;font-weight:600;">Inclure camions sans odomètre GPS</span>
+            </label>
+          </div>
+
+          <!-- Truck filter -->
+          <div style="margin-bottom:20px;">
+            <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;"><i class="fa-solid fa-truck" style="color:#f59e0b;margin-right:6px;"></i>Camions à analyser</div>
+            <div style="display:flex;gap:8px;">
+              <button onclick="document.getElementById('vscanTruckFilter').value='all';this.style.background='#0284c7';this.style.color='#fff';document.querySelectorAll('.vscan-truck-btn').forEach(b=>b!==this&&(b.style.background='#fff',b.style.color='#64748b'))" class="vscan-truck-btn" style="padding:7px 16px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;font-weight:700;background:#0284c7;color:#fff;cursor:pointer;">🚛 Toute la flotte</button>
+              <button onclick="document.getElementById('vscanTruckFilter').value='alert';this.style.background='#0284c7';this.style.color='#fff';document.querySelectorAll('.vscan-truck-btn').forEach(b=>b!==this&&(b.style.background='#fff',b.style.color='#64748b'))" class="vscan-truck-btn" style="padding:7px 16px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;font-weight:700;background:#fff;color:#64748b;cursor:pointer;">⚠️ En alerte seulement</button>
+            </div>
+            <input type="hidden" id="vscanTruckFilter" value="all">
+          </div>
+
+          <!-- Action button -->
+          <button id="vscanRunBtn" onclick="ui._executeVidangeScan()" style="width:100%;padding:14px;background:linear-gradient(135deg,#0284c7,#4f46e5);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;box-shadow:0 6px 20px rgba(2,132,199,0.3);">
+            <i class="fa-solid fa-satellite-dish"></i> Lancer le Scan GPS Complet
+          </button>
+        </div>
+
+        <!-- Progress Zone (hidden initially) -->
+        <div id="vidangeScanProgress" style="display:none;padding:20px 24px;">
+          <div style="text-align:center;margin-bottom:16px;">
+            <div style="font-size:14px;font-weight:700;color:#374151;" id="vscanProgressLabel">Scan en cours...</div>
+            <div style="font-size:12px;color:#94a3b8;margin-top:4px;" id="vscanProgressSub">Connexion au serveur GPS...</div>
+          </div>
+          <div style="background:#f1f5f9;border-radius:20px;height:12px;overflow:hidden;margin-bottom:12px;">
+            <div id="vscanProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#0284c7,#7c3aed);border-radius:20px;transition:width 0.4s ease;"></div>
+          </div>
+          <div id="vscanProgressStats" style="display:flex;justify-content:center;gap:20px;font-size:12px;color:#64748b;"></div>
+        </div>
+
+        <!-- Results Zone (hidden initially) -->
+        <div id="vidangeScanResults" style="display:none;padding:0 24px 24px;">
+          <div id="vscanResultsSummary" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:14px;background:#f8fafc;border-radius:12px;"></div>
+
+          <!-- Search/Filter bar for results -->
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+            <input type="text" id="vscanResultSearch" placeholder="🔍 Filtrer par camion..." oninput="ui._filterVidangeScanResults(this.value)" style="flex:1;min-width:160px;padding:8px 14px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;outline:none;">
+            <div style="display:flex;gap:4px;" id="vscanStatusBtns">
+              <button onclick="ui._filterVidangeScanByStatus('all',this)" class="vscan-status-btn" style="padding:6px 12px;border:1.5px solid #0284c7;border-radius:16px;font-size:11px;font-weight:700;background:#0284c7;color:#fff;cursor:pointer;">Tous</button>
+              <button onclick="ui._filterVidangeScanByStatus('overdue',this)" class="vscan-status-btn" style="padding:6px 12px;border:1.5px solid #ef4444;border-radius:16px;font-size:11px;font-weight:700;background:#fff;color:#ef4444;cursor:pointer;">🔴 En retard</button>
+              <button onclick="ui._filterVidangeScanByStatus('alert',this)" class="vscan-status-btn" style="padding:6px 12px;border:1.5px solid #f59e0b;border-radius:16px;font-size:11px;font-weight:700;background:#fff;color:#f59e0b;cursor:pointer;">🟡 Alerte</button>
+              <button onclick="ui._filterVidangeScanByStatus('ok',this)" class="vscan-status-btn" style="padding:6px 12px;border:1.5px solid #16a34a;border-radius:16px;font-size:11px;font-weight:700;background:#fff;color:#16a34a;cursor:pointer;">✅ OK</button>
+            </div>
+            <button onclick="ui._sortVidangeScanResults()" id="vscanSortBtn" style="padding:6px 12px;border:1.5px solid #e2e8f0;border-radius:16px;font-size:11px;font-weight:700;background:#fff;color:#64748b;cursor:pointer;">Trier ⇅</button>
+          </div>
+
+          <!-- Table -->
+          <div id="vscanTable" style="border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden;overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px;">
+              <thead>
+                <tr style="background:#f8fafc;">
+                  <th style="padding:10px 12px;text-align:left;color:#64748b;font-weight:700;cursor:pointer;" onclick="ui._sortVidangeScanResults('name')">Camion ⇅</th>
+                  <th style="padding:10px 12px;text-align:left;color:#64748b;font-weight:700;cursor:pointer;" onclick="ui._sortVidangeScanResults('km')">Km actuel ⇅</th>
+                  <th style="padding:10px 12px;text-align:left;color:#64748b;font-weight:700;">Dernière vidange</th>
+                  <th style="padding:10px 12px;text-align:left;color:#64748b;font-weight:700;cursor:pointer;" onclick="ui._sortVidangeScanResults('next')">Prochaine ⇅</th>
+                  <th style="padding:10px 12px;text-align:left;color:#64748b;font-weight:700;cursor:pointer;" onclick="ui._sortVidangeScanResults('remaining')">Km restants ⇅</th>
+                  <th style="padding:10px 12px;text-align:left;color:#64748b;font-weight:700;">État</th>
+                  <th style="padding:10px 12px;text-align:center;color:#64748b;font-weight:700;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="vscanTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>`;
+
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    // Store scan data for filtering/sorting
+    this._vscanData = [];
+    this._vscanSortField = 'status';
+    this._vscanSortDir = 'asc';
+    this._vscanStatusFilter = 'all';
+  }
+
+  async _executeVidangeScan() {
+    const btn = document.getElementById('vscanRunBtn');
+    const configEl = document.getElementById('vidangeScanConfig');
+    const progressEl = document.getElementById('vidangeScanProgress');
+    const resultsEl = document.getElementById('vidangeScanResults');
+
+    if (btn) btn.disabled = true;
+
+    // Show progress
+    if (configEl) configEl.style.display = 'none';
+    if (progressEl) progressEl.style.display = 'block';
+
+    const setProgress = (pct, label, sub) => {
+      const bar = document.getElementById('vscanProgressBar');
+      const lbl = document.getElementById('vscanProgressLabel');
+      const slbl = document.getElementById('vscanProgressSub');
+      if (bar) bar.style.width = pct + '%';
+      if (lbl) lbl.textContent = label;
+      if (slbl) slbl.textContent = sub;
+    };
+
     try {
+      setProgress(10, 'Connexion au serveur...', 'Récupération des données GPS...');
+      await new Promise(r => setTimeout(r, 300));
+
+      setProgress(30, 'Analyse des odomètres...', 'Lecture des kilométrages depuis le GPS en temps réel...');
+      await new Promise(r => setTimeout(r, 400));
+
+      const from = document.getElementById('vscanFrom')?.value || '';
+      const to   = document.getElementById('vscanTo')?.value   || '';
+      const filter = document.getElementById('vscanTruckFilter')?.value || 'all';
+
+      setProgress(55, 'Interrogation de la base de maintenance...', 'Récupération de l\'historique des vidanges...');
+      await new Promise(r => setTimeout(r, 300));
+
       const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/rescan-vidange`, {
         method: 'POST',
-        headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' }
+        headers: { 'Content-Type': 'application/json', 'x-access-code': localStorage.getItem('fleetAccessCode') || '' },
+        body: JSON.stringify({ from, to, filter })
       });
+
+      setProgress(80, 'Calcul des prochaines échéances...', 'Application des règles de vidange par véhicule...');
+      await new Promise(r => setTimeout(r, 300));
+
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const data = await r.json();
-      const results = data.results || [];
+      let results = data.results || [];
+
+      // Filter "attention only" if checked
+      const attentionOnly = document.getElementById('vscanShowAll')?.checked;
+      if (attentionOnly) results = results.filter(x => x.isAlert || x.isOverdue);
+
+      const includeNoOdo = document.getElementById('vscanIncludeNoOdo')?.checked;
+      if (!includeNoOdo) results = results.filter(x => x.odometerKm > 0);
+
+      setProgress(100, 'Scan terminé !', `${results.length} camions analysés.`);
+      await new Promise(r => setTimeout(r, 500));
+
+      this._vscanData = results;
+
+      // Build stats
       const overdue = results.filter(x => x.isOverdue);
       const alerts  = results.filter(x => x.isAlert && !x.isOverdue);
       const ok      = results.filter(x => !x.isAlert && !x.isOverdue);
 
-      const rowHtml = (items, color, icon, label) => items.map(x => {
-        const sinceDate = x.lastVidangeDate ? new Date(x.lastVidangeDate).toLocaleDateString('fr-DZ') : 'Jamais';
-        const km = x.odometerKm ? x.odometerKm.toLocaleString('fr-DZ') + ' km' : 'N/D';
-        const next = x.nextVidangeKm ? x.nextVidangeKm.toLocaleString('fr-DZ') + ' km' : '?';
-        const remaining = x.kmUntilNext > 0 ? '+' + x.kmUntilNext.toLocaleString('fr-DZ') + ' km' : x.kmUntilNext.toLocaleString('fr-DZ') + ' km';
-        return `<tr style="border-bottom:1px solid #f1f5f9;">
-          <td style="padding:8px 10px;font-weight:700;color:#1e293b;">${x.truckName}</td>
-          <td style="padding:8px 10px;color:#64748b;font-size:12px;">${km}</td>
-          <td style="padding:8px 10px;color:#64748b;font-size:12px;">${sinceDate}</td>
-          <td style="padding:8px 10px;color:#64748b;font-size:12px;">${next}</td>
-          <td style="padding:8px 10px;font-size:12px;font-weight:700;color:${color};">${remaining}</td>
-          <td style="padding:8px 10px;"><span style="background:${color}20;color:${color};border-radius:6px;padding:2px 8px;font-size:11px;font-weight:700;">${icon} ${label}</span></td>
-        </tr>`;
-      }).join('');
+      const statsEl = document.getElementById('vscanProgressStats');
+      if (statsEl) statsEl.innerHTML = `
+        <span style="color:#ef4444;font-weight:700;"><i class="fa-solid fa-circle-exclamation"></i> ${overdue.length} en retard</span>
+        <span style="color:#f59e0b;font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> ${alerts.length} en alerte</span>
+        <span style="color:#16a34a;font-weight:700;"><i class="fa-solid fa-check-circle"></i> ${ok.length} OK</span>`;
 
-      const tableHead = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
-        <thead><tr style="background:#f8fafc;">
-          <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Camion</th>
-          <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Km actuel</th>
-          <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Dernière vidange</th>
-          <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Prochaine vidange</th>
-          <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">Km restants</th>
-          <th style="padding:8px 10px;text-align:left;color:#64748b;font-weight:600;">État</th>
-        </tr></thead><tbody>
-          ${rowHtml(overdue, '#ef4444', '🔴', 'EN RETARD')}
-          ${rowHtml(alerts, '#f59e0b', '🟡', 'ALERTE')}
-          ${rowHtml(ok, '#16a34a', '✅', 'OK')}
-        </tbody></table>`;
+      // Show results
+      if (progressEl) progressEl.style.paddingBottom = '0';
+      if (resultsEl) resultsEl.style.display = 'block';
 
-      const container = document.getElementById('vidangeRescanResults');
-      if (container) {
-        container.innerHTML = `
-          <div style="margin-top:14px;border:1.5px solid #e2e8f0;border-radius:12px;overflow:hidden;">
-            <div style="background:#f8fafc;padding:10px 14px;display:flex;gap:16px;align-items:center;border-bottom:1px solid #e2e8f0;">
-              <span style="color:#ef4444;font-weight:700;"><i class="fa-solid fa-circle-exclamation"></i> En retard: ${overdue.length}</span>
-              <span style="color:#f59e0b;font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> Alerte: ${alerts.length}</span>
-              <span style="color:#16a34a;font-weight:700;"><i class="fa-solid fa-check-circle"></i> OK: ${ok.length}</span>
-              <span style="color:#64748b;font-size:11px;margin-left:auto;">${results.length} camions scannés</span>
-            </div>
-            <div style="overflow-x:auto;">${tableHead}</div>
-          </div>`;
-        container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
+      const summaryEl = document.getElementById('vscanResultsSummary');
+      if (summaryEl) summaryEl.innerHTML = `
+        <div style="flex:1;min-width:100px;background:#fee2e2;border-radius:10px;padding:10px 14px;text-align:center;">
+          <div style="font-size:24px;font-weight:900;color:#ef4444;">${overdue.length}</div>
+          <div style="font-size:11px;font-weight:700;color:#dc2626;">🔴 EN RETARD</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:#fef3c7;border-radius:10px;padding:10px 14px;text-align:center;">
+          <div style="font-size:24px;font-weight:900;color:#f59e0b;">${alerts.length}</div>
+          <div style="font-size:11px;font-weight:700;color:#d97706;">🟡 ALERTE</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:#dcfce7;border-radius:10px;padding:10px 14px;text-align:center;">
+          <div style="font-size:24px;font-weight:900;color:#16a34a;">${ok.length}</div>
+          <div style="font-size:11px;font-weight:700;color:#15803d;">✅ OK</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:#eff6ff;border-radius:10px;padding:10px 14px;text-align:center;">
+          <div style="font-size:24px;font-weight:900;color:#0284c7;">${results.length}</div>
+          <div style="font-size:11px;font-weight:700;color:#0369a1;">🚛 TOTAL</div>
+        </div>`;
+
+      this._renderVidangeScanTable(results);
+
     } catch(e) {
-      alert('Erreur scan vidange: ' + e.message);
+      setProgress(0, 'Erreur', e.message);
+      if (progressEl) progressEl.innerHTML += `<div style="background:#fee2e2;border-radius:10px;padding:12px;text-align:center;color:#ef4444;font-size:13px;margin-top:12px;"><i class="fa-solid fa-exclamation-circle"></i> Erreur: ${e.message}<br><button onclick="document.getElementById('vidangeScanModal').remove()" style="margin-top:8px;padding:6px 16px;background:#ef4444;color:#fff;border:none;border-radius:8px;cursor:pointer;">Fermer</button></div>`;
     } finally {
-      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Rescanner les Vidanges'; }
+      if (btn) btn.disabled = false;
     }
   }
+
+  _renderVidangeScanTable(data) {
+    const tbody = document.getElementById('vscanTableBody');
+    if (!tbody) return;
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:#94a3b8;">Aucun résultat</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(x => {
+      const color = x.isOverdue ? '#ef4444' : x.isAlert ? '#f59e0b' : '#16a34a';
+      const badge = x.isOverdue ? '🔴 EN RETARD' : x.isAlert ? '🟡 ALERTE' : '✅ OK';
+      const km = x.odometerKm ? x.odometerKm.toLocaleString('fr-DZ') + ' km' : '<span style="color:#94a3b8;">N/D</span>';
+      const lastDate = x.lastVidangeDate ? new Date(x.lastVidangeDate).toLocaleDateString('fr-DZ') : '<span style="color:#94a3b8;">Jamais</span>';
+      const lastKm = x.lastVidangeKm ? x.lastVidangeKm.toLocaleString('fr-DZ') + ' km' : '';
+      const nextKm = x.nextVidangeKm ? x.nextVidangeKm.toLocaleString('fr-DZ') + ' km' : '?';
+      const rem = x.kmUntilNext > 0
+        ? `<span style="color:${color};font-weight:700;">+${x.kmUntilNext.toLocaleString('fr-DZ')} km</span>`
+        : `<span style="color:#ef4444;font-weight:700;">${x.kmUntilNext.toLocaleString('fr-DZ')} km</span>`;
+      return `<tr style="border-bottom:1px solid #f1f5f9;" data-truck="${(x.truckName||'').toLowerCase()}" data-status="${x.isOverdue?'overdue':x.isAlert?'alert':'ok'}">
+        <td style="padding:10px 12px;font-weight:700;color:#1e293b;">${x.truckName}</td>
+        <td style="padding:10px 12px;color:#64748b;font-size:12px;">${km}</td>
+        <td style="padding:10px 12px;color:#64748b;font-size:12px;">${lastDate}${lastKm?'<br><span style="font-size:10px;color:#94a3b8;">'+lastKm+'</span>':''}</td>
+        <td style="padding:10px 12px;color:#374151;font-size:12px;font-weight:600;">${nextKm}</td>
+        <td style="padding:10px 12px;">${rem}</td>
+        <td style="padding:10px 12px;"><span style="background:${color}20;color:${color};border-radius:8px;padding:3px 10px;font-size:11px;font-weight:700;">${badge}</span></td>
+        <td style="padding:10px 12px;text-align:center;">
+          <button onclick="document.getElementById('vidangeScanModal').remove();ui.openNewMaintenanceOrder('${x.deviceId}')" style="padding:5px 12px;background:linear-gradient(135deg,#f59e0b,#ea580c);color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;"><i class="fa-solid fa-plus"></i> Ordre</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  _filterVidangeScanResults(q) {
+    const rows = document.querySelectorAll('#vscanTableBody tr[data-truck]');
+    const ql = (q||'').toLowerCase();
+    rows.forEach(r => {
+      const name = r.dataset.truck || '';
+      const matchText = !ql || name.includes(ql);
+      const status = r.dataset.status || '';
+      const matchStatus = this._vscanStatusFilter === 'all' || status === this._vscanStatusFilter;
+      r.style.display = matchText && matchStatus ? '' : 'none';
+    });
+  }
+
+  _filterVidangeScanByStatus(status, btn) {
+    this._vscanStatusFilter = status;
+    document.querySelectorAll('.vscan-status-btn').forEach(b => {
+      const isActive = b === btn;
+      b.style.background = isActive ? '#0284c7' : '#fff';
+      b.style.color = isActive ? '#fff' : b.style.borderColor || '#64748b';
+    });
+    this._filterVidangeScanResults(document.getElementById('vscanResultSearch')?.value || '');
+  }
+
+  _sortVidangeScanResults(field) {
+    if (!field) field = this._vscanSortField || 'status';
+    if (field === this._vscanSortField) {
+      this._vscanSortDir = this._vscanSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      this._vscanSortField = field;
+      this._vscanSortDir = 'asc';
+    }
+    const sorted = [...this._vscanData].sort((a, b) => {
+      let va, vb;
+      if (field === 'name')      { va=(a.truckName||'').toLowerCase();  vb=(b.truckName||'').toLowerCase(); }
+      else if (field === 'km')   { va=a.odometerKm||0;                  vb=b.odometerKm||0; }
+      else if (field === 'next') { va=a.nextVidangeKm||0;               vb=b.nextVidangeKm||0; }
+      else if (field === 'remaining'){ va=a.kmUntilNext||0;             vb=b.kmUntilNext||0; }
+      else { // status
+        const rank = { overdue:0, alert:1, ok:2 };
+        va = rank[a.isOverdue?'overdue':a.isAlert?'alert':'ok']??2;
+        vb = rank[b.isOverdue?'overdue':b.isAlert?'alert':'ok']??2;
+      }
+      return this._vscanSortDir === 'asc' ? (va<vb?-1:va>vb?1:0) : (va>vb?-1:va<vb?1:0);
+    });
+    this._renderVidangeScanTable(sorted);
+    const sortBtn = document.getElementById('vscanSortBtn');
+    if (sortBtn) sortBtn.textContent = `Trier ${this._vscanSortDir==='asc'?'↑':'↓'}`;
+  }
+
+
 
   async loadActiveMaintenanceOrders() {
     try {
@@ -11198,7 +11496,29 @@ exportMaintenanceCSV() {
     } catch (e) { alert('Erreur connexion.'); }
   }
 
+
+  // ── Maintenance sort/filter helpers ─────────────────────────
+  sortMaintTable(field) {
+    if (this._maintSortField === field) {
+      this._maintSortDir = this._maintSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      this._maintSortField = field;
+      this._maintSortDir = 'asc';
+    }
+    this.renderActiveOrdersDashboard();
+  }
+
+  setMaintFilter(status) {
+    this._maintStatusFilter = status;
+    this.renderActiveOrdersDashboard();
+  }
+
   renderActiveOrdersDashboard() {
+    // ── Sort/filter state ─────────────────────────────────
+    if (!this._maintSortField) this._maintSortField = 'status';
+    if (!this._maintSortDir)   this._maintSortDir   = 'asc';
+    if (!this._maintStatusFilter) this._maintStatusFilter = 'all';
+
     if (!this.activeOrdersDashboard) return;
     if (!this.activeMaintenanceOrders.length) {
       this.activeOrdersDashboard.innerHTML = `
@@ -11262,7 +11582,87 @@ exportMaintenanceCSV() {
           </div>
         </div>`;
     });
-    this.activeOrdersDashboard.innerHTML = html;
+
+    // ── Apply sort ─────────────────────────────────────────────
+    const sf = this._maintSortField || 'status';
+    const sd = this._maintSortDir   || 'asc';
+    const orders = [...this.activeMaintenanceOrders];
+    orders.sort((a, b) => {
+      let va, vb;
+      if (sf === 'truck')    { va = (a.truckName||'').toLowerCase(); vb = (b.truckName||'').toLowerCase(); }
+      else if (sf === 'date'){ va = new Date(a.date||0).getTime(); vb = new Date(b.date||0).getTime(); }
+      else if (sf === 'type'){ va = (a.type||'').toLowerCase(); vb = (b.type||'').toLowerCase(); }
+      else { // status
+        const rank = { 'urgent':0, 'en_cours':1, 'active':1, 'termine':2 };
+        va = rank[a.priority==='urgent'?'urgent':(a.status||'active')] ?? 1;
+        vb = rank[b.priority==='urgent'?'urgent':(b.status||'active')] ?? 1;
+      }
+      return sd === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+    });
+
+    // ── Apply status filter ─────────────────────────────────────
+    const sf2 = this._maintStatusFilter || 'all';
+    const filtered = sf2 === 'all' ? orders
+      : sf2 === 'urgent'  ? orders.filter(o => o.priority === 'urgent')
+      : sf2 === 'en_cours'? orders.filter(o => o.status !== 'termine')
+      : sf2 === 'termine' ? orders.filter(o => o.status === 'termine')
+      : orders;
+
+    // ── Sort bar + filter bar ───────────────────────────────────
+    const arrow = (f) => f === sf ? (sd === 'asc' ? ' ↑' : ' ↓') : ' ⇅';
+    const btnStyle = (active) => `padding:5px 12px;border:1.5px solid ${active?'#0284c7':'#e2e8f0'};border-radius:20px;font-size:11px;font-weight:700;background:${active?'#eff6ff':'#fff'};color:${active?'#0284c7':'#64748b'};cursor:pointer;`;
+    const filterBtnStyle = (v) => `padding:4px 10px;border-radius:16px;font-size:11px;font-weight:700;border:1.5px solid ${sf2===v?'#0284c7':'#e2e8f0'};background:${sf2===v?'#0284c7':'#fff'};color:${sf2===v?'#fff':'#64748b'};cursor:pointer;margin-right:4px;`;
+
+    const controlBar = `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;padding:10px 0;border-bottom:1px solid #f1f5f9;">
+      <span style="font-size:11px;color:#64748b;font-weight:600;">Trier:</span>
+      <button style="${btnStyle(sf==='status')}"  onclick="ui.sortMaintTable('status')">Statut${arrow('status')}</button>
+      <button style="${btnStyle(sf==='truck')}"   onclick="ui.sortMaintTable('truck')">Camion${arrow('truck')}</button>
+      <button style="${btnStyle(sf==='date')}"    onclick="ui.sortMaintTable('date')">Date${arrow('date')}</button>
+      <button style="${btnStyle(sf==='type')}"    onclick="ui.sortMaintTable('type')">Type${arrow('type')}</button>
+      <span style="flex:1;"></span>
+      <span style="font-size:11px;color:#64748b;font-weight:600;">Filtre:</span>
+      <button style="${filterBtnStyle('all')}"     onclick="ui.setMaintFilter('all')">Tous (${orders.length})</button>
+      <button style="${filterBtnStyle('urgent')}"  onclick="ui.setMaintFilter('urgent')" >🔴 Urgents</button>
+      <button style="${filterBtnStyle('en_cours')}" onclick="ui.setMaintFilter('en_cours')">⚙️ En cours</button>
+      <button style="${filterBtnStyle('termine')}" onclick="ui.setMaintFilter('termine')">✅ Terminés</button>
+    </div>`;
+
+    // ── Build filtered HTML ─────────────────────────────────────
+    let filteredHtml = '';
+    filtered.forEach(order => {
+      const priorityClass = order.priority === 'urgent' ? 'urgent' : (order.status === 'termine' ? 'completed' : 'active-order');
+      const statusBadge = order.status === 'termine'
+        ? '<span class="maint-status-badge badge-termine"><i class="fa-solid fa-check-circle"></i> Terminé</span>'
+        : (order.priority === 'urgent'
+          ? '<span class="maint-status-badge badge-urgent"><i class="fa-solid fa-exclamation-triangle"></i> Urgent</span>'
+          : '<span class="maint-status-badge badge-en-cours"><i class="fa-solid fa-spinner fa-spin"></i> En cours</span>');
+      const now = new Date();
+      const start = new Date(order.date);
+      const diffMs = now - start;
+      const days = Math.floor(diffMs / 86400000);
+      const hours = Math.floor((diffMs % 86400000) / 3600000);
+      const durationText = days > 0 ? `${days}j ${hours}h` : `${hours}h`;
+      const db2 = this.truckDbCache.find(d => d.deviceId === order.deviceId) || {};
+      const metaTags2 = [];
+      if (db2.immatriculation) metaTags2.push(`<span class="truck-meta-tag imm">${db2.immatriculation}</span>`);
+      if (db2.chassisNumber) metaTags2.push(`<span class="truck-meta-tag chassis">${db2.chassisNumber}</span>`);
+      filteredHtml += `<div class="maint-card ${priorityClass}" style="position:relative;">
+        ${statusBadge}
+        <div style="font-weight:800;font-size:14px;color:var(--text-primary);margin-bottom:4px;">${order.truckName||order.deviceId}</div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:6px;">${metaTags2.join('')}</div>
+        <div style="font-size:12px;color:#374151;margin-bottom:4px;"><i class="fa-solid fa-wrench" style="color:#f59e0b;margin-right:4px;"></i>${order.type||'Maintenance'}</div>
+        <div style="font-size:11px;color:#94a3b8;"><i class="fa-solid fa-clock"></i> ${durationText} · ${start.toLocaleDateString('fr-DZ')}</div>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+          ${order.status !== 'termine' ? `<button class="btn-primary" style="flex:1;font-size:11px;padding:6px;background:#16a34a;border:none;" onclick="ui.closeMaintenanceOrderUI('${order._id}')"><i class="fa-solid fa-check"></i> Terminer</button>` : ''}
+          <button class="btn-secondary" style="flex:1;font-size:11px;padding:6px;" onclick="ui.openNewMaintenanceOrder('${order.deviceId}')"><i class="fa-solid fa-plus"></i> Nouvel Ordre</button>
+          <button style="padding:6px 10px;border:1.5px solid #fee2e2;border-radius:8px;background:#fff;color:#ef4444;font-size:11px;cursor:pointer;" onclick="ui.cancelMaintenanceOrder('${order._id}')"><i class="fa-solid fa-times"></i></button>
+        </div>
+      </div>`;
+    });
+
+    if (!filteredHtml) filteredHtml = `<div style="grid-column:1/-1;text-align:center;padding:30px;color:#94a3b8;font-size:13px;"><i class="fa-solid fa-filter" style="font-size:24px;opacity:0.3;display:block;margin-bottom:8px;"></i>Aucun ordre pour ce filtre.</div>`;
+
+    this.activeOrdersDashboard.innerHTML = controlBar + filteredHtml;
   }
 
   async closeMaintenanceOrderUI(id) {
@@ -11601,6 +12001,18 @@ exportMaintenanceCSV() {
           opt.dataset.odo = t.odo;
           truckSelect.appendChild(opt);
         });
+        // ── Pre-select inline (right after list is built, no race condition) ──
+        if (truckId) {
+          const preOpt = Array.from(truckSelect.options).find(o =>
+            String(o.dataset.id) === String(truckId) || o.value === truckId || o.value.includes(truckId)
+          );
+          if (preOpt) {
+            truckSelect.value = preOpt.value;
+            const odoEl = document.getElementById('modalMaintOdo');
+            if (odoEl && preOpt.dataset.odo) odoEl.value = preOpt.dataset.odo;
+            truckSelect.dispatchEvent(new Event('change'));
+          }
+        }
       } catch(e) {
         // Last resort: live GPS only
         const liveTrucks = (window.app && typeof window.app.getAllTrucks === 'function')
@@ -11646,21 +12058,7 @@ exportMaintenanceCSV() {
     this.loadMaintenanceArticles().then(() => this._populateArticleDropdown());
     this.openMaintenanceModal(null);
 
-    // ── 5. Pre-select truck if one was provided ───────────────────
-    if (truckId && truckSelect) {
-      // Wait one tick for options to be rendered
-      setTimeout(() => {
-        const opt = Array.from(truckSelect.options).find(o =>
-          String(o.dataset.id) === String(truckId) || o.value === truckId
-        );
-        if (opt) {
-          truckSelect.value = opt.value;
-          const odoEl = document.getElementById('modalMaintOdo');
-          if (odoEl && opt.dataset.odo) odoEl.value = opt.dataset.odo;
-          truckSelect.dispatchEvent(new Event('change'));
-        }
-      }, 50);
-    }
+    // Pre-select handled inline after truck list is built
   }
 
   

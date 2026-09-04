@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Douroub El Djazair — Fleet Operations Center V4.0</title>
+  <title>ABDO Fleet OS — Douroub El Djazair</title>
   <meta name="description" content="Système avancé de supervision de flotte — SPA Douroub El Djazair. Monitoring GPS, carburant, maintenance prédictive.">
   
   <!-- Fonts -->
@@ -271,6 +271,110 @@
     .flashing-btn { animation: flashBtn 2s ease-in-out infinite; }
     @keyframes flashBtn { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
   </style>
+
+<!-- ═══ SPLASH SCREEN — ABDO Animated Logo ═══════════════════ -->
+<div id="splashScreen" style="position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;background:#fff;">
+  <div class="ai-widget ai-widget-lg" id="splashAiWidget" onclick="triggerAbdoLogo(this)" style="cursor:pointer;margin-bottom:20px;">
+    <div class="ai-ring3"></div>
+    <div class="ai-orbit"></div>
+    <div class="ai-orbit ai-orbit-2"></div>
+    <div class="ai-core"></div>
+  </div>
+  <div style="text-align:center;margin-bottom:30px;">
+    <div style="font-size:1.6rem;font-weight:900;background:linear-gradient(135deg,#2563eb,#7c3aed);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:1px;">ABDO Fleet OS</div>
+    <div style="font-size:10px;letter-spacing:3px;color:#888;font-weight:600;margin-top:4px;text-transform:uppercase;">by Abderrahime Chikhaoui</div>
+    <div style="font-size:10px;color:#aaa;margin-top:6px;letter-spacing:1px;">SPA Douroub El Djazair</div>
+  </div>
+  <div style="position:absolute;bottom:0;left:0;right:0;height:3px;background:rgba(0,0,0,.06);">
+    <div id="splashBar" style="height:100%;width:0;background:linear-gradient(90deg,#2563eb,#7c3aed);border-radius:0 2px 2px 0;"></div>
+  </div>
+</div>
+<style>#splashScreen{transition:opacity .45s ease,transform .4s ease;}</style>
+<script>
+(function(){
+  try{
+    var t=(JSON.parse(localStorage.getItem('fleetSettings')||localStorage.getItem('settings')||'{}')).themeMode;
+    if(t==='dark'){document.documentElement.setAttribute('data-theme','dark');document.getElementById('splashScreen').style.background='#0f172a';}
+    setTimeout(function(){var b=document.getElementById('splashBar');if(b)b.style.cssText+='width:85%;transition:width 1.2s ease';},50);
+  }catch(e){}
+  window.addEventListener('load',function(){
+    setTimeout(function(){
+      var b=document.getElementById('splashBar');
+      if(b){b.style.cssText+='width:100%;transition:width .3s ease';}
+      setTimeout(function(){
+        var sp=document.getElementById('splashScreen');
+        if(sp){sp.style.opacity='0';sp.style.transform='scale(1.02)';setTimeout(function(){sp.remove();},450);}
+      },350);
+    },700);
+  });
+})();
+</script>
+
+  <!-- ═══ ABDO AI Widget CSS ═══ -->
+  <style id="abdo-ai-widget-css">
+    /* AI Widget Core */
+    .ai-widget { position:relative; width:54px; height:54px; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+    .ai-widget-lg { width:72px; height:72px; }
+    .ai-widget-sm { width:36px; height:36px; }
+    .ai-core {
+      width:38%; height:38%; border-radius:50%;
+      background:radial-gradient(circle at 35% 35%, #60a5fa, #2563eb, #1e3a8a);
+      box-shadow:0 0 18px rgba(37,99,235,0.7), inset 0 0 8px rgba(255,255,255,0.3);
+      animation: ai-pulse 2.4s ease-in-out infinite;
+      position:relative; z-index:2;
+    }
+    .ai-widget-lg .ai-core { width:36%; height:36%; }
+    .ai-orbit {
+      position:absolute; border-radius:50%;
+      width:80%; height:80%;
+      border:1.5px solid rgba(96,165,250,0.5);
+      animation:ai-orbit1 3.2s linear infinite;
+    }
+    .ai-orbit::after {
+      content:''; position:absolute; width:7px; height:7px;
+      background:#60a5fa; border-radius:50%;
+      top:-3.5px; left:50%; transform:translateX(-50%);
+      box-shadow:0 0 6px #60a5fa;
+    }
+    .ai-orbit-2 {
+      width:65%; height:65%;
+      border-color:rgba(167,139,250,0.4);
+      animation:ai-orbit1 2s linear infinite reverse;
+    }
+    .ai-orbit-2::after { background:#a78bfa; box-shadow:0 0 6px #a78bfa; top:auto; bottom:-3.5px; }
+    .ai-ring3 {
+      position:absolute; width:100%; height:100%; border-radius:50%;
+      border:1px solid rgba(96,165,250,0.15);
+      animation:ai-ring-pulse 3s ease-in-out infinite;
+    }
+    @keyframes ai-pulse {
+      0%,100%{box-shadow:0 0 18px rgba(37,99,235,0.7),inset 0 0 8px rgba(255,255,255,0.3);}
+      50%{box-shadow:0 0 28px rgba(37,99,235,0.9),0 0 50px rgba(96,165,250,0.3),inset 0 0 12px rgba(255,255,255,0.4);}
+    }
+    @keyframes ai-orbit1 { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    @keyframes ai-ring-pulse {
+      0%,100%{transform:scale(1);opacity:0.4;}
+      50%{transform:scale(1.08);opacity:0.8;}
+    }
+    /* Click burst animation */
+    .ai-widget.burst .ai-core { animation:ai-burst 0.5s ease-out; }
+    .ai-widget.burst .ai-orbit { animation:ai-orbit1 0.4s linear infinite; }
+    @keyframes ai-burst {
+      0%{transform:scale(1)} 40%{transform:scale(1.5)} 70%{transform:scale(0.85)} 100%{transform:scale(1)}
+    }
+    /* Glitch text */
+    .ai-glitch-wrap { position:relative; display:flex; align-items:center; }
+    .ai-glitch-text {
+      font-size:1.1rem; font-weight:900; letter-spacing:2px;
+      background:linear-gradient(135deg,#2563eb,#7c3aed);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+    }
+    /* Header logo zone */
+    .abdo-logo-box { display:flex; align-items:center; gap:12px; cursor:pointer; user-select:none; }
+    .abdo-brand-text { display:flex; flex-direction:column; gap:1px; }
+    .abdo-brand-name { font-size:15px; font-weight:900; background:linear-gradient(135deg,#2563eb,#7c3aed); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; letter-spacing:0.5px; }
+    .abdo-brand-sub { font-size:10px; color:var(--text-muted); font-weight:600; letter-spacing:1.5px; text-transform:uppercase; }
+  </style>
 </head>
 <body>
 <div id="toastContainer"></div>
@@ -324,6 +428,73 @@
     }
     
     // 2. ATTEMPT LOGIN FUNCTION
+    
+    // ABDO Logo click animation
+    function triggerAbdoLogo(el) {
+      var widget = el.classList.contains('ai-widget') ? el : el.querySelector('.ai-widget');
+      if (!widget) return;
+      widget.classList.remove('burst');
+      void widget.offsetWidth; // reflow
+      widget.classList.add('burst');
+      setTimeout(function(){ widget.classList.remove('burst'); }, 600);
+    }
+
+    
+    // COMMAND PALETTE
+    function openSearchPalette() {
+      var p = document.getElementById('searchPalette');
+      if (!p) return;
+      p.style.display = 'flex';
+      setTimeout(function(){ document.getElementById('paletteInput').focus(); }, 50);
+    }
+    function closeSearchPalette() {
+      var p = document.getElementById('searchPalette');
+      if (p) p.style.display = 'none';
+      var inp = document.getElementById('paletteInput');
+      if (inp) inp.value = '';
+      var res = document.getElementById('paletteResults');
+      if (res) res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted,#94a3b8);font-size:13px;"><i class="fa-solid fa-truck" style="font-size:24px;opacity:0.3;display:block;margin-bottom:8px;"></i>Tapez pour rechercher dans la flotte...</div>';
+    }
+    function runPaletteSearch(q) {
+      var res = document.getElementById('paletteResults');
+      if (!res) return;
+      q = (q || '').trim().toLowerCase();
+      if (q.length < 1) { closeSearchPalette(); openSearchPalette(); return; }
+      var trucks = (window.app && typeof window.app.getAllTrucks === 'function') ? window.app.getAllTrucks() : [];
+      var dbCache = (window.ui && window.ui.truckDbCache) ? window.ui.truckDbCache : [];
+      var results = trucks.filter(function(t) {
+        var db = dbCache.find(function(d){ return String(d.deviceId)===String(t.id||t.deviceId); }) || {};
+        return (t.name||'').toLowerCase().includes(q) ||
+               (db.immatriculation||'').toLowerCase().includes(q) ||
+               (db.carteNaftal||'').toLowerCase().includes(q) ||
+               (db.chassisNumber||'').toLowerCase().includes(q);
+      }).slice(0, 12);
+      if (!results.length) {
+        res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted,#94a3b8);font-size:13px;">Aucun résultat pour "'+q+'"</div>';
+        return;
+      }
+      res.innerHTML = results.map(function(t) {
+        var db = dbCache.find(function(d){ return String(d.deviceId)===String(t.id||t.deviceId); }) || {};
+        var fp = Math.round(t.fuelPercentage||0);
+        var fc = fp<=10?'#ef4444':fp<=25?'#f59e0b':'#16a34a';
+        return '<div onclick="closeSearchPalette();if(window.ui&&window.ui.viewOnMap)window.ui.viewOnMap('+(t.coordinates&&t.coordinates.lat?t.coordinates.lat:0)+','+(t.coordinates&&t.coordinates.lng?t.coordinates.lng:0)+')" style="padding:12px 20px;cursor:pointer;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border-light,#f1f5f9);" onmouseover="this.style.background='var(--bg-elevated,#f8fafc)'" onmouseout="this.style.background=''">'+
+          '<div style="width:36px;height:36px;border-radius:10px;background:'+fc+'20;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-solid fa-truck" style="color:'+fc+';font-size:14px;"></i></div>'+
+          '<div style="flex:1;min-width:0;">'+
+            '<div style="font-weight:700;color:var(--text-primary,#1e293b);font-size:13px;">'+t.name+'</div>'+
+            '<div style="font-size:11px;color:var(--text-muted,#94a3b8);margin-top:1px;">'+(db.immatriculation?db.immatriculation+' · ':'')+( db.carteNaftal?'Carte: '+db.carteNaftal:'')+' '+(t.location&&t.location.name?'📍 '+t.location.name:'')+'</div>'+
+          '</div>'+
+          '<div style="text-align:right;flex-shrink:0;"><span style="font-size:14px;font-weight:900;color:'+fc+';">'+fp+'%</span><div style="font-size:9px;color:var(--text-muted,#94a3b8);">'+(Math.round(t.fuelLiters||0))+'L</div></div>'+
+        '</div>';
+      }).join('');
+    }
+    // Keyboard shortcut: / to open palette
+    document.addEventListener('keydown', function(e) {
+      if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        openSearchPalette();
+      }
+    });
+
     function attemptLogin() {
         const code = document.getElementById('accessCodeInput').value.trim();
         const btn = document.getElementById('btnLogin');
@@ -368,13 +539,16 @@
     });
 </script>
   <header class="main-header">
-    <div class="logo-box">
-      <div class="logo-icon" style="background: linear-gradient(135deg, var(--primary), var(--primary-dark)); width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-lg); box-shadow: var(--shadow-glow-s);">
-        <i class="fa-solid fa-truck-fast" style="color: #fff; font-size: 1.1rem;"></i>
+    <div class="abdo-logo-box" onclick="triggerAbdoLogo(this)" title="ABDO Fleet OS — by Abderrahime Chikhaoui">
+      <div class="ai-widget ai-widget-sm" id="headerAiWidget">
+        <div class="ai-ring3"></div>
+        <div class="ai-orbit"></div>
+        <div class="ai-orbit ai-orbit-2"></div>
+        <div class="ai-core"></div>
       </div>
-      <div class="brand-text">
-        <span class="brand-name" style="font-size: var(--text-md); font-weight: var(--weight-bold); color: var(--text-primary);">SPA Douroub El Djazair</span>
-        <span class="brand-sub" style="font-size: var(--text-xs); color: var(--text-muted); font-weight: var(--weight-medium);">Fleet Operations Center</span>
+      <div class="abdo-brand-text">
+        <span class="abdo-brand-name">ABDO Fleet OS</span>
+        <span class="abdo-brand-sub">by Abderrahime Chikhaoui</span>
       </div>
     </div>
 
@@ -444,9 +618,7 @@
           <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')">
               <i class="fa-solid fa-clipboard-check"></i> Historique
           </button>
-          <button class="tab-button" data-tab="predictiveSection" onclick="switchTab('predictiveSection')" style="border: 1px solid rgba(139,92,246,0.2);">
-              <i class="fa-solid fa-brain" style="color: var(--info);"></i> Prédictions
-          </button>
+          
       </div>
 
       <!-- Rapport (alone) -->
@@ -497,30 +669,7 @@
     gap: 8px;
     transition: all 0.3s;
   ">
-    <div id="globalSearchWrapper" style="
-      background: rgba(15, 23, 42, 0.92);
-      border: 1.5px solid rgba(56,189,248,0.35);
-      border-radius: 50px;
-      padding: 8px 16px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      backdrop-filter: blur(10px);
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-      min-width: 44px;
-    "
-      onmouseenter="this.querySelector('input').style.width='220px'; this.querySelector('input').style.cursor='text'; this.style.borderColor='rgba(56,189,248,0.7)'; this.style.boxShadow='0 0 0 3px rgba(56,189,248,0.2)'; this.querySelector('input').focus();"
-      onmouseleave="var inp=this.querySelector('input'); if(!inp.value && document.activeElement!==inp){inp.style.width='0'; this.style.borderColor='rgba(56,189,248,0.35)'; this.style.boxShadow='0 4px 20px rgba(0,0,0,0.3)'; inp.blur();}"
-    >
-      <i class="fa-solid fa-magnifying-glass" style="color:#38bdf8; font-size:14px; flex-shrink:0; cursor:pointer;" onclick="var inp=document.getElementById('globalSearchInput'); inp.style.width='220px'; inp.focus();"></i>
-      <input type="text" id="globalSearchInput" placeholder="Rechercher camion, immat, carte Naftal..."
-             autocomplete="off"
-             style="border:none; background:transparent; outline:none; width:0; min-width:0; font-size:12px; font-weight:600; color:var(--text-primary); transition:width 0.3s cubic-bezier(0.16, 1, 0.3, 1); cursor:pointer;"
-      >
-      <span id="searchResultCount" style="display:none; background:#38bdf8; color:var(--text-primary); font-size:10px; font-weight:800; padding:2px 7px; border-radius:20px;"></span>
-    </div>
-  </div>
+    <button onclick="openSearchPalette()" title="Rechercher (/) — Camion, immat, carte Naftal" style="display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--bg-elevated);border:1.5px solid var(--border);border-radius:20px;cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:600;transition:all 0.2s;white-space:nowrap;" onmouseover="this.style.borderColor='#0284c7';this.style.color='#0284c7'" onmouseout="this.style.borderColor='';this.style.color=''"><i class="fa-solid fa-magnifying-glass" style="font-size:13px;"></i> Rechercher <kbd style="border:1px solid currentColor;border-radius:4px;padding:0 4px;font-size:10px;opacity:0.6;">/</kbd></button>
 
   <!-- Search bar moved into Dashboard tab -->
 
@@ -834,8 +983,8 @@
                 <button class="btn-secondary" onclick="ui.refreshMaintenanceFollowup()">
                     <i class="fa-solid fa-sync"></i>
                 </button>
-                <button id="vidangeRescanBtn" class="btn-secondary" onclick="ui.runVidangeRescan()" style="border-color:rgba(22,163,74,0.3);color:#16a34a;font-weight:700;">
-                    <i class="fa-solid fa-magnifying-glass"></i> Rescanner les Vidanges
+                <button id="vidangeRescanBtn" class="btn-secondary" onclick="ui.openVidangeScanModal()" style="border-color:rgba(22,163,74,0.3);color:#16a34a;font-weight:700;">
+                    <i class="fa-solid fa-magnifying-glass"></i> Scanner GPS Complet
                 </button>
             </div>
         </div>
@@ -1385,116 +1534,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- PREDICTIVE MAINTENANCE INTELLIGENCE TAB                 -->
-  <!-- ═══════════════════════════════════════════════════════ -->
-  <div id="predictiveSection" class="tab-content">
-    <div class="controls-section" style="border-left: 3px solid var(--info);">
-      <div class="maint-section-header">
-        <h2 style="color: var(--info); margin: 0;"><i class="fa-solid fa-brain"></i> Intelligence Prédictive de Maintenance</h2>
-        <div style="display:flex; gap:8px; align-items:center;">
-          <button class="btn-primary" id="btnLoadPredictions" onclick="loadPredictiveDashboard()" style="background: var(--info); border: none;">
-            <i class="fa-solid fa-rocket"></i> Analyser la Flotte
-          </button>
-          <button class="btn-secondary" onclick="window.PredictiveEngine && window.PredictiveEngine.exportToCSV()">
-            <i class="fa-solid fa-file-csv"></i> Exporter CSV
-          </button>
-        </div>
-      </div>
-
-      <!-- Info box -->
-      <div style="background: var(--info-glow); border: 1px solid rgba(139,92,246,0.15); border-radius: var(--radius-lg); padding: 14px; margin-bottom: 20px; font-size: var(--text-sm); color: var(--info);">
-        <i class="fa-solid fa-info-circle"></i> <strong>Comment ça marche:</strong> L'algorithme analyse l'historique de maintenance de tous les camions, 
-        calcule les intervalles moyens par type d'intervention (plaquettes, freins, pneumatiques...), puis prédit quand chaque camion aura besoin d'entretien.
-        Confiance plus élevée = plus de données historiques.
-      </div>
-
-      <!-- Urgent Alerts Strip -->
-      <div id="predictiveUrgentAlerts" style="margin-bottom: 20px;"></div>
-
-      <!-- AI Insights Container -->
-      <div id="aiInsightsContainer" style="display:none; flex-direction:column; gap:20px; margin-bottom: 30px;">
-          <!-- Content populated by JS -->
-      </div>
-
-      <!-- KPI Cards Row -->
-      <div id="predictiveKPIs" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px;">
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; text-align: center;">
-          <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Total Interventions</div>
-          <div id="predKPI_total" style="font-size: var(--text-3xl); font-weight: var(--weight-black); color: var(--text-primary); margin-top: 4px;">—</div>
-        </div>
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; text-align: center;">
-          <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Urgents</div>
-          <div id="predKPI_urgent" style="font-size: var(--text-3xl); font-weight: var(--weight-black); color: var(--danger); margin-top: 4px;">—</div>
-        </div>
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; text-align: center;">
-          <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Coût Mensuel Estimé</div>
-          <div id="predKPI_cost" style="font-size: var(--text-3xl); font-weight: var(--weight-black); color: var(--warning); margin-top: 4px;">—</div>
-        </div>
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; text-align: center;">
-          <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Types Analysés</div>
-          <div id="predKPI_types" style="font-size: var(--text-3xl); font-weight: var(--weight-black); color: var(--info); margin-top: 4px;">—</div>
-        </div>
-      </div>
-
-      <!-- Charts Row -->
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px;">
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 20px;">
-          <h3 style="font-size: var(--text-md); color: var(--text-primary); margin-bottom: 16px;"><i class="fa-solid fa-chart-pie" style="color: var(--info);"></i> Répartition par Type</h3>
-          <canvas id="chartTypeDistribution" height="250"></canvas>
-        </div>
-        <div style="background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 20px;">
-          <h3 style="font-size: var(--text-md); color: var(--text-primary); margin-bottom: 16px;"><i class="fa-solid fa-chart-line" style="color: var(--warning);"></i> Tendance des Coûts</h3>
-          <canvas id="chartCostTrend" height="250"></canvas>
-        </div>
-      </div>
-
-      <!-- Per-type prediction cards -->
-      <h3 style="font-size: var(--text-lg); color: var(--text-primary); margin-bottom: 16px;">
-        <i class="fa-solid fa-truck-medical" style="color: var(--info);"></i> Prédictions par Type de Maintenance
-      </h3>
-      <div id="predictiveCardsContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px;">
-        <div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text-dim);">
-          <i class="fa-solid fa-brain" style="font-size:48px; display:block; margin-bottom:12px; opacity:0.2;"></i>
-          <div style="font-size:var(--text-md); font-weight:var(--weight-semibold);">Cliquez "Analyser la Flotte" pour générer les prédictions</div>
-          <div style="font-size:var(--text-sm); margin-top:6px;">L'analyse prend quelques secondes selon la taille de votre historique</div>
-        </div>
-      </div>
-
-      <!-- Budget Forecast -->
-      <div style="margin-top: 24px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 20px;">
-        <h3 style="font-size: var(--text-lg); color: var(--text-primary); margin-bottom: 16px;">
-          <i class="fa-solid fa-wallet" style="color: var(--warning);"></i> Prévision Budgétaire (3 mois)
-        </h3>
-        <div id="budgetForecastContainer" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
-          <div style="text-align:center; padding:20px; color:var(--text-dim); grid-column:1/-1;">
-            Lancez l'analyse pour voir les prévisions budgétaires
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ DRIVER SCORING ═══ -->
-      <div style="margin-top:30px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-          <div>
-            <h3 style="color:var(--text-primary); margin:0; font-size:var(--text-lg);">
-              <i class="fa-solid fa-trophy" style="color:#f59e0b;"></i> Scoring Comportement Chauffeurs
-            </h3>
-            <p style="color:var(--text-muted); font-size:var(--text-sm); margin:4px 0 0;">Évaluation en temps réel basée sur 5 critères</p>
-          </div>
-          <button class="btn-primary" onclick="loadDriverScoring()" id="btnLoadScoring" style="background:linear-gradient(135deg, #f59e0b, #d97706); border:none;">
-            <i class="fa-solid fa-chart-line"></i> Évaluer la Flotte
-          </button>
-        </div>
-        <div id="driverScoringContainer" style="min-height:100px;">
-          <div style="text-align:center; padding:40px; color:var(--text-dim);">
-            <i class="fa-solid fa-trophy" style="font-size:40px; color:var(--border); margin-bottom:12px;"></i>
-            <br>Cliquez sur "Évaluer la Flotte" pour voir les scores
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </div>
+  
 
   <!-- ✅ SETTINGS TAB -->
   <div id="settings" class="tab-content">
@@ -1900,9 +1940,7 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- PREDICTIVE MAINTENANCE SECTION (hidden by default)      -->
   <!-- ═══════════════════════════════════════════════════════ -->
-  <!-- Will be populated by predictive-maintenance.js -->
 
   <script src="config.js?v=1785178812411"></script>
   
@@ -1968,7 +2006,6 @@ window.addEventListener('unhandledrejection', function(e) {
   <script src="ui.js"></script>
   <script src="transport-report.js"></script>
   <script src="notifications.js" defer></script>
-  <script src="predictive-maintenance.js" defer></script>
   <script src="driver-scoring.js" defer></script>
   <script src="pdf-generator.js" defer></script>
 
@@ -2355,237 +2392,7 @@ window.addEventListener('unhandledrejection', function(e) {
     };
 
     // ═══════════════════════════════════════════
-    // PREDICTIVE MAINTENANCE DASHBOARD
-    // ═══════════════════════════════════════════
-    let predCharts = {};
-
-    async function loadPredictiveDashboard() {
-      const btn = document.getElementById('btnLoadPredictions');
-      if (btn) { btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyse en cours...'; btn.disabled = true; }
-      
-      try {
-        const engine = window.PredictiveEngine;
-        if (!engine) { showToast('Moteur prédictif non chargé', 'error'); return; }
-        
-        await engine.loadData();
-        const predictions = engine.getFleetPredictions();
-        const urgentAlerts = engine.getUrgentAlerts();
-        const budget = engine.getBudgetForecast(3);
-
-        // ─── KPIs ───
-        const totalEntries = engine.maintenanceEntries.length;
-        document.getElementById('predKPI_total').textContent = totalEntries.toLocaleString('fr-FR');
-        document.getElementById('predKPI_urgent').textContent = urgentAlerts.length;
-        document.getElementById('predKPI_types').textContent = predictions.length;
-        
-        const monthlyCost = budget[0]?.totalEstCost || 0;
-        document.getElementById('predKPI_cost').textContent = monthlyCost > 0 ? 
-          monthlyCost.toLocaleString('fr-FR') + ' DA' : '—';
-
-        // ─── AI ANALYSIS (V4.3) ───
-        const aiData = engine.generateAIAnalysis();
-        const aiContainer = document.getElementById('aiInsightsContainer');
-        if (aiContainer) {
-            aiContainer.style.display = 'block';
-            let tabsHtml = '<div class="ai-tabs" style="display:flex; gap:10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; overflow-x: auto;">';
-            let contentHtml = '';
-            
-            Object.values(aiData.categories).forEach((cat, idx) => {
-                const isActive = idx === 0;
-                
-                tabsHtml += `<button class="ai-tab-btn" id="ai-btn-${idx}" onclick="window.switchAITab(${idx})" style="padding: 8px 16px; border-radius: 20px; border: none; background: ${isActive ? 'var(--primary)' : 'var(--bg-elevated)'}; color: ${isActive ? '#fff' : 'var(--text-secondary)'}; cursor: pointer; font-weight: 600; transition: all 0.2s; white-space: nowrap;">${cat.title}</button>`;
-
-                let itemsHtml = cat.items.map(item => `
-                    <div class="ai-insight-card" style="border-left-color: var(--${item.status});">
-                        <div class="icon" style="color: var(--${item.status}); background: var(--${item.status}-subtle);"><i class="fa-solid ${item.icon}"></i></div>
-                        <div class="content">
-                            <div class="title">${item.title}</div>
-                            <div class="value" style="color: var(--${item.status});">${item.value}</div>
-                            <div class="desc">${item.desc}</div>
-                        </div>
-                    </div>
-                `).join('');
-
-                contentHtml += `
-                    <div class="ai-category-content" id="ai-content-${idx}" style="display: ${isActive ? 'block' : 'none'};">
-                        <div class="cat-grid">${itemsHtml}</div>
-                    </div>
-                `;
-            });
-            tabsHtml += '</div>';
-            aiContainer.innerHTML = tabsHtml + contentHtml;
-        }
-
-        // ─── Urgent Alerts Strip ───
-        const alertsDiv = document.getElementById('predictiveUrgentAlerts');
-        if (urgentAlerts.length > 0) {
-          alertsDiv.innerHTML = `
-            <div style="background:var(--danger-subtle); border:1px solid rgba(239,68,68,0.2); border-radius:var(--radius-lg); padding:14px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
-              <div style="font-size:var(--text-sm); font-weight:var(--weight-bold); color:var(--danger);">
-                <i class="fa-solid fa-exclamation-triangle"></i> ${urgentAlerts.length} maintenances urgentes
-              </div>
-              ${urgentAlerts.slice(0, 5).map(a => `
-                <span style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-full); padding:4px 12px; font-size:11px; color:var(--text-primary); display:inline-flex; align-items:center; gap:4px;">
-                  <span style="width:6px;height:6px;border-radius:50%;background:${a.urgency==='overdue'?'var(--danger)':'var(--warning)'};"></span>
-                  ${a.truckName} — ${a.maintenanceType} <span style="color:var(--text-muted); margin-left:4px;">(${a.predictedDateString})</span>
-                </span>
-              `).join('')}
-              ${urgentAlerts.length > 5 ? `<span style="font-size:11px; color:var(--text-muted);">+${urgentAlerts.length - 5} autres</span>` : ''}
-            </div>`;
-        } else {
-          alertsDiv.innerHTML = `<div style="background:var(--success-subtle); border:1px solid rgba(16,185,129,0.2); border-radius:var(--radius-lg); padding:14px; font-size:var(--text-sm); color:var(--success);">
-            <i class="fa-solid fa-check-circle"></i> Aucune maintenance urgente — la flotte est en bon état
-          </div>`;
-        }
-
-        // ─── Per-type Prediction Cards ───
-        const cardsDiv = document.getElementById('predictiveCardsContainer');
-        cardsDiv.innerHTML = predictions.map(analysis => {
-          const urgencyColors = { overdue:'var(--danger)', due:'var(--warning)', soon:'var(--primary)', ok:'var(--success)' };
-          const urgencyLabels = { overdue:'EN RETARD', due:'À FAIRE', soon:'BIENTÔT', ok:'OK' };
-          
-          const overdueCount = analysis.predictions.filter(p => p.urgency === 'overdue').length;
-          const dueCount = analysis.predictions.filter(p => p.urgency === 'due').length;
-          const soonCount = analysis.predictions.filter(p => p.urgency === 'soon').length;
-          
-          return `<div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-xl); padding:20px; position:relative; overflow:hidden;">
-            <div style="position:absolute; top:0; left:0; right:0; height:3px; background:${overdueCount > 0 ? 'var(--danger)' : dueCount > 0 ? 'var(--warning)' : 'var(--success)'};"></div>
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-              <h4 style="font-size:var(--text-md); font-weight:var(--weight-bold); color:var(--text-primary); margin:0;">🔧 ${analysis.type}</h4>
-              <span style="font-size:10px; color:var(--text-muted);">${analysis.totalOccurrences} entrées · ${analysis.trucksAnalyzed} camions</span>
-            </div>
-            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px;">
-              <div style="text-align:center; padding:8px; background:var(--bg-elevated); border-radius:var(--radius-md);">
-                <div style="font-size:10px; color:var(--text-muted);">Intervalle Moy.</div>
-                <div style="font-size:var(--text-md); font-weight:var(--weight-bold); color:var(--primary);">${analysis.avgKmBetween > 0 ? analysis.avgKmBetween.toLocaleString('fr-FR') + ' km' : 'N/A'}</div>
-              </div>
-              <div style="text-align:center; padding:8px; background:var(--bg-elevated); border-radius:var(--radius-md);">
-                <div style="font-size:10px; color:var(--text-muted);">Coût Moy.</div>
-                <div style="font-size:var(--text-md); font-weight:var(--weight-bold); color:var(--warning);">${analysis.avgCost > 0 ? analysis.avgCost.toLocaleString('fr-FR') + ' DA' : 'N/A'}</div>
-              </div>
-              <div style="text-align:center; padding:8px; background:var(--bg-elevated); border-radius:var(--radius-md);">
-                <div style="font-size:10px; color:var(--text-muted);">Écart-Type</div>
-                <div style="font-size:var(--text-md); font-weight:var(--weight-bold); color:var(--text-secondary);">± ${analysis.stdDevKm.toLocaleString('fr-FR')} km</div>
-              </div>
-            </div>
-            <div style="display:flex; gap:6px; margin-bottom:12px;">
-              ${overdueCount > 0 ? `<span style="background:var(--danger-subtle); color:var(--danger); border:1px solid rgba(239,68,68,0.2); padding:2px 8px; border-radius:var(--radius-full); font-size:10px; font-weight:700;">${overdueCount} EN RETARD</span>` : ''}
-              ${dueCount > 0 ? `<span style="background:var(--warning-subtle); color:var(--warning); border:1px solid rgba(245,158,11,0.2); padding:2px 8px; border-radius:var(--radius-full); font-size:10px; font-weight:700;">${dueCount} À FAIRE</span>` : ''}
-              ${soonCount > 0 ? `<span style="background:var(--primary-subtle); color:var(--primary); border:1px solid var(--border-primary); padding:2px 8px; border-radius:var(--radius-full); font-size:10px; font-weight:700;">${soonCount} BIENTÔT</span>` : ''}
-            </div>
-            <div style="max-height:200px; overflow-y:auto;">
-              ${analysis.predictions.slice(0, 10).map(p => `
-                <div style="display:flex; flex-direction:column; padding:10px 12px; border-bottom:1px solid var(--border); font-size:12px; gap:6px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <span style="color:var(--text-primary); font-weight:600; font-size: 13px;">${p.truckName}</span>
-                    <span style="display:flex; align-items:center; gap:4px; background:${urgencyColors[p.urgency]}15; padding:2px 8px; border-radius:var(--radius-full);">
-                      <span style="width:6px;height:6px;border-radius:50%;background:${urgencyColors[p.urgency]};"></span>
-                      <span style="color:${urgencyColors[p.urgency]}; font-weight:700; font-size:11px;">${p.predictedDateString}</span>
-                    </span>
-                  </div>
-                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:11px; color:var(--text-muted); background:var(--bg-elevated); padding:8px; border-radius:var(--radius-sm);">
-                    <div><span style="text-transform:uppercase; font-size:9px;">Actuel</span><br><strong style="color:var(--text-primary);">${p.currentOdo.toLocaleString('fr-FR')} km</strong></div>
-                    <div style="text-align:right;"><span style="text-transform:uppercase; font-size:9px;">Prochaine</span><br><strong style="color:var(--text-primary);">${p.predictedNextKm.toLocaleString('fr-FR')} km</strong></div>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--text-muted);">
-                    <span><i class="fa-solid fa-road"></i> ${p.truckAvgDailyKm} km/j moy.</span>
-                    <strong style="color:${p.remaining <= 0 ? 'var(--danger)' : 'var(--text-secondary)'};">Reste: ${p.remaining > 0 ? p.remaining.toLocaleString('fr-FR') + ' km' : 'Dépassé'}</strong>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          </div>`;
-        }).join('');
-
-        // ─── Budget Forecast ───
-        const budgetDiv = document.getElementById('budgetForecastContainer');
-        budgetDiv.innerHTML = budget.map(m => `
-          <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:16px; text-align:center;">
-            <div style="font-size:12px; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Mois +${m.monthIndex}</div>
-            <div style="font-size:var(--text-2xl); font-weight:var(--weight-black); color:var(--warning); margin:8px 0;">${m.totalEstCost > 0 ? m.totalEstCost.toLocaleString('fr-FR') + ' DA' : '—'}</div>
-            <div style="font-size:11px; color:var(--text-secondary);">
-              ${m.breakdown.map(b => `${b.type}: ${b.count}×`).join(' · ') || 'Aucune prévision'}
-            </div>
-          </div>
-        `).join('');
-
-        // ─── Charts ───
-        renderPredictiveCharts(engine);
-
-        // ─── Send notifications for urgent items ───
-        if (urgentAlerts.length > 0 && window.pushNotification) {
-          window.pushNotification('maintenance_due', {
-            title: `⚠️ ${urgentAlerts.length} maintenances urgentes`,
-            body: urgentAlerts.slice(0, 3).map(a => `${a.truckName}: ${a.maintenanceType}`).join(', '),
-            severity: urgentAlerts.some(a => a.urgency === 'overdue') ? 'critical' : 'warning'
-          });
-        }
-
-        showToast(`✅ Analyse terminée — ${predictions.length} types, ${urgentAlerts.length} urgents`, 'success');
-      } catch(err) {
-        console.error('Predictive dashboard error:', err);
-        showToast('Erreur lors de l\'analyse: ' + err.message, 'error');
-      } finally {
-        if (btn) { btn.innerHTML = '<i class="fa-solid fa-rocket"></i> Analyser la Flotte'; btn.disabled = false; }
-      }
-    }
-
-    // ─── AI TAB SWITCHER ───
-    window.switchAITab = function(index) {
-        document.querySelectorAll('.ai-tab-btn').forEach((btn, idx) => {
-            if (idx === index) {
-                btn.style.background = 'var(--primary)';
-                btn.style.color = '#fff';
-            } else {
-                btn.style.background = 'var(--bg-elevated)';
-                btn.style.color = 'var(--text-secondary)';
-            }
-        });
-        document.querySelectorAll('.ai-category-content').forEach((content, idx) => {
-            content.style.display = (idx === index) ? 'block' : 'none';
-        });
-    };
-
-    function renderPredictiveCharts(engine) {
-      if (typeof Chart === 'undefined') return;
-
-      // Destroy old charts
-      Object.values(predCharts).forEach(c => c.destroy && c.destroy());
-
-      const chartDefaults = {
-        responsive: true,
-        plugins: { legend: { labels: { color: '#94a3b8', font: { family: "'Inter', sans-serif" } } } },
-        scales: { x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.08)' } }, y: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,0.08)' } } }
-      };
-
-      // Type Distribution Pie
-      const typeData = engine.getChartData_TypeDistribution();
-      const ctx1 = document.getElementById('chartTypeDistribution');
-      if (ctx1) {
-        predCharts.typeDist = new Chart(ctx1, {
-          type: 'doughnut',
-          data: {
-            labels: typeData.labels,
-            datasets: [{ data: typeData.data, backgroundColor: ['#38bdf8','#f59e0b','#ef4444','#10b981','#8b5cf6','#f97316','#06b6d4'], borderWidth: 0 }]
-          },
-          options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12, font: { family: "'Inter'" } } } } }
-        });
-      }
-
-      // Cost Trend Line
-      const costData = engine.getChartData_CostTrend(6);
-      const ctx2 = document.getElementById('chartCostTrend');
-      if (ctx2) {
-        predCharts.costTrend = new Chart(ctx2, {
-          type: 'line',
-          data: {
-            labels: costData.labels,
-            datasets: [{ label: 'Coût (DA)', data: costData.data, borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.3, pointRadius: 4, pointBackgroundColor: '#f59e0b' }]
-          },
-          options: chartDefaults
-        });
-      }
-    }
+    
 
     // ═══════════════════════════════════════════
     // COMMAND PALETTE (Ctrl+K)
@@ -2604,9 +2411,7 @@ window.addEventListener('unhandledrejection', function(e) {
       { label: 'Configuration', icon: 'fa-sliders', action: () => switchTab('settings'), keywords: 'config parametre settings' },
       { label: 'Notifications', icon: 'fa-bell', action: () => toggleNotificationPanel(), keywords: 'notif notification alert' },
       { label: 'Ouvrir Carte 3D', icon: 'fa-earth-africa', action: () => resetMapContext(), keywords: 'carte 3d map' },
-      { label: 'Audit GPS', icon: 'fa-user-secret', action: () => window.open('gps-checker.html','_blank'), keywords: 'audit gps checker' },
-      { label: 'Intelligence Prédictive', icon: 'fa-brain', action: () => switchTab('predictiveSection'), keywords: 'prediction predictive intelligence' },
-      { label: 'Scoring Chauffeurs', icon: 'fa-trophy', action: () => { if(window.DriverScoring) { window.DriverScoring.loadData().then(() => window.DriverScoring.renderDashboard('predictiveCardsContainer')); switchTab('predictiveSection'); } }, keywords: 'score chauffeur driver scoring' },
+      { label: 'Audit GPS', icon: 'fa-user-secret', action: () => window.open('gps-checker.html','_blank'), keywords: 'audit gps checker' }, }, keywords: 'score chauffeur driver scoring' },
       { label: 'PDF Maintenance', icon: 'fa-file-pdf', action: () => showToast('Sélectionnez un ordre de maintenance pour générer le PDF', 'info'), keywords: 'pdf export maintenance' },
     ];
 
@@ -3439,9 +3244,39 @@ window.addEventListener('unhandledrejection', function(e) {
     </div>
   </div>
 
+
+<!-- ═══ COMMAND PALETTE SEARCH ═══════════════════════════════ -->
+<div id="searchPalette" style="display:none;position:fixed;inset:0;z-index:88888;background:rgba(15,23,42,0.6);backdrop-filter:blur(6px);" onclick="if(event.target===this)closeSearchPalette()">
+  <div style="max-width:600px;margin:80px auto 0;background:var(--bg-card,#fff);border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,0.35);overflow:hidden;border:1.5px solid var(--border,#e2e8f0);">
+    <!-- Search Input -->
+    <div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border,#e2e8f0);">
+      <i class="fa-solid fa-magnifying-glass" style="color:#0284c7;font-size:16px;flex-shrink:0;"></i>
+      <input id="paletteInput" type="text" placeholder="Rechercher un camion, immat, carte Naftal, zone..." autocomplete="off"
+        style="flex:1;border:none;outline:none;font-size:15px;background:transparent;color:var(--text-primary,#1e293b);"
+        oninput="runPaletteSearch(this.value)"
+        onkeydown="if(event.key==='Escape')closeSearchPalette()">
+      <kbd style="border:1px solid var(--border,#e2e8f0);border-radius:6px;padding:2px 8px;font-size:11px;color:var(--text-muted,#94a3b8);background:var(--bg-elevated,#f8fafc);">ESC</kbd>
+    </div>
+    <!-- Results -->
+    <div id="paletteResults" style="max-height:420px;overflow-y:auto;padding:8px 0;">
+      <div style="padding:20px;text-align:center;color:var(--text-muted,#94a3b8);font-size:13px;">
+        <i class="fa-solid fa-truck" style="font-size:24px;opacity:0.3;display:block;margin-bottom:8px;"></i>
+        Tapez pour rechercher dans la flotte...
+      </div>
+    </div>
+    <!-- Footer -->
+    <div style="padding:8px 16px;border-top:1px solid var(--border,#e2e8f0);display:flex;gap:16px;font-size:11px;color:var(--text-muted,#94a3b8);">
+      <span><kbd style="border:1px solid var(--border,#e2e8f0);border-radius:4px;padding:1px 5px;background:var(--bg-elevated,#f8fafc);">/</kbd> Ouvrir</span>
+      <span><kbd style="border:1px solid var(--border,#e2e8f0);border-radius:4px;padding:1px 5px;background:var(--bg-elevated,#f8fafc);">↵</kbd> Sélectionner</span>
+      <span><kbd style="border:1px solid var(--border,#e2e8f0);border-radius:4px;padding:1px 5px;background:var(--bg-elevated,#f8fafc);">ESC</kbd> Fermer</span>
+    </div>
+  </div>
+</div>
+
 </body>
 
 </html>
+
 
 
 

@@ -1,9 +1,9 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>📍 Zone Mission Control — Fleet DED</title>
+  <title>ABDO Fleet OS — Zone Mission Control</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -1188,7 +1188,7 @@
 
 <script>
 // ═══════════════════════════════════════════════════════
-//  ZONE MISSION CONTROL — MAIN CONTROLLER
+//  Zone Mission Control — MAIN CONTROLLER
 //  dedsite.online | dev: Chikhaoui | Fleet Analytics v2.0
 // ═══════════════════════════════════════════════════════
 const ZMC = (() => {
@@ -1727,7 +1727,7 @@ const ZMC = (() => {
       const statusIcon = s.status==='departed'?'✅':s.status==='arrived'?'🔵':s.status==='late'?'🔴':'⏳';
       return `<tr><td>${i+1}</td><td>${statusIcon} ${s.zoneName}</td><td>${arr}</td><td>${dep}</td><td>${s.waitingTimeMinutes ? s.waitingTimeMinutes+'min' : '—'}</td><td>${s.errorMarginMinutes||30}min</td></tr>`;
     }).join('');
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Opération: ${op.operationName}</title>
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>ABDO Fleet OS — Zone Mission Control</title>
     <style>body{font-family:Arial,sans-serif;padding:30px;color:#111}h1{color:#1d4ed8;border-bottom:3px solid #1d4ed8;padding-bottom:10px}
     .meta{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;padding:16px;background:#f8fafc;border-radius:8px}
     .meta-item label{font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;display:block}
@@ -4137,4 +4137,5 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
+
 
