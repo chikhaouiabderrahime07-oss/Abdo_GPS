@@ -11505,6 +11505,82 @@ exportMaintenanceCSV() {
   }
 
 
+
+  handleHeaderSearch(q) {
+    const dd = document.getElementById('headerSearchDropdown');
+    const count = document.getElementById('headerSearchCount');
+    const clearBtn = document.getElementById('headerSearchClear');
+    q = (q || '').trim().toLowerCase();
+
+    if (!q) {
+      if (dd) dd.style.display = 'none';
+      if (count) count.style.display = 'none';
+      if (clearBtn) clearBtn.style.display = 'none';
+      // Also clear dashboard filter
+      this.searchQuery = '';
+      this.updateDashboard();
+      return;
+    }
+
+    if (clearBtn) clearBtn.style.display = 'inline';
+
+    const trucks = (window.app && typeof window.app.getAllTrucks === 'function') ? window.app.getAllTrucks() : [];
+    const dbCache = this.truckDbCache || [];
+    const results = trucks.filter(t => {
+      const db = dbCache.find(d => String(d.deviceId) === String(t.id || t.deviceId)) || {};
+      return (t.name||'').toLowerCase().indexOf(q) !== -1
+          || (db.immatriculation||'').toLowerCase().indexOf(q) !== -1
+          || (db.carteNaftal||'').toLowerCase().indexOf(q) !== -1
+          || (db.chassisNumber||'').toLowerCase().indexOf(q) !== -1;
+    }).slice(0, 10);
+
+    if (count) {
+      count.style.display = results.length ? 'inline' : 'none';
+      count.textContent = results.length;
+    }
+
+    // Also filter the main dashboard
+    this.searchQuery = q;
+    if (document.querySelector('.tab-content.active')?.id === 'dashboard') {
+      this.renderTrucks();
+    }
+
+    if (!dd) return;
+    if (!results.length) {
+      dd.style.display = 'block';
+      dd.innerHTML = '<div style="padding:16px;text-align:center;color:#94a3b8;font-size:12px;">Aucun résultat pour "' + q + '"</div>';
+      return;
+    }
+
+    dd.style.display = 'block';
+    dd.innerHTML = '';
+    results.forEach(t => {
+      const db = dbCache.find(d => String(d.deviceId) === String(t.id || t.deviceId)) || {};
+      const fp = Math.round(t.fuelPercentage || 0);
+      const fc = fp <= 10 ? '#ef4444' : fp <= 25 ? '#f59e0b' : '#16a34a';
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:12px;border-bottom:1px solid #f1f5f9;';
+      row.innerHTML =
+        '<div style="width:32px;height:32px;border-radius:8px;background:' + fc + '20;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+        '<i class="fa-solid fa-truck" style="color:' + fc + ';font-size:12px;"></i></div>' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-weight:700;color:var(--text-primary,#1e293b);font-size:13px;">' + t.name + '</div>' +
+          '<div style="font-size:11px;color:#94a3b8;">' + (db.immatriculation||'') + (db.carteNaftal?' · '+db.carteNaftal:'') + '</div>' +
+        '</div>' +
+        '<span style="font-size:13px;font-weight:900;color:' + fc + ';">' + fp + '%</span>';
+      const lat = (t.coordinates && t.coordinates.lat) ? t.coordinates.lat : 0;
+      const lng = (t.coordinates && t.coordinates.lng) ? t.coordinates.lng : 0;
+      row.onmouseover = function() { this.style.background='var(--bg-elevated,#f8fafc)'; };
+      row.onmouseout  = function() { this.style.background=''; };
+      row.onclick = (function(la,lo,nm){ return function(){
+        document.getElementById('headerSearchInput').blur();
+        document.getElementById('headerSearchDropdown').style.display='none';
+        if(window.ui && window.ui.viewOnMap) window.ui.viewOnMap(la,lo);
+      }; })(lat, lng, t.name);
+      dd.appendChild(row);
+    });
+  }
+
   setDashSort(field) {
     if (this._dashSortField === field) {
       this._dashSortDir = this._dashSortDir === 'asc' ? 'desc' : 'asc';
