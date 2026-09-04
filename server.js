@@ -7903,6 +7903,18 @@ async function runMidnightValidator() {
   scheduleMidnightValidator();
 }
 
+// ── SCHEDULE MIDNIGHT VALIDATOR + BACKUP ──────────────────────────
+function scheduleMidnightValidator() {
+  const msToMidnight = msToNext2359Algeria();
+  const hoursLeft = (msToMidnight / 3600000).toFixed(1);
+  const nextRun = new Date(Date.now() + msToMidnight);
+  midnightState.nextRunAt = nextRun.toISOString();
+  console.log(`[MidnightScheduler] ⏰ Next run in ${hoursLeft}h at ${nextRun.toISOString()} (Algeria 23:59)`);
+  console.log(`[MidnightScheduler] DEBUG nextRunAt = ${midnightState.nextRunAt}`);
+  setTimeout(async () => {
+    await runMidnightValidator();
+  }, msToMidnight);
+}
 
 
 // ── LOCALHOST BURST SCAN ─────────────────────────────────────────
@@ -8839,6 +8851,19 @@ mongoose.connect(DB_URI, {
       setTimeout(() => runStartupBackfill(3).catch(e => console.error('Startup backfill error:', e.message)), 30000);
       // ⛽ NAFTAL autonomous monitoring (runs every 10 min, no browser needed)
       setTimeout(runNaftalMonitor, 60000); // first run 1min after boot
+      // ⏰ Midnight validator + auto-backup scheduler
+      setTimeout(() => {
+        try {
+          scheduleMidnightValidator();
+          console.log('[MidnightScheduler] ✅ Midnight validator + auto-backup scheduled');
+        } catch(e) {
+          console.error('[MidnightScheduler] ❌ FAILED:', e.message, e.stack);
+        }
+      }, 15000);
+      // 📦 Run immediate backup on startup (in case midnight was missed)
+      setTimeout(async () => {
+        try { await runDailyBackup(); } catch(e) { console.error('[StartupBackup]', e.message); }
+      }, 20000);
     })
     .catch(err => {
       console.error("❌ Mongo Connection Failed:", err.message);

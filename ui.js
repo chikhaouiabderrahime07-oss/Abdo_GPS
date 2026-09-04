@@ -2491,7 +2491,7 @@ exportDecouchageCSV() {
 
   renderVidangeSection() {
     this.vidangeSectionContainer.innerHTML = '';
-    let trucks = app.getAllTrucks().sort((a, b) => a.vidange.kmUntilNext - b.vidange.kmUntilNext);
+    let trucks = app.getAllTrucks().sort((a, b) => this.vidangeSortDesc ? (b.vidange.kmUntilNext - a.vidange.kmUntilNext) : (a.vidange.kmUntilNext - b.vidange.kmUntilNext));
     trucks = this.filterBySearch(trucks);
 
     if (this.vidangeFilterState === 'urgent') trucks = trucks.filter(t => t.vidange.alert);
@@ -2500,7 +2500,7 @@ exportDecouchageCSV() {
 
     const controls = document.createElement('div');
     controls.className = 'sub-filters';
-    controls.innerHTML = `<button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button> <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">Urgent</button> <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">Bientôt</button> <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">OK</button>`;
+    controls.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;"><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button> <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">🔴 Urgent</button> <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">🟡 Bientôt</button> <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">✅ OK</button></div><div style="display:flex;gap:6px;align-items:center;"><span style="font-size:11px;color:var(--text-muted,#94a3b8);font-weight:600;">Trier:</span><button class="filter-pill ${!this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortDesc=false;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Plus urgent en premier"><i class="fa-solid fa-arrow-up-short-wide"></i> Urgent d'abord</button><button class="filter-pill ${this.vidangeSortDesc ? 'active' : ''}" onclick="ui.vidangeSortDesc=true;ui.renderVidangeSection()" style="font-size:11px;padding:4px 10px;" title="Plus OK en premier"><i class="fa-solid fa-arrow-down-wide-short"></i> OK d'abord</button></div></div>`;
     this.vidangeSectionContainer.appendChild(controls);
 
     const header = document.createElement('div');
@@ -2508,19 +2508,14 @@ exportDecouchageCSV() {
     header.style.borderLeftColor = 'var(--orange)';
     header.innerHTML = `
       <div>
-        <h3 style="margin:0;"><i class="fa-solid fa-wrench"></i> État des Vidanges</h3>
-        <span style="font-size: 12px; color: #666;">${trucks.length} Camions affichés</span>
+        <h3 style="margin:0;"><i class="fa-solid fa-oil-can" style="color:var(--orange,#f59e0b);"></i> État des Vidanges <span style="font-size:12px;font-weight:700;color:var(--text-muted,#94a3b8);margin-left:8px;">(Temps Réel)</span></h3>
+        <span style="font-size: 12px; color: var(--text-muted,#666);">${trucks.length} Camions affichés — Données GPS en direct</span>
       </div>
-      <div style="font-size: 20px;">${this.vidangeAccordionState ? '<i class="fa-solid fa-chevron-down"></i>' : '<i class="fa-solid fa-chevron-right"></i>'}</div>
     `;
-    header.onclick = () => {
-      this.vidangeAccordionState = !this.vidangeAccordionState;
-      this.renderVidangeSection();
-    };
     this.vidangeSectionContainer.appendChild(header);
 
     const content = document.createElement('div');
-    content.className = `accordion-content ${this.vidangeAccordionState ? 'show' : ''}`;
+    content.className = 'accordion-content show';
     
     if (trucks.length === 0) {
       content.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">Aucun camion dans cette catégorie.</div>';
@@ -2540,10 +2535,10 @@ exportDecouchageCSV() {
           if (isAlert) { color = '#e63946'; statusText = 'URGENT'; }
           else if (isWarning) { color = '#f4a261'; statusText = 'BIENTÔT'; }
 
-          const bg = isAlert ? '#fff5f5' : 'white';
+          const bg = isAlert ? 'var(--bg-danger,#fff5f5)' : 'var(--bg-card,white)';
           
           return `
-          <div style="background: ${bg}; padding: 15px; border-radius: 8px; border: 1px solid ${isAlert ? color : '#ddd'}; border-left: 4px solid ${color}; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+          <div style="background: ${bg}; padding: 15px; border-radius: 12px; border: 1px solid ${isAlert ? color+'33' : 'var(--border,#ddd)'}; border-left: 4px solid ${color}; box-shadow: 0 2px 8px rgba(0,0,0,0.08); transition: transform 0.15s, box-shadow 0.15s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(0,0,0,0.12)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
             <div style="display:flex; justify-content:space-between; margin-bottom: 8px;">
               <div>
                 <strong>${t.name}</strong>
@@ -2556,16 +2551,16 @@ exportDecouchageCSV() {
             
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px;">
               <div>
-                <div style="color:#888;">Prochaine</div>
+                <div style="color:var(--text-muted,#888);">Prochaine</div>
                 <strong style="color: ${color}; font-size: 14px;">${t.vidange.nextKm} km</strong>
               </div>
               <div>
-	                <div style="color:#888;">${remainingLabel}</div>
+	                <div style="color:var(--text-muted,#888);">${remainingLabel}</div>
 	                <strong style="color: ${isOverdue ? color : '#333'}; font-size: 14px;">${remainingValue.toLocaleString()} km</strong>
               </div>
             </div>
             
-            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee; font-size: 11px; color: #666; display: flex; justify-content: space-between;">
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border,#eee); font-size: 11px; color: var(--text-muted,#666); display: flex; justify-content: space-between;">
                <span>Actuel: ${t.odometer} km</span>
                <span>Dernière: ${t.vidange.lastKm ? t.vidange.lastKm + ' km' : '<span style="color:#e63946">Non enregistrée (Virtuelle)</span>'}</span>
             </div>
@@ -11049,15 +11044,15 @@ exportMaintenanceCSV() {
             <div style="font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;"><i class="fa-solid fa-sliders" style="color:#7c3aed;margin-right:6px;"></i>Options de scan</div>
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:8px;">
               <input type="checkbox" id="vscanAutoCreate" checked style="width:16px;height:16px;accent-color:#0284c7;">
-              <span style="font-size:13px;color:#374151;font-weight:600;">Recalculer automatiquement les prochaines échéances</span>
+              <span style="font-size:13px;color:var(--text,#374151);font-weight:600;">✅ Mettre à jour les compteurs vidange depuis le GPS <span style="font-size:10px;color:var(--text-muted,#94a3b8);display:block;margin-top:2px;">Recalcule automatiquement les prochaines dates de vidange pour chaque camion</span></span>
             </label>
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:8px;">
               <input type="checkbox" id="vscanShowAll" style="width:16px;height:16px;accent-color:#0284c7;">
-              <span style="font-size:13px;color:#374151;font-weight:600;">Afficher uniquement les camions nécessitant attention</span>
+              <span style="font-size:13px;color:var(--text,#374151);font-weight:600;">⚠️ Montrer seulement les camions en retard ou bientôt <span style="font-size:10px;color:var(--text-muted,#94a3b8);display:block;margin-top:2px;">Cache les camions qui sont OK, garde seulement ceux qui ont besoin d'une vidange</span></span>
             </label>
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
               <input type="checkbox" id="vscanIncludeNoOdo" style="width:16px;height:16px;accent-color:#0284c7;">
-              <span style="font-size:13px;color:#374151;font-weight:600;">Inclure camions sans odomètre GPS</span>
+              <span style="font-size:13px;color:var(--text,#374151);font-weight:600;">📡 Inclure camions sans compteur km <span style="font-size:10px;color:var(--text-muted,#94a3b8);display:block;margin-top:2px;">Certains camions n'ont pas de GPS qui envoie les km, cocher pour les voir quand même</span></span>
             </label>
           </div>
 
