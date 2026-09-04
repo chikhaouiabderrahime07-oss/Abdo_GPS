@@ -245,6 +245,20 @@
     .naftal-card-chip:hover { background: rgba(255,255,255,0.12); transform: translateY(-1px); }
 
 
+
+    /* ── ABDO Logo extra animations ── */
+    .abdo-logo-box:hover .ai-core { box-shadow: 0 0 0 3px rgba(96,165,250,0.3), 0 0 20px rgba(96,165,250,0.5) !important; animation: abdo-pulse 0.8s ease-in-out infinite !important; }
+    .abdo-logo-box:hover .ai-orbit { animation-duration: 1.2s !important; }
+    .abdo-logo-box:hover .ai-orbit-2 { animation-duration: 1.8s !important; }
+    .abdo-logo-box { cursor: pointer; transition: transform 0.2s; }
+    .abdo-logo-box:hover { transform: scale(1.05); }
+    .abdo-logo-box:active { transform: scale(0.95); }
+    @keyframes abdo-pulse { 0%,100% { box-shadow:0 0 0 2px rgba(96,165,250,0.2),0 0 12px rgba(96,165,250,0.3); } 50% { box-shadow:0 0 0 5px rgba(96,165,250,0.4),0 0 28px rgba(96,165,250,0.7); } }
+    @keyframes abdo-burst { 0% { transform:scale(1); opacity:1; } 50% { transform:scale(2.5); opacity:0.4; } 100% { transform:scale(1); opacity:1; } }
+    .abdo-brand-name { transition: color 0.3s; }
+    .abdo-logo-box:hover .abdo-brand-name { color: #60a5fa !important; text-shadow: 0 0 12px rgba(96,165,250,0.6); }
+    .abdo-brand-sub { transition: opacity 0.3s; }
+    .abdo-logo-box:hover .abdo-brand-sub { opacity: 1 !important; }
     /* Animation: pulse (for live indicators) */
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     

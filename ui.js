@@ -2090,6 +2090,36 @@ exportDecouchageCSV() {
       });
     }
 
+
+    // ── Dashboard sort ─────────────────────────────────────────────
+    const _dsf = this._dashSortField || localStorage.getItem('dash_sort_field') || 'name';
+    const _dsd = this._dashSortDir   || localStorage.getItem('dash_sort_dir')   || 'asc';
+    if (!this._dashSortField) { this._dashSortField = _dsf; this._dashSortDir = _dsd; }
+    trucks = [...trucks].sort((a, b) => {
+      let va, vb;
+      if (_dsf === 'fuel')   { va = a.fuelPercentage||0;   vb = b.fuelPercentage||0; }
+      else if (_dsf === 'speed')  { va = a.speed||0;             vb = b.speed||0; }
+      else if (_dsf === 'odo')    { va = a.odometer||0;          vb = b.odometer||0; }
+      else                        { va = (a.name||'').toLowerCase(); vb = (b.name||'').toLowerCase(); }
+      return _dsd === 'asc' ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+    });
+
+    // ── Inject sort bar (once) ──────────────────────────────────────
+    let _sortBar = document.getElementById('dashSortBar');
+    if (!_sortBar) {
+      _sortBar = document.createElement('div');
+      _sortBar.id = 'dashSortBar';
+      _sortBar.style.cssText = 'grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 0;margin-bottom:2px;';
+      this.trucksContainer.parentNode.insertBefore(_sortBar, this.trucksContainer);
+    }
+    const _darrow = f => f === _dsf ? (_dsd === 'asc' ? ' ↑' : ' ↓') : ' ⇅';
+    const _dbs = (f,active) => `padding:5px 12px;border:1.5px solid ${active?'#0284c7':'var(--border,#e2e8f0)'};border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;background:${active?'#0284c7':'var(--bg-elevated,#fff)'};color:${active?'#fff':'var(--text-muted,#64748b)'};transition:all 0.2s;`;
+    _sortBar.innerHTML = `<span style="font-size:11px;color:var(--text-muted,#94a3b8);font-weight:700;">TRIER :</span>
+      <button style="${_dbs('name',_dsf==='name')}"  onclick="ui.setDashSort('name')">Nom${_darrow('name')}</button>
+      <button style="${_dbs('fuel',_dsf==='fuel')}"  onclick="ui.setDashSort('fuel')">&#9981; Carburant${_darrow('fuel')}</button>
+      <button style="${_dbs('speed',_dsf==='speed')}" onclick="ui.setDashSort('speed')">&#128640; Vitesse${_darrow('speed')}</button>
+      <button style="${_dbs('odo',_dsf==='odo')}"   onclick="ui.setDashSort('odo')">&#128205; KM${_darrow('odo')}</button>`;
+
     if (trucks.length === 0) {
       this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888; background:#111827; border-radius: 8px; color:var(--text-muted, #94a3b8);">Aucun camion ne correspond aux critères.</div>';
       return;
@@ -2599,11 +2629,11 @@ exportDecouchageCSV() {
 
   // \u2705 QUICK ACTION: declare a Vidange from an alert (opens Maintenance modal prefilled)
   quickAddVidange(deviceId) {
-    // Smart check: if truck already has recent vidange at current km, skip directly to next
+    // Smart check: if truck already has recent vidange at current km
     const trucks = window.app ? window.app.getAllTrucks() : [];
-    const truck = trucks.find(t => String(t.id || t.deviceId) === String(truckId));
+    const truck = trucks.find(t => String(t.id || t.deviceId) === String(deviceId));
     if (truck && this._lastVidangeMap) {
-      const lastKm = this._lastVidangeMap[String(truckId)];
+      const lastKm = this._lastVidangeMap[String(deviceId)];
       const currentKm = truck.odometer || 0;
       const settings = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.SYSTEM_SETTINGS) ? FLEET_CONFIG.SYSTEM_SETTINGS : {};
       const rotKm = settings.vidangeRotationKm || 25000;
@@ -2613,45 +2643,9 @@ exportDecouchageCSV() {
       }
     }
 
-    try {
-      const trucks = app.getAllTrucks();
-      const t = trucks.find(x => String(x.id) === String(deviceId));
-      if (!t) {
-        alert('Camion introuvable');
-        return;
-      }
-
-      // Move to history + open modal (user request)
-      this.switchTab('maintenanceHistory');
-      this.fetchAndRenderMaintenance();
-
-      // Open modal after tab content is visible
-      setTimeout(() => {
-        this.openMaintenanceModal(null);
-
-        // Select the correct truck by deviceId
-        const select = document.getElementById('modalMaintTruck');
-        if (select) {
-          const opt = Array.from(select.options).find(o => o.dataset && String(o.dataset.id) === String(deviceId));
-          if (opt) select.value = opt.value;
-          // trigger change so default odometer fills correctly
-          select.dispatchEvent(new Event('change'));
-        }
-
-        const typeEl = document.getElementById('modalMaintType');
-        if (typeEl) typeEl.value = 'Vidange';
-
-        const odoEl = document.getElementById('modalMaintOdo');
-        if (odoEl) odoEl.value = t.odometer || '';
-
-        const noteEl = document.getElementById('modalMaintNote');
-        if (noteEl && !noteEl.value) noteEl.value = 'Vidange confirmée (manuel)';
-      }, 80);
-
-    } catch (e) {
-      console.error('quickAddVidange error:', e);
-      alert('Erreur: impossible d’ouvrir la vidange');
-    }
+    // Use openNewMaintenanceOrder which properly populates the truck dropdown
+    this._pendingVidangeDeviceId = String(deviceId);
+    this.openNewMaintenanceOrder(String(deviceId));
   }
 
   // --- WILAYA VIEW ---
@@ -11510,6 +11504,19 @@ exportMaintenanceCSV() {
     this.renderActiveOrdersDashboard();
   }
 
+
+  setDashSort(field) {
+    if (this._dashSortField === field) {
+      this._dashSortDir = this._dashSortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      this._dashSortField = field;
+      this._dashSortDir = 'asc';
+    }
+    localStorage.setItem('dash_sort_field', this._dashSortField);
+    localStorage.setItem('dash_sort_dir',   this._dashSortDir);
+    this.renderTrucks();
+  }
+
   setMaintFilter(status) {
     this._maintStatusFilter = status;
     this.renderActiveOrdersDashboard();
@@ -12003,18 +12010,7 @@ exportMaintenanceCSV() {
           opt.dataset.odo = t.odo;
           truckSelect.appendChild(opt);
         });
-        // ── Pre-select inline (right after list is built, no race condition) ──
-        if (truckId) {
-          const preOpt = Array.from(truckSelect.options).find(o =>
-            String(o.dataset.id) === String(truckId) || o.value === truckId || o.value.includes(truckId)
-          );
-          if (preOpt) {
-            truckSelect.value = preOpt.value;
-            const odoEl = document.getElementById('modalMaintOdo');
-            if (odoEl && preOpt.dataset.odo) odoEl.value = preOpt.dataset.odo;
-            truckSelect.dispatchEvent(new Event('change'));
-          }
-        }
+        // ── Truck pre-select handled after modal opens (see below) ──
       } catch(e) {
         // Last resort: live GPS only
         const liveTrucks = (window.app && typeof window.app.getAllTrucks === 'function')
@@ -12060,7 +12056,31 @@ exportMaintenanceCSV() {
     this.loadMaintenanceArticles().then(() => this._populateArticleDropdown());
     this.openMaintenanceModal(null);
 
-    // Pre-select handled inline after truck list is built
+    // ── 5. Pre-select truck AFTER modal is fully open ──────────────
+    if (truckId) {
+      // Use two rAF + setTimeout to ensure modal DOM is fully rendered
+      requestAnimationFrame(() => setTimeout(() => {
+        const ts = document.getElementById('modalMaintTruck');
+        if (!ts) return;
+        const preOpt = Array.from(ts.options).find(o =>
+          String(o.dataset.id) === String(truckId)
+          || o.value === truckId
+          || (typeof truckId === 'string' && o.value.toLowerCase() === truckId.toLowerCase())
+        );
+        if (preOpt) {
+          ts.value = preOpt.value;
+          const odoEl = document.getElementById('modalMaintOdo');
+          if (odoEl && preOpt.dataset.odo) odoEl.value = preOpt.dataset.odo;
+          ts.dispatchEvent(new Event('change'));
+        }
+        // If this was called from quickAddVidange, also set type
+        if (this._pendingVidangeDeviceId) {
+          const typeEl = document.getElementById('modalMaintType');
+          if (typeEl) typeEl.value = 'Vidange';
+          this._pendingVidangeDeviceId = null;
+        }
+      }, 120));
+    }
   }
 
   
