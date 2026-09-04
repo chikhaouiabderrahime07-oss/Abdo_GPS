@@ -934,7 +934,7 @@ initElements() {
         }
     });
     }
-    this.globalSearchInput.addEventListener('keydown', (e) => {
+    if (this.globalSearchInput) { this.globalSearchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && this.searchQuery) {
           this.switchTab('dashboard');
           this.updateDashboard();
@@ -950,7 +950,8 @@ initElements() {
           const count = document.getElementById('searchResultCount');
           if (count) count.style.display = 'none';
         }
-    });
+    }); }
+
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#globalSearchOverlay') && !e.target.closest('#searchPopover')) {
         const pop = document.getElementById('searchPopover');
