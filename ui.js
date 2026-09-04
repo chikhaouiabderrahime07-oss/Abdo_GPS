@@ -2114,11 +2114,7 @@ exportDecouchageCSV() {
     }
     const _darrow = f => f === _dsf ? (_dsd === 'asc' ? ' ↑' : ' ↓') : ' ⇅';
     const _dbs = (f,active) => `padding:5px 12px;border:1.5px solid ${active?'#0284c7':'var(--border,#e2e8f0)'};border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;background:${active?'#0284c7':'var(--bg-elevated,#fff)'};color:${active?'#fff':'var(--text-muted,#64748b)'};transition:all 0.2s;`;
-    _sortBar.innerHTML = `<span style="font-size:11px;color:var(--text-muted,#94a3b8);font-weight:700;">TRIER :</span>
-      <button style="${_dbs('name',_dsf==='name')}"  onclick="ui.setDashSort('name')">Nom${_darrow('name')}</button>
-      <button style="${_dbs('fuel',_dsf==='fuel')}"  onclick="ui.setDashSort('fuel')">&#9981; Carburant${_darrow('fuel')}</button>
-      <button style="${_dbs('speed',_dsf==='speed')}" onclick="ui.setDashSort('speed')">&#128640; Vitesse${_darrow('speed')}</button>
-      <button style="${_dbs('odo',_dsf==='odo')}"   onclick="ui.setDashSort('odo')">&#128205; KM${_darrow('odo')}</button>`;
+    _sortBar.innerHTML = `<span style="font-size:11px;color:var(--text-muted,#94a3b8);font-weight:700;">TRIER :</span> <button style="${_dbs('name',_dsf==='name')}" onclick="ui.setDashSort('name')">Nom${_darrow('name')}</button> <button style="${_dbs('fuel',_dsf==='fuel')}" onclick="ui.setDashSort('fuel')">&#9981; Carburant${_darrow('fuel')}</button> <button style="${_dbs('speed',_dsf==='speed')}" onclick="ui.setDashSort('speed')">&#128640; Vitesse${_darrow('speed')}</button> <button style="${_dbs('odo',_dsf==='odo')}" onclick="ui.setDashSort('odo')">&#128205; KM${_darrow('odo')}</button>`;
 
     if (trucks.length === 0) {
       this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888; background:#111827; border-radius: 8px; color:var(--text-muted, #94a3b8);">Aucun camion ne correspond aux critères.</div>';
@@ -2422,12 +2418,7 @@ exportDecouchageCSV() {
 
     const controls = document.createElement('div');
     controls.className = 'sub-filters';
-    controls.innerHTML = `
-      <button class="filter-pill ${this.fuelFilterState === 'all' ? 'active' : ''}" onclick="ui.setFuelFilter('all')">Tout</button>
-      <button class="filter-pill critical ${this.fuelFilterState === 'critical' ? 'active' : ''}" onclick="ui.setFuelFilter('critical')">Critique</button>
-      <button class="filter-pill warning ${this.fuelFilterState === 'warning' ? 'active' : ''}" onclick="ui.setFuelFilter('warning')">Bas</button>
-      <button class="filter-pill normal ${this.fuelFilterState === 'normal' ? 'active' : ''}" onclick="ui.setFuelFilter('normal')">Normal</button>
-    `;
+    controls.innerHTML = `<button class="filter-pill ${this.fuelFilterState === 'all' ? 'active' : ''}" onclick="ui.setFuelFilter('all')">Tout</button> <button class="filter-pill critical ${this.fuelFilterState === 'critical' ? 'active' : ''}" onclick="ui.setFuelFilter('critical')">Critique</button> <button class="filter-pill warning ${this.fuelFilterState === 'warning' ? 'active' : ''}" onclick="ui.setFuelFilter('warning')">Bas</button> <button class="filter-pill normal ${this.fuelFilterState === 'normal' ? 'active' : ''}" onclick="ui.setFuelFilter('normal')">Normal</button>`;
     this.fuelSectionContainer.appendChild(controls);
 
     const header = document.createElement('div');
@@ -2505,12 +2496,7 @@ exportDecouchageCSV() {
 
     const controls = document.createElement('div');
     controls.className = 'sub-filters';
-    controls.innerHTML = `
-      <button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button>
-      <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">Urgent</button>
-      <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">Bientôt</button>
-      <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">OK</button>
-    `;
+    controls.innerHTML = `<button class="filter-pill ${this.vidangeFilterState === 'all' ? 'active' : ''}" onclick="ui.setVidangeFilter('all')">Tout</button> <button class="filter-pill critical ${this.vidangeFilterState === 'urgent' ? 'active' : ''}" onclick="ui.setVidangeFilter('urgent')">Urgent</button> <button class="filter-pill warning ${this.vidangeFilterState === 'warning' ? 'active' : ''}" onclick="ui.setVidangeFilter('warning')">Bientôt</button> <button class="filter-pill normal ${this.vidangeFilterState === 'ok' ? 'active' : ''}" onclick="ui.setVidangeFilter('ok')">OK</button>`;
     this.vidangeSectionContainer.appendChild(controls);
 
     // ── Resync Vidange Button ──────────────────────────────────────
@@ -10359,13 +10345,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     const all = [...customItems, ...geoResults];
     if (all.length === 0) { dropdown.style.display = 'none'; return; }
 
-    dropdown.innerHTML = all.map((item, i) => `
-      <div onclick="ui._itinSelectPlace(${JSON.stringify(item.coords).replace(/"/g,"'")}, '${item.name.replace(/'/g,"\\'")}', '${dropdownId}', '${coordId}')"
-        style="padding:10px 14px; cursor:pointer; border-bottom:1px solid #f1f5f9; font-size:12px; font-weight:600; display:flex; align-items:center; gap:8px; transition:background 0.15s;"
-        onmouseover="this.style.background='#fdf4ff'" onmouseout="this.style.background='#fff'">
-        <i class="fa-solid ${item.type==='custom' ? 'fa-map-pin' : 'fa-location-dot'}" style="color:#7e22ce; font-size:12px; width:14px;"></i>
-        <span>${item.name}</span>
-      </div>`).join('');
+    dropdown.innerHTML = all.map((item, i) => `<div onclick="ui._itinSelectPlace(${JSON.stringify(item.coords).replace(/"/g,"'")}, '${item.name.replace(/'/g,"\\'")}', '${dropdownId}', '${coordId}')" style="padding:10px 14px;cursor:pointer;border-bottom:1px solid #f1f5f9;font-size:12px;font-weight:600;display:flex;align-items:center;gap:8px;transition:background 0.15s;" onmouseover="this.style.background='#fdf4ff'" onmouseout="this.style.background='#fff'"><i class="fa-solid ${item.type==='custom' ? 'fa-map-pin' : 'fa-location-dot'}" style="color:#7e22ce;font-size:12px;width:14px;"></i><span>${item.name}</span></div>`).join('');
     dropdown.style.display = 'block';
   }
 
