@@ -620,7 +620,7 @@
       link.href = canvas.toDataURL('image/png');
       angle += 0.07;
     }
-    setInterval(drawFrame, 50);
+    setInterval(drawFrame, 1000);
     drawFrame();
   })();
   </script>
@@ -2748,22 +2748,40 @@ window.addEventListener('unhandledrejection', function(e) {
 
     function filterCommandPalette(query) {
       const results = document.getElementById('cmdPaletteResults');
+      if (!results) return;
       const q = query.toLowerCase();
-      const filtered = q ? cmdActions.filter(a => 
+      const filtered = q ? cmdActions.filter(a =>
         a.label.toLowerCase().includes(q) || a.keywords.includes(q)
       ) : cmdActions;
 
-      results.innerHTML = filtered.map((a, i) => 
-        `<div onclick="cmdActions[${cmdActions.indexOf(a)}].action(); closeCommandPalette();"
-          style="padding:10px 16px; display:flex; align-items:center; gap:12px; cursor:pointer; border-radius:var(--radius-md);
-          transition:all 0.1s; color:var(--text-primary); ${i === 0 ? 'background:var(--primary-subtle);' : ''}"
-          onmouseenter="this.style.background='var(--bg-hover)'" onmouseleave="this.style.background='transparent'">
-          <i class="fa-solid ${a.icon}" style="width:20px; text-align:center; color:var(--primary); font-size:0.9rem;"></i>
-          <span style="font-size:var(--text-sm); font-weight:var(--weight-medium);">${a.label}</span>
-          <span style="margin-left:auto; font-size:10px; color:var(--text-dim);">→</span>
-        </div>`
-      ).join('');
+      // Use DOM creation (NOT innerHTML) to avoid inline string eval issues
+      results.innerHTML = '';
+      filtered.forEach((a, i) => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding:10px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;border-radius:var(--radius-md);transition:all 0.1s;color:var(--text-primary);' + (i === 0 ? 'background:var(--primary-subtle);' : '');
+        div.onmouseenter = function() { this.style.background = 'var(--bg-hover)'; };
+        div.onmouseleave = function() { this.style.background = i === 0 ? 'var(--primary-subtle)' : 'transparent'; };
+        div.onclick = (function(action) { return function() { action(); closeCommandPalette(); }; })(a.action);
+
+        const icon = document.createElement('i');
+        icon.className = 'fa-solid ' + a.icon;
+        icon.style.cssText = 'width:20px;text-align:center;color:var(--primary);font-size:0.9rem;';
+
+        const label = document.createElement('span');
+        label.style.cssText = 'font-size:var(--text-sm);font-weight:var(--weight-medium);';
+        label.textContent = a.label;
+
+        const arrow = document.createElement('span');
+        arrow.style.cssText = 'margin-left:auto;font-size:10px;color:var(--text-dim);';
+        arrow.textContent = '→';
+
+        div.appendChild(icon);
+        div.appendChild(label);
+        div.appendChild(arrow);
+        results.appendChild(div);
+      });
     }
+
 
     // Keyboard shortcuts
     document.addEventListener('keydown', e => {
