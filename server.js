@@ -2960,20 +2960,31 @@ app.get('/api/admin/add-code/:code', async (req, res) => {
 });
 
 app.get('/api/trucks', checkAccess, async (req, res) => {
-  try {
-    const r = await fetch(GPS_API_URL);
-    if (!r.ok) throw new Error('GPS API HTTP ' + r.status);
-    const text = await r.text();
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 2000;
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const j = JSON.parse(text);
-      res.json(j);
-    } catch(parseErr) {
-      console.error('GPS API Invalid JSON (truncated). Length:', text.length);
-      throw new Error('GPS API a renvoyé des données corrompues.');
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      const r = await fetch(GPS_API_URL, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!r.ok) throw new Error('GPS API HTTP ' + r.status);
+      const text = await r.text();
+      try {
+        const j = JSON.parse(text);
+        return res.json(j);
+      } catch(parseErr) {
+        console.error(`GPS API Invalid JSON attempt ${attempt}. Length:`, text.length);
+        throw new Error('GPS API a renvoyé des données corrompues.');
+      }
+    } catch (e) {
+      lastError = e;
+      console.warn(`GPS API attempt ${attempt}/${MAX_RETRIES} failed: ${e.message}`);
+      if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
     }
-  } catch (e) { 
-    res.status(500).json({ error: e.message }); 
   }
+  res.status(500).json({ error: lastError?.message || 'GPS API indisponible après plusieurs tentatives.' });
 });
 
 
