@@ -656,9 +656,13 @@
     // 1. CHECK LOCAL STORAGE ON LOAD
     const storedCode = localStorage.getItem('fleetAccessCode');
 
-    // THEME INITIALIZATION
-    const savedTheme = localStorage.getItem('fleetTheme') || 'dark';
-    if (savedTheme === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    // THEME INITIALIZATION (Default: Light / White theme)
+    const savedTheme = localStorage.getItem('fleetTheme') || 'light';
+    if (savedTheme === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
     
     function toggleTheme() {
         const root = document.documentElement;
@@ -675,12 +679,11 @@
         }
     }
     // Update icon on load
-    if (savedTheme === 'light') {
-        setTimeout(() => {
-            const ti = document.getElementById('themeIcon');
-            if (ti) ti.className = 'theme-icon fa-solid fa-moon';
-        }, 100);
-    }
+    setTimeout(() => {
+        const ti = document.getElementById('themeIcon');
+        const isDark = !document.documentElement.getAttribute('data-theme') || document.documentElement.getAttribute('data-theme') === 'dark';
+        if (ti) ti.className = isDark ? 'theme-icon fa-solid fa-sun' : 'theme-icon fa-solid fa-moon';
+    }, 50);
     
     // 2. ATTEMPT LOGIN FUNCTION
     
@@ -870,8 +873,9 @@
       <div id="headerSearchDropdown" style="display:none;position:fixed;top:58px;right:220px;z-index:9999;background:var(--bg-card,#fff);border:1.5px solid var(--border,#e2e8f0);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,0.2);width:340px;max-height:400px;overflow-y:auto;"></div>
 
       <!-- Theme Toggle -->
-      <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Basculer thème clair/sombre">
-        <i class="theme-icon fa-solid fa-sun" id="themeIcon"></i>
+      <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Basculer thème clair/sombre" style="width:auto;height:38px;padding:0 12px;gap:8px;display:inline-flex;align-items:center;border-radius:var(--radius-lg);cursor:pointer;">
+        <i class="theme-icon fa-solid fa-moon" id="themeIcon"></i>
+        <span id="themeToggleLabel" style="font-size:11px;font-weight:600;white-space:nowrap;">( dark theme or white theme swap )</span>
       </button>
 
       <!-- Notification Bell -->
@@ -2237,10 +2241,15 @@
       <button onclick="document.querySelectorAll('#onboardPrefsList input').forEach(c=>c.checked=true)" style="padding:6px 16px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.borderColor='#22c55e';this.style.color='#22c55e'" onmouseout="this.style.borderColor='';this.style.color=''">✅ Tout cocher</button>
       <button onclick="document.querySelectorAll('#onboardPrefsList input').forEach(c=>c.checked=false)" style="padding:6px 16px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.borderColor='#ef4444';this.style.color='#ef4444'" onmouseout="this.style.borderColor='';this.style.color=''">🚫 Tout décocher</button>
     </div>
+    <!-- Don't show again checkbox -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:18px;">
+      <input type="checkbox" id="dontShowNotifOnboardAgain" style="width:17px;height:17px;cursor:pointer;accent-color:#3b82f6;">
+      <label for="dontShowNotifOnboardAgain" style="font-size:12px;font-weight:600;color:var(--text-secondary);cursor:pointer;user-select:none;">Ne plus afficher ce message au démarrage (Don't show this again)</label>
+    </div>
     <!-- Action Buttons -->
     <div style="display:flex;gap:12px;justify-content:center;">
       <button onclick="saveOnboardPrefs()" style="padding:12px 32px;border:none;border-radius:12px;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 4px 16px rgba(59,130,246,0.35);transition:transform 0.15s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">✅ Confirmer mes choix</button>
-      <button onclick="skipOnboardPrefs()" style="padding:12px 24px;border:1px solid var(--border);border-radius:12px;background:var(--bg-surface);color:var(--text-secondary);font-weight:600;font-size:13px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-surface)'">Passer (tout activer)</button>
+      <button onclick="skipOnboardPrefs()" style="padding:12px 24px;border:1px solid var(--border);border-radius:12px;background:var(--bg-surface);color:var(--text-secondary);font-weight:600;font-size:13px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-surface)'">Passer</button>
     </div>
   </div>
 </div>
@@ -2510,13 +2519,31 @@ window.addEventListener('unhandledrejection', function(e) {
     };
 
     window.clearAllNotifications = function() {
-      if(!confirm("Voulez-vous vraiment supprimer toutes les notifications ?")) return;
-      localStorage.setItem('fleet_notif_history', '[]');
-      updateNotifBadge();
-      renderNotificationList();
-      // Also clear session seen cache
-      if (window.FleetNotifications && window.FleetNotifications.clearSession) window.FleetNotifications.clearSession();
-      if(window.showToast) window.showToast('Toutes les notifications ont été supprimées', 'info');
+      try {
+        localStorage.setItem('fleet_notif_history', '[]');
+      } catch(e) {}
+      try {
+        sessionStorage.removeItem('_fleetNotifSeen');
+      } catch(e) {}
+      if (window.FleetNotifications && typeof window.FleetNotifications.clearSession === 'function') {
+        try { window.FleetNotifications.clearSession(); } catch(e) {}
+      }
+      try { updateNotifBadge(); } catch(e) {}
+      try { renderNotificationList(); } catch(e) {}
+      const container = document.getElementById('notificationList');
+      if (container) {
+        container.innerHTML = `<div style="text-align:center; padding:40px 20px; color:var(--text-dim);">
+          <i class="fa-solid fa-bell-slash" style="font-size:40px; display:block; margin-bottom:12px; opacity:0.3;"></i>
+          <div style="font-size:var(--text-sm); font-weight:var(--weight-semibold);">Aucune notification</div>
+        </div>`;
+      }
+      const label = document.getElementById('notifCountLabel');
+      if (label) label.textContent = 'Aucune notification';
+      const badge = document.getElementById('notifBadge');
+      if (badge) { badge.textContent = '0'; badge.style.display = 'none'; }
+      if (typeof window.showToast === 'function') {
+        window.showToast('Toutes les notifications ont été supprimées', 'info');
+      }
     };
 
     window.markAllNotificationsRead = function() {
@@ -2689,22 +2716,25 @@ function saveOnboardPrefs() {
     prefs[cb.dataset.notifKey] = cb.checked ? 'popup' : false;
   });
   localStorage.setItem('fleet_notif_prefs', JSON.stringify(prefs));
-  localStorage.setItem('fleet_notif_onboarded', 'true');
+  localStorage.setItem('fleet_notif_onboarded_v2', 'true');
   document.getElementById('notifOnboardModal').style.display = 'none';
   if(window.showToast) window.showToast('Préférences de notifications sauvegardées ✅', 'success');
 }
 
 function skipOnboardPrefs() {
-  localStorage.setItem('fleet_notif_onboarded', 'true');
+  const dontShow = document.getElementById('dontShowNotifOnboardAgain')?.checked;
+  if (dontShow) {
+    localStorage.setItem('fleet_notif_onboarded_v2', 'true');
+  }
   document.getElementById('notifOnboardModal').style.display = 'none';
 }
 
-// Show onboarding modal on first visit (delay to let page load)
+// Show onboarding modal on first visit (or until confirmed / ticked)
 setTimeout(function() {
-  if (!localStorage.getItem('fleet_notif_onboarded')) {
+  if (!localStorage.getItem('fleet_notif_onboarded_v2')) {
     showNotifOnboard();
   }
-}, 3000);
+}, 1500);
 
     // Push a notification (used by other scripts)
     window.pushNotification = function(type, data) {

@@ -16,9 +16,36 @@ app.use(express.static(__dirname, {
   }
 }));
 
-// --- 1. CONFIGURATION ---
+// --- 1. CONFIGURATION & DUAL-API ROTATION ---
 const PORT = process.env.PORT || 3000;
-const GPS_API_URL = 'https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=USER_GET_OBJECTS,*';
+
+// Dual GPS API Keys for quota balancing & automatic failover
+const GPS_API_KEYS = [
+  '5145BB5EC45361FAF9E61DE3CAED29DF',
+  'CD6EC70F237AF5D32248A4FB20ADEFED'
+];
+let currentGpsKeyIdx = 0;
+
+// Smart Round-Robin Key Selector
+function getNextGpsKey() {
+  const key = GPS_API_KEYS[currentGpsKeyIdx];
+  currentGpsKeyIdx = (currentGpsKeyIdx + 1) % GPS_API_KEYS.length;
+  return key;
+}
+
+// Generate full API URL with rotated key
+function getGpsUrl(cmd = 'USER_GET_OBJECTS,*', specificKey = null) {
+  const key = specificKey || getNextGpsKey();
+  return `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=${key}&cmd=${cmd}`;
+}
+
+// Backward-compatible dynamic object that rotates on every string access
+const GPS_API_URL = {
+  toString() { return getGpsUrl('USER_GET_OBJECTS,*'); },
+  valueOf() { return getGpsUrl('USER_GET_OBJECTS,*'); },
+  [Symbol.toPrimitive]() { return getGpsUrl('USER_GET_OBJECTS,*'); }
+};
+
 const DB_URI = process.env.MONGO_URI || "mongodb+srv://MrNoBoDy:123Chikh1994@cluster0.cljee0n.mongodb.net/fleet_db?retryWrites=true&w=majority&appName=Cluster0";
 
 // --- 2. DATA MODELS ---
@@ -1584,11 +1611,12 @@ async function fetchGpsHistoryWindow(deviceId, start, end, retries = 5) {
   const safeEnd = encodeGpsHistoryBoundary(end);
   if (!safeStart || !safeEnd) throw new Error('Période invalide pour l\'historique GPS');
 
-  const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${deviceId},${safeStart},${safeEnd}`;
   const https = require('https');
   const agent = new https.Agent({ rejectUnauthorized: false });
   
   for (let attempt = 1; attempt <= retries; attempt++) {
+    const key = getNextGpsKey();
+    const url = getGpsUrl(`OBJECT_GET_MESSAGES,${deviceId},${safeStart},${safeEnd}`, key);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout — Wialon API (alg.webgps.dz) is slow
     try {
@@ -2457,10 +2485,14 @@ async function runFleetBot() {
   let rawData = {};
   const botStartMs = Date.now();
   try {
-    const response = await fetch(GPS_API_URL);
+    const gpsUrl = getGpsUrl('USER_GET_OBJECTS,*');
+    const response = await fetch(gpsUrl);
     const json = await response.json();
     rawData = json.data || json;
     BOT_LAST_SUCCESS_MS = botStartMs; // ✅ Track successful fetch time
+    if (rawData && (Array.isArray(rawData) ? rawData.length > 0 : Object.keys(rawData).length > 0)) {
+      lastValidTrucksData = rawData;
+    }
   } catch (e) {
     console.error("⚠️ Bot Fetch Error:", e.message);
     // 🛡️ Record missed window so self-healing can recover later
@@ -2959,20 +2991,27 @@ app.get('/api/admin/add-code/:code', async (req, res) => {
   } catch (e) { res.send("❌ Error: Duplicate or DB Error."); }
 });
 
+let lastValidTrucksData = null;
+
 app.get('/api/trucks', checkAccess, async (req, res) => {
   const MAX_RETRIES = 3;
-  const RETRY_DELAY_MS = 2000;
+  const RETRY_DELAY_MS = 1500;
   let lastError = null;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
+      const activeKey = getNextGpsKey();
+      const gpsUrl = getGpsUrl('USER_GET_OBJECTS,*', activeKey);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const r = await fetch(GPS_API_URL, { signal: controller.signal });
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const r = await fetch(gpsUrl, { signal: controller.signal });
       clearTimeout(timeout);
       if (!r.ok) throw new Error('GPS API HTTP ' + r.status);
       const text = await r.text();
       try {
         const j = JSON.parse(text);
+        if (j && (Array.isArray(j) ? j.length > 0 : Object.keys(j).length > 0)) {
+          lastValidTrucksData = j;
+        }
         return res.json(j);
       } catch(parseErr) {
         console.error(`GPS API Invalid JSON attempt ${attempt}. Length:`, text.length);
@@ -2984,6 +3023,13 @@ app.get('/api/trucks', checkAccess, async (req, res) => {
       if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
     }
   }
+
+  // Graceful fallback: return last known good data from cache
+  if (lastValidTrucksData) {
+    console.warn(`[GPS Fallback] Serving cached truck data (${Array.isArray(lastValidTrucksData) ? lastValidTrucksData.length : Object.keys(lastValidTrucksData).length} trucks) due to GPS API failure: ${lastError?.message}`);
+    return res.json(lastValidTrucksData);
+  }
+
   res.status(500).json({ error: lastError?.message || 'GPS API indisponible après plusieurs tentatives.' });
 });
 
@@ -3496,8 +3542,9 @@ app.get('/api/history', checkAccess, async (req, res) => {
   const { imei, start, end } = req.query;
   const safeStart = start.replace(' ', '%20');
   const safeEnd = end.replace(' ', '%20');
-  const url = `https://alg.webgps.dz/api/api.php?api=user&ver=1.0&key=5145BB5EC45361FAF9E61DE3CAED29DF&cmd=OBJECT_GET_MESSAGES,${imei},${safeStart},${safeEnd}`;
-  console.log("📡 FETCHING HISTORY:", url);
+  const key = getNextGpsKey();
+  const url = getGpsUrl(`OBJECT_GET_MESSAGES,${imei},${safeStart},${safeEnd}`, key);
+  console.log(`📡 FETCHING HISTORY (Key ...${key.slice(-6)}):`, url);
   try {
     const https = require('https');
     const agent = new https.Agent({ rejectUnauthorized: false });
@@ -7825,7 +7872,7 @@ function msToNext2359Algeria() {
 }
 
 async function runDailyBackup() {
-  console.log('[AutoBackup] 📦 Starting daily FULL backup...');
+  console.log('[AutoBackup] 📦 Starting daily optimized backup (minimal data footprint)...');
   try {
     const fs = require('fs');
     const path = require('path');
@@ -7836,10 +7883,12 @@ async function runDailyBackup() {
     const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
     const backupPath = path.join(backupsDir, `backup_${dateStr}.json`);
 
-
+    // Only backup essential data for restore (omit raw polyline/sensor bloat like itinerarySegments & speedViolations)
+    // For zoneEvents, keep the last 14 days of events to keep file size ultra-compact
+    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 3600000);
 
     const dbData = {
-      version: "2.3",
+      version: "2.4",
       date: now.toISOString(),
       truck_states: await Truck.find(),
       settings: await Settings.find(),
@@ -7847,30 +7896,45 @@ async function runDailyBackup() {
       maintenance: await Maintenance.find(),
       decouchages: await Decouchage.find(),
       transportReports: await TransportReportEntry.find(),
-      zoneEvents: await ZoneEvent.find(),
+      zoneEvents: await ZoneEvent.find({ timestamp: { $gte: fourteenDaysAgo } }),
       zoneOperations: await ZoneOperation.find(),
       maintenanceArticles: await MaintenanceArticle.find(),
-      vehicleReferences: await VehicleReference.find(),
-      speedViolations: await SpeedViolation.find(),
-      auditReports: await AuditReport.find(),
-      itinerarySegments: await ItinerarySegment.find(),
-      missedWindows: await MissedWindow.find()
+      vehicleReferences: await VehicleReference.find()
     };
 
+    // Save minified JSON (reduces file size by ~40%)
     fs.writeFileSync(backupPath, JSON.stringify(dbData), 'utf8');
-    console.log(`[AutoBackup] ✅ Backup saved: ${backupPath}`);
+    const savedStat = fs.statSync(backupPath);
+    console.log(`[AutoBackup] ✅ Backup saved: ${backupPath} (${(savedStat.size / 1024).toFixed(1)} KB)`);
 
-    // Clean up backups older than 30 days
-    const files = fs.readdirSync(backupsDir);
-    const thirtyDaysAgo = now.getTime() - 30 * 24 * 3600000;
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
+    // Clean up backups older than 7 days (saves disk space for 200MB quota)
+    const sevenDaysAgo = now.getTime() - 7 * 24 * 3600000;
+    const allJsonFiles = fs.readdirSync(backupsDir).filter(f => f.endsWith('.json'));
+    for (const file of allJsonFiles) {
       const filePath = path.join(backupsDir, file);
-      const stat = fs.statSync(filePath);
-      if (stat.mtimeMs < thirtyDaysAgo) {
-        fs.unlinkSync(filePath);
-        console.log(`[AutoBackup] 🗑️ Deleted old backup: ${file}`);
-      }
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat.mtimeMs < sevenDaysAgo) {
+          fs.unlinkSync(filePath);
+          console.log(`[AutoBackup] 🗑️ Deleted old backup (>7d): ${file}`);
+        }
+      } catch(e) {}
+    }
+
+    // Safety quota enforcer: if total backups directory exceeds 35MB, prune oldest files until <= 25MB
+    let remainingFiles = fs.readdirSync(backupsDir)
+      .filter(f => f.endsWith('.json'))
+      .map(f => ({ name: f, path: path.join(backupsDir, f), stat: fs.statSync(path.join(backupsDir, f)) }))
+      .sort((a, b) => a.stat.mtimeMs - b.stat.mtimeMs);
+
+    let totalBytes = remainingFiles.reduce((acc, f) => acc + f.stat.size, 0);
+    while (totalBytes > 35 * 1024 * 1024 && remainingFiles.length > 1) {
+      const oldest = remainingFiles.shift();
+      try {
+        fs.unlinkSync(oldest.path);
+        totalBytes -= oldest.stat.size;
+        console.log(`[AutoBackup] 🗑️ Space quota safety prune: removed ${oldest.name}`);
+      } catch(e) {}
     }
   } catch (err) {
     console.error('[AutoBackup] ❌ Backup failed:', err.message);

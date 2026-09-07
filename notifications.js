@@ -177,7 +177,15 @@
     requestPermission: requestNotifPermission,
     toggleMute: (m) => localStorage.setItem('fleet_notif_muted', m ? 'true' : 'false'),
     isMuted: () => localStorage.getItem('fleet_notif_muted') === 'true',
-    clearSession: () => { _sessionSeen.clear(); sessionStorage.removeItem('_fleetNotifSeen'); }
+    clearSession: () => {
+      _sessionSeen.clear();
+      try { sessionStorage.removeItem('_fleetNotifSeen'); } catch(e) {}
+      _queue = [];
+      _busy = false;
+      _startupCount = 0;
+      const t = document.getElementById('fleetActiveToast');
+      if (t) t.remove();
+    }
   };
 
   console.log('🔔 Fleet Notification System V5.0 loaded');
