@@ -416,7 +416,7 @@ function getZoneClientMeta(zoneName) {
 
 function formatZoneEventForPowerBI(e, nowMs) {
   const now = nowMs || Date.now();
-  const durMins = e.exitTime ? (e.durationMinutes || 0) : Math.round((now - e.entryTime) / 60000);
+  const durMins = e.exitTime ? (e.durationMinutes ?? Math.round((new Date(e.exitTime).getTime() - new Date(e.entryTime).getTime()) / 60000)) : Math.round((now - new Date(e.entryTime).getTime()) / 60000);
   const h = Math.floor(durMins / 60); const m = durMins % 60;
   const entryDt = new Date(e.entryTime);
   const exitDt = e.exitTime ? new Date(e.exitTime) : null;
@@ -447,27 +447,29 @@ function formatZoneEventForPowerBI(e, nowMs) {
     Diff_Arrivee_Min: (e.plannedArrival && e.entryTime) ? Math.round((e.entryTime - e.plannedArrival)/60000) : null,
     Recap_Immobilisation_Min: (!e.plannedArrival || e.operationSource === 'auto') ? (e.durationMinutes || null) : (e.engagementMinutes || e.durationMinutes || null),
     Detection: e.source === 'auto' || !e.source ? 'Automatique (GPS)' : 'Manuel (utilisateur)',
-    Operation_ID: e.operationId || null,
-    Operation_Nom: e.operationName || null,
+    Operation_ID: e.operationId || '',
+    Operation_Nom: e.operationName || 'Aucune',
     // ── CLIENT CONTEXT ──────────────────────────────────────────────
-    Client_ID:           e.clientId       || null,
-    Client_Nom:          e.clientName     || null,
-    Client_Final_ID:     e.finalClientId  || null,
-    Client_Final_Nom:    e.finalClientName|| null,
+    Client_ID:           e.clientId       || '',
+    Client_Nom:          e.clientName     || 'Non assigné',
+    Client_Final_ID:     e.finalClientId  || '',
+    Client_Final_Nom:    e.finalClientName|| 'Non assigné',
     Zone_Rayon_m:        e.zoneRadius     || null,
     // Runtime enrichment: fallback lookup if not stamped at entry time
     ...(() => {
       if (e.clientName) return {};
       const ctx = resolveZoneClientContext(e.zoneName);
       return {
-        Client_ID:       ctx.clientId       || null,
-        Client_Nom:      ctx.clientName     || null,
-        Client_Final_ID: ctx.finalClientId  || null,
-        Client_Final_Nom:ctx.finalClientName|| null,
+        Client_ID:       ctx.clientId       || '',
+        Client_Nom:      ctx.clientName     || 'Non assigné',
+        Client_Final_ID: ctx.finalClientId  || '',
+        Client_Final_Nom:ctx.finalClientName|| 'Non assigné',
         Zone_Rayon_m:    ctx.zoneRadius     || null
       };
     })(),
-    _DO_NOT_DELETE: 'Colonnes protegees — dedsite.online'
+    _DO_NOT_DELETE: 'Colonnes protegees — dedsite.online',
+    Is_En_Cours: !e.exitTime,
+    _Data_Quality: (!e.entryTime || !e.truckName) ? 'Incomplet' : (e.exitTime ? 'Vérifié' : 'Estimé')
   };
 }
 
@@ -3916,14 +3918,14 @@ app.get('/api/zone-events', checkAccess, async (req, res) => {
     const page = Math.max(1, parseInt(pageRaw, 10) || 1);
     const skip = (page - 1) * limit;
     const sortDir = sortParam === 'asc' ? 1 : -1;  // default: newest first
-    // sortField: which field to sort by (entryTime, exitTime, durationMinutes, truckName, zoneName, engagementMinutes)
-    const SORTABLE = ['entryTime','exitTime','durationMinutes','truckName','zoneName','engagementMinutes'];
+    // sortField: which field to sort by
+    const SORTABLE = ['entryTime','exitTime','durationMinutes','truckName','zoneName','engagementMinutes','recapImmobilisationMin','operationSource','source','operationName','status'];
     const sortField = SORTABLE.includes(req.query.sortField) ? req.query.sortField : 'entryTime';
     const total = await ZoneEvent.countDocuments(filter);
     const events = await ZoneEvent.find(filter).sort({ [sortField]: sortDir }).skip(skip).limit(limit).lean();
     const now = Date.now();
     const rows = events.map(e => {
-      const durMin = e.exitTime ? e.durationMinutes : Math.round((now - e.entryTime) / 60000);
+      const durMin = e.exitTime ? (e.durationMinutes ?? Math.round((new Date(e.exitTime).getTime() - new Date(e.entryTime).getTime()) / 60000)) : Math.round((now - new Date(e.entryTime).getTime()) / 60000);
       let recapMin = durMin;
       if (e.plannedArrival && e.operationSource !== 'auto') {
         recapMin = e.engagementMinutes || (e.exitTime ? Math.round((e.exitTime - e.plannedArrival) / 60000) : Math.round((now - e.plannedArrival) / 60000));
@@ -3934,7 +3936,7 @@ app.get('/api/zone-events', checkAccess, async (req, res) => {
         entryTime: new Date(e.entryTime).toISOString(),
         exitTime: e.exitTime ? new Date(e.exitTime).toISOString() : null,
         durationMinutes: durMin,
-        durationHours: Math.round(durMin / 60 * 100) / 100,
+        durationHours: Math.round((durMin || 0) / 60 * 100) / 100,
         status: e.exitTime ? 'closed' : 'open',
         entryLat: e.entryLat, entryLng: e.entryLng,
         exitLat: e.exitLat, exitLng: e.exitLng,
@@ -5041,10 +5043,10 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
     }
 
     // Close any stale open events from OTHER zones
-    await ZoneEvent.updateMany(
-      { deviceId, exitTime: null, zoneName: { $ne: zone.name } },
-      { $set: { exitTime: now, durationMinutes: 0, status: 'terminé', exitConfirmed: false } }
-    );
+    const staleEvs = await ZoneEvent.find({ deviceId, exitTime: null, zoneName: { $ne: zone.name } });
+    for (const stale of staleEvs) {
+      await ZoneEvent.findByIdAndUpdate(stale._id, { $set: { exitTime: now, durationMinutes: Math.round((now - new Date(stale.entryTime).getTime()) / 60000), status: 'terminé', exitConfirmed: false } });
+    }
 
     const doc = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName: zone.name });
     if (!doc) return;
@@ -5824,8 +5826,8 @@ app.post('/api/admin/fix-zone-events', checkAccess, async (req, res) => {
         const dup = grp[i];
         if (dup.zoneName === keep.zoneName) continue; // already handled above
         await ZoneEvent.findByIdAndUpdate(dup._id, {
-          exitTime: dup.entryTime + 60000, // close 1 min after entry (bad event)
-          durationMinutes: 1, status: 'terminé'
+          exitTime: now,
+          durationMinutes: Math.round((now - new Date(dup.entryTime).getTime()) / 60000), status: 'terminé'
         });
         closedDuplicates++;
         console.log('[Fix] CLOSED (multi-zone conflict): ' + (dup.truckName||devId) + ' was in ' + dup.zoneName + ' AND ' + keep.zoneName + ' simultaneously');

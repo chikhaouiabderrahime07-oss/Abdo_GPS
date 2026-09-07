@@ -6,6 +6,22 @@
 (function () {
   'use strict';
 
+  // ── STARTUP BATCHING ──
+  let _startupPhase = true;
+  let _startupCount = 0;
+  setTimeout(() => {
+    _startupPhase = false;
+    if (_startupCount > 0) {
+      // Show ONE summary toast
+      _queue.push({ 
+        title: '🔔 ' + _startupCount + ' nouvelle' + (_startupCount > 1 ? 's' : '') + ' alerte' + (_startupCount > 1 ? 's' : ''),
+        body: 'Cliquez sur la cloche pour voir vos notifications',
+        severity: 'info'
+      });
+      _next();
+    }
+  }, 30000); // 30 seconds startup phase
+
   // Audio System
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   let audioCtx = null;
@@ -133,6 +149,9 @@
     // Check pref
     const prefs = JSON.parse(localStorage.getItem('fleet_notif_prefs') || '{}');
     if (prefs[type] === false) return;
+
+    // During startup phase, count but don't show individual toasts
+    if (_startupPhase) { _startupCount++; return; }
 
     // Session dedup — skip if same type+title already shown this session
     const key = _seenKey(type, data.title);
