@@ -2222,21 +2222,25 @@
     background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);"></div>
 
 <!-- ═══ FIRST-TIME NOTIFICATION PREFERENCES MODAL ═══ -->
-<div id="notifOnboardModal" style="display:none;position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);align-items:center;justify-content:center;">
-  <div style="background:var(--bg-surface,#1a1a2e);border:1px solid var(--border,#333);border-radius:16px;padding:32px;max-width:520px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
-    <div style="text-align:center;margin-bottom:24px;">
-      <div style="font-size:40px;margin-bottom:12px;">🔔</div>
-      <div style="font-size:18px;font-weight:800;color:var(--text-primary,#fff);">Configurer vos Notifications</div>
-      <div style="font-size:12px;color:var(--text-muted,#888);margin-top:6px;">Choisissez les alertes que vous souhaitez recevoir. Vous pourrez modifier ces préférences à tout moment.</div>
+<div id="notifOnboardModal" style="display:none;position:fixed;inset:0;z-index:999999;background:var(--bg-glass-heavy);backdrop-filter:blur(12px);align-items:center;justify-content:center;">
+  <div style="background:var(--bg-elevated);border:1px solid var(--border-light);border-radius:20px;padding:36px 32px 28px;max-width:540px;width:92%;box-shadow:0 24px 80px rgba(0,0,0,0.35);max-height:90vh;overflow-y:auto;">
+    <!-- Header -->
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="width:64px;height:64px;margin:0 auto 16px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;box-shadow:0 8px 24px rgba(59,130,246,0.3);">🔔</div>
+      <div style="font-size:20px;font-weight:800;color:var(--text-primary);letter-spacing:-0.3px;">Configurer vos Notifications</div>
+      <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:8px;line-height:1.5;">Choisissez les alertes que vous souhaitez recevoir.<br>Modifiable à tout moment via l'icône ⚙️ dans le panneau notifications.</div>
     </div>
-    <div id="onboardPrefsList" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;"></div>
-    <div style="display:flex;gap:8px;justify-content:center;margin-bottom:16px;">
-      <button onclick="document.querySelectorAll('#onboardPrefsList input').forEach(c=>c.checked=true)" style="padding:4px 14px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:var(--text-muted,#aaa);font-size:11px;cursor:pointer;">✅ Tout cocher</button>
-      <button onclick="document.querySelectorAll('#onboardPrefsList input').forEach(c=>c.checked=false)" style="padding:4px 14px;border:1px solid var(--border,#444);border-radius:8px;background:transparent;color:var(--text-muted,#aaa);font-size:11px;cursor:pointer;">🚫 Tout décocher</button>
+    <!-- Category Grid -->
+    <div id="onboardPrefsList" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;"></div>
+    <!-- Toggle All Buttons -->
+    <div style="display:flex;gap:8px;justify-content:center;margin-bottom:20px;">
+      <button onclick="document.querySelectorAll('#onboardPrefsList input').forEach(c=>c.checked=true)" style="padding:6px 16px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.borderColor='#22c55e';this.style.color='#22c55e'" onmouseout="this.style.borderColor='';this.style.color=''">✅ Tout cocher</button>
+      <button onclick="document.querySelectorAll('#onboardPrefsList input').forEach(c=>c.checked=false)" style="padding:6px 16px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.borderColor='#ef4444';this.style.color='#ef4444'" onmouseout="this.style.borderColor='';this.style.color=''">🚫 Tout décocher</button>
     </div>
-    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-      <button onclick="saveOnboardPrefs()" style="padding:10px 28px;border:none;border-radius:10px;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;font-weight:700;font-size:14px;cursor:pointer;">✅ Confirmer</button>
-      <button onclick="skipOnboardPrefs()" style="padding:10px 28px;border:none;border-radius:10px;background:var(--bg-3,#2a2a3e);color:var(--text-muted,#888);font-weight:600;font-size:13px;cursor:pointer;">Tout activer</button>
+    <!-- Action Buttons -->
+    <div style="display:flex;gap:12px;justify-content:center;">
+      <button onclick="saveOnboardPrefs()" style="padding:12px 32px;border:none;border-radius:12px;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 4px 16px rgba(59,130,246,0.35);transition:transform 0.15s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">✅ Confirmer mes choix</button>
+      <button onclick="skipOnboardPrefs()" style="padding:12px 24px;border:1px solid var(--border);border-radius:12px;background:var(--bg-surface);color:var(--text-secondary);font-weight:600;font-size:13px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='var(--bg-surface)'">Passer (tout activer)</button>
     </div>
   </div>
 </div>
@@ -2664,15 +2668,18 @@ function showNotifOnboard() {
   if (!modal) return;
   const list = document.getElementById('onboardPrefsList');
   if (!list) return;
-  list.innerHTML = NOTIF_CATEGORIES.map(c => `
-    <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-3,#2a2a3e);border:1px solid var(--border,#333);border-radius:10px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='var(--border,#333)'">
-      <input type="checkbox" checked data-notif-key="${c.key}" style="width:18px;height:18px;accent-color:#3b82f6;cursor:pointer;">
-      <div>
-        <div style="font-size:13px;font-weight:700;color:var(--text-primary,#fff);">${c.label}</div>
-        <div style="font-size:10px;color:var(--text-muted,#888);">${c.desc}</div>
+  const prefs = JSON.parse(localStorage.getItem('fleet_notif_prefs') || '{}');
+  list.innerHTML = NOTIF_CATEGORIES.map(c => {
+    const isChecked = prefs[c.key] !== false;
+    return `
+    <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--border-primary)';this.style.background='var(--bg-hover)'" onmouseout="this.style.borderColor='';this.style.background='var(--bg-surface)'">
+      <input type="checkbox" ${isChecked ? 'checked' : ''} data-notif-key="${c.key}" style="width:18px;height:18px;accent-color:#3b82f6;cursor:pointer;flex-shrink:0;">
+      <div style="min-width:0;">
+        <div style="font-size:var(--text-sm);font-weight:700;color:var(--text-primary);">${c.label}</div>
+        <div style="font-size:var(--text-xs);color:var(--text-muted);line-height:1.3;">${c.desc}</div>
       </div>
-    </label>
-  `).join('');
+    </label>`;
+  }).join('');
   modal.style.display = 'flex';
 }
 

@@ -1109,9 +1109,14 @@
                   <div class="form-group" style="margin:0;" id="pbPeriodWrapper">
                     <label class="form-label">Période d'analyse</label>
                     <select id="pbPeriod" class="form-control" onchange="ZMC.onPBPeriodChange()">
-                      <option value="today">📅 Aujourd'hui uniquement (Depuis 00h00)</option>
+                      <option value="today">📅 Aujourd'hui (Depuis 00h00)</option>
+                      <option value="3d">📅 3 derniers jours</option>
+                      <option value="7d" selected>📅 7 derniers jours</option>
+                      <option value="15d">📅 15 derniers jours</option>
+                      <option value="30d">📅 30 derniers jours</option>
+                      <option value="90d">📅 90 derniers jours</option>
                       <option value="custom">📆 Période sur mesure (Choisir les dates)</option>
-                      <option value="all" selected>🗄️ Tout l'historique disponible</option>
+                      <option value="all">🗄️ Tout l'historique disponible</option>
                     </select>
                   </div>
                   <div class="form-group" id="pbCustomDates" style="margin:0;display:none;grid-column:1/-1;">
@@ -3687,7 +3692,17 @@ const ZMC = (() => {
     } else if (period === 'custom') {
         if (start) url += '&start=' + start + 'T00:00:00';
         if (end) url += '&end=' + end + 'T23:59:59';
+    } else if (/^\d+d$/.test(period)) {
+        // Preset period (3d, 7d, 15d, 30d, 90d)
+        const days = parseInt(period);
+        const now = new Date();
+        const endDate = now.toISOString().slice(0,10);
+        const startD = new Date(now.getTime() - (days - 1) * 86400000);
+        const startDate = startD.toISOString().slice(0,10);
+        url += '&start=' + startDate + 'T00:00:00';
+        url += '&end=' + endDate + 'T23:59:59';
     }
+    // 'all' = no date params
     
     if (truck && type !== 'zone-events/powerbi-zones') {
         url += '&truck=' + encodeURIComponent(truck);
@@ -3710,11 +3725,20 @@ const ZMC = (() => {
       const days = Math.ceil((new Date(end) - new Date(start)) / 86400000) + 1;
       rangeLabel.innerHTML = '📅 Période: <b>' + d1 + '</b> → <b>' + d2 + '</b> (' + days + ' jour' + (days > 1 ? 's' : '') + ')';
       rangeLabel.style.display = 'block';
+    } else if (/^\d+d$/.test(period)) {
+      const days = parseInt(period);
+      const now = new Date();
+      const endDate = now.toLocaleDateString('fr-FR');
+      const startD = new Date(now.getTime() - (days - 1) * 86400000);
+      const startDate = startD.toLocaleDateString('fr-FR');
+      rangeLabel.innerHTML = '📅 Période: <b>' + startDate + '</b> → <b>' + endDate + '</b> (' + days + ' jour' + (days > 1 ? 's' : '') + ')';
+      rangeLabel.style.display = 'block';
     } else if (period === 'today') {
       rangeLabel.innerHTML = "📅 Aujourd'hui uniquement";
       rangeLabel.style.display = 'block';
     } else {
-      rangeLabel.style.display = 'none';
+      rangeLabel.innerHTML = "📅 Tout l'historique disponible";
+      rangeLabel.style.display = 'block';
     }
 
     buildPBEndpoints();
@@ -3742,7 +3766,29 @@ const ZMC = (() => {
     buildPBUrl();
   }
 
-  function onPBPeriodChange() { buildPBUrl(); }
+  function onPBPeriodChange() {
+    const period = document.getElementById('pbPeriod')?.value || 'all';
+    const customDiv = document.getElementById('pbCustomDates');
+    if (customDiv) customDiv.style.display = period === 'custom' ? 'block' : 'none';
+    
+    // For preset periods, auto-set start/end dates
+    const startEl = document.getElementById('pbStart');
+    const endEl = document.getElementById('pbEnd');
+    if (startEl && endEl) {
+      const now = new Date();
+      const endDate = now.toISOString().slice(0,10);
+      let startDate = endDate;
+      const match = period.match(/^(\d+)d$/);
+      if (match) {
+        const days = parseInt(match[1]);
+        const d = new Date(now.getTime() - (days - 1) * 86400000);
+        startDate = d.toISOString().slice(0,10);
+        startEl.value = startDate;
+        endEl.value = endDate;
+      }
+    }
+    buildPBUrl();
+  }
 
   async function loadApiKeys() {
     try {
