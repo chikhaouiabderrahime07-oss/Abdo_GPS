@@ -7402,48 +7402,73 @@ app.post('/api/vehicle-references', checkAccess, async (req, res) => {
     res.json({ success: true, ref });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// PUT/POST update a reference
+// --- VEHICLE REFERENCES: UPDATE & DELETE HANDLERS ---
 const handleUpdateReference = async (req, res) => {
   try {
-    const id = req.params.id || req.body?.id || req.body?._id;
-    if (!id) return res.status(400).json({ error: 'ID de référence requis' });
+    const rawId = req.params.id || req.body?.id || req.body?._id;
+    if (!rawId) return res.status(400).json({ error: 'ID de référence requis' });
+    const cleanId = String(rawId).trim();
     const updates = { ...req.body };
     delete updates.id;
     delete updates._id;
+
     let ref = null;
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      ref = await VehicleReference.findByIdAndUpdate(id, { $set: updates }, { new: true });
+    if (mongoose.Types.ObjectId.isValid(cleanId)) {
+      ref = await VehicleReference.findByIdAndUpdate(cleanId, { $set: updates }, { new: true });
     }
     if (!ref) {
-      ref = await VehicleReference.findOneAndUpdate({ $or: [{ _id: id }, { id: id }] }, { $set: updates }, { new: true });
+      ref = await VehicleReference.findOneAndUpdate({ _id: cleanId }, { $set: updates }, { new: true }).catch(() => null);
     }
     if (!ref) return res.status(404).json({ error: 'Référence introuvable' });
     res.json({ success: true, ref });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('Update reference error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 };
-app.put('/api/vehicle-references/:id', checkAccess, handleUpdateReference);
-app.post('/api/vehicle-references/update', checkAccess, handleUpdateReference);
-app.post('/api/vehicle-references/:id/update', checkAccess, handleUpdateReference);
-app.post('/api/vehicle-references/:id', checkAccess, handleUpdateReference);
 
-// DELETE/POST delete a reference
 const handleDeleteReference = async (req, res) => {
   try {
-    const id = req.params.id || req.body?.id || req.body?._id || req.query?.id;
-    if (!id) return res.status(400).json({ error: 'ID de référence requis' });
+    const rawId = req.params.id || req.body?.id || req.body?._id || req.query?.id;
+    const deviceId = req.body?.deviceId || req.query?.deviceId;
+    const refName = req.body?.refName || req.query?.refName;
+
+    if (!rawId && !(deviceId && refName)) {
+      return res.status(400).json({ error: 'ID ou (deviceId + refName) de référence requis' });
+    }
+
     let deleted = null;
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      deleted = await VehicleReference.findByIdAndDelete(id);
+
+    if (rawId) {
+      const cleanId = String(rawId).trim();
+      if (mongoose.Types.ObjectId.isValid(cleanId)) {
+        deleted = await VehicleReference.findByIdAndDelete(cleanId);
+      }
+      if (!deleted) {
+        deleted = await VehicleReference.findOneAndDelete({ _id: cleanId }).catch(() => null);
+      }
     }
-    if (!deleted) {
-      deleted = await VehicleReference.findOneAndDelete({ $or: [{ _id: id }, { id: id }] });
+
+    if (!deleted && deviceId && refName) {
+      deleted = await VehicleReference.findOneAndDelete({ deviceId, refName }).catch(() => null);
     }
+
     res.json({ success: true, deleted: !!deleted });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    console.error('Delete reference error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 };
-app.delete('/api/vehicle-references/:id', checkAccess, handleDeleteReference);
+
+// 1. Static endpoints MUST come FIRST before parameterized routes
 app.post('/api/vehicle-references/delete', checkAccess, handleDeleteReference);
+app.post('/api/vehicle-references/update', checkAccess, handleUpdateReference);
+
+// 2. Parameterized routes
+app.delete('/api/vehicle-references/:id', checkAccess, handleDeleteReference);
 app.post('/api/vehicle-references/:id/delete', checkAccess, handleDeleteReference);
+app.put('/api/vehicle-references/:id', checkAccess, handleUpdateReference);
+app.post('/api/vehicle-references/:id/update', checkAccess, handleUpdateReference);
 // --- 9. INITIALIZATION ---
 
 // ✅ Mongoose reconnection handlers for resilience

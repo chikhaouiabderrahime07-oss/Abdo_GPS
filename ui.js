@@ -12665,9 +12665,11 @@ exportMaintenanceCSV() {
     if (saveBtnText) saveBtnText.textContent = 'Mettre à jour le Document';
     if (saveBtnIcon) saveBtnIcon.className = 'fa-solid fa-arrows-rotate';
 
-    // Show cancel button
+    // Show cancel button and delete button
     const cancelBtn = document.getElementById('refCancelEditBtn');
     if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+    const deleteBtn = document.getElementById('refDeleteEditBtn');
+    if (deleteBtn) deleteBtn.style.display = 'inline-flex';
 
     // Highlight form container
     const formContainer = document.getElementById('refFormContainer');
@@ -12706,6 +12708,8 @@ exportMaintenanceCSV() {
 
     const cancelBtn = document.getElementById('refCancelEditBtn');
     if (cancelBtn) cancelBtn.style.display = 'none';
+    const deleteBtn = document.getElementById('refDeleteEditBtn');
+    if (deleteBtn) deleteBtn.style.display = 'none';
 
     const formContainer = document.getElementById('refFormContainer');
     if (formContainer) formContainer.style.border = '1px dashed var(--border)';
@@ -12801,32 +12805,58 @@ exportMaintenanceCSV() {
 
   async deleteReference(id) {
     if (!id) return;
-    if (!confirm('Supprimer ce document ? Cette action est irréversible.')) return;
+    const ref = (this._vehicleRefs || []).find(r => String(r._id || r.id) === String(id));
+    const deviceId = ref?.deviceId || this._refModalDeviceId || '';
+    const refName = ref?.refName || '';
+
+    // Immediately remove from local memory for instant zero-lag UI response
+    const previousRefs = this._vehicleRefs ? [...this._vehicleRefs] : [];
+    if (this._vehicleRefs) {
+      this._vehicleRefs = this._vehicleRefs.filter(r => String(r._id || r.id) !== String(id));
+    }
+    if (this._editingRefId === id) {
+      this.cancelEditReference();
+    }
+    if (this._refModalDeviceId) this._renderRefList(this._refModalDeviceId);
+    this.renderTrucks();
+    this.renderStats();
+    if (this._docPanelOpen) this.renderDocPanel();
+
     const code = localStorage.getItem('fleetAccessCode') || this.currentCode || '';
     const headers = { 'Content-Type': 'application/json', 'x-access-code': code };
+    const payload = JSON.stringify({ id, deviceId, refName });
 
     try {
       let res;
-      // Try DELETE first, fallback to POST /api/vehicle-references/delete
+      // 1. Primary: POST /api/vehicle-references/delete (always supported through proxies & firewalls)
       try {
-        res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/${id}`, {
-          method: 'DELETE',
-          headers
-        });
-      } catch(err) { res = null; }
-
-      if (!res || !res.ok) {
         res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/delete`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ id })
+          body: payload
+        });
+      } catch(err) { res = null; }
+
+      // 2. Fallback: DELETE /api/vehicle-references/:id
+      if (!res || !res.ok) {
+        try {
+          res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers
+          });
+        } catch(err) { res = null; }
+      }
+
+      // 3. Fallback: POST /api/vehicle-references/:id/delete
+      if (!res || !res.ok) {
+        res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/${encodeURIComponent(id)}/delete`, {
+          method: 'POST',
+          headers,
+          body: payload
         });
       }
 
       if (res && res.ok) {
-        if (this._editingRefId === id) {
-          this.cancelEditReference();
-        }
         await this.loadVehicleReferences();
         if (this._refModalDeviceId) this._renderRefList(this._refModalDeviceId);
         this.renderTrucks();
@@ -12835,11 +12865,25 @@ exportMaintenanceCSV() {
         if (window.showToast) showToast('🗑️ Document supprimé avec succès', 'success');
         else alert('🗑️ Document supprimé avec succès');
       } else {
+        // Rollback memory if server failed
+        this._vehicleRefs = previousRefs;
+        if (this._refModalDeviceId) this._renderRefList(this._refModalDeviceId);
+        this.renderTrucks();
+        this.renderStats();
+        if (this._docPanelOpen) this.renderDocPanel();
         const errData = res ? await res.json().catch(() => ({})) : {};
-        alert('Erreur suppression: ' + (errData.error || ('HTTP ' + (res ? res.status : 'Connexion'))));
+        const msg = errData.error || ('HTTP ' + (res ? res.status : 'Connexion'));
+        if (window.showToast) showToast('Erreur suppression: ' + msg, 'error');
+        else alert('Erreur suppression: ' + msg);
       }
     } catch (e) {
-      alert('Erreur: ' + e.message);
+      this._vehicleRefs = previousRefs;
+      if (this._refModalDeviceId) this._renderRefList(this._refModalDeviceId);
+      this.renderTrucks();
+      this.renderStats();
+      if (this._docPanelOpen) this.renderDocPanel();
+      if (window.showToast) showToast('Erreur: ' + e.message, 'error');
+      else alert('Erreur: ' + e.message);
     }
   }
 

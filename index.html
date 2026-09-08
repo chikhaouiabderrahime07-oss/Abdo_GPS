@@ -3536,6 +3536,9 @@ setTimeout(function() {
           <button id="refCancelEditBtn" type="button" onclick="ui.cancelEditReference()" style="display:none; flex:1; padding:10px; background:var(--bg-surface); border:1px solid var(--border); color:var(--text-secondary); border-radius:10px; cursor:pointer; font-size:13px; font-weight:700; align-items:center; justify-content:center; gap:6px;">
             <i class="fa-solid fa-xmark"></i> Annuler
           </button>
+          <button id="refDeleteEditBtn" type="button" onclick="ui.deleteReference(ui._editingRefId)" style="display:none; flex:1; padding:10px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3); color:#ef4444; border-radius:10px; cursor:pointer; font-size:13px; font-weight:700; align-items:center; justify-content:center; gap:6px;" title="Supprimer ce document définitivement">
+            <i class="fa-solid fa-trash"></i> Supprimer
+          </button>
           <button id="refSaveBtn" type="button" onclick="ui.saveReference()" style="flex:2; padding:10px; background:linear-gradient(135deg, var(--success), #059669); border:none; color:#fff; border-radius:10px; cursor:pointer; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:6px;">
             <i id="refSaveBtnIcon" class="fa-solid fa-check-circle"></i> <span id="refSaveBtnText">Enregistrer le Document</span>
           </button>
