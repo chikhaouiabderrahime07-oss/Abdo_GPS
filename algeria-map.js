@@ -1337,8 +1337,7 @@ deselectTruck: function() {
             else if (document.msExitFullscreen) { document.msExitFullscreen(); }
         }
         setTimeout(() => this.map.resize(), 200);
-    },
-    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); },
+    },    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); },
 
     toggleZoneCircles: function(btn) {
         this.zonesVisible = this.zonesVisible === false ? true : false;
@@ -1471,11 +1470,11 @@ deselectTruck: function() {
     switchPanelTab: function(tab, btn) {
         document.querySelectorAll('.panel-tab-content').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.map-panel-tab').forEach(b => {
-            b.style.color = 'var(--text-muted)'; b.style.borderBottomColor = 'transparent';
+            b.style.color = '#64748b'; b.style.borderBottomColor = 'transparent';
         });
         const panel = document.getElementById('panel' + tab.charAt(0).toUpperCase() + tab.slice(1));
         if (panel) panel.style.display = 'block';
-        if (btn) { btn.style.color = 'var(--primary)'; btn.style.borderBottomColor = 'var(--primary)'; }
+        if (btn) { btn.style.color = '#e2e8f0'; btn.style.borderBottomColor = '#3b82f6'; }
         if (tab === 'activity') this.refreshZoneActivity();
         if (tab === 'zones') this.refreshPanelZones();
     },
@@ -1512,7 +1511,7 @@ deselectTruck: function() {
         setEl('panelCountAll', total); setEl('panelCountMoving', moving); setEl('panelCountStopped', stopped);
         setEl('mapCountAll', `(${total})`); setEl('mapCountMoving', `(${moving})`); setEl('mapCountStopped', `(${stopped})`);
 
-        if (!trucks.length) { list.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px;">Aucun camion</div>'; return; }
+        if (!trucks.length) { list.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucun camion</div>'; return; }
         list.innerHTML = trucks.map(t => {
             const id = t.deviceId || t.id;
             const isMoving = (t.speed || 0) >= 1 && !t.isGpsCut;
@@ -1520,16 +1519,16 @@ deselectTruck: function() {
             const statusIcon = t.isGpsCut ? 'fa-wifi-slash' : (isMoving ? 'fa-truck-fast' : 'fa-truck');
             const zone = t.currentZone || t.zone || '';
             const fuel = t.fuelPercent != null ? t.fuelPercent : (t.fuel_percent != null ? t.fuel_percent : null);
-            const fuelBar = fuel != null ? `<div style="height:3px;background:var(--border);border-radius:2px;margin-top:3px;"><div style="width:${Math.min(100,fuel)}%;height:100%;border-radius:2px;background:${fuel>30?'#22c55e':fuel>15?'#f59e0b':'#ef4444'};"></div></div>` : '';
+            const fuelBar = fuel != null ? `<div style="height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:3px;"><div style="width:${Math.min(100,fuel)}%;height:100%;border-radius:2px;background:${fuel>30?'#22c55e':fuel>15?'#f59e0b':'#ef4444'};"></div></div>` : '';
             return `<div class="panel-truck-item" data-id="${id}" data-name="${t.name||id}" onclick="window.AlgeriaMap.selectTruckById('${id}')"
-              style="padding:9px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s, border-color 0.15s;margin-bottom:4px;border:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--bg-surface);"
-              onmouseenter="this.style.background='var(--bg-hover)';this.style.borderColor='var(--border-strong)';" onmouseleave="this.style.background='var(--bg-surface)';this.style.borderColor='var(--border)';">
+              style="padding:9px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s;margin-bottom:3px;border:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px;"
+              onmouseenter="this.style.background='rgba(59,130,246,0.1)'" onmouseleave="this.style.background=''">
               <div style="width:30px;height:30px;border-radius:8px;background:${statusColor}22;border:1px solid ${statusColor}44;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                 <i class="fa-solid ${statusIcon}" style="color:${statusColor};font-size:12px;"></i>
               </div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:12px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name || id}</div>
-                <div style="font-size:10px;color:var(--text-muted);">${isMoving ? (t.speed||0)+' km/h' : 'À l\'arrêt'}${zone ? ' · '+zone : ''}</div>
+                <div style="font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name || id}</div>
+                <div style="font-size:10px;color:#64748b;">${isMoving ? (t.speed||0)+' km/h' : 'À l\'arrêt'}${zone ? ' · '+zone : ''}</div>
                 ${fuelBar}
               </div>
               <span style="font-size:9px;font-weight:700;color:${statusColor};background:${statusColor}1a;padding:2px 5px;border-radius:4px;flex-shrink:0;">${isMoving?'▶':'■'}</span>
@@ -1544,22 +1543,22 @@ deselectTruck: function() {
         const clients = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.CLIENTS) ? FLEET_CONFIG.CLIENTS : [];
         const typeColors = { client:'#3b82f6', maintenance:'#ef4444', douroub:'#22c55e', other:'#94a3b8' };
         const typeIcons = { client:'fa-user-tie', maintenance:'fa-wrench', douroub:'fa-building', station:'fa-gas-pump', other:'fa-map-pin' };
-        if (!zones.length) { list.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px;">Aucune zone. Créez-en une.</div>'; return; }
+        if (!zones.length) { list.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucune zone. Créez-en une.</div>'; return; }
         list.innerHTML = zones.map((z, i) => {
             const color = typeColors[z.type] || '#94a3b8';
             const icon = typeIcons[z.type] || 'fa-map-pin';
             const client = z.clientId ? clients.find(c => c.id === z.clientId) : null;
             return `<div onclick="window.AlgeriaMap.flyToZone(${z.lat},${z.lng})"
-              style="padding:9px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;border:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--bg-surface);transition:all 0.15s;"
-              onmouseenter="this.style.background='var(--bg-hover)';this.style.borderColor='var(--border-strong)';" onmouseleave="this.style.background='var(--bg-surface)';this.style.borderColor='var(--border)';">
+              style="padding:9px 10px;border-radius:8px;cursor:pointer;margin-bottom:3px;border:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px;"
+              onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background=''">
               <div style="width:28px;height:28px;border-radius:50%;background:${color}22;border:2px solid ${color}55;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                 <i class="fa-solid ${icon}" style="color:${color};font-size:11px;"></i>
               </div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${z.name}</div>
-                <div style="font-size:10px;color:var(--text-muted);">${z.wilaya||''}${client ? ' · '+client.name : ''}</div>
+                <div style="font-size:12px;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${z.name}</div>
+                <div style="font-size:10px;color:#475569;">${z.wilaya||''}${client ? ' · '+client.name : ''}</div>
               </div>
-              <span style="font-size:9px;color:var(--text-muted);">${z.radius||500}m</span>
+              <span style="font-size:9px;color:#475569;">${z.radius||500}m</span>
             </div>`;
         }).join('');
     },
