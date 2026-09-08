@@ -3493,9 +3493,9 @@ setTimeout(function() {
         </div>
       </div>
 
-      <!-- Add New Reference Form -->
-      <div style="background:var(--bg-elevated); border-radius:var(--radius-lg); padding:16px; border:1px dashed var(--border);">
-        <h4 style="margin:0 0 12px 0; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+      <!-- Add / Edit Reference Form -->
+      <div id="refFormContainer" style="background:var(--bg-elevated); border-radius:var(--radius-lg); padding:16px; border:1px dashed var(--border);">
+        <h4 id="refFormTitle" style="margin:0 0 12px 0; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
           <i class="fa-solid fa-plus-circle" style="color:var(--success);"></i> Ajouter un Document
         </h4>
         <div class="maint-form-grid">
@@ -3532,9 +3532,14 @@ setTimeout(function() {
           <label style="font-size:11px;">Notes (optionnel)</label>
           <input type="text" id="refNotes" placeholder="Notes supplémentaires...">
         </div>
-        <button onclick="ui.saveReference()" style="width:100%; padding:10px; background:linear-gradient(135deg, var(--success), #059669); border:none; color:#fff; border-radius:10px; cursor:pointer; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:6px; margin-top:8px;">
-          <i class="fa-solid fa-check-circle"></i> Enregistrer le Document
-        </button>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button id="refCancelEditBtn" type="button" onclick="ui.cancelEditReference()" style="display:none; flex:1; padding:10px; background:var(--bg-surface); border:1px solid var(--border); color:var(--text-secondary); border-radius:10px; cursor:pointer; font-size:13px; font-weight:700; align-items:center; justify-content:center; gap:6px;">
+            <i class="fa-solid fa-xmark"></i> Annuler
+          </button>
+          <button id="refSaveBtn" type="button" onclick="ui.saveReference()" style="flex:2; padding:10px; background:linear-gradient(135deg, var(--success), #059669); border:none; color:#fff; border-radius:10px; cursor:pointer; font-size:13px; font-weight:700; display:flex; align-items:center; justify-content:center; gap:6px;">
+            <i id="refSaveBtnIcon" class="fa-solid fa-check-circle"></i> <span id="refSaveBtnText">Enregistrer le Document</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>

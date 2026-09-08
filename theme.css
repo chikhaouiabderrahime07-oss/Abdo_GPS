@@ -3846,6 +3846,7 @@ span.speed-badge-over {
 }
 .ref-list-item .ref-actions button:hover { border-color: var(--primary); color: var(--primary); }
 .ref-list-item .ref-actions button.btn-del:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-subtle); }
+.ref-list-item .ref-actions button.btn-edit:hover { border-color: var(--primary); color: var(--primary); background: rgba(56,189,248,0.12); }
 
 /* --- Stat card for documents --- */
 .stat-card-docs {

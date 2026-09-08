@@ -2026,6 +2026,7 @@ exportDecouchageCSV() {
                 <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">N° Réf</th>
                 <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">Expiration</th>
                 <th style="padding:8px 12px;text-align:left;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">Statut</th>
+                <th style="padding:8px 12px;text-align:center;font-size:10px;text-transform:uppercase;color:var(--text-muted);font-weight:700;">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -2040,6 +2041,16 @@ exportDecouchageCSV() {
                                  padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;">
                       ${r.days < 0 ? `⛔ +${Math.abs(r.days)}j` : r.days === 0 ? "\u26a0\ufe0f Aujourd'hui" : r.status==='soon' ? `\u26a0\ufe0f ${r.days}j` : `\u2705 ${r.days}j`}
                     </span>
+                  </td>
+                  <td style="padding:8px 12px; text-align:center; white-space:nowrap;">
+                    <button onclick="ui.openRefModal('${r.deviceId}', '${r._id || r.id}')" title="Modifier ce document"
+                      style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#0284c7; border-radius:6px; width:28px; height:28px; cursor:pointer; font-size:11px; margin-right:4px; display:inline-flex; align-items:center; justify-content:center;">
+                      <i class="fa-solid fa-pen"></i>
+                    </button>
+                    <button onclick="ui.deleteReference('${r._id || r.id}')" title="Supprimer ce document"
+                      style="background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3); color:#ef4444; border-radius:6px; width:28px; height:28px; cursor:pointer; font-size:11px; display:inline-flex; align-items:center; justify-content:center;">
+                      <i class="fa-solid fa-trash"></i>
+                    </button>
                   </td>
                 </tr>`).join('')}
             </tbody>
@@ -12550,25 +12561,33 @@ exportMaintenanceCSV() {
     return expiring;
   }
 
-  openRefModal(deviceId) {
+  openRefModal(deviceId, refIdToEdit) {
     this._refModalDeviceId = deviceId;
-    const truck = app.getAllTrucks().find(t => t.id === deviceId);
-    const db = (this.truckDbCache || []).find(d => d.deviceId === deviceId);
+    this.cancelEditReference();
+    const truck = app.getAllTrucks().find(t => String(t.id) === String(deviceId));
+    const db = (this.truckDbCache || []).find(d => String(d.deviceId) === String(deviceId));
     const name = truck?.name || db?.truckName || deviceId;
-    document.getElementById('refModalTruckName').innerHTML = '<i class="fa-solid fa-truck" style="margin-right:6px; color:var(--primary);"></i> ' + name;
-    document.getElementById('refModalTitle').textContent = 'Documents — ' + name;
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('refIssueDate').value = today;
-    const nextYear = new Date();
-    nextYear.setFullYear(nextYear.getFullYear() + 1);
-    document.getElementById('refExpiryDate').value = nextYear.toISOString().split('T')[0];
+    const truckNameEl = document.getElementById('refModalTruckName');
+    if (truckNameEl) {
+      truckNameEl.innerHTML = '<i class="fa-solid fa-truck" style="margin-right:6px; color:var(--primary);"></i> ' + name;
+    }
+    const titleEl = document.getElementById('refModalTitle');
+    if (titleEl) {
+      titleEl.textContent = 'Documents — ' + name;
+    }
     this._renderRefList(deviceId);
-    document.getElementById('vehicleRefModal').classList.add('show');
+    const modalEl = document.getElementById('vehicleRefModal');
+    if (modalEl) modalEl.classList.add('show');
+    if (refIdToEdit) {
+      setTimeout(() => this.editReference(refIdToEdit), 60);
+    }
   }
 
   closeRefModal() {
-    document.getElementById('vehicleRefModal').classList.remove('show');
+    const modalEl = document.getElementById('vehicleRefModal');
+    if (modalEl) modalEl.classList.remove('show');
     this._refModalDeviceId = null;
+    this.cancelEditReference();
   }
 
   _renderRefList(deviceId) {
@@ -12582,6 +12601,7 @@ exportMaintenanceCSV() {
     const now = new Date();
     let html = '';
     refs.forEach(ref => {
+      const refId = String(ref._id || ref.id || '');
       const expiry = new Date(ref.expiryDate);
       const daysLeft = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
       let countdownCls, countdownText;
@@ -12590,17 +12610,112 @@ exportMaintenanceCSV() {
       else if (daysLeft <= 60) { countdownCls = 'warn'; countdownText = daysLeft + ' jours'; }
       else { countdownCls = 'ok'; countdownText = daysLeft + ' jours'; }
       const issueDate = ref.issueDate ? new Date(ref.issueDate).toLocaleDateString('fr-FR') : '—';
-      const expiryDate = expiry.toLocaleDateString('fr-FR');
-      html += '<div class="ref-list-item"><div class="ref-info"><div class="ref-name">' + ref.refName + '</div><div class="ref-details">N°: ' + (ref.refNumber || '—') + ' &nbsp;|&nbsp; Obtenu: ' + issueDate + ' &nbsp;|&nbsp; Expire: ' + expiryDate + (ref.notes ? ' &nbsp;|&nbsp; ' + ref.notes : '') + '</div></div><span class="ref-countdown ' + countdownCls + '">' + countdownText + '</span><div class="ref-actions"><button class="btn-del" onclick="ui.deleteReference(\'' + ref._id + '\')" title="Supprimer"><i class="fa-solid fa-trash"></i></button></div></div>';
+      const expiryDate = !isNaN(expiry) ? expiry.toLocaleDateString('fr-FR') : '—';
+      html += '<div class="ref-list-item">'
+            + '<div class="ref-info">'
+            +   '<div class="ref-name">' + (ref.refName || 'Document') + '</div>'
+            +   '<div class="ref-details">N°: ' + (ref.refNumber || '—') + ' &nbsp;|&nbsp; Obtenu: ' + issueDate + ' &nbsp;|&nbsp; Expire: ' + expiryDate + (ref.notes ? ' &nbsp;|&nbsp; ' + ref.notes : '') + '</div>'
+            + '</div>'
+            + '<span class="ref-countdown ' + countdownCls + '">' + countdownText + '</span>'
+            + '<div class="ref-actions">'
+            +   '<button class="btn-edit" onclick="ui.editReference(\'' + refId + '\')" title="Modifier ce document"><i class="fa-solid fa-pen"></i></button>'
+            +   '<button class="btn-del" onclick="ui.deleteReference(\'' + refId + '\')" title="Supprimer ce document"><i class="fa-solid fa-trash"></i></button>'
+            + '</div>'
+            + '</div>';
     });
     listEl.innerHTML = html;
+  }
+
+  editReference(id) {
+    const refs = this._vehicleRefs || [];
+    const ref = refs.find(r => String(r._id || r.id) === String(id));
+    if (!ref) {
+      if (window.showToast) showToast('Document introuvable', 'warning');
+      return;
+    }
+    this._editingRefId = id;
+
+    const typeEl = document.getElementById('refType');
+    if (typeEl && ref.refName) typeEl.value = ref.refName;
+    const numEl = document.getElementById('refNumber');
+    if (numEl) numEl.value = ref.refNumber || '';
+    const issueEl = document.getElementById('refIssueDate');
+    if (issueEl && ref.issueDate) {
+      try { issueEl.value = new Date(ref.issueDate).toISOString().split('T')[0]; } catch(e){}
+    }
+    const expEl = document.getElementById('refExpiryDate');
+    if (expEl && ref.expiryDate) {
+      try { expEl.value = new Date(ref.expiryDate).toISOString().split('T')[0]; } catch(e){}
+    }
+    const notesEl = document.getElementById('refNotes');
+    if (notesEl) notesEl.value = ref.notes || '';
+
+    // Update form header
+    const titleEl = document.getElementById('refFormTitle');
+    if (titleEl) {
+      titleEl.innerHTML = '<i class="fa-solid fa-pen-to-square" style="color:var(--primary);"></i> Modifier : <b style="margin-left:4px;color:var(--text-primary);">' + (ref.refName || '') + '</b>';
+    }
+    // Update button text & style
+    const saveBtn = document.getElementById('refSaveBtn');
+    const saveBtnText = document.getElementById('refSaveBtnText');
+    const saveBtnIcon = document.getElementById('refSaveBtnIcon');
+    if (saveBtn) {
+      saveBtn.style.background = 'linear-gradient(135deg, #0284c7, #0369a1)';
+    }
+    if (saveBtnText) saveBtnText.textContent = 'Mettre à jour le Document';
+    if (saveBtnIcon) saveBtnIcon.className = 'fa-solid fa-arrows-rotate';
+
+    // Show cancel button
+    const cancelBtn = document.getElementById('refCancelEditBtn');
+    if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+
+    // Highlight form container
+    const formContainer = document.getElementById('refFormContainer');
+    if (formContainer) {
+      formContainer.style.border = '2px solid var(--primary)';
+      formContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
+
+  cancelEditReference() {
+    this._editingRefId = null;
+    const numEl = document.getElementById('refNumber');
+    if (numEl) numEl.value = '';
+    const notesEl = document.getElementById('refNotes');
+    if (notesEl) notesEl.value = '';
+    const today = new Date().toISOString().split('T')[0];
+    const issueEl = document.getElementById('refIssueDate');
+    if (issueEl) issueEl.value = today;
+    const nextYear = new Date();
+    nextYear.setFullYear(nextYear.getFullYear() + 1);
+    const expEl = document.getElementById('refExpiryDate');
+    if (expEl) expEl.value = nextYear.toISOString().split('T')[0];
+
+    const titleEl = document.getElementById('refFormTitle');
+    if (titleEl) {
+      titleEl.innerHTML = '<i class="fa-solid fa-plus-circle" style="color:var(--success);"></i> Ajouter un Document';
+    }
+    const saveBtn = document.getElementById('refSaveBtn');
+    const saveBtnText = document.getElementById('refSaveBtnText');
+    const saveBtnIcon = document.getElementById('refSaveBtnIcon');
+    if (saveBtn) {
+      saveBtn.style.background = 'linear-gradient(135deg, var(--success), #059669)';
+    }
+    if (saveBtnText) saveBtnText.textContent = 'Enregistrer le Document';
+    if (saveBtnIcon) saveBtnIcon.className = 'fa-solid fa-check-circle';
+
+    const cancelBtn = document.getElementById('refCancelEditBtn');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+
+    const formContainer = document.getElementById('refFormContainer');
+    if (formContainer) formContainer.style.border = '1px dashed var(--border)';
   }
 
   async saveReference() {
     const deviceId = this._refModalDeviceId;
     if (!deviceId) { alert('Aucun véhicule sélectionné.'); return; }
-    const truck = app.getAllTrucks().find(t => t.id === deviceId);
-    const db = (this.truckDbCache || []).find(d => d.deviceId === deviceId);
+    const truck = app.getAllTrucks().find(t => String(t.id) === String(deviceId));
+    const db = (this.truckDbCache || []).find(d => String(d.deviceId) === String(deviceId));
     const truckName = truck?.name || db?.truckName || deviceId;
     const refName = document.getElementById('refType')?.value;
     const refNumber = document.getElementById('refNumber')?.value || '';
@@ -12609,31 +12724,123 @@ exportMaintenanceCSV() {
     const notes = document.getElementById('refNotes')?.value || '';
     const alertThreshold = parseInt(document.getElementById('refAlertThreshold')?.value, 10) || 30;
     if (!refName || !expiryDate) { alert("Type et date d'expiration sont requis."); return; }
+
+    const code = localStorage.getItem('fleetAccessCode') || this.currentCode || '';
+    const headers = { 'Content-Type': 'application/json', 'x-access-code': code };
+
+    const saveBtn = document.getElementById('refSaveBtn');
+    const origBtnHtml = saveBtn ? saveBtn.innerHTML : '';
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Enregistrement...';
+    }
+
     try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, truckName, refName, refNumber, issueDate, expiryDate, notes, reminderDays: alertThreshold })
-      });
-      if (res.ok) {
+      let res;
+      if (this._editingRefId) {
+        // --- UPDATE EXISTING REFERENCE ---
+        const payload = {
+          id: this._editingRefId,
+          deviceId,
+          truckName,
+          refName,
+          refNumber,
+          issueDate: issueDate || new Date(),
+          expiryDate,
+          notes,
+          reminderDays: alertThreshold
+        };
+        try {
+          res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/${this._editingRefId}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify(payload)
+          });
+        } catch(err) { res = null; }
+
+        if (!res || !res.ok) {
+          res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/update`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload)
+          });
+        }
+      } else {
+        // --- CREATE NEW REFERENCE ---
+        res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ deviceId, truckName, refName, refNumber, issueDate: issueDate || new Date(), expiryDate, notes, reminderDays: alertThreshold })
+        });
+      }
+
+      if (res && res.ok) {
+        const wasEditing = !!this._editingRefId;
+        this.cancelEditReference();
         await this.loadVehicleReferences();
-        this._renderRefList(deviceId);
+        if (this._refModalDeviceId) this._renderRefList(this._refModalDeviceId);
         this.renderTrucks();
-        document.getElementById('refNumber').value = '';
-        document.getElementById('refNotes').value = '';
-        if (window.showToast) showToast('\u2705 Document enregistré !', 'success');
-        else alert('\u2705 Document enregistré !');
-      } else { alert('Erreur serveur.'); }
-    } catch (e) { alert('Erreur connexion: ' + e.message); }
+        this.renderStats();
+        if (this._docPanelOpen) this.renderDocPanel();
+        const msg = wasEditing ? '✅ Document mis à jour avec succès !' : '✅ Document enregistré !';
+        if (window.showToast) showToast(msg, 'success');
+        else alert(msg);
+      } else {
+        const errData = res ? await res.json().catch(() => ({})) : {};
+        alert('Erreur serveur: ' + (errData.error || ('HTTP ' + (res ? res.status : 'Connexion'))));
+      }
+    } catch (e) {
+      alert('Erreur connexion: ' + e.message);
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = origBtnHtml;
+      }
+    }
   }
 
   async deleteReference(id) {
-    if (!confirm('Supprimer ce document ?')) return;
+    if (!id) return;
+    if (!confirm('Supprimer ce document ? Cette action est irréversible.')) return;
+    const code = localStorage.getItem('fleetAccessCode') || this.currentCode || '';
+    const headers = { 'Content-Type': 'application/json', 'x-access-code': code };
+
     try {
-      await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/${id}`, { method: 'DELETE' });
-      await this.loadVehicleReferences();
-      if (this._refModalDeviceId) this._renderRefList(this._refModalDeviceId);
-      this.renderTrucks();
-    } catch (e) { alert('Erreur: ' + e.message); }
+      let res;
+      // Try DELETE first, fallback to POST /api/vehicle-references/delete
+      try {
+        res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/${id}`, {
+          method: 'DELETE',
+          headers
+        });
+      } catch(err) { res = null; }
+
+      if (!res || !res.ok) {
+        res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vehicle-references/delete`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ id })
+        });
+      }
+
+      if (res && res.ok) {
+        if (this._editingRefId === id) {
+          this.cancelEditReference();
+        }
+        await this.loadVehicleReferences();
+        if (this._refModalDeviceId) this._renderRefList(this._refModalDeviceId);
+        this.renderTrucks();
+        this.renderStats();
+        if (this._docPanelOpen) this.renderDocPanel();
+        if (window.showToast) showToast('🗑️ Document supprimé avec succès', 'success');
+        else alert('🗑️ Document supprimé avec succès');
+      } else {
+        const errData = res ? await res.json().catch(() => ({})) : {};
+        alert('Erreur suppression: ' + (errData.error || ('HTTP ' + (res ? res.status : 'Connexion'))));
+      }
+    } catch (e) {
+      alert('Erreur: ' + e.message);
+    }
   }
 
 
