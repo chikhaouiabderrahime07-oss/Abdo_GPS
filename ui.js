@@ -12803,7 +12803,59 @@ exportMaintenanceCSV() {
     }
   }
 
-  async deleteReference(id) {
+  deleteReference(id) {
+    if (!id) return;
+    const ref = (this._vehicleRefs || []).find(r => String(r._id || r.id) === String(id));
+    const refName = ref?.refName || 'ce document';
+    const refNumber = ref?.refNumber ? ` (N° ${ref.refNumber})` : '';
+    const truckName = ref?.truckName ? ` pour <b>${ref.truckName}</b>` : '';
+
+    this._pendingDeleteRefId = id;
+
+    const modal = document.getElementById('modalConfirmDeleteDoc');
+    const textEl = document.getElementById('confirmDeleteDocText');
+    const btn = document.getElementById('btnConfirmDeleteDoc');
+
+    if (textEl) {
+      textEl.innerHTML = `Êtes-vous sûr de vouloir supprimer le document <b style="color:var(--text-primary);">${refName}</b>${refNumber}${truckName} ?<br><span style="font-size:11px;color:#ef4444;font-weight:600;display:inline-block;margin-top:4px;">⚠️ Cette action est irréversible.</span>`;
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-trash"></i> Oui, Supprimer';
+    }
+
+    if (modal) {
+      modal.style.display = 'flex';
+    } else {
+      // Direct fallback
+      if (confirm(`Êtes-vous sûr de vouloir supprimer ${refName} ?`)) {
+        this.executeDeleteReference(id);
+      }
+    }
+  }
+
+  closeConfirmDeleteDoc() {
+    const modal = document.getElementById('modalConfirmDeleteDoc');
+    if (modal) modal.style.display = 'none';
+    this._pendingDeleteRefId = null;
+  }
+
+  async confirmExecuteDeleteDoc() {
+    const id = this._pendingDeleteRefId;
+    if (!id) {
+      this.closeConfirmDeleteDoc();
+      return;
+    }
+    const btn = document.getElementById('btnConfirmDeleteDoc');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Suppression...';
+    }
+    await this.executeDeleteReference(id);
+    this.closeConfirmDeleteDoc();
+  }
+
+  async executeDeleteReference(id) {
     if (!id) return;
     const ref = (this._vehicleRefs || []).find(r => String(r._id || r.id) === String(id));
     const deviceId = ref?.deviceId || this._refModalDeviceId || '';

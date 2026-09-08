@@ -3547,6 +3547,28 @@ setTimeout(function() {
     </div>
   </div>
 
+  <!-- Modal Confirmation Suppression Document (Are You Sure You Want to Delete) -->
+  <div id="modalConfirmDeleteDoc" class="modal" onclick="if(event.target===this)ui.closeConfirmDeleteDoc()" style="display:none; position:fixed; inset:0; z-index:999999; background:rgba(0,0,0,0.65); align-items:center; justify-content:center; backdrop-filter:blur(6px);">
+    <div class="modal-content" style="max-width:400px; width:92vw; background:var(--bg-surface); border:1px solid var(--border); border-radius:18px; box-shadow:0 24px 64px rgba(0,0,0,0.5); overflow:hidden; padding:26px; text-align:center;">
+      <div style="width:58px; height:58px; background:rgba(239,68,68,0.12); border-radius:50%; margin:0 auto 16px; display:flex; align-items:center; justify-content:center; color:#ef4444; font-size:26px;">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <h3 style="margin:0 0 10px 0; font-size:18px; font-weight:800; color:var(--text-primary);">Confirmer la suppression</h3>
+      <p id="confirmDeleteDocText" style="margin:0 0 22px 0; font-size:13px; color:var(--text-muted); line-height:1.6;">
+        Êtes-vous sûr de vouloir supprimer ce document ?<br>
+        <span style="font-size:11px; color:#ef4444; font-weight:600; display:inline-block; margin-top:4px;">⚠️ Cette action est irréversible.</span>
+      </p>
+      <div style="display:flex; gap:10px;">
+        <button type="button" onclick="ui.closeConfirmDeleteDoc()" style="flex:1; background:var(--bg-elevated); border:1px solid var(--border); color:var(--text-secondary); border-radius:10px; padding:12px; font-size:13px; font-weight:700; cursor:pointer;">
+          Annuler
+        </button>
+        <button id="btnConfirmDeleteDoc" type="button" onclick="ui.confirmExecuteDeleteDoc()" style="flex:1.3; background:linear-gradient(135deg,#ef4444,#dc2626); border:none; color:#fff; border-radius:10px; padding:12px; font-size:13px; font-weight:800; cursor:pointer; box-shadow:0 4px 14px rgba(239,68,68,0.35); display:flex; align-items:center; justify-content:center; gap:8px;">
+          <i class="fa-solid fa-trash"></i> Oui, Supprimer
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Rescan Speeding -->
   <div id="modalSpeedRescan" class="modal" style="display:none; align-items:center; justify-content:center;">
     <div class="modal-content" style="max-width:400px; background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.5); overflow:hidden;">
