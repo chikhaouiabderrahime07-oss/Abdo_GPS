@@ -101,9 +101,9 @@ const MaintenanceSchema = new mongoose.Schema({
   description: String,                               // Description détaillée du travail
   cost: Number,                                      // Coût total de la réparation
   technician: String,                                // Technicien responsable
-  parts: [{ name: String, quantity: Number, cost: Number }],  // Pièces utilisées
+  parts: mongoose.Schema.Types.Mixed,                                // Pièces utilisées
   scheme: String,                                    // Type de véhicule (ex: 4x2, 6x4, remorque)
-  tires: String,                                     // Pneus cochés
+  tires: mongoose.Schema.Types.Mixed,                                     // Pneus cochés
   forfaitName: String,                               // Nom du pack/forfait choisi
   chassisNumber: String,                             // Châssis du camion au moment de l'ordre
   immatriculation: String,                           // Immatriculation au moment de l'ordre
@@ -3191,7 +3191,9 @@ app.get('/api/maintenance', checkAccess, async (req, res) => {
 });
 app.post('/api/maintenance/add', checkAccess, async (req, res) => {
   try {
-    const newDoc = await Maintenance.create(req.body);
+    const payload = { ...req.body };
+    if (payload.tires && typeof payload.tires === 'string') { try { const p = JSON.parse(payload.tires); if (Array.isArray(p)) payload.tires = p; } catch(_) {} }
+    const newDoc = await Maintenance.create(payload);
     DB_STATS.lastWriteAt = new Date().toISOString();
     DB_STATS.totalWrites++;
 
@@ -3233,7 +3235,9 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     if (cost !== undefined) doc.cost = cost;
     if (Array.isArray(parts)) doc.parts = parts;
     if (scheme !== undefined) doc.scheme = scheme;
-    if (tires !== undefined) doc.tires = tires;
+    if (tires !== undefined) {
+      if (typeof tires === 'string') { try { const p = JSON.parse(tires); doc.tires = Array.isArray(p) ? p : tires; } catch(_) { doc.tires = tires; } } else { doc.tires = tires; }
+    }
     if (forfaitName !== undefined) doc.forfaitName = forfaitName;
     if (chassisNumber !== undefined) doc.chassisNumber = chassisNumber;
     if (immatriculation !== undefined) doc.immatriculation = immatriculation;

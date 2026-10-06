@@ -7637,85 +7637,193 @@ async runZoneHistoryScan() {
     const resolvedStart = startISO || (_metaIsForThisTruck ? _existingMeta.startISO : null);
     const resolvedEnd   = endISO   || (_metaIsForThisTruck ? _existingMeta.endISO   : null);
 
-    // ── Step 3: update metadata in localStorage (BC handler may have already set it) ──
-    // Use any fresh meta that exists, or create minimal one
-    const _existingFresh = _existingMeta && Date.now()-(_existingMeta.ts||0) < 30000;
-    if (_existingFresh) {
-      // Merge: keep exitTime/zoneName from handler, update times if provided
-      try {
-        _existingMeta.startISO = resolvedStart || _existingMeta.startISO;
-        _existingMeta.endISO   = resolvedEnd   || _existingMeta.endISO;
-        localStorage.setItem('fleet_gps_verify_meta', JSON.stringify(_existingMeta));
-      } catch(_) {}
-    } else {
-      try {
-        localStorage.setItem('fleet_gps_verify_meta', JSON.stringify({
-          truckName: name || String(imei),
-          imei:      String(imei),
-          zoneName:  '',
-          exitTime:  null,
-          startISO:  resolvedStart,
-          endISO:    resolvedEnd,
-          ts:        Date.now()
-        }));
-      } catch(_) {}
-    }
-
-    // ── Step 4: build the time range (never show a modal) ──
-    let start, end;
+    // If an exact window is explicitly given (e.g. automated zone-event check), load directly
     if (resolvedStart && resolvedEnd) {
-      // Exact window from zone event — convert UTC ISO → local time string
-      // (API expects local time, ISO strings are UTC — Algeria = UTC+1)
       const fmtLocal = (iso) => {
         const d = new Date(iso);
-        const offsetMs = d.getTimezoneOffset() * 60000; // negative for UTC+1
+        const offsetMs = d.getTimezoneOffset() * 60000;
         const local = new Date(d.getTime() - offsetMs);
         return local.toISOString().slice(0, 16).replace('T', ' ') + ':00';
       };
-      start = fmtLocal(resolvedStart);
-      end   = fmtLocal(resolvedEnd);
-    } else {
-      // Default: today 00:00 → now
-      const pad = (n) => String(n).padStart(2, '0');
-      const now  = new Date();
-      const base = prefillDate ? new Date(prefillDate) : now;
-      start = `${base.getFullYear()}-${pad(base.getMonth()+1)}-${pad(base.getDate())} 00:00:00`;
-      end   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:00`;
-      // (meta will be built in step 5 from _storedMeta or defaults)
-    }
-
-    // ── Step 5: set in-memory recap metadata then go straight to visual history ──
-    // Priority: 1) Already set by window.opener (most fresh, direct injection)
-    //           2) From fleet_gps_verify_meta (set by BC handler)
-    //           3) Fallback with no exitTime
-    const _alreadySet = window._histRecapMeta && window._histRecapMeta.imei === String(imei);
-    if (!_alreadySet) {
-      const _storedMeta = (() => { try { return JSON.parse(localStorage.getItem('fleet_gps_verify_meta') || 'null'); } catch(_) { return null; } })();
-      const _metaFresh = _storedMeta && Date.now()-(_storedMeta.ts||0) < 30000;
+      const start = fmtLocal(resolvedStart);
+      const end   = fmtLocal(resolvedEnd);
       window._histRecapMeta = {
-        truckName: name || (_metaFresh && _storedMeta.truckName) || String(imei),
+        truckName: name || (_existingMeta && _existingMeta.truckName) || String(imei),
         imei:      String(imei),
-        zoneName:  _metaFresh ? (_storedMeta.zoneName || '') : '',
-        exitTime:  _metaFresh ? (_storedMeta.exitTime || null) : null,
+        zoneName:  _existingMeta ? (_existingMeta.zoneName || '') : '',
+        exitTime:  _existingMeta ? (_existingMeta.exitTime || null) : null,
         startISO:  resolvedStart,
         endISO:    resolvedEnd || null
       };
+      this.loadVisualHistory(imei, start, end);
+      return;
     }
-    this.loadVisualHistory(imei, start, end);
+
+    // ── Step 3: Standard user flow -> Show Interactive Date/Time Modal ──
+    const existingModal = document.getElementById('historyModal');
+    if (existingModal) existingModal.remove();
+
+    const truckDisplayName = name || (window.app?.trucks && window.app.trucks[imei]?.name) || String(imei);
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const toLocalDT = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    
+    let defaultStart, defaultEnd;
+    if (prefillDate) {
+      const p = new Date(prefillDate);
+      defaultStart = `${p.getFullYear()}-${pad(p.getMonth()+1)}-${pad(p.getDate())}T00:00`;
+      defaultEnd = `${p.getFullYear()}-${pad(p.getMonth()+1)}-${pad(p.getDate())}T23:59`;
+    } else {
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      defaultStart = toLocalDT(todayStart);
+      defaultEnd = toLocalDT(now);
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'historyModal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(6,10,20,0.8);backdrop-filter:blur(8px);z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn 0.2s ease;';
+
+    modal.innerHTML = `
+      <div style="background:#0f172a;border:1px solid rgba(56,189,248,0.3);border-radius:20px;width:100%;max-width:500px;box-shadow:0 25px 60px rgba(0,0,0,0.7), 0 0 35px rgba(56,189,248,0.2);color:#f8fafc;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;">
+        
+        <!-- Header -->
+        <div style="padding:18px 24px;border-bottom:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,rgba(30,41,59,0.7),rgba(15,23,42,0.9));">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:40px;height:40px;border-radius:11px;background:linear-gradient(135deg,#2563eb,#38bdf8);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(37,99,235,0.4);">
+              <i class="fa-solid fa-clock-rotate-left" style="color:#ffffff;font-size:17px;"></i>
+            </div>
+            <div>
+              <div style="font-size:16px;font-weight:800;letter-spacing:0.3px;">Scanner l'Historique GPS</div>
+              <div style="font-size:12px;color:#94a3b8;margin-top:2px;">
+                Camion: <span style="color:#38bdf8;font-weight:800;">${truckDisplayName}</span> (ID: ${imei})
+              </div>
+            </div>
+          </div>
+          <button type="button" onclick="document.getElementById('historyModal')?.remove()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#94a3b8;width:34px;height:34px;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;" onmouseenter="this.style.background='rgba(239,68,68,0.2)';this.style.color='#f87171'" onmouseleave="this.style.background='rgba(255,255,255,0.06)';this.style.color='#94a3b8'">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding:22px 24px;">
+          <!-- Quick Presets -->
+          <div style="margin-bottom:18px;">
+            <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;">Périodes Rapides</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              <button type="button" class="hist-preset-btn" onclick="ui._setHistPreset('today')" style="background:rgba(56,189,248,0.12);border:1px solid rgba(56,189,248,0.3);color:#38bdf8;font-size:11px;font-weight:700;padding:6px 12px;border-radius:8px;cursor:pointer;">Aujourd'hui</button>
+              <button type="button" class="hist-preset-btn" onclick="ui._setHistPreset('yesterday')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#cbd5e1;font-size:11px;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer;">Hier</button>
+              <button type="button" class="hist-preset-btn" onclick="ui._setHistPreset('last24h')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#cbd5e1;font-size:11px;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer;">Dernières 24h</button>
+              <button type="button" class="hist-preset-btn" onclick="ui._setHistPreset('last48h')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#cbd5e1;font-size:11px;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer;">Dernières 48h</button>
+              <button type="button" class="hist-preset-btn" onclick="ui._setHistPreset('last7d')" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#cbd5e1;font-size:11px;font-weight:600;padding:6px 12px;border-radius:8px;cursor:pointer;">7 Derniers Jours</button>
+            </div>
+          </div>
+
+          <!-- Date/Time Inputs -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px;">
+            <div>
+              <label style="display:block;font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:6px;">
+                <i class="fa-regular fa-calendar-plus" style="color:#4ade80;margin-right:4px;"></i> Date & Heure Début
+              </label>
+              <input type="datetime-local" id="histStart" value="${defaultStart}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid rgba(255,255,255,0.15);color:#ffffff;border-radius:9px;padding:10px 12px;font-size:13px;outline:none;" onfocus="this.style.borderColor='#38bdf8'" onblur="this.style.borderColor='rgba(255,255,255,0.15)'">
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;font-weight:700;color:#94a3b8;margin-bottom:6px;">
+                <i class="fa-regular fa-calendar-check" style="color:#f87171;margin-right:4px;"></i> Date & Heure Fin
+              </label>
+              <input type="datetime-local" id="histEnd" value="${defaultEnd}" style="width:100%;box-sizing:border-box;background:#1e293b;border:1px solid rgba(255,255,255,0.15);color:#ffffff;border-radius:9px;padding:10px 12px;font-size:13px;outline:none;" onfocus="this.style.borderColor='#38bdf8'" onblur="this.style.borderColor='rgba(255,255,255,0.15)'">
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div style="display:flex;gap:10px;">
+            <button type="button" onclick="document.getElementById('historyModal')?.remove()" style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#94a3b8;padding:12px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;">
+              Annuler
+            </button>
+            <button type="button" onclick="ui.submitHistory('${imei}', '${truckDisplayName.replace(/'/g, "\\'")}')" style="flex:2;background:linear-gradient(135deg,#0284c7,#2563eb);border:none;color:#ffffff;padding:12px;border-radius:10px;font-weight:800;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(37,99,235,0.4);">
+              <i class="fa-solid fa-satellite-dish"></i> Lancer le Scan GPS
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+  }
+
+  _setHistPreset(preset) {
+    const startEl = document.getElementById('histStart');
+    const endEl = document.getElementById('histEnd');
+    if (!startEl || !endEl) return;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const toLocalISO = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    if (preset === 'today') {
+      const s = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      startEl.value = toLocalISO(s);
+      endEl.value = toLocalISO(now);
+    } else if (preset === 'yesterday') {
+      const yStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 0, 0);
+      const yEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 23, 59, 59);
+      startEl.value = toLocalISO(yStart);
+      endEl.value = toLocalISO(yEnd);
+    } else if (preset === 'last24h') {
+      const s = new Date(now.getTime() - 24 * 3600 * 1000);
+      startEl.value = toLocalISO(s);
+      endEl.value = toLocalISO(now);
+    } else if (preset === 'last48h') {
+      const s = new Date(now.getTime() - 48 * 3600 * 1000);
+      startEl.value = toLocalISO(s);
+      endEl.value = toLocalISO(now);
+    } else if (preset === 'last7d') {
+      const s = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+      startEl.value = toLocalISO(s);
+      endEl.value = toLocalISO(now);
+    }
+
+    document.querySelectorAll('.hist-preset-btn').forEach(b => {
+      b.style.background = 'rgba(255,255,255,0.05)';
+      b.style.borderColor = 'rgba(255,255,255,0.1)';
+      b.style.color = '#cbd5e1';
+    });
+    if (typeof event !== 'undefined' && event && event.target) {
+      event.target.style.background = 'rgba(56,189,248,0.15)';
+      event.target.style.borderColor = 'rgba(56,189,248,0.35)';
+      event.target.style.color = '#38bdf8';
+    }
   }
 
   // --- SUBMIT ACTION ---
-  submitHistory(imei) {
-      const start = document.getElementById('histStart').value;
-      const end = document.getElementById('histEnd').value;
+  submitHistory(imei, name) {
+      const startInp = document.getElementById('histStart');
+      const endInp = document.getElementById('histEnd');
+      if (!startInp || !endInp) return;
+      const startVal = startInp.value;
+      const endVal = endInp.value;
       
-      if(!start || !end) { alert("Veuillez remplir les dates."); return; }
+      if (!startVal || !endVal) { alert("Veuillez remplir les dates de début et de fin."); return; }
       
-      // Convert to API format (YYYY-MM-DD HH:mm:ss)
-      const fmt = (iso) => iso.replace('T', ' ') + ':00';
+      const fmt = (iso) => {
+        let s = iso.replace('T', ' ');
+        if (s.length === 16) s += ':00';
+        return s;
+      };
+
+      const start = fmt(startVal);
+      const end = fmt(endVal);
+      const truckName = name || (window.app?.trucks && window.app.trucks[imei]?.name) || String(imei);
+
+      window._histRecapMeta = {
+        truckName: truckName,
+        imei:      String(imei),
+        zoneName:  '',
+        exitTime:  null,
+        startISO:  new Date(startVal).toISOString(),
+        endISO:    new Date(endVal).toISOString()
+      };
       
-      this.loadVisualHistory(imei, fmt(start), fmt(end));
-      document.getElementById('historyModal').remove();
+      document.getElementById('historyModal')?.remove();
+      this.loadVisualHistory(imei, start, end);
   }
 
 // --- UPDATED LOADING LOGIC (Stats + Date + Counters) ---
@@ -7750,6 +7858,8 @@ async runZoneHistoryScan() {
               _errToast.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f87171;"></i> Aucun historique GPS trouvé pour cette période.';
               document.body.appendChild(_errToast);
               setTimeout(() => _errToast.remove(), 4000);
+              const targetTruckName = window._histRecapMeta?.truckName || (window.app?.trucks && window.app.trucks[imei]?.name) || imei;
+              setTimeout(() => { this.openHistoryModal(imei, targetTruckName); }, 400);
               return;
           }
 
@@ -8171,13 +8281,18 @@ async runZoneHistoryScan() {
                       <div class="hs-sc"><div class="hs-sv" style="color:#34d399;">${_maxSpd}<span style="font-size:10px;font-weight:400"> km/h</span></div><div class="hs-sl">Vit.Max</div></div>
                     </div>
                     ${exactDecouchages.length > 0 ? '<div style="background:rgba(239,68,68,.09);border:1px solid rgba(239,68,68,.2);border-radius:10px;padding:6px 12px;font-size:11px;color:#f87171;font-weight:700;margin-bottom:10px;">🌙 ' + exactDecouchages.length + ' découchage' + (exactDecouchages.length>1?'s':'') + ' détecté' + (exactDecouchages.length>1?'s':'') + '</div>' : ''}
-                    <div class="hs-footer">
-                      <button class="hs-btn" onclick="if(window.AlgeriaMap)window.AlgeriaMap.clearHistory();document.getElementById('histSidebar')?.remove();document.getElementById('histSidebarStyles')?.remove();">
-                        <i class="fa-solid fa-xmark"></i> Fermer &amp; Restaurer la carte
+                    <div class="hs-footer" style="flex-direction:column;gap:8px;">
+                      <button class="hs-btn" style="background:linear-gradient(135deg,#0284c7,#2563eb);color:#fff;border:none;box-shadow:0 3px 12px rgba(37,99,235,0.35);width:100%;padding:10px;font-weight:800;cursor:pointer;" onclick="window.ui.openHistoryModal('${imei}', '${(_truckObj?.name || truckName || imei).replace(/'/g, "\\\'")}');">
+                        <i class="fa-solid fa-calendar-days"></i> Changer la période / Nouveau Scan
                       </button>
-                      <div class="hs-cd">
-                        <div class="hs-cd-val" id="hsFixerCd">--:--</div>
-                        <div class="hs-cd-lbl">🔧 Prochain Fix</div>
+                      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;">
+                        <button class="hs-btn" style="flex:1;" onclick="if(window.AlgeriaMap)window.AlgeriaMap.clearHistory();document.getElementById('histSidebar')?.remove();document.getElementById('histSidebarStyles')?.remove();">
+                          <i class="fa-solid fa-xmark"></i> Fermer &amp; Restaurer
+                        </button>
+                        <div class="hs-cd">
+                          <div class="hs-cd-val" id="hsFixerCd">--:--</div>
+                          <div class="hs-cd-lbl">🔧 Prochain Fix</div>
+                        </div>
                       </div>
                     </div>
                     <div style="text-align:center;margin-top:8px;font-size:9px;color:#1e293b;">🛰️ ${points.length} points GPS analysés</div>
@@ -13623,8 +13738,23 @@ exportMaintenanceCSV() {
             dateEl.value = d.toISOString().slice(0, 16);
           }
         }
+        if (entryData.tires) {
+          let tList = Array.isArray(entryData.tires) ? entryData.tires : [];
+          if (!tList.length && typeof entryData.tires === 'string') {
+            try { tList = JSON.parse(entryData.tires); } catch(_) { tList = entryData.tires.split(',').map(s=>s.trim()).filter(Boolean); }
+          }
+          if (Array.isArray(tList)) {
+            document.querySelectorAll('.mark').forEach(m => { m.classList.remove('on'); m.style.display = 'none'; });
+            tList.forEach(tId => {
+              const el = document.getElementById(tId);
+              if (el) { el.classList.add('on'); el.style.display = 'block'; }
+            });
+          }
+        }
       });
     } else {
+      // Reset all tire marks
+      document.querySelectorAll('.mark').forEach(m => { m.classList.remove('on'); m.style.display = 'none'; });
       // ── NEW mode: openNewMaintenanceOrder handles everything ─────
       this._editingMaintenanceId = null;
       const t = document.getElementById('modalMaintTitle');
@@ -13817,7 +13947,9 @@ exportMaintenanceCSV() {
       // Collect tire marks
       const tires = [];
       document.querySelectorAll('.mark').forEach(m => {
-        if (m.style.display !== 'none') tires.push(m.id);
+        if (m.classList.contains('on') || (m.style.display && m.style.display === 'block')) {
+          if (m.id) tires.push(m.id);
+        }
       });
 
       const body = {
