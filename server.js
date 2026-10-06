@@ -993,57 +993,93 @@ function smoothFuelSeriesPoints(points, windowSize = 3, maxFuelLevel = null) {
 
     const size = Math.max(1, parseInt(windowSize, 10) || 1);
     const radius = Math.max(0, Math.floor(size / 2));
+    const MAX_SMOOTH_GAP_MS = 3 * 60 * 1000;
+    const MAX_STEP_NOISE_LITERS = 35;
 
     return safe.map((point, idx) => {
-        const start = Math.max(0, idx - radius);
-        const end = Math.min(safe.length - 1, idx + radius);
-        const neighbors = [];
-        for (let i = start; i <= end; i += 1) neighbors.push(safe[i].liters);
-        return { ...point, litersSmooth: medianForNumbers(neighbors) };
+        const neighbors = [point.liters];
+        for (let b = 1; b <= radius; b += 1) {
+            const prev = safe[idx - b];
+            if (!prev || Math.abs(point.time - prev.time) > (b * MAX_SMOOTH_GAP_MS)) break;
+            if (Math.abs(prev.liters - point.liters) > MAX_STEP_NOISE_LITERS) break;
+            neighbors.push(prev.liters);
+        }
+        for (let f = 1; f <= radius; f += 1) {
+            const nxt = safe[idx + f];
+            if (!nxt || Math.abs(nxt.time - point.time) > (f * MAX_SMOOTH_GAP_MS)) break;
+            if (Math.abs(nxt.liters - point.liters) > MAX_STEP_NOISE_LITERS) break;
+            neighbors.push(nxt.liters);
+        }
+        return { ...point, litersSmooth: Math.round(medianForNumbers(neighbors) * 10) / 10 };
     });
 }
 
-// ✅ FIX: Stricter merge to prevent duplication
-// Old code merged too aggressively (overlapping time windows + loose level tolerance)
-// New code: requires BOTH time AND level proximity, and uses tighter overlap check
-function mergeRefillEvents(events, dedupeMs = 0, levelTolerance = 10) {
+function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
+    if (!Number.isFinite(lat1) || !Number.isFinite(lon1) || !Number.isFinite(lat2) || !Number.isFinite(lon2)) return 0;
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+}
+
+function mergeRefillEvents(events, dedupeMs = 30 * 60 * 1000, dedupeDistanceMeters = 400) {
     const sorted = (Array.isArray(events) ? events : [])
         .filter(Boolean)
         .sort((a, b) => (a.time || 0) - (b.time || 0));
 
     if (!sorted.length) return [];
 
+    const effectiveDedupeMs = Math.max(10 * 60 * 1000, (parseFloat(dedupeMs) || 30 * 60 * 1000));
+    const effectiveDedupeDist = (typeof dedupeDistanceMeters === 'number' && dedupeDistanceMeters > 0) ? dedupeDistanceMeters : 400;
+
     const merged = [sorted[0]];
     for (let i = 1; i < sorted.length; i += 1) {
         const prev = merged[merged.length - 1];
         const cur = sorted[i];
+
+        const prevStart = prev.startTimeMs || prev.time || 0;
+        const prevEnd = prev.endTimeMs || prev.time || 0;
+        const curStart = cur.startTimeMs || cur.time || 0;
+        const curEnd = cur.endTimeMs || cur.time || 0;
+
         const timeDiff = Math.abs((cur.time || 0) - (prev.time || 0));
+        const windowsOverlapOrClose = effectiveDedupeMs > 0 && (
+            timeDiff <= effectiveDedupeMs ||
+            curStart <= (prevEnd + effectiveDedupeMs) ||
+            Math.abs(curStart - prevStart) <= effectiveDedupeMs
+        );
 
-        // ✅ FIX: Only merge if STRICTLY close in time (direct time comparison, not window overlap)
-        const closeInTime = dedupeMs > 0 && timeDiff <= dedupeMs;
+        let closeInDistance = false;
+        if (Number.isFinite(prev.lat) && Number.isFinite(prev.lng) && Number.isFinite(cur.lat) && Number.isFinite(cur.lng)) {
+            const dist = haversineDistanceMeters(prev.lat, prev.lng, cur.lat, cur.lng);
+            if (dist <= effectiveDedupeDist) {
+                closeInDistance = true;
+            }
+        }
 
-        // ✅ FIX: Tighter level check — both old AND new levels must be similar
-        const newLevelClose = Math.abs((cur.newLevel || 0) - (prev.newLevel || 0)) <= levelTolerance;
-        const oldLevelClose = Math.abs((cur.oldLevel || 0) - (prev.oldLevel || 0)) <= levelTolerance;
-        const crossLevelClose = Math.abs((cur.oldLevel || 0) - (prev.newLevel || 0)) <= (levelTolerance * 0.6);
-        const closeInLevel = (newLevelClose && oldLevelClose) || crossLevelClose;
+        if (windowsOverlapOrClose || (closeInDistance && timeDiff <= (effectiveDedupeMs * 2))) {
+            const oldLevel = Math.min(prev.oldLevel ?? prev.litersSmooth ?? 0, cur.oldLevel ?? cur.litersSmooth ?? 0);
+            const newLevel = Math.max(prev.newLevel ?? prev.litersSmooth ?? 0, cur.newLevel ?? cur.litersSmooth ?? 0);
+            const addedLiters = Math.round(newLevel - oldLevel);
+            const prevConf = parseFloat(prev.confidence) || 0.85;
+            const curConf = parseFloat(cur.confidence) || 0.85;
 
-        if (closeInTime && closeInLevel) {
-            // Merge: keep the one with higher confidence
-            const prevConf = parseFloat(prev.confidence) || 0;
-            const curConf = parseFloat(cur.confidence) || 0;
-            const oldLevel = Math.min(prev.oldLevel || 0, cur.oldLevel || 0);
-            const newLevel = Math.max(prev.newLevel || 0, cur.newLevel || 0);
-            const winner = curConf > prevConf ? cur : prev;
             merged[merged.length - 1] = {
-                ...winner,
-                startTimeMs: Math.min(prev.startTimeMs || prev.time || 0, cur.startTimeMs || cur.time || 0),
-                endTimeMs: Math.max(prev.endTimeMs || prev.time || 0, cur.endTimeMs || cur.time || 0),
-                time: winner.time,
+                ...prev,
+                ...cur,
+                startTimeMs: Math.min(prevStart, curStart),
+                endTimeMs: Math.max(prevEnd, curEnd),
+                time: Math.min(prev.time || 0, cur.time || 0),
+                lat: Number.isFinite(cur.lat) ? cur.lat : prev.lat,
+                lng: Number.isFinite(cur.lng) ? cur.lng : prev.lng,
                 oldLevel: Math.round(oldLevel),
                 newLevel: Math.round(newLevel),
-                addedLiters: Math.round(newLevel - oldLevel),
-                confidence: Math.max(prevConf, curConf)
+                addedLiters: addedLiters,
+                confidence: Math.round(Math.max(prevConf, curConf) * 100) / 100,
+                durationMin: Math.max(1, Math.round((Math.max(prevEnd, curEnd) - Math.min(prevStart, curStart)) / 60000)),
+                detectionMode: prev.detectionMode === cur.detectionMode ? prev.detectionMode : 'consolidated'
             };
         } else {
             merged.push(cur);
@@ -1058,7 +1094,7 @@ function calculateClusterSpreadMeters(points) {
     let maxMeters = 0;
     for (let i = 0; i < safe.length; i += 1) {
         for (let j = i + 1; j < safe.length; j += 1) {
-            const meters = calculateDistance(safe[i].lat, safe[i].lng, safe[j].lat, safe[j].lng);
+            const meters = haversineDistanceMeters(safe[i].lat, safe[i].lng, safe[j].lat, safe[j].lng);
             if (Number.isFinite(meters) && meters > maxMeters) maxMeters = meters;
         }
     }
@@ -1070,235 +1106,154 @@ function detectRefillEventsFromSeries(points, options = {}) {
     const maxParsed = parseFloat(options.maxRealisticRefillLiters);
     const maxRealisticRefillLiters = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
     const stopSpeedThreshold = parseFloat(options.stopSpeedThreshold ?? 4) || 4;
-    const minStopMs = Math.max(60 * 1000, (parseFloat(options.minStopMinutes ?? options.minOffMinutes ?? 2) || 2) * 60 * 1000);
-    const stableAfterMs = Math.max(60 * 1000, (parseFloat(options.stableAfterIncreaseMinutes ?? 3) || 3) * 60 * 1000);
-    const dedupeMs = Math.max(0, (parseFloat(options.dedupeMinutes ?? 20) || 0) * 60 * 1000);
-    const dedupeLitersTolerance = parseFloat(options.dedupeLitersTolerance ?? 12) || 12;
-    const settleToleranceLiters = parseFloat(options.settleToleranceLiters ?? dedupeLitersTolerance ?? 6) || 6;
+    const dedupeMinutes = parseFloat(options.dedupeMinutes ?? 30) || 30;
+    const dedupeMs = Math.max(10 * 60 * 1000, dedupeMinutes * 60 * 1000);
+    const dedupeDistanceMeters = parseFloat(options.dedupeDistanceMeters ?? 400) || 400;
+    const maxStationarySpreadMeters = Math.max(150, parseFloat(options.maxStationarySpreadMeters ?? 500) || 500);
     const sensorSmoothingWindow = Math.max(1, parseInt(options.sensorSmoothingWindow ?? 5, 10) || 5);
     const requireIgnOff = options.requireIgnOff === true || options.requireEngineOff === true;
-    const baselineWindowMs = Math.max(2 * 60 * 1000, (parseFloat(options.baselineWindowMinutes ?? 20) || 20) * 60 * 1000);
-    const plateauWindowMs = Math.max(stableAfterMs, (parseFloat(options.plateauWindowMinutes ?? 15) || 15) * 60 * 1000);
-    const maxRiseMs = Math.max(5 * 60 * 1000, (parseFloat(options.maxRiseMinutes ?? 180) || 180) * 60 * 1000);
-    const maxStationarySpreadMeters = Math.max(100, parseFloat(options.maxStationarySpreadMeters ?? 650) || 650);
 
     const prepared = smoothFuelSeriesPoints(points, sensorSmoothingWindow, maxRealisticRefillLiters);
-    if (prepared.length < 3) return [];
+    if (prepared.length < 2) return [];
 
     prepared.forEach((point) => {
-        point.isStopLike = point.speed <= stopSpeedThreshold && (!requireIgnOff || point.ign !== 1);
+        point.isStopLike = (point.speed <= stopSpeedThreshold) && (!requireIgnOff || point.ign !== 1);
     });
 
-    const events = [];
-    const softMinRefuelLiters = Math.max(20, Math.round(minRefuelLiters * 0.75));
-    const stepTriggerLiters = Math.max(2, Math.min(8, minRefuelLiters * 0.08));
-    const riseThresholdLiters = Math.max(stepTriggerLiters * 2, Math.min(12, Math.max(8, minRefuelLiters * 0.2)));
-    const negativeNoiseTolerance = Math.max(2, Math.min(settleToleranceLiters, minRefuelLiters * 0.12));
-    const plateauSpreadMax = Math.max(4, settleToleranceLiters * 1.25);
+    const candidateEvents = [];
 
-    let segStart = 0;
-    while (segStart < prepared.length) {
-        if (!prepared[segStart].isStopLike) {
-            segStart += 1;
+    const getSpatialDispersion = (pts) => {
+        const valid = pts.filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lng));
+        if (valid.length < 2) return 0;
+        let maxDist = 0;
+        for (let a = 0; a < valid.length; a += 1) {
+            for (let b = a + 1; b < valid.length; b += 1) {
+                const d = haversineDistanceMeters(valid[a].lat, valid[a].lng, valid[b].lat, valid[b].lng);
+                if (d > maxDist) maxDist = d;
+            }
+        }
+        return maxDist;
+    };
+
+    const checkPersistence = (fromIdx, eventTime, minLevel) => {
+        const horizonMs = 20 * 60 * 1000;
+        const windowPoints = [];
+        for (let k = fromIdx; k < prepared.length; k += 1) {
+            if (prepared[k].time > (eventTime + horizonMs)) break;
+            windowPoints.push(prepared[k]);
+        }
+        if (windowPoints.length === 0) return true;
+        const valid = windowPoints.map((p) => p.litersSmooth);
+        const med = medianForNumbers(valid);
+        return med >= (minLevel - 15);
+    };
+
+    // 1. Stationary / Stop Analysis (vehicle halted at station)
+    let s = 0;
+    while (s < prepared.length) {
+        if (!prepared[s].isStopLike) {
+            s += 1;
             continue;
         }
 
-        let segEnd = segStart;
-        while (segEnd + 1 < prepared.length && prepared[segEnd + 1].isStopLike) segEnd += 1;
+        let e = s;
+        while (e + 1 < prepared.length && prepared[e + 1].isStopLike) {
+            e += 1;
+        }
 
-        const segment = prepared.slice(segStart, segEnd + 1);
-        const durationMs = (segment[segment.length - 1].time || 0) - (segment[0].time || 0);
+        const segment = prepared.slice(s, e + 1);
+        if (segment.length >= 2) {
+            const earlyPoints = segment.slice(0, Math.min(4, Math.max(1, Math.floor(segment.length / 3))));
+            const earlyLiters = earlyPoints.map((p) => p.litersSmooth);
+            const baseline = Math.min(...earlyLiters);
+            const baseIdx = earlyPoints.reduce((best, p, idx) => (p.litersSmooth <= earlyLiters[best] ? idx : best), 0);
 
-        if (segment.length >= 3 && durationMs >= minStopMs) {
-            let i = 1;
-            while (i < segment.length) {
-                const firstDelta = (segment[i].litersSmooth || 0) - (segment[i - 1].litersSmooth || 0);
-                if (firstDelta < stepTriggerLiters) {
-                    i += 1;
-                    continue;
+            let maxLiters = -1;
+            let peakIdxInSeg = -1;
+            for (let k = baseIdx; k < segment.length; k += 1) {
+                if (segment[k].litersSmooth > maxLiters) {
+                    maxLiters = segment[k].litersSmooth;
+                    peakIdxInSeg = k;
                 }
+            }
 
-                const startIdx = Math.max(0, i - 1);
-                let j = i;
-                let peakIdx = i;
-                let positiveSteps = 0;
-                let negativeSteps = 0;
+            if (peakIdxInSeg >= 0) {
+                const latePoints = segment.slice(peakIdxInSeg, Math.min(segment.length, peakIdxInSeg + 5));
+                const plateau = medianForNumbers(latePoints.map((p) => p.litersSmooth));
+                const netRise = plateau - baseline;
 
-                while (j < segment.length) {
-                    const delta = (segment[j].litersSmooth || 0) - (segment[j - 1].litersSmooth || 0);
-                    const elapsed = (segment[j].time || 0) - (segment[startIdx].time || 0);
-                    if (elapsed > maxRiseMs) break;
-                    if (delta < -negativeNoiseTolerance) break;
-                    if (delta > 0.5) positiveSteps += 1;
-                    if (delta < -0.5) negativeSteps += 1;
-                    if ((segment[j].litersSmooth || 0) >= (segment[peakIdx].litersSmooth || 0)) peakIdx = j;
-                    j += 1;
+                if (netRise >= minRefuelLiters && netRise <= maxRealisticRefillLiters) {
+                    const startPt = segment[baseIdx];
+                    const endPt = segment[peakIdxInSeg];
+                    const dispersion = getSpatialDispersion(segment.slice(baseIdx, peakIdxInSeg + 1));
+                    const globalEndIdx = s + peakIdxInSeg;
+                    const isPersistent = checkPersistence(globalEndIdx + 1, endPt.time, plateau - (netRise * 0.25));
+
+                    if (dispersion <= maxStationarySpreadMeters && isPersistent) {
+                        candidateEvents.push({
+                            index: endPt.index,
+                            time: endPt.time,
+                            startTimeMs: startPt.time,
+                            endTimeMs: endPt.time,
+                            lat: endPt.lat,
+                            lng: endPt.lng,
+                            addedLiters: Math.round(netRise),
+                            oldLevel: Math.round(baseline),
+                            newLevel: Math.round(plateau),
+                            speed: endPt.speed,
+                            ign: endPt.ign,
+                            confidence: 0.96,
+                            durationMin: Math.max(1, Math.round((endPt.time - startPt.time) / 60000)),
+                            detectionMode: 'stationary-stop'
+                        });
+                    }
                 }
-
-                const peakPoint = segment[peakIdx];
-                const baselineCandidates = segment.filter((point, idx) => idx <= startIdx && point.time >= ((segment[startIdx].time || 0) - baselineWindowMs));
-                const baselinePoints = baselineCandidates.length ? baselineCandidates : segment.slice(Math.max(0, startIdx - 2), startIdx + 1);
-                const baselineValues = baselinePoints.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
-                const baseline = baselineValues.length
-                    ? Math.min(medianForNumbers(baselineValues), ...baselineValues)
-                    : (segment[startIdx].litersSmooth || 0);
-
-                const riseAtPeak = (peakPoint.litersSmooth || 0) - baseline;
-                if (riseAtPeak < riseThresholdLiters) {
-                    i = Math.max(i + 1, peakIdx + 1);
-                    continue;
-                }
-
-                const plateauCandidates = segment.filter((point, idx) => idx >= peakIdx && point.time <= ((peakPoint.time || 0) + plateauWindowMs));
-                const plateauPoints = plateauCandidates.length >= 2
-                    ? plateauCandidates.slice(0, Math.min(4, plateauCandidates.length))
-                    : segment.slice(peakIdx, Math.min(segment.length, peakIdx + 3));
-                const plateauValues = plateauPoints.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
-                const plateau = plateauValues.length ? medianForNumbers(plateauValues) : (peakPoint.litersSmooth || 0);
-                const plateauSpread = plateauValues.length ? (Math.max(...plateauValues) - Math.min(...plateauValues)) : 0;
-                const rise = plateau - baseline;
-                const riseDurationMs = Math.max(0, (peakPoint.time || 0) - (segment[startIdx].time || 0));
-                const clusterPoints = segment.slice(startIdx, Math.min(segment.length, peakIdx + Math.max(plateauPoints.length, 2)));
-                const locationSpreadMeters = calculateClusterSpreadMeters(clusterPoints);
-                const maxSpeedDuringCluster = clusterPoints.reduce((max, point) => Math.max(max, point.speed || 0), 0);
-                const plateauStable = plateauSpread <= plateauSpreadMax;
-
-                const qualityChecks = [
-                    rise >= minRefuelLiters && rise <= maxRealisticRefillLiters,
-                    riseDurationMs >= 60 * 1000 && riseDurationMs <= maxRiseMs,
-                    plateauStable,
-                    locationSpreadMeters <= maxStationarySpreadMeters,
-                    maxSpeedDuringCluster <= (stopSpeedThreshold + 3),
-                    positiveSteps >= 2 && negativeSteps <= Math.max(2, positiveSteps)
-                ];
-                const confidence = qualityChecks.filter(Boolean).length / qualityChecks.length;
-
-                if (qualityChecks[0] && qualityChecks[1] && plateauStable && (confidence >= 0.66 || rise >= (minRefuelLiters * 1.35))) {
-                    events.push({
-                        index: peakPoint.index,
-                        time: peakPoint.time,
-                        startTimeMs: segment[startIdx].time,
-                        endTimeMs: plateauPoints.length ? plateauPoints[plateauPoints.length - 1].time : peakPoint.time,
-                        lat: peakPoint.lat,
-                        lng: peakPoint.lng,
-                        addedLiters: Math.round(rise),
-                        oldLevel: Math.round(baseline),
-                        newLevel: Math.round(plateau),
-                        speed: peakPoint.speed,
-                        ign: peakPoint.ign,
-                        confidence: Math.round(confidence * 100) / 100,
-                        detectionMode: 'stopped-ramp'
-                    });
-                }
-
-                i = Math.max(i + 1, peakIdx + 1);
             }
         }
-
-        segStart = segEnd + 1;
+        s = e + 1;
     }
 
-    for (let i = 1; i < prepared.length - 1; i += 1) {
-        const prev = prepared[i - 1];
-        const cur = prepared[i];
-        const next = prepared[i + 1];
-        const stopishCount = [prev, cur, next].filter((point) => point.isStopLike).length;
-        const gapMs = (next.time || 0) - (prev.time || 0);
-        const afterValues = [cur.litersSmooth, next.litersSmooth];
-        if (prepared[i + 2]) afterValues.push(prepared[i + 2].litersSmooth);
-        const postStable = medianForNumbers(afterValues);
-        const plateauSpread = afterValues.length ? (Math.max(...afterValues) - Math.min(...afterValues)) : 0;
-        const netRise = postStable - prev.litersSmooth;
-        const locationSpreadMeters = calculateClusterSpreadMeters([prev, cur, next, prepared[i + 2]].filter(Boolean));
-        const maxSpeedDuringCluster = Math.max(prev.speed || 0, cur.speed || 0, next.speed || 0, (prepared[i + 2] && prepared[i + 2].speed) || 0);
+    // 2. Sleep Gap / Ignition-Off Step Refill (tracker wakes up after station stop)
+    for (let i = 0; i < prepared.length - 1; i += 1) {
+        const ptA = prepared[i];
+        const ptB = prepared[i + 1];
+        const deltaMs = ptB.time - ptA.time;
+        const rise = ptB.litersSmooth - ptA.litersSmooth;
 
-        if (
-            stopishCount >= 1 &&
-            gapMs >= 60 * 1000 &&
-            gapMs <= maxRiseMs &&
-            netRise >= minRefuelLiters &&
-            netRise <= maxRealisticRefillLiters &&
-            plateauSpread <= (plateauSpreadMax + 2) &&
-            locationSpreadMeters <= (maxStationarySpreadMeters * 1.35) &&
-            maxSpeedDuringCluster <= (stopSpeedThreshold + 8)
-        ) {
-            events.push({
-                index: cur.index,
-                time: cur.time,
-                startTimeMs: prev.time,
-                endTimeMs: next.time,
-                lat: cur.lat,
-                lng: cur.lng,
-                addedLiters: Math.round(netRise),
-                oldLevel: Math.round(prev.litersSmooth),
-                newLevel: Math.round(postStable),
-                speed: cur.speed,
-                ign: cur.ign,
-                confidence: stopishCount >= 2 ? 0.76 : 0.68,
-                detectionMode: stopishCount >= 2 ? 'sparse-window' : 'sparse-jump'
-            });
+        if (rise >= minRefuelLiters && rise <= maxRealisticRefillLiters) {
+            const dist = (Number.isFinite(ptA.lat) && Number.isFinite(ptB.lat))
+                ? haversineDistanceMeters(ptA.lat, ptA.lng, ptB.lat, ptB.lng)
+                : 0;
+            const bothSlowOrGap = (ptA.speed <= (stopSpeedThreshold + 2) || ptB.speed <= (stopSpeedThreshold + 2) || deltaMs >= 120000);
+            const isPersistent = checkPersistence(i + 1, ptB.time, ptB.litersSmooth - (rise * 0.25));
+
+            if (dist <= maxStationarySpreadMeters && bothSlowOrGap && isPersistent) {
+                candidateEvents.push({
+                    index: ptB.index,
+                    time: ptB.time,
+                    startTimeMs: ptA.time,
+                    endTimeMs: ptB.time,
+                    lat: ptB.lat || ptA.lat,
+                    lng: ptB.lng || ptA.lng,
+                    addedLiters: Math.round(rise),
+                    oldLevel: Math.round(ptA.litersSmooth),
+                    newLevel: Math.round(ptB.litersSmooth),
+                    speed: ptB.speed,
+                    ign: ptB.ign,
+                    confidence: 0.92,
+                    durationMin: Math.max(1, Math.round(deltaMs / 60000)),
+                    detectionMode: 'ignition-gap'
+                });
+            }
         }
     }
 
-    for (let i = 1; i < prepared.length - 2; i += 1) {
-        const beforeWindow = prepared.slice(Math.max(0, i - 2), i + 1);
-        const afterWindow = prepared.slice(i + 1, Math.min(prepared.length, i + 5));
-        if (afterWindow.length < 2) continue;
-        const baselineValues = beforeWindow.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
-        const afterValues = afterWindow.map((point) => point.litersSmooth).filter((value) => Number.isFinite(value));
-        if (!baselineValues.length || !afterValues.length) continue;
+    // 3. Master Consolidation & Deduplication (30 min / 400m window)
+    const consolidated = mergeRefillEvents(candidateEvents, dedupeMs, dedupeDistanceMeters);
 
-        const baseline = Math.min(medianForNumbers(baselineValues), ...baselineValues);
-        const postStable = medianForNumbers(afterValues);
-        const rise = postStable - baseline;
-        const postSpread = Math.max(...afterValues) - Math.min(...afterValues);
-        const clusterPoints = beforeWindow.concat(afterWindow);
-        const stopishCount = clusterPoints.filter((point) => point.isStopLike).length;
-        const speedMax = clusterPoints.reduce((max, point) => Math.max(max, point.speed || 0), 0);
-        const locationSpreadMeters = calculateClusterSpreadMeters(clusterPoints);
-        const durationMs = (afterWindow[afterWindow.length - 1].time || 0) - (beforeWindow[0].time || 0);
-        const sustainedCount = afterWindow.filter((point) => Math.abs((point.litersSmooth || 0) - postStable) <= Math.max(plateauSpreadMax + 2, settleToleranceLiters + 2)).length;
-        const candidatePoint = afterWindow.reduce((best, point) => ((point.litersSmooth || 0) > (best.litersSmooth || 0) ? point : best), afterWindow[0]);
-
-        if (
-            durationMs >= 60 * 1000 &&
-            durationMs <= (maxRiseMs * 1.25) &&
-            rise >= Math.max(minRefuelLiters, softMinRefuelLiters) &&
-            rise <= maxRealisticRefillLiters &&
-            postSpread <= (plateauSpreadMax + 3) &&
-            sustainedCount >= 2 &&
-            locationSpreadMeters <= (maxStationarySpreadMeters * 1.5) &&
-            speedMax <= (stopSpeedThreshold + 10)
-        ) {
-            let confidence = 0.62;
-            if (stopishCount >= 2) confidence += 0.1;
-            if (postSpread <= plateauSpreadMax) confidence += 0.06;
-            if (speedMax <= (stopSpeedThreshold + 2)) confidence += 0.06;
-            events.push({
-                index: candidatePoint.index,
-                time: candidatePoint.time,
-                startTimeMs: beforeWindow[0].time,
-                endTimeMs: afterWindow[afterWindow.length - 1].time,
-                lat: candidatePoint.lat,
-                lng: candidatePoint.lng,
-                addedLiters: Math.round(rise),
-                oldLevel: Math.round(baseline),
-                newLevel: Math.round(postStable),
-                speed: candidatePoint.speed,
-                ign: candidatePoint.ign,
-                confidence: Math.round(Math.min(0.86, confidence) * 100) / 100,
-                detectionMode: 'jump-hold'
-            });
-        }
-    }
-
-    return mergeRefillEvents(events, dedupeMs, dedupeLitersTolerance).filter((event) => {
-        const added = parseFloat(event.addedLiters);
-        const confidence = parseFloat(event.confidence);
-        return Number.isFinite(added) &&
-            added >= minRefuelLiters &&
-            added <= maxRealisticRefillLiters &&
-            (!Number.isFinite(confidence) || confidence >= 0.56 || added >= Math.round(minRefuelLiters * 1.15));
+    return consolidated.filter((evt) => {
+        const added = parseFloat(evt.addedLiters);
+        return Number.isFinite(added) && added >= minRefuelLiters && added <= maxRealisticRefillLiters;
     });
 }
 

@@ -430,43 +430,163 @@ filterMap: function(type, btnElement) {
     this.updateMarkers(this.truckDataCache);
 },
 addRefillMarkers: function(refills) {
-    if (!this.map) return;
-    refills.forEach(refill => {
-        // 1. Create Icon (Green Pump)
+    if (!this.map || !Array.isArray(refills)) return;
+
+    // ── 1. Safety Deduplication Guard ─────────────────────────────
+    // Consolidates any refill events within 400m or within 30 minutes
+    const consolidated = [];
+    const validRefills = refills
+        .filter(r => r && Number.isFinite(parseFloat(r.lat)) && Number.isFinite(parseFloat(r.lng)))
+        .map(r => ({
+            ...r,
+            lat: parseFloat(r.lat),
+            lng: parseFloat(r.lng),
+            volume: parseFloat(r.volume) || 0,
+            time: Number.isFinite(r.time) ? r.time : (new Date(r.time).getTime() || 0)
+        }))
+        .sort((a, b) => (a.time || 0) - (b.time || 0));
+
+    validRefills.forEach(cur => {
+        const last = consolidated[consolidated.length - 1];
+        if (!last) {
+            consolidated.push({ ...cur });
+            return;
+        }
+
+        const timeDiff = Math.abs((cur.time || 0) - (last.time || 0));
+        let distMeters = 0;
+        if (typeof this.getDistanceFromLatLonInKm === 'function') {
+            distMeters = this.getDistanceFromLatLonInKm(last.lat, last.lng, cur.lat, cur.lng) * 1000;
+        }
+
+        if (timeDiff <= 30 * 60 * 1000 || distMeters <= 400) {
+            const oldLevel = Math.min(
+                last.oldLevel !== undefined ? last.oldLevel : last.volume,
+                cur.oldLevel !== undefined ? cur.oldLevel : cur.volume
+            );
+            const newLevel = Math.max(
+                last.newLevel !== undefined ? last.newLevel : (oldLevel + last.volume),
+                cur.newLevel !== undefined ? cur.newLevel : (oldLevel + cur.volume)
+            );
+            last.volume = Math.round(Math.max(newLevel - oldLevel, last.volume, cur.volume));
+            last.oldLevel = Math.round(oldLevel);
+            last.newLevel = Math.round(newLevel);
+            last.durationMin = Math.max(last.durationMin || 5, cur.durationMin || 5);
+            last.confidence = Math.max(last.confidence || 0.9, cur.confidence || 0.9);
+        } else {
+            consolidated.push({ ...cur });
+        }
+    });
+
+    // ── 2. Render Modern High-Contrast Refill Badges ──────────────
+    consolidated.forEach(refill => {
         const el = document.createElement('div');
         el.className = 'history-marker-refill';
-        el.innerHTML = '<i class="fa-solid fa-gas-pump"></i>';
-        el.style.cssText = "background:#166534; color:white; width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 0 10px rgba(0,0,0,0.3); cursor:pointer; z-index:10; font-size:14px;";
+        el.innerHTML = `
+            <div class="refill-pill" style="
+                background: linear-gradient(135deg, #059669 0%, #047857 100%);
+                color: #ffffff;
+                padding: 4px 10px 4px 7px;
+                border-radius: 20px;
+                border: 2px solid #ffffff;
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 10px rgba(16, 185, 129, 0.45);
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                cursor: pointer;
+                user-select: none;
+                transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
+                font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            ">
+                <span style="
+                    background: rgba(255, 255, 255, 0.25);
+                    width: 22px;
+                    height: 22px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 11px;
+                ">
+                    <i class="fa-solid fa-gas-pump"></i>
+                </span>
+                <span style="font-size: 12px; font-weight: 800; letter-spacing: 0.3px; white-space: nowrap;">
+                    +${refill.volume} L
+                </span>
+            </div>
+        `;
+        el.style.cssText = "cursor:pointer; z-index:15; display:inline-block;";
 
-        // 2. Format Time
-        const timeStr = new Date(refill.time).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-        const dateStr = new Date(refill.time).toLocaleDateString('fr-FR');
+        const pill = el.querySelector('.refill-pill');
+        el.addEventListener('mouseenter', () => {
+            if (pill) {
+                pill.style.transform = 'scale(1.15)';
+                pill.style.boxShadow = '0 6px 18px rgba(0, 0, 0, 0.45), 0 0 16px rgba(16, 185, 129, 0.65)';
+            }
+        });
+        el.addEventListener('mouseleave', () => {
+            if (pill) {
+                pill.style.transform = 'scale(1)';
+                pill.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.35), 0 0 10px rgba(16, 185, 129, 0.45)';
+            }
+        });
 
-        // 3. Create Popup Content
+        // ── 3. Time & Duration Details ─────────────────────────────
+        const refillTime = refill.time ? new Date(refill.time) : new Date();
+        const timeStr = refillTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const dateStr = refillTime.toLocaleDateString('fr-FR');
+        const durationStr = refill.durationMin ? `${refill.durationMin} min` : '';
+        const confPercent = Math.round((parseFloat(refill.confidence) || 0.96) * 100);
+
+        // ── 4. Rich Informative Popup ──────────────────────────────
         const popupDiv = document.createElement('div');
-        popupDiv.style.textAlign = "center";
+        popupDiv.style.minWidth = "220px";
+        popupDiv.style.padding = "4px 2px";
+        popupDiv.style.fontFamily = "system-ui, -apple-system, sans-serif";
         popupDiv.innerHTML = `
-            <strong style="color:#166534; font-size:12px;">⛽ PLEIN CARBURANT</strong><br>
-            <div style="font-size:18px; font-weight:900; margin:4px 0;">+${refill.volume} L</div>
-            <div style="font-size:11px; color:#555; margin-bottom:5px;">📅 ${dateStr} à ${timeStr}</div>
-            <div class="address-box" style="font-size:10px; color:#555; background:#f0fdf4; padding:4px; border-radius:4px; min-width:150px;">
-                📍 Survoler pour l'adresse
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; border-bottom:1px solid #e2e8f0; padding-bottom:5px;">
+                <span style="color:#047857; font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.5px;">
+                    ⛽ PLEIN CARBURANT
+                </span>
+                <span style="background:#ecfdf5; color:#065f46; font-size:10px; font-weight:700; padding:2px 7px; border-radius:10px; border:1px solid #a7f3d0;">
+                    ✓ ${confPercent}% Fiable
+                </span>
+            </div>
+            <div style="font-size:22px; font-weight:900; color:#047857; margin:4px 0; text-align:center;">
+                +${refill.volume} <span style="font-size:14px; font-weight:700;">Litres</span>
+            </div>
+            ${(refill.oldLevel !== undefined && refill.newLevel !== undefined) ? `
+                <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:6px 10px; margin:6px 0; font-size:11px; color:#334155;">
+                    <span>Avant: <strong>${refill.oldLevel} L</strong></span>
+                    <i class="fa-solid fa-arrow-right" style="color:#059669; font-size:10px;"></i>
+                    <span>Après: <strong>${refill.newLevel} L</strong></span>
+                </div>
+            ` : ''}
+            <div style="font-size:11px; color:#64748b; margin:6px 0; display:flex; flex-direction:column; gap:3px;">
+                <div>📅 <strong>${dateStr}</strong> à <strong>${timeStr}</strong></div>
+                ${durationStr ? `<div>⏱️ Durée arrêt: <strong>${durationStr}</strong></div>` : ''}
+            </div>
+            <div class="address-box" style="font-size:10px; color:#475569; background:#f0fdf4; border:1px solid #bbf7d0; padding:6px; border-radius:6px; margin-top:6px; line-height:1.3;">
+                📍 Recherche adresse...
             </div>
         `;
 
         const popup = new mapboxgl.Popup({ offset: 25, closeButton: false }).setDOMContent(popupDiv);
 
-        // 4. Add Hover Logic
         el.addEventListener('mouseenter', () => {
             popup.addTo(this.map);
             const addrBox = popupDiv.querySelector('.address-box');
-            this.fetchAddress(refill.lat, refill.lng, addrBox);
+            if (addrBox) this.fetchAddress(refill.lat, refill.lng, addrBox);
         });
         el.addEventListener('mouseleave', () => popup.remove());
 
-        const marker = new mapboxgl.Marker({ element: el }).setLngLat([refill.lng, refill.lat]).setPopup(popup).addTo(this.map);
+        const marker = new mapboxgl.Marker({ element: el })
+            .setLngLat([refill.lng, refill.lat])
+            .setPopup(popup)
+            .addTo(this.map);
         this.historyLayers.refills.push(marker);
     });
+
     this.updateFilterCounts();
 },
 	
@@ -1337,7 +1457,8 @@ deselectTruck: function() {
             else if (document.msExitFullscreen) { document.msExitFullscreen(); }
         }
         setTimeout(() => this.map.resize(), 200);
-    },    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); },
+    },
+    showToast: function(h) { const t=document.createElement('div'); t.className='map-toast-msg'; t.innerHTML=h; document.getElementById('map-wrapper').appendChild(t); setTimeout(()=>{t.style.opacity=0;setTimeout(()=>t.remove(),500)},4000); },
 
     toggleZoneCircles: function(btn) {
         this.zonesVisible = this.zonesVisible === false ? true : false;
@@ -1470,11 +1591,11 @@ deselectTruck: function() {
     switchPanelTab: function(tab, btn) {
         document.querySelectorAll('.panel-tab-content').forEach(el => el.style.display = 'none');
         document.querySelectorAll('.map-panel-tab').forEach(b => {
-            b.style.color = '#64748b'; b.style.borderBottomColor = 'transparent';
+            b.style.color = 'var(--text-muted)'; b.style.borderBottomColor = 'transparent';
         });
         const panel = document.getElementById('panel' + tab.charAt(0).toUpperCase() + tab.slice(1));
         if (panel) panel.style.display = 'block';
-        if (btn) { btn.style.color = '#e2e8f0'; btn.style.borderBottomColor = '#3b82f6'; }
+        if (btn) { btn.style.color = 'var(--primary)'; btn.style.borderBottomColor = 'var(--primary)'; }
         if (tab === 'activity') this.refreshZoneActivity();
         if (tab === 'zones') this.refreshPanelZones();
     },
@@ -1511,7 +1632,7 @@ deselectTruck: function() {
         setEl('panelCountAll', total); setEl('panelCountMoving', moving); setEl('panelCountStopped', stopped);
         setEl('mapCountAll', `(${total})`); setEl('mapCountMoving', `(${moving})`); setEl('mapCountStopped', `(${stopped})`);
 
-        if (!trucks.length) { list.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucun camion</div>'; return; }
+        if (!trucks.length) { list.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px;">Aucun camion</div>'; return; }
         list.innerHTML = trucks.map(t => {
             const id = t.deviceId || t.id;
             const isMoving = (t.speed || 0) >= 1 && !t.isGpsCut;
@@ -1519,16 +1640,16 @@ deselectTruck: function() {
             const statusIcon = t.isGpsCut ? 'fa-wifi-slash' : (isMoving ? 'fa-truck-fast' : 'fa-truck');
             const zone = t.currentZone || t.zone || '';
             const fuel = t.fuelPercent != null ? t.fuelPercent : (t.fuel_percent != null ? t.fuel_percent : null);
-            const fuelBar = fuel != null ? `<div style="height:3px;background:rgba(255,255,255,0.1);border-radius:2px;margin-top:3px;"><div style="width:${Math.min(100,fuel)}%;height:100%;border-radius:2px;background:${fuel>30?'#22c55e':fuel>15?'#f59e0b':'#ef4444'};"></div></div>` : '';
+            const fuelBar = fuel != null ? `<div style="height:3px;background:var(--border);border-radius:2px;margin-top:3px;"><div style="width:${Math.min(100,fuel)}%;height:100%;border-radius:2px;background:${fuel>30?'#22c55e':fuel>15?'#f59e0b':'#ef4444'};"></div></div>` : '';
             return `<div class="panel-truck-item" data-id="${id}" data-name="${t.name||id}" onclick="window.AlgeriaMap.selectTruckById('${id}')"
-              style="padding:9px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s;margin-bottom:3px;border:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px;"
-              onmouseenter="this.style.background='rgba(59,130,246,0.1)'" onmouseleave="this.style.background=''">
+              style="padding:9px 10px;border-radius:8px;cursor:pointer;transition:background 0.15s, border-color 0.15s;margin-bottom:4px;border:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--bg-surface);"
+              onmouseenter="this.style.background='var(--bg-hover)';this.style.borderColor='var(--border-strong)';" onmouseleave="this.style.background='var(--bg-surface)';this.style.borderColor='var(--border)';">
               <div style="width:30px;height:30px;border-radius:8px;background:${statusColor}22;border:1px solid ${statusColor}44;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                 <i class="fa-solid ${statusIcon}" style="color:${statusColor};font-size:12px;"></i>
               </div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:12px;font-weight:700;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name || id}</div>
-                <div style="font-size:10px;color:#64748b;">${isMoving ? (t.speed||0)+' km/h' : 'À l\'arrêt'}${zone ? ' · '+zone : ''}</div>
+                <div style="font-size:12px;font-weight:700;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name || id}</div>
+                <div style="font-size:10px;color:var(--text-muted);">${isMoving ? (t.speed||0)+' km/h' : 'À l\'arrêt'}${zone ? ' · '+zone : ''}</div>
                 ${fuelBar}
               </div>
               <span style="font-size:9px;font-weight:700;color:${statusColor};background:${statusColor}1a;padding:2px 5px;border-radius:4px;flex-shrink:0;">${isMoving?'▶':'■'}</span>
@@ -1543,22 +1664,22 @@ deselectTruck: function() {
         const clients = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.CLIENTS) ? FLEET_CONFIG.CLIENTS : [];
         const typeColors = { client:'#3b82f6', maintenance:'#ef4444', douroub:'#22c55e', other:'#94a3b8' };
         const typeIcons = { client:'fa-user-tie', maintenance:'fa-wrench', douroub:'fa-building', station:'fa-gas-pump', other:'fa-map-pin' };
-        if (!zones.length) { list.innerHTML = '<div style="text-align:center;color:#475569;font-size:12px;padding:20px;">Aucune zone. Créez-en une.</div>'; return; }
+        if (!zones.length) { list.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:20px;">Aucune zone. Créez-en une.</div>'; return; }
         list.innerHTML = zones.map((z, i) => {
             const color = typeColors[z.type] || '#94a3b8';
             const icon = typeIcons[z.type] || 'fa-map-pin';
             const client = z.clientId ? clients.find(c => c.id === z.clientId) : null;
             return `<div onclick="window.AlgeriaMap.flyToZone(${z.lat},${z.lng})"
-              style="padding:9px 10px;border-radius:8px;cursor:pointer;margin-bottom:3px;border:1px solid rgba(255,255,255,0.04);display:flex;align-items:center;gap:8px;"
-              onmouseenter="this.style.background='rgba(255,255,255,0.05)'" onmouseleave="this.style.background=''">
+              style="padding:9px 10px;border-radius:8px;cursor:pointer;margin-bottom:4px;border:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--bg-surface);transition:all 0.15s;"
+              onmouseenter="this.style.background='var(--bg-hover)';this.style.borderColor='var(--border-strong)';" onmouseleave="this.style.background='var(--bg-surface)';this.style.borderColor='var(--border)';">
               <div style="width:28px;height:28px;border-radius:50%;background:${color}22;border:2px solid ${color}55;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                 <i class="fa-solid ${icon}" style="color:${color};font-size:11px;"></i>
               </div>
               <div style="flex:1;min-width:0;">
-                <div style="font-size:12px;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${z.name}</div>
-                <div style="font-size:10px;color:#475569;">${z.wilaya||''}${client ? ' · '+client.name : ''}</div>
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${z.name}</div>
+                <div style="font-size:10px;color:var(--text-muted);">${z.wilaya||''}${client ? ' · '+client.name : ''}</div>
               </div>
-              <span style="font-size:9px;color:#475569;">${z.radius||500}m</span>
+              <span style="font-size:9px;color:var(--text-muted);">${z.radius||500}m</span>
             </div>`;
         }).join('');
     },

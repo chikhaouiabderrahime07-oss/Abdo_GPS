@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" data-theme="dark">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -600,45 +600,143 @@
     .refresh-indicator { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-3); background:var(--bg-3); padding:4px 10px; border-radius:20px; border:1px solid var(--border); }
     .refresh-indicator i { color:var(--teal); }
 
-  </style>
+  
+/* Compact Fancy Moving Text Swap Capsule */
+.fancy-theme-swap-box {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 26px !important;
+  max-height: 26px !important;
+  padding: 2px 7px 2px 3px !important;
+  border-radius: 14px !important;
+  gap: 5px !important;
+  background: var(--bg-card, #ffffff) !important;
+  border: 1px solid var(--border, #e2e8f0) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  cursor: pointer !important;
+  outline: none !important;
+  text-decoration: none !important;
+  transition: all 0.22s ease !important;
+  overflow: hidden !important;
+  position: relative !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+  user-select: none !important;
+}
+
+.fancy-theme-swap-box:hover {
+  border-color: #0284c7 !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.18) !important;
+  transform: translateY(-0.5px);
+}
+
+.theme-icon-orb {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  border-radius: 50% !important;
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  font-size: 10px !important;
+  color: #0284c7 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+  transition: all 0.25s ease !important;
+}
+
+[data-theme="dark"] .theme-icon-orb {
+  background: rgba(56, 189, 248, 0.15) !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  color: #38bdf8 !important;
+}
+
+.fancy-theme-swap-box:hover .theme-icon-orb {
+  transform: rotate(25deg);
+}
+
+.theme-marquee-box {
+  width: 98px !important;
+  height: 16px !important;
+  overflow: hidden !important;
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%) !important;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%) !important;
+}
+
+.theme-marquee-track {
+  display: flex !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+  animation: themeMarqueeFlow 8s linear infinite !important;
+  will-change: transform !important;
+}
+
+.fancy-theme-swap-box:hover .theme-marquee-track {
+  animation-play-state: paused !important;
+}
+
+.theme-marquee-text {
+  font-size: 8.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px !important;
+  text-transform: uppercase !important;
+  color: var(--text-2, #475569) !important;
+  user-select: none !important;
+}
+
+[data-theme="dark"] .theme-marquee-text {
+  color: #cbd5e1 !important;
+}
+
+.theme-marquee-dot {
+  font-size: 6px !important;
+  margin: 0 4px !important;
+  color: #0284c7 !important;
+  opacity: 0.75 !important;
+}
+
+[data-theme="dark"] .theme-marquee-dot {
+  color: #38bdf8 !important;
+}
+
+@keyframes themeMarqueeFlow {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+</style>
   <script>
-  // ── Animated Favicon (same as main app) ──────────────────────────────
+  // ── Favicon (Single Render — No Network/Console Spam) ────────────────────
   (function(){
-    var canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 32;
-    var ctx = canvas.getContext('2d');
-    var angle = 0;
-    var link = document.createElement('link');
-    link.rel = 'icon'; link.type = 'image/png';
-    document.head.appendChild(link);
-    function drawFrame(){
-      ctx.clearRect(0,0,32,32);
-      ctx.fillStyle='#0f172a';
-      ctx.beginPath(); ctx.arc(16,16,15,0,Math.PI*2); ctx.fill();
-      ctx.strokeStyle='rgba(96,165,250,0.3)'; ctx.lineWidth=1.5;
-      ctx.beginPath(); ctx.arc(16,16,12,0,Math.PI*2); ctx.stroke();
-      ctx.fillStyle='#60a5fa';
-      ctx.beginPath();
-      ctx.arc(16+Math.cos(angle)*12, 16+Math.sin(angle)*12, 2.5, 0, Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle='#818cf8';
-      ctx.beginPath();
-      ctx.arc(16+Math.cos(angle+Math.PI)*8, 16+Math.sin(angle+Math.PI)*8, 1.8, 0, Math.PI*2);
-      ctx.fill();
-      ctx.fillStyle='#f472b6';
-      ctx.beginPath();
-      ctx.arc(16+Math.cos(angle+2.1)*10, 16+Math.sin(angle+2.1)*10, 1.4, 0, Math.PI*2);
-      ctx.fill();
-      var hue = (angle * 30) % 360;
-      ctx.fillStyle='hsl('+hue+',70%,55%)';
-      ctx.beginPath(); ctx.arc(16,16,3.5+Math.sin(angle*3)*1,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle='#fff';
-      ctx.beginPath(); ctx.arc(16,16,1.8,0,Math.PI*2); ctx.fill();
+    try {
+      var canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 32;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath(); ctx.arc(16, 16, 15, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(96,165,250,0.4)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(16, 16, 12, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#60a5fa';
+      ctx.beginPath(); ctx.arc(28, 16, 2.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#818cf8';
+      ctx.beginPath(); ctx.arc(8, 16, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f472b6';
+      ctx.beginPath(); ctx.arc(16, 26, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath(); ctx.arc(16, 16, 3.8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(16, 16, 1.8, 0, Math.PI * 2); ctx.fill();
+
+      var link = document.querySelector("link[rel~='icon']") || document.createElement('link');
+      link.rel = 'icon'; link.type = 'image/png';
       link.href = canvas.toDataURL('image/png');
-      angle += 0.18;
-    }
-    setInterval(drawFrame, 150);
-    drawFrame();
+      if (!link.parentNode) document.head.appendChild(link);
+    } catch(e) {}
   })();
   </script>
 </head>
@@ -665,10 +763,15 @@
 <script>
 (function(){
   try{
-    var t=localStorage.getItem('zmc_theme')||'dark';
-    if(t!=='dark'){document.getElementById('splashScreen').style.background='#fff';
-      document.querySelector('#splashScreen div[style*="color:#94a3b8"]').style.color='#666';
-      document.querySelector('#splashScreen div[style*="color:#64748b"]').style.color='#aaa';
+    var t=localStorage.getItem('zmc_theme')||'light';
+    document.documentElement.dataset.theme = t;
+    if(t==='light'){
+      var sp = document.getElementById('splashScreen');
+      if(sp) sp.style.background='#fff';
+      var sp1 = document.querySelector('#splashScreen div[style*="color:#94a3b8"]');
+      if(sp1) sp1.style.color='#666';
+      var sp2 = document.querySelector('#splashScreen div[style*="color:#64748b"]');
+      if(sp2) sp2.style.color='#aaa';
     }
     setTimeout(function(){var b=document.getElementById('splashBar');if(b)b.style.cssText+='width:85%;transition:width 1.2s ease';},50);
   }catch(e){}
@@ -720,7 +823,19 @@
       <div class="refresh-indicator"><i class="fa-solid fa-clock-rotate-left"></i> <span id="lastRefreshTime">--:--:--</span></div>
       <button class="hdr-btn" onclick="window.location.href='/'" title="Retourner à la carte principale"><i class="fa-solid fa-arrow-left"></i></button>
       <button class="hdr-btn" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
-      <button class="hdr-btn" onclick="ZMC.toggleTheme()" id="themeBtn" title="Changer thème"><i class="fa-solid fa-circle-half-stroke"></i></button>
+      <button class="hdr-btn fancy-theme-swap-box" onclick="ZMC.toggleTheme()" id="themeBtn" title="Basculer thème clair/sombre" type="button">
+        <span class="theme-icon-orb">
+          <i class="fa-solid fa-moon" id="zmcThemeIcon"></i>
+        </span>
+        <div class="theme-marquee-box">
+          <div class="theme-marquee-track">
+            <span class="theme-marquee-text">( dark theme or white theme swap )</span>
+            <span class="theme-marquee-dot">✦</span>
+            <span class="theme-marquee-text">( dark theme or white theme swap )</span>
+            <span class="theme-marquee-dot">✦</span>
+          </div>
+        </div>
+      </button>
       <button class="hdr-btn" onclick="ZMC.refreshAll()" title="Actualiser tout"><i class="fa-solid fa-rotate-right"></i></button>
     </div>
   </header>
@@ -3752,11 +3867,20 @@ const ZMC = (() => {
     toast('URL copiée', 'success');
   }
 
+  function updateThemeIcon() {
+    const icon = document.getElementById('zmcThemeIcon');
+    if (icon) {
+      const isLight = (document.documentElement.dataset.theme || 'light') === 'light';
+      icon.className = isLight ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+    }
+  }
+
   function toggleTheme() {
-    const current = document.documentElement.dataset.theme;
+    const current = document.documentElement.dataset.theme || 'light';
     const next = current === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
     localStorage.setItem('zmc_theme', next);
+    updateThemeIcon();
   }
 
   function onPBTypeChange() {
@@ -4064,8 +4188,9 @@ const ZMC = (() => {
 // ── BOOTSTRAP ──
 document.addEventListener('DOMContentLoaded', () => {
   // Restore theme
-  const theme = localStorage.getItem('zmc_theme') || 'dark';
+  const theme = localStorage.getItem('zmc_theme') || 'light';
   document.documentElement.dataset.theme = theme;
+  if (typeof updateThemeIcon === 'function') updateThemeIcon();
 
   // Enter on login
   document.getElementById('loginCode')?.addEventListener('keydown', e => { if (e.key==='Enter') ZMC.login(); });

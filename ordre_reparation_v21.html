@@ -1,6 +1,7 @@
 ﻿<!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ordre de Réparation v13</title>
@@ -114,6 +115,136 @@ input:focus,textarea:focus,select:focus{background:#eefbfd}
 .schemeLegend{font-size:8.8px;line-height:1.45}
 .svc-row input{border:1px solid #cfd8dc;background:#fff;padding:5px 6px;border-radius:4px}
 .svc-row .svc-code{width:95px}.svc-row .svc-name{flex:1}.svc-row .svc-qty{width:80px}.svc-row .svc-price{width:86px}.svcHint{position:relative}.svcDrop{display:none;position:absolute;left:0;right:0;top:100%;background:#fff;border:1px solid #0d7f91;max-height:150px;overflow:auto;z-index:80;box-shadow:0 4px 10px rgba(0,0,0,.12)}.svcDrop.show{display:block}.svcOpt{padding:5px 6px;border-bottom:1px solid #eee;cursor:pointer;font-size:10px}.svcOpt:hover{background:#e9f8fb}
+
+
+/* Compact Fancy Moving Text Swap Capsule */
+.fancy-theme-swap-box {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 26px !important;
+  max-height: 26px !important;
+  padding: 2px 7px 2px 3px !important;
+  border-radius: 14px !important;
+  gap: 5px !important;
+  background: #ffffff !important;
+  border: 1px solid #cbd5e1 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+  cursor: pointer !important;
+  outline: none !important;
+  text-decoration: none !important;
+  transition: all 0.22s ease !important;
+  overflow: hidden !important;
+  position: relative !important;
+  vertical-align: middle !important;
+  flex-shrink: 0 !important;
+  user-select: none !important;
+}
+
+.fancy-theme-swap-box:hover {
+  border-color: #0284c7 !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.18) !important;
+  transform: translateY(-0.5px);
+}
+
+.theme-icon-orb {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  border-radius: 50% !important;
+  background: #f1f5f9 !important;
+  border: 1px solid #cbd5e1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  font-size: 10px !important;
+  color: #0284c7 !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
+  transition: all 0.25s ease !important;
+}
+
+[data-theme="dark"] .theme-icon-orb {
+  background: rgba(56, 189, 248, 0.15) !important;
+  border-color: rgba(56, 189, 248, 0.3) !important;
+  color: #38bdf8 !important;
+}
+
+.fancy-theme-swap-box:hover .theme-icon-orb {
+  transform: rotate(25deg);
+}
+
+.theme-marquee-box {
+  width: 98px !important;
+  height: 16px !important;
+  overflow: hidden !important;
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%) !important;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%) !important;
+}
+
+.theme-marquee-track {
+  display: flex !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+  animation: themeMarqueeFlow 8s linear infinite !important;
+  will-change: transform !important;
+}
+
+.fancy-theme-swap-box:hover .theme-marquee-track {
+  animation-play-state: paused !important;
+}
+
+.theme-marquee-text {
+  font-size: 8.5px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.3px !important;
+  text-transform: uppercase !important;
+  color: #475569 !important;
+  user-select: none !important;
+}
+
+[data-theme="dark"] .theme-marquee-text {
+  color: #cbd5e1 !important;
+}
+
+.theme-marquee-dot {
+  font-size: 6px !important;
+  margin: 0 4px !important;
+  color: #0284c7 !important;
+  opacity: 0.75 !important;
+}
+
+[data-theme="dark"] .theme-marquee-dot {
+  color: #38bdf8 !important;
+}
+
+@keyframes themeMarqueeFlow {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* Dark mode screen viewing overrides */
+[data-theme="dark"] body { background: #0b0f19; color: #f1f5f9; }
+[data-theme="dark"] .page { background: #1e293b; color: #f1f5f9; border: 1px solid #334155; }
+[data-theme="dark"] .fancy-theme-swap-box { background: #1e293b !important; border-color: #334155 !important; }
+[data-theme="dark"] .headerCard, [data-theme="dark"] .headerCenterCard { background: #0f172a !important; border-color: #334155 !important; }
+[data-theme="dark"] table, [data-theme="dark"] td, [data-theme="dark"] th { border-color: #334155; color: #f1f5f9; }
+[data-theme="dark"] th { background: #0f172a; color: #38bdf8; }
+[data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea { background: #0f172a; color: #fff; border: 1px solid #334155; }
+[data-theme="dark"] .modalBox { background: #1e293b; color: #fff; }
+[data-theme="dark"] .status { background: #0f172a; border-color: #0d7f91; }
+[data-theme="dark"] .sign { border-color: #475569; }
+[data-theme="dark"] .serviceCard { background: #0f172a; border-color: #334155; }
+[data-theme="dark"] .acList { background: #1e293b; border-color: #334155; }
+[data-theme="dark"] .acItem:hover, [data-theme="dark"] .acItem.sel { background: #263345; }
+
+@media print {
+  body { background: #fff !important; color: #000 !important; }
+  .page { background: #fff !important; color: #000 !important; box-shadow: none !important; }
+  .fancy-theme-swap-box, .actions { display: none !important; }
+}
 
 </style>
 </head>
@@ -369,6 +500,19 @@ input:focus,textarea:focus,select:focus{background:#eefbfd}
 
 <div class="actions">
   <button class="btnPrimary" onclick="window.print()">🖨️ Imprimer / PDF</button>
+  <button class="fancy-theme-swap-box" id="orThemeBtn" onclick="toggleOrTheme()" title="Basculer thème clair/sombre" type="button">
+    <span class="theme-icon-orb">
+      <i class="fa-solid fa-moon" id="orThemeIcon"></i>
+    </span>
+    <div class="theme-marquee-box">
+      <div class="theme-marquee-track">
+        <span class="theme-marquee-text">( dark theme or white theme swap )</span>
+        <span class="theme-marquee-dot">✦</span>
+        <span class="theme-marquee-text">( dark theme or white theme swap )</span>
+        <span class="theme-marquee-dot">✦</span>
+      </div>
+    </div>
+  </button>
 </div>
 
 <!-- Configuration Modal Removed (Now integrated into main dashboard) -->
@@ -1067,5 +1211,31 @@ window.addEventListener('DOMContentLoaded', function(){
   } catch(e) { console.warn('URL param read error:', e); }
 });
 </script>
+<script>
+function updateOrThemeIcon() {
+  const icon = document.getElementById('orThemeIcon');
+  if (icon) {
+    const isLight = (document.documentElement.getAttribute('data-theme') || 'light') === 'light';
+    icon.className = isLight ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+  }
+}
+
+function toggleOrTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('or21_theme', next);
+  updateOrThemeIcon();
+}
+
+// Force white/light theme by default
+(function() {
+  const t = localStorage.getItem('or21_theme') || 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+
+window.addEventListener('DOMContentLoaded', updateOrThemeIcon);
+</script>
+
 </body>
 </html>
