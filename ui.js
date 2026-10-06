@@ -216,12 +216,9 @@ class UIController {
       const _isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
       if (!_isFile && !_isLocalhost) {
-          // Live server (Render, Vercel, dedgps.site, etc.)
-          const wasDifferent = FLEET_CONFIG.API.baseUrl && FLEET_CONFIG.API.baseUrl !== _origin;
+          // Live server (Render, Vercel, etc.)
           FLEET_CONFIG.API.baseUrl = _origin;
-          console.log(wasDifferent 
-              ? `🌍 Live Environment Detected. Switching API to: ${FLEET_CONFIG.API.baseUrl}` 
-              : `🌍 Live Environment Connected: ${FLEET_CONFIG.API.baseUrl}`);
+          console.log(`🌍 Live Environment Detected. Switching API to: ${FLEET_CONFIG.API.baseUrl}`);
       } else if (_isFile) {
           // 🔧 FIX: file:// protocol — window.location.origin returns 'null'
           // Keep whatever is in config.js (user must set it there for local file use)
@@ -1979,8 +1976,8 @@ exportDecouchageCSV() {
     const panel = document.createElement('div');
     panel.id = 'docExpiryPanel';
     panel.style.cssText = `
-      margin: 0 0 12px 0; background: var(--bg-surface); border: 1px solid var(--border);
-      border-radius: 14px; padding: 16px; animation: fadeIn .2s ease; box-shadow: var(--shadow-sm);
+      margin: 0 0 12px 0; background: var(--bg-surface); border: 1px solid var(--border-color);
+      border-radius: 14px; padding: 16px; animation: fadeIn .2s ease;
     `;
     panel.innerHTML = `
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
@@ -2127,7 +2124,7 @@ exportDecouchageCSV() {
     _sortBar.innerHTML = `<span style="font-size:11px;color:var(--text-muted,#94a3b8);font-weight:700;">TRIER :</span> <button style="${_dbs('name',_dsf==='name')}" onclick="ui.setDashSort('name')">Nom${_darrow('name')}</button> <button style="${_dbs('fuel',_dsf==='fuel')}" onclick="ui.setDashSort('fuel')">&#9981; Carburant${_darrow('fuel')}</button> <button style="${_dbs('speed',_dsf==='speed')}" onclick="ui.setDashSort('speed')">&#128640; Vitesse${_darrow('speed')}</button> <button style="${_dbs('odo',_dsf==='odo')}" onclick="ui.setDashSort('odo')">&#128205; KM${_darrow('odo')}</button>`;
 
     if (trucks.length === 0) {
-      this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; background:var(--bg-surface); border:1px solid var(--border); border-radius: 12px; color:var(--text-muted); box-shadow:var(--shadow-sm);"><i class="fa-solid fa-truck" style="font-size:24px;margin-bottom:8px;display:block;opacity:0.4;"></i>Aucun camion ne correspond aux critères.</div>';
+      this.trucksContainer.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #888; background:#111827; border-radius: 8px; color:var(--text-muted, #94a3b8);">Aucun camion ne correspond aux critères.</div>';
       return;
     }
 
@@ -7460,8 +7457,9 @@ async runZoneHistoryScan() {
 	          ? detectRefillEventsFromSeries(fuelSeries, {
 	              minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
 	              maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
-	              dedupeMinutes: 30,
-	              dedupeDistanceMeters: 400,
+	              dedupeMinutes: 5,
+	              dedupeLitersTolerance: 10,
+	              baselineDropToleranceLiters: 15,
 	              stopSpeedThreshold: 4
 	          })
 	          : [];
@@ -7589,8 +7587,9 @@ async runZoneHistoryScan() {
           ? detectRefillEventsFromSeries(fuelSeries, {
               minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
               maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
-              dedupeMinutes: 30,
-              dedupeDistanceMeters: 400,
+              dedupeMinutes: 5,
+              dedupeLitersTolerance: 10,
+              baselineDropToleranceLiters: 15,
               stopSpeedThreshold: 4
           })
           : [];
@@ -7899,7 +7898,7 @@ async runZoneHistoryScan() {
               ? detectRefillEventsFromSeries(fuelSeries, {
                   minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
                   maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
-                  dedupeMinutes: 30,
+                  dedupeMinutes: 35,
                   dedupeDistanceMeters: 400,
                   stopSpeedThreshold: 4
               })

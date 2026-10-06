@@ -521,7 +521,7 @@ function medianForNumbers(values) {
 function smoothFuelSeriesPoints(points, windowSize = 3, maxFuelLevel = null) {
     const safe = (Array.isArray(points) ? points : [])
         .map((point, index) => {
-            const litersRaw = parseFloat(point && point.liters);
+            const litersRaw = parseFloat(point && (point.liters !== undefined ? point.liters : (point.fuel !== undefined ? point.fuel : (point.fuelLiters !== undefined ? point.fuelLiters : point.level))));
             const timeRaw = point && point.time;
             const time = Number.isFinite(timeRaw) ? timeRaw : parseFloat(timeRaw);
             if (!Number.isFinite(time) || !Number.isFinite(litersRaw)) return null;
@@ -571,14 +571,14 @@ function haversineDistanceMeters(lat1, lon1, lat2, lon2) {
     return R * c;
 }
 
-function mergeRefillEvents(events, dedupeMs = 30 * 60 * 1000, dedupeDistanceMeters = 400) {
+function mergeRefillEvents(events, dedupeMs = 35 * 60 * 1000, dedupeDistanceMeters = 400) {
     const sorted = (Array.isArray(events) ? events : [])
         .filter(Boolean)
         .sort((a, b) => (a.time || 0) - (b.time || 0));
 
     if (!sorted.length) return [];
 
-    const effectiveDedupeMs = Math.max(10 * 60 * 1000, (parseFloat(dedupeMs) || 30 * 60 * 1000));
+    const effectiveDedupeMs = Math.max(10 * 60 * 1000, (parseFloat(dedupeMs) || 35 * 60 * 1000));
     const effectiveDedupeDist = (typeof dedupeDistanceMeters === 'number' && dedupeDistanceMeters > 0) ? dedupeDistanceMeters : 400;
 
     const merged = [sorted[0]];
@@ -653,7 +653,7 @@ function detectRefillEventsFromSeries(points, options = {}) {
     const maxParsed = parseFloat(options.maxRealisticRefillLiters);
     const maxRealisticRefillLiters = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
     const stopSpeedThreshold = parseFloat(options.stopSpeedThreshold ?? 4) || 4;
-    const dedupeMinutes = parseFloat(options.dedupeMinutes ?? 30) || 30;
+    const dedupeMinutes = parseFloat(options.dedupeMinutes ?? 35) || 35;
     const dedupeMs = Math.max(10 * 60 * 1000, dedupeMinutes * 60 * 1000);
     const dedupeDistanceMeters = parseFloat(options.dedupeDistanceMeters ?? 400) || 400;
     const maxStationarySpreadMeters = Math.max(150, parseFloat(options.maxStationarySpreadMeters ?? 500) || 500);
@@ -795,7 +795,7 @@ function detectRefillEventsFromSeries(points, options = {}) {
         }
     }
 
-    // 3. Master Consolidation & Deduplication (30 min / 400m window)
+    // 3. Master Consolidation & Deduplication (35 min / 400m window)
     const consolidated = mergeRefillEvents(candidateEvents, dedupeMs, dedupeDistanceMeters);
 
     return consolidated.filter((evt) => {
@@ -953,4 +953,15 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return Math.round(R * c * 10) / 10;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        FLEETCONFIG,
+        detectRefillEventsFromSeries,
+        mergeRefillEvents,
+        calculateVidangeStatus,
+        calculateFuelNeeded,
+        calculateDistance
+    };
 }
