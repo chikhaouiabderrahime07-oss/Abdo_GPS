@@ -126,6 +126,18 @@ window.fetch = async function(url, options) {
   window.prompt  = (m,d) => { ui_showPrompt(String(m||''),d); return d||null; };
 })();
 
+// Global Network Resilience Listeners (F32)
+window.addEventListener('online', function() {
+  if (typeof window.showToast === 'function') {
+    window.showToast('🟢 Connexion réseau rétablie', 'success');
+  }
+});
+window.addEventListener('offline', function() {
+  if (typeof window.showToast === 'function') {
+    window.showToast('🔴 Connexion réseau perdue — mode hors-ligne actif', 'warning');
+  }
+});
+
 /**
  * Fleet Tracker UI Controller - Cloud/Firebase Edition
  * FEATURES: 
@@ -542,8 +554,16 @@ initElements() {
           if (data.clients) FLEET_CONFIG.CLIENTS = data.clients;
           if (data.maintenanceRules) FLEET_CONFIG.MAINTENANCE_RULES = data.maintenanceRules;
 
-          if (data.vidangeOverrides) FLEET_CONFIG.VIDANGE_OVERRIDES = data.vidangeOverrides;
-          else if (!FLEET_CONFIG.VIDANGE_OVERRIDES) FLEET_CONFIG.VIDANGE_OVERRIDES = {};
+          if (data.vidangeOverrides || data.VIDANGE_OVERRIDES) {
+            const ovr = data.vidangeOverrides || data.VIDANGE_OVERRIDES;
+            FLEET_CONFIG.VIDANGE_OVERRIDES = ovr;
+            FLEET_CONFIG.vidangeOverrides = ovr;
+          } else if (!FLEET_CONFIG.VIDANGE_OVERRIDES) {
+            FLEET_CONFIG.VIDANGE_OVERRIDES = {};
+            FLEET_CONFIG.vidangeOverrides = {};
+          } else {
+            FLEET_CONFIG.vidangeOverrides = FLEET_CONFIG.VIDANGE_OVERRIDES;
+          }
 
           // Speed limit + Naftal budget from cloud
           if (data.speedLimit) FLEET_CONFIG.SPEED_LIMIT = data.speedLimit;
@@ -1047,7 +1067,10 @@ initElements() {
           const truckFilter = ((this.decouchageTruckSearch && this.decouchageTruckSearch.value) || '').toLowerCase().trim();
 
           // Use server-stored decouchage records (reliable, no GPS history needed)
-          const url = `${FLEET_CONFIG.API.baseUrl}/api/decouchages?limit=2000`;
+          let url = `${FLEET_CONFIG.API.baseUrl}/api/decouchages?limit=2000`;
+          if (startNight) url += `&startDate=${encodeURIComponent(startNight)}`;
+          if (endNight) url += `&endDate=${encodeURIComponent(endNight)}`;
+          if (truckFilter) url += `&truck=${encodeURIComponent(truckFilter)}`;
           const r   = await fetch(url, { headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || '' } });
           if (!r.ok) throw new Error('API decouchages: ' + r.status);
           const raw = await r.json();
@@ -1201,112 +1224,335 @@ renderDecouchageList() {
     });
     this.decouchageHistoryContainer.innerHTML = html + '</div>';
 }
-  // 1. FIXED REFUEL EXPORT (with Naftal card column)
-  exportRefuelsCSV() {
-    if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) { alert("Rien à exporter."); return; }
-    let csv = "Date,Heure,Camion,Carte Naftal,Type,Avant (L),Ajout (L),Après (L),Capacité (L),Lieu,Wilaya,Coût Estimé (DA)\n";
-    
-    const startDate = this.refuelDateStart.value ? new Date(this.refuelDateStart.value) : null;
-    const endDate = this.refuelDateEnd.value ? new Date(this.refuelDateEnd.value) : null;
-    if(endDate) endDate.setHours(23, 59, 59, 999);
-    const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
+  // =========================================================================
+  // 1. NATIVE FORMATTED EXCEL REFUEL EXPORT (F2)
+  // =========================================================================
+  exportRefuelsXLSX() {
+    if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) {
+      if (typeof showToast === 'function') showToast('Aucun remplissage à exporter.', 'warning');
+      else alert('Rien à exporter.');
+      return;
+    }
+
+    const startDate = this.refuelDateStart?.value ? new Date(this.refuelDateStart.value) : null;
+    const endDate = this.refuelDateEnd?.value ? new Date(this.refuelDateEnd.value) : null;
+    if (endDate) endDate.setHours(23, 59, 59, 999);
+    const truckSearch = (this.refuelTruckSearch?.value || '').toLowerCase().trim();
+    const locationSearch = (this.refuelLocationSearch?.value || '').toLowerCase().trim();
+    const locationType = this.refuelLocationTypeFilter?.value || 'all';
 
     const minRefuelExport = Math.max(60, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60));
+
     const processedLogs = this.allRefuelLogs.map(log => {
-        const truckConfig = getTruckConfig(log.deviceId);
-        const capacity = truckConfig.fuelTankCapacity || 600;
+      const truckConfig = getTruckConfig(log.deviceId);
+      const capacity = truckConfig.fuelTankCapacity || 600;
 
-        // Same calculation as renderFilteredRefuels
-        let realAdded = 0;
-        realAdded = Math.round(log.addedLiters || 0);
+      let realAdded = Math.round(log.addedLiters || 0);
+      let realTotal = Math.round(log.newLevel || 0);
+      let realOld = 0;
+      if (log.oldLevel && log.oldLevel > 0) {
+        realOld = Math.round(log.oldLevel);
+      } else if (realTotal > 0 && realAdded > 0) {
+        realOld = realTotal - realAdded;
+      }
 
-        let realTotal = Math.round(log.newLevel || 0);
+      let exportLoc = log.locationName || 'Inconnu';
+      let wilaya = 'Inconnue';
+      const safeLat = parseFloat(log.lat || 0), safeLng = parseFloat(log.lng || 0);
+      let isExternal = true;
 
-        let realOld = 0;
-        if (log.oldLevel && log.oldLevel > 0) {
-            realOld = Math.round(log.oldLevel);
-        } else if (realTotal > 0 && realAdded > 0) {
-            realOld = realTotal - realAdded;
+      if (safeLat && safeLng && FLEET_CONFIG.CUSTOM_LOCATIONS) {
+        for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
+          if (Math.round(this.getDistKm(safeLat, safeLng, loc.lat, loc.lng) * 1000) <= (loc.radius || 500)) {
+            isExternal = false;
+            exportLoc = loc.name;
+            wilaya = loc.wilaya || 'Interne';
+            break;
+          }
         }
+      }
 
-        return { ...log, realAdded, realTotal, realOld, capacity };
+      if (isExternal) {
+        const cached = geocodeService.checkCacheInstant(safeLat, safeLng);
+        if (cached) {
+          exportLoc = (cached.formatted || cached.city || 'Lieu').replace(/,/g, ' ');
+          wilaya = (cached.wilaya || 'Inconnue').replace(/,/g, ' ');
+        } else if (safeLat && safeLng) {
+          exportLoc = `${safeLat.toFixed(4)}, ${safeLng.toFixed(4)}`;
+        }
+      }
+
+      return {
+        ...log,
+        lat: safeLat,
+        lng: safeLng,
+        realAdded,
+        realTotal,
+        realOld,
+        capacity,
+        isExternal,
+        exportLoc,
+        wilaya
+      };
     }).filter(log => {
-        const d = new Date(log.timestamp);
-        if (Number(log.realAdded) < minRefuelExport) return false;
-        if (startDate && d < startDate) return false;
-        if (endDate && d > endDate) return false;
-        if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
-        return true;
+      const d = new Date(log.timestamp);
+      if (Number(log.realAdded) < minRefuelExport) return false;
+      if (startDate && d < startDate) return false;
+      if (endDate && d > endDate) return false;
+      if (truckSearch && !String(log.truckName || '').toLowerCase().includes(truckSearch)) return false;
+      if (locationType === 'internal' && log.isExternal) return false;
+      if (locationType === 'external' && !log.isExternal) return false;
+      if (locationSearch && !String(log.exportLoc || '').toLowerCase().includes(locationSearch)) return false;
+      return true;
     });
+
+    if (processedLogs.length === 0) {
+      if (typeof showToast === 'function') showToast('Aucun remplissage ne correspond aux filtres actifs.', 'warning');
+      else alert('Aucun résultat pour les filtres sélectionnés.');
+      return;
+    }
 
     const sitePrice = parseFloat((FLEET_CONFIG.DEFAULT_TRUCK_CONFIG || {}).fuelPricePerLiter) || 29;
-    const naftalPriceCsv = this.naftalPricePerLiter || 31;
-    processedLogs.forEach(log => {
-        const d = new Date(log.timestamp);
-        let exportLoc = log.locationName || 'Inconnu';
-        let wilaya = 'Inconnue';
-        const cached = geocodeService.checkCacheInstant(log.lat, log.lng);
-        if (cached) {
-            exportLoc = (cached.formatted || cached.city || 'Lieu').replace(/,/g, ' ');
-            wilaya = (cached.wilaya || 'Inconnue').replace(/,/g, ' ');
-        } else if (log.lat && log.lng) {
-            exportLoc = `${parseFloat(log.lat).toFixed(4)} ${parseFloat(log.lng).toFixed(4)}`;
-        }
-        let isExternal = true;
-        const safeLat = parseFloat(log.lat || 0), safeLng = parseFloat(log.lng || 0);
-        if (safeLat && safeLng) {
-            for (const loc of (FLEET_CONFIG.CUSTOM_LOCATIONS || [])) {
-                if (Math.round(this.getDistKm(safeLat, safeLng, loc.lat, loc.lng) * 1000) <= (loc.radius || 500)) { isExternal = false; break; }
-            }
-        }
-        const refuelType = isExternal ? 'Station Externe (Naftal)' : 'Site Interne';
-        const price = isExternal ? naftalPriceCsv : sitePrice;
-        const cost = Math.round((log.realAdded || 0) * price);
-        const dbEntry = (this.truckDbCache || []).find(x => String(x.deviceId) === String(log.deviceId));
-        const cardNum = (dbEntry && dbEntry.carteNaftal) ? dbEntry.carteNaftal : '';
-        csv += `"${d.toLocaleDateString()}","${d.toLocaleTimeString()}","${log.truckName}","${cardNum}","${refuelType}",${log.realOld || ''},${log.realAdded},${log.realTotal},${log.capacity},"${exportLoc}","${wilaya}",${cost}\n`;
+    const naftalPrice = this.naftalPricePerLiter || 31;
+
+    const data = processedLogs.map(log => {
+      const d = new Date(log.timestamp);
+      const refuelType = log.isExternal ? 'Station Externe (Naftal)' : 'Site Interne';
+      const price = log.isExternal ? naftalPrice : sitePrice;
+      const cost = Math.round((log.realAdded || 0) * price);
+      const dbEntry = (this.truckDbCache || []).find(x => String(x.deviceId) === String(log.deviceId));
+      const cardNum = (dbEntry && dbEntry.carteNaftal) ? dbEntry.carteNaftal : '';
+
+      return {
+        date: d.toLocaleDateString('fr-FR'),
+        time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        truckName: log.truckName || '',
+        cardNumber: cardNum,
+        refuelType: refuelType,
+        oldLevel: log.realOld,
+        addedLiters: log.realAdded,
+        newLevel: log.realTotal,
+        capacity: log.capacity,
+        location: log.exportLoc,
+        wilaya: log.wilaya,
+        costDzd: cost
+      };
     });
 
-    this._downloadCSV(csv, `rapport_remplissage_${new Date().toISOString().slice(0,10)}.csv`);
+    const columns = [
+      { header: 'Date', key: 'date', type: 'string' },
+      { header: 'Heure', key: 'time', type: 'string' },
+      { header: 'Camion', key: 'truckName', type: 'string' },
+      { header: 'Carte Naftal', key: 'cardNumber', type: 'string' },
+      { header: 'Type de Plein', key: 'refuelType', type: 'string' },
+      { header: 'Niveau Avant (L)', key: 'oldLevel', type: 'number', format: '#,##0' },
+      { header: 'Ajout (L)', key: 'addedLiters', type: 'number', format: '#,##0' },
+      { header: 'Niveau Après (L)', key: 'newLevel', type: 'number', format: '#,##0' },
+      { header: 'Capacité (L)', key: 'capacity', type: 'number', format: '#,##0' },
+      { header: 'Lieu / Station', key: 'location', type: 'string' },
+      { header: 'Wilaya', key: 'wilaya', type: 'string' },
+      { header: 'Coût Estimé', key: 'costDzd', type: 'currency', format: '#,##0 "DZD"' }
+    ];
+
+    const filename = `rapport_remplissage_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const sheetName = 'Remplissages';
+    const title = 'RAPPORT DES PLEINS & REMPLISSAGES CARBURANT';
+
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename,
+        sheetName,
+        title,
+        columns,
+        data,
+        metadata: {
+          exportedAt: new Date().toISOString(),
+          totalRecords: data.length,
+          activeFilters: {
+            dateStart: this.refuelDateStart?.value || 'Tous',
+            dateEnd: this.refuelDateEnd?.value || 'Tous',
+            truckSearch: this.refuelTruckSearch?.value || 'Tous',
+            minVolume: minRefuelExport
+          }
+        }
+      });
+      if (typeof showToast === 'function') showToast(`Export Excel réussi (${data.length} pleins).`, 'success');
+    } else {
+      let csv = "Date,Heure,Camion,Carte Naftal,Type,Avant (L),Ajout (L),Après (L),Capacité (L),Lieu,Wilaya,Coût Estimé (DA)\n";
+      data.forEach(r => {
+        csv += `"${r.date}","${r.time}","${r.truckName}","${r.cardNumber}","${r.refuelType}",${r.oldLevel},${r.addedLiters},${r.newLevel},${r.capacity},"${r.location}","${r.wilaya}",${r.costDzd}\n`;
+      });
+      this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+    }
   }
 
-exportDecouchageCSV() {
-    if(!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) { alert("Aucune donnée."); return; }
-    
-    // DIRECT FILTERING - No Date Shifting
-    const startStr = this.decouchageDateStart.value;
-    const endStr = this.decouchageDateEnd.value;
-    const truckFilter = this.decouchageTruckSearch.value.toLowerCase().trim();
+  exportRefuelsCSV() {
+    this.exportRefuelsXLSX();
+  }
+
+  // =========================================================================
+  // 2. NATIVE FORMATTED EXCEL DECOUCHAGE EXPORT (F4)
+  // =========================================================================
+  exportDecouchageXLSX() {
+    if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
+      if (typeof showToast === 'function') showToast('Aucune donnée de découchage disponible.', 'warning');
+      else alert('Aucune donnée.');
+      return;
+    }
+
+    const startStr = this.decouchageDateStart?.value || '';
+    const endStr = this.decouchageDateEnd?.value || '';
+    const truckFilter = (this.decouchageTruckSearch?.value || '').toLowerCase().trim();
 
     const filtered = this.allDecouchageLogs.filter(log => {
-        if (truckFilter && !log.truckName.toLowerCase().includes(truckFilter)) return false;
+      if (truckFilter && !String(log.truckName || '').toLowerCase().includes(truckFilter)) return false;
+      if (startStr && log.date < startStr) return false;
+      if (endStr && log.date > endStr) return false;
+      return true;
+    });
+
+    if (filtered.length === 0) {
+      if (typeof showToast === 'function') showToast('Aucun découchage pour les dates/camions sélectionnés.', 'warning');
+      else alert('Rien à exporter pour les filtres sélectionnés.');
+      return;
+    }
+
+    const data = filtered.map(log => {
+      const detectedTime = log.detectedAt
+        ? new Date(log.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+        : '00:00';
+      const locName = (log.locationName || `${log.locationAtMidnight?.lat?.toFixed(4) || '?'}, ${log.locationAtMidnight?.lng?.toFixed(4) || '?'}`);
+      const distKm = log.distanceFromSite ? Number((log.distanceFromSite / 1000).toFixed(1)) : 0;
+      const lat = log.locationAtMidnight?.lat ? Number(log.locationAtMidnight.lat.toFixed(5)) : '';
+      const lng = log.locationAtMidnight?.lng ? Number(log.locationAtMidnight.lng.toFixed(5)) : '';
+
+      return {
+        date: log.date || '',
+        detectedTime: detectedTime,
+        truckName: log.truckName || '',
+        location: locName,
+        distanceKm: distKm,
+        lat: lat,
+        lng: lng,
+        status: 'Hors Site'
+      };
+    });
+
+    const columns = [
+      { header: 'Date (Nuit du)', key: 'date', type: 'string' },
+      { header: 'Heure Détection', key: 'detectedTime', type: 'string' },
+      { header: 'Camion', key: 'truckName', type: 'string' },
+      { header: 'Lieu Constaté', key: 'location', type: 'string' },
+      { header: 'Distance du Site (km)', key: 'distanceKm', type: 'number', format: '#,##0.0' },
+      { header: 'Latitude', key: 'lat', type: 'number', format: '0.00000' },
+      { header: 'Longitude', key: 'lng', type: 'number', format: '0.00000' },
+      { header: 'Statut', key: 'status', type: 'string' }
+    ];
+
+    const filename = `decouchage_detail_${startStr || 'debut'}_${endStr || 'fin'}.xlsx`;
+    const sheetName = 'Découchage Détail';
+    const title = 'AUDIT DE DÉCOUCHAGE — DÉTAIL DES NUITS HORS SITE';
+
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename,
+        sheetName,
+        title,
+        columns,
+        data,
+        metadata: {
+          exportedAt: new Date().toISOString(),
+          totalRecords: data.length,
+          activeFilters: { dateStart: startStr, dateEnd: endStr, truckSearch: truckFilter }
+        }
+      });
+      if (typeof showToast === 'function') showToast(`Export Excel réussi (${data.length} découchages).`, 'success');
+    } else {
+      let csv = "Date (Nuit du),Heure Détection,Camion,Lieu,Distance du Site (km),Latitude,Longitude,Statut\n";
+      data.forEach(r => {
+        csv += `"${r.date}","${r.detectedTime}","${r.truckName}","${r.location.replace(/"/g, '""')}",${r.distanceKm},${r.lat},${r.lng},"${r.status}"\n`;
+      });
+      this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+    }
+  }
+
+  exportDecouchageCSV() {
+    this.exportDecouchageXLSX();
+  }
+
+  exportDecouchageRecapXLSX() {
+    let summary = this.currentDecouchageSummary;
+    if (!summary || summary.length === 0) {
+      const logs = this.allDecouchageLogs || [];
+      const startStr = this.decouchageDateStart?.value || '';
+      const endStr = this.decouchageDateEnd?.value || '';
+      const truckFilter = (this.decouchageTruckSearch?.value || '').toLowerCase().trim();
+
+      const filtered = logs.filter(log => {
+        if (truckFilter && !String(log.truckName || '').toLowerCase().includes(truckFilter)) return false;
         if (startStr && log.date < startStr) return false;
         if (endStr && log.date > endStr) return false;
         return true;
-    });
-
-    if(filtered.length === 0) { alert("Rien à exporter."); return; }
-
-    // 🔧 FIX: removed 'Statut' column (no status field in new data model)
-    let csv = "Date (Nuit du),Heure D\u00e9tection,Camion,Lieu,Distance du Site (km)\n";
-    filtered.forEach(log => {
-        const detectedTime = log.detectedAt ? new Date(log.detectedAt).toLocaleTimeString('fr-FR') : '00:00';
-        const locName = (log.locationName || `${log.locationAtMidnight?.lat?.toFixed(4) || '?'};${log.locationAtMidnight?.lng?.toFixed(4) || '?'}`).replace(/,/g, ' ');
-        const distKm = log.distanceFromSite ? (log.distanceFromSite / 1000).toFixed(1) : '?';
-        csv += `"${log.date}","${detectedTime}","${log.truckName}","${locName}","${distKm}"\n`;
-    });
-
-    this._downloadCSV(csv, `decouchage_${startStr}_${endStr}.csv`);
-}
-
-  // 3. NEW: DECOUCHAGE RECAP EXPORT (The missing function)
-  exportDecouchageRecapCSV() {
-      if(!this.currentDecouchageSummary || this.currentDecouchageSummary.length === 0) { alert("Pas de résumé disponible."); return; }
-      let csv = "Camion,Total Nuits\n"; // 🔧 FIX: removed confirme/nonConfirme (fields no longer exist)
-      this.currentDecouchageSummary.forEach(item => {
-          csv += `"${item.name}",${item.total}\n`;
       });
-      this._downloadCSV(csv, `decouchage_recap_${new Date().toISOString().slice(0,10)}.csv`);
+
+      const summaryMap = new Map();
+      if (typeof app !== 'undefined' && app.trucks) {
+        app.getAllTrucks().forEach(t => summaryMap.set(t.name, { name: t.name, total: 0 }));
+      }
+      filtered.forEach(log => {
+        if (!summaryMap.has(log.truckName)) summaryMap.set(log.truckName, { name: log.truckName, total: 0 });
+        summaryMap.get(log.truckName).total++;
+      });
+      summary = Array.from(summaryMap.values()).sort((a, b) => b.total - a.total);
+      this.currentDecouchageSummary = summary;
+    }
+
+    if (!summary || summary.length === 0) {
+      if (typeof showToast === 'function') showToast('Pas de résumé disponible à exporter.', 'warning');
+      else alert('Pas de résumé disponible.');
+      return;
+    }
+
+    const data = summary.map(item => ({
+      truckName: item.name,
+      totalNights: item.total || 0,
+      status: item.total > 0 ? 'Découchage Constaté' : 'Aucun découchage'
+    }));
+
+    const columns = [
+      { header: 'Camion', key: 'truckName', type: 'string' },
+      { header: 'Total Nuits Dehors', key: 'totalNights', type: 'number', format: '#,##0' },
+      { header: 'Diagnostic', key: 'status', type: 'string' }
+    ];
+
+    const filename = `decouchage_recap_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const sheetName = 'Découchage Récap';
+    const title = 'AUDIT DE DÉCOUCHAGE — SYNTHÈSE PAR CAMION';
+
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename,
+        sheetName,
+        title,
+        columns,
+        data,
+        metadata: {
+          exportedAt: new Date().toISOString(),
+          totalTrucks: data.length
+        }
+      });
+      if (typeof showToast === 'function') showToast(`Export Excel récapitulatif réussi (${data.length} camions).`, 'success');
+    } else {
+      let csv = "Camion,Total Nuits,Diagnostic\n";
+      data.forEach(r => {
+        csv += `"${r.truckName}",${r.totalNights},"${r.status}"\n`;
+      });
+      this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+    }
+  }
+
+  exportDecouchageRecapCSV() {
+    this.exportDecouchageRecapXLSX();
   }
 
   // 4. HELPER FOR DOWNLOADS
@@ -7464,8 +7710,19 @@ async runZoneHistoryScan() {
 	          })
 	          : [];
 
-	      let refillCount = refillEvents.length, refillVolume = refillEvents.reduce((sum, evt) => sum + (evt.addedLiters || 0), 0), consumedLiters = 0;
-	      let lastLiters = fuelSeries.find(f => f.liters > 0)?.liters ?? null;
+	      let refillCount = refillEvents.length, refillVolume = refillEvents.reduce((sum, evt) => sum + (evt.addedLiters || 0), 0);
+	      const smoothedFuel = (typeof smoothFuelSeriesPoints === 'function')
+	          ? smoothFuelSeriesPoints(fuelSeries, 5, effectiveTankCap + 50)
+	          : fuelSeries;
+	      const fuelStart = smoothedFuel.length > 0
+	          ? (smoothedFuel[0].litersSmooth ?? smoothedFuel[0].liters ?? 0)
+	          : (fuelSeries[0]?.liters || 0);
+	      const fuelEnd = smoothedFuel.length > 0
+	          ? (smoothedFuel[smoothedFuel.length - 1].litersSmooth ?? smoothedFuel[smoothedFuel.length - 1].liters ?? 0)
+	          : (fuelSeries[fuelSeries.length - 1]?.liters || 0);
+	      const consumedLiters = (fuelStart > 0 || fuelEnd > 0)
+	          ? Math.max(0, Math.round((fuelStart + refillVolume - fuelEnd) * 10) / 10)
+	          : 0;
 
 	      let movingMs = 0, nightMs = 0, stopMs = 0, maxSpeed = 0;
 
@@ -7490,19 +7747,7 @@ async runZoneHistoryScan() {
           const timeDiff = p.time - prev.time;
           const hour = new Date(p.time).getHours();
 
-	          // A. FUEL (anchor-based logic: accumulates split refills and keeps real second fills)
-	          const currentLiters = fuelSeries[i].liters;
-
-	          if (currentLiters > 0) {
-	              if (lastLiters !== null) {
-	                  const diff = currentLiters - lastLiters;
-	                  if (diff < 0 && Math.abs(diff) < 80) {
-	                      consumedLiters += Math.abs(diff);
-	                  }
-	              }
-
-	              lastLiters = currentLiters;
-	          }
+	          // A. FUEL: Consumption calculated via harmonized mass-balance formulation (F21)
 
           // B. OPS
           if (p.speed > maxSpeed) maxSpeed = p.speed;
@@ -8390,72 +8635,191 @@ async runZoneHistoryScan() {
       }
   }
   
-  // --- SUPER EXPORT FUNCTION ---
-  async generateSuperReportCSV() {
-      if(!app || !app.trucks) return;
+  // =========================================================================
+  // 4. NATIVE MULTI-SHEET EXCEL SUPER REPORT (F5)
+  // =========================================================================
+  async generateSuperReportXLSX() {
+    if (!app || !app.trucks) {
+      if (typeof showToast === 'function') showToast('Données de flotte non prêtes.', 'warning');
+      return;
+    }
 
-      // \u26a0\ufe0f AUTO-FETCH: Download Decouchage data if it's not loaded yet
+    const btn = document.querySelector('button[onclick="ui.generateSuperReportCSV()"]') ||
+                document.querySelector('button[onclick="ui.generateSuperReportXLSX()"]');
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Génération Excel...';
+
+    try {
       if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
-          try {
-              // Update button text to show activity
-              const btn = document.querySelector('button[onclick="ui.generateSuperReportCSV()"]');
-              const originalText = btn ? btn.innerHTML : '';
-              if(btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Chargement Données...';
-              
-              const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/decouchages`);
-              if (res.ok) this.allDecouchageLogs = await res.json();
-              
-              // Restore button
-              if(btn) btn.innerHTML = originalText;
-          } catch(e) { console.warn("Report Fetch Error", e); }
+        try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/decouchages?limit=1000`);
+          if (res.ok) this.allDecouchageLogs = await res.json();
+        } catch (e) { console.warn('Super report: Decouchage fetch error', e); }
       }
-      
+
+      if (!this.allMaintenanceLogs || this.allMaintenanceLogs.length === 0) {
+        try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance`);
+          if (res.ok) this.allMaintenanceLogs = await res.json();
+        } catch (e) { console.warn('Super report: Maintenance fetch error', e); }
+      }
+
       const trucks = app.getAllTrucks();
-      const now = new Date().toLocaleString();
-      
-let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
-      
-      // SECTION 1: FLOTTE ACTUELLE
-      csv += "ETAT ACTUEL DES CAMIONS\n";      csv += "Camion,Statut,Carburant (L),Carburant (%),Capacité,Vidange Dans (km),Odomètre,Lieu Actuel,GPS Status\n";
-      
-      trucks.forEach(t => {
-          const status = t.isGpsCut ? "COUPURE GPS" : (t.speed > 0 ? "En Route" : "À l'arrêt");
-          const vidangeRestant = t.vidange ? t.vidange.kmUntilNext : 'N/A';
-          const gpsQuality = t.isGpsCut ? "OFFLINE" : "ONLINE";
-          const loc = t.location ? (t.location.formatted || `${t.location.city}, ${t.location.wilaya}`) : "Inconnu";
-          
-          csv += `"${t.name}","${status}",${t.fuelLiters},${t.fuelPercentage}%,${t.fuelTankCapacity},${vidangeRestant},${t.odometer},"${loc}","${gpsQuality}"\n`;
+      const fleetData = trucks.map(t => {
+        const status = t.isGpsCut ? 'Coupure GPS' : (t.speed > 0 ? 'En route' : 'À l\'arrêt');
+        const gpsQuality = t.isGpsCut ? 'OFFLINE' : 'ONLINE';
+        const loc = t.location ? (t.location.formatted || `${t.location.city || ''}, ${t.location.wilaya || ''}`) : 'Inconnu';
+        const vidangeRestant = (t.vidange && t.vidange.kmUntilNext !== undefined && t.vidange.kmUntilNext !== 999999)
+          ? t.vidange.kmUntilNext
+          : 'N/A';
+
+        return {
+          truckName: t.name || '',
+          status: status,
+          fuelLiters: t.fuelLiters || t.fuelLevel || 0,
+          fuelPercentage: t.fuelPercentage || 0,
+          fuelCapacity: t.fuelTankCapacity || 600,
+          odometer: t.odometer || 0,
+          vidangeRemaining: vidangeRestant,
+          vidangeStatus: t.vidange?.status || 'OK',
+          location: loc,
+          gpsQuality: gpsQuality,
+          lastUpdate: t.timestamp ? new Date(t.timestamp).toLocaleString('fr-FR') : new Date().toLocaleString('fr-FR')
+        };
       });
 
-      // SECTION 2: RÉCAPITULATIF REMPLISSAGES (Using loaded logs)
-      if(this.allRefuelLogs && this.allRefuelLogs.length > 0) {
-          csv += "\n\nHISTORIQUE REMPLISSAGES (CHARGÉS)\n";
-          csv += "Date,Camion,Ajouté (L),Nouveau Niveau,Lieu\n";
-          this.allRefuelLogs.slice(0, 100).forEach(log => {
-             // Re-resolve location name logic briefly for CSV
-             let locName = log.locationRaw || `${log.lat},${log.lng}`;
-             const cached = geocodeService.checkCacheInstant(log.lat, log.lng);
-             if(cached) locName = `${cached.city}, ${cached.wilaya}`;
-             
-             csv += `"${new Date(log.timestamp).toLocaleString()}","${log.truckName}",${log.addedLiters},${log.newLevel},"${locName}"\n`;
-          });
-      }
+      const fleetColumns = [
+        { header: 'Camion', key: 'truckName', type: 'string' },
+        { header: 'Statut', key: 'status', type: 'string' },
+        { header: 'Carburant (L)', key: 'fuelLiters', type: 'number', format: '#,##0' },
+        { header: 'Carburant (%)', key: 'fuelPercentage', type: 'number', format: '0' },
+        { header: 'Capacité (L)', key: 'fuelCapacity', type: 'number', format: '#,##0' },
+        { header: 'Odomètre (km)', key: 'odometer', type: 'number', format: '#,##0' },
+        { header: 'Vidange Dans (km)', key: 'vidangeRemaining', type: 'string' },
+        { header: 'Statut Vidange', key: 'vidangeStatus', type: 'string' },
+        { header: 'Lieu Actuel', key: 'location', type: 'string' },
+        { header: 'Signal GPS', key: 'gpsQuality', type: 'string' },
+        { header: 'Dernière MàJ', key: 'lastUpdate', type: 'string' }
+      ];
 
-      // SECTION 3: MAINTENANCE ACTIVE
-      if(this.allMaintenanceLogs) {
-          csv += "\n\nMAINTENANCE EN COURS\n";
-          csv += "Camion,Type,Date Entrée,Lieu\n";
-          this.allMaintenanceLogs.filter(m => !m.exitDate).forEach(m => {
-              csv += `"${m.truckName}","${m.type}","${new Date(m.date).toLocaleString()}","${m.location}"\n`;
-          });
-      }
+      const refuels = (this.allRefuelLogs || []).slice(0, 300);
+      const refuelData = refuels.map(log => {
+        const d = new Date(log.timestamp);
+        let locName = log.locationRaw || (log.lat && log.lng ? `${log.lat},${log.lng}` : 'Inconnu');
+        const cached = geocodeService.checkCacheInstant(log.lat, log.lng);
+        if (cached) locName = `${cached.city || ''}, ${cached.wilaya || ''}`;
+        return {
+          date: d.toLocaleDateString('fr-FR'),
+          time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          truckName: log.truckName || '',
+          addedLiters: Math.round(log.addedLiters || 0),
+          newLevel: Math.round(log.newLevel || 0),
+          location: locName
+        };
+      });
 
-      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `SUPER_RAPPORT_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
+      const refuelColumns = [
+        { header: 'Date', key: 'date', type: 'string' },
+        { header: 'Heure', key: 'time', type: 'string' },
+        { header: 'Camion', key: 'truckName', type: 'string' },
+        { header: 'Ajout (L)', key: 'addedLiters', type: 'number', format: '#,##0' },
+        { header: 'Nouveau Niveau (L)', key: 'newLevel', type: 'number', format: '#,##0' },
+        { header: 'Lieu', key: 'location', type: 'string' }
+      ];
+
+      const maintenance = (this.allMaintenanceLogs || []).slice(0, 300);
+      const maintData = maintenance.map(m => {
+        const d = new Date(m.date || m.createdAt || Date.now());
+        return {
+          date: d.toLocaleDateString('fr-FR'),
+          truckName: m.truckName || '',
+          type: m.type || 'Maintenance Générale',
+          priority: (m.priority || 'NORMAL').toUpperCase(),
+          odometer: Number(m.odometer) || 0,
+          location: m.location || '—',
+          costDzd: Number(m.cost) || 0,
+          status: m.exitDate ? 'Terminé' : (m.status || 'En cours')
+        };
+      });
+
+      const maintColumns = [
+        { header: 'Date', key: 'date', type: 'string' },
+        { header: 'Camion', key: 'truckName', type: 'string' },
+        { header: 'Type', key: 'type', type: 'string' },
+        { header: 'Priorité', key: 'priority', type: 'string' },
+        { header: 'Compteur (km)', key: 'odometer', type: 'number', format: '#,##0' },
+        { header: 'Lieu', key: 'location', type: 'string' },
+        { header: 'Coût', key: 'costDzd', type: 'currency', format: '#,##0 "DZD"' },
+        { header: 'Statut', key: 'status', type: 'string' }
+      ];
+
+      const decouchage = (this.allDecouchageLogs || []).slice(0, 300);
+      const decouchageData = decouchage.map(log => ({
+        date: log.date || '',
+        detectedAt: log.detectedAt ? new Date(log.detectedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '00:00',
+        truckName: log.truckName || '',
+        location: log.locationName || 'Position Constatée',
+        distanceKm: log.distanceFromSite ? Number((log.distanceFromSite / 1000).toFixed(1)) : 0
+      }));
+
+      const decouchageColumns = [
+        { header: 'Date (Nuit du)', key: 'date', type: 'string' },
+        { header: 'Heure Détection', key: 'detectedAt', type: 'string' },
+        { header: 'Camion', key: 'truckName', type: 'string' },
+        { header: 'Lieu Constaté', key: 'location', type: 'string' },
+        { header: 'Distance Site (km)', key: 'distanceKm', type: 'number', format: '#,##0.0' }
+      ];
+
+      const filename = `SUPER_RAPPORT_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+      const sheets = [
+        { sheetName: 'Flotte Actuelle', title: 'ÉTAT DE LA FLOTTE EN TEMPS RÉEL', columns: fleetColumns, data: fleetData },
+        { sheetName: 'Remplissages Récents', title: 'HISTORIQUE DES REMPLISSAGES', columns: refuelColumns, data: refuelData },
+        { sheetName: 'Maintenance', title: 'SUIVI DES OPÉRATIONS DE MAINTENANCE', columns: maintColumns, data: maintData },
+        { sheetName: 'Découchage', title: 'AUDIT RÉCENT DES DÉCOUCHAGES', columns: decouchageColumns, data: decouchageData }
+      ];
+
+      if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportMultiSheetXlsx === 'function') {
+        window.ExcelExportEngine.exportMultiSheetXlsx({
+          filename,
+          sheets,
+          metadata: {
+            title: 'RAPPORT GLOBAL DE FLOTTE',
+            exportedAt: new Date().toISOString(),
+            totalTrucks: fleetData.length
+          }
+        });
+        if (typeof showToast === 'function') showToast('Super Rapport Excel téléchargé avec succès !', 'success');
+      } else if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+        window.ExcelExportEngine.exportTableToXlsx({
+          filename,
+          sheetName: 'Flotte Actuelle',
+          title: 'RAPPORT GLOBAL DE FLOTTE — DOUROUB EL DJAZAIR',
+          columns: fleetColumns,
+          data: fleetData
+        });
+        if (typeof showToast === 'function') showToast('Super Rapport Excel (Flotte) téléchargé.', 'success');
+      } else {
+        const now = new Date().toLocaleString();
+        let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
+        csv += "ETAT ACTUEL DES CAMIONS\n";
+        csv += "Camion,Statut,Carburant (L),Carburant (%),Capacité,Vidange Dans (km),Odomètre,Lieu Actuel,GPS Status\n";
+        fleetData.forEach(t => {
+          csv += `"${t.truckName}","${t.status}",${t.fuelLiters},${t.fuelPercentage}%,${t.fuelCapacity},${t.vidangeRemaining},${t.odometer},"${t.location}","${t.gpsQuality}"\n`;
+        });
+        this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+      }
+    } catch (err) {
+      console.error('generateSuperReportXLSX error:', err);
+      if (typeof showToast === 'function') showToast(`Erreur export: ${err.message}`, 'error');
+      else alert(`Erreur lors de la génération du rapport: ${err.message}`);
+    } finally {
+      if (btn) btn.innerHTML = originalText;
+    }
+  }
+
+  generateSuperReportCSV() {
+    return this.generateSuperReportXLSX();
   }
 
 
@@ -8658,73 +9022,7 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       alert("Erreur: " + e.message);
     }
   }
-  // --- SUPER EXPORT FUNCTION ---
-  async generateSuperReportCSV() {
-      if(!app || !app.trucks) return;
-
-      // \u26a0\ufe0f AUTO-FETCH: Download Decouchage data if it's not loaded yet
-      if (!this.allDecouchageLogs || this.allDecouchageLogs.length === 0) {
-          try {
-              // Update button text to show activity
-              const btn = document.querySelector('button[onclick="ui.generateSuperReportCSV()"]');
-              const originalText = btn ? btn.innerHTML : '';
-              if(btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Chargement Données...';
-              
-              const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/decouchages`);
-              if (res.ok) this.allDecouchageLogs = await res.json();
-              
-              // Restore button
-              if(btn) btn.innerHTML = originalText;
-          } catch(e) { console.warn("Report Fetch Error", e); }
-      }
-      
-      const trucks = app.getAllTrucks();
-      const now = new Date().toLocaleString();
-      
-let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
-      
-      // SECTION 1: FLOTTE ACTUELLE
-      csv += "ETAT ACTUEL DES CAMIONS\n";      csv += "Camion,Statut,Carburant (L),Carburant (%),Capacité,Vidange Dans (km),Odomètre,Lieu Actuel,GPS Status\n";
-      
-      trucks.forEach(t => {
-          const status = t.isGpsCut ? "COUPURE GPS" : (t.speed > 0 ? "En Route" : "À l'arrêt");
-          const vidangeRestant = t.vidange ? t.vidange.kmUntilNext : 'N/A';
-          const gpsQuality = t.isGpsCut ? "OFFLINE" : "ONLINE";
-          const loc = t.location ? (t.location.formatted || `${t.location.city}, ${t.location.wilaya}`) : "Inconnu";
-          
-          csv += `"${t.name}","${status}",${t.fuelLiters},${t.fuelPercentage}%,${t.fuelTankCapacity},${vidangeRestant},${t.odometer},"${loc}","${gpsQuality}"\n`;
-      });
-
-      // SECTION 2: RÉCAPITULATIF REMPLISSAGES (Using loaded logs)
-      if(this.allRefuelLogs && this.allRefuelLogs.length > 0) {
-          csv += "\n\nHISTORIQUE REMPLISSAGES (CHARGÉS)\n";
-          csv += "Date,Camion,Ajouté (L),Nouveau Niveau,Lieu\n";
-          this.allRefuelLogs.slice(0, 100).forEach(log => {
-             // Re-resolve location name logic briefly for CSV
-             let locName = log.locationRaw || `${log.lat},${log.lng}`;
-             const cached = geocodeService.checkCacheInstant(log.lat, log.lng);
-             if(cached) locName = `${cached.city}, ${cached.wilaya}`;
-             
-             csv += `"${new Date(log.timestamp).toLocaleString()}","${log.truckName}",${log.addedLiters},${log.newLevel},"${locName}"\n`;
-          });
-      }
-
-      // SECTION 3: MAINTENANCE ACTIVE
-      if(this.allMaintenanceLogs) {
-          csv += "\n\nMAINTENANCE EN COURS\n";
-          csv += "Camion,Type,Date Entrée,Lieu\n";
-          this.allMaintenanceLogs.filter(m => !m.exitDate).forEach(m => {
-              csv += `"${m.truckName}","${m.type}","${new Date(m.date).toLocaleString()}","${m.location}"\n`;
-          });
-      }
-
-      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `SUPER_RAPPORT_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
-  }
+  // Note: duplicate generateSuperReportCSV removed; consolidated into generateSuperReportXLSX
 
 
   async downloadServerBackup() {
@@ -9506,25 +9804,66 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  exportAlertsCSV() {
-    const trucks = app.getAllTrucks();
-    const speedLimit = this.getSpeedLimit();
-    const violators = trucks.filter(t => t.speed > speedLimit);
-    
-    if (violators.length === 0) { alert('Aucune alerte à exporter.'); return; }
+  exportAlertsXLSX() {
+    const trucks = (app && typeof app.getAllTrucks === 'function') ? app.getAllTrucks() : [];
+    const speedLimit = this.getSpeedLimit ? this.getSpeedLimit() : 80;
+    const violators = trucks.filter(t => (t.speed || 0) > speedLimit);
 
-    let csv = "Camion,Vitesse (km/h),Excès (+km/h),Position,Odomètre\n";
-    violators.forEach(t => {
-      const loc = t.location?.city ? `${t.location.city} ${t.location.wilaya || ''}` : 'Inconnue';
-      csv += `"${t.name}",${t.speed},+${t.speed - speedLimit},"${loc}",${t.odometer}\n`;
+    if (violators.length === 0) {
+      if (typeof showToast === 'function') showToast('Aucune infraction d\'excès de vitesse.', 'info');
+      else alert('Aucune alerte à exporter.');
+      return;
+    }
+
+    const data = violators.map(t => {
+      const loc = t.location?.city ? `${t.location.city} ${t.location.wilaya || ''}` : (t.location?.formatted || 'Inconnue');
+      const excess = (t.speed || 0) - speedLimit;
+      return {
+        truckName: t.name || '',
+        speed: t.speed || 0,
+        limit: speedLimit,
+        excess: excess,
+        location: loc,
+        odometer: t.odometer || 0,
+        timestamp: t.timestamp ? new Date(t.timestamp).toLocaleString('fr-FR') : new Date().toLocaleString('fr-FR')
+      };
     });
 
-    const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `alertes_vitesse_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
+    const columns = [
+      { header: 'Camion', key: 'truckName', type: 'string' },
+      { header: 'Vitesse (km/h)', key: 'speed', type: 'number', format: '#,##0' },
+      { header: 'Limite (km/h)', key: 'limit', type: 'number', format: '#,##0' },
+      { header: 'Excès (+km/h)', key: 'excess', type: 'number', format: '+#,##0' },
+      { header: 'Position', key: 'location', type: 'string' },
+      { header: 'Odomètre (km)', key: 'odometer', type: 'number', format: '#,##0' },
+      { header: 'Horodatage', key: 'timestamp', type: 'string' }
+    ];
+
+    const filename = `alertes_vitesse_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const sheetName = 'Excès de Vitesse';
+    const title = 'ALERTES EXCÈS DE VITESSE EN TEMPS RÉEL';
+
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename,
+        sheetName,
+        title,
+        columns,
+        data,
+        metadata: { exportedAt: new Date().toISOString(), totalAlerts: data.length, speedLimit }
+      });
+      if (typeof showToast === 'function') showToast(`Export alertes réussi (${data.length} alertes).`, 'success');
+    } else {
+      let csv = "Camion,Vitesse (km/h),Limite (km/h),Excès (+km/h),Position,Odomètre,Horodatage\n";
+      data.forEach(r => {
+        csv += `"${r.truckName}",${r.speed},${r.limit},+${r.excess},"${r.location}",${r.odometer},"${r.timestamp}"\n`;
+      });
+      this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+    }
+  }
+
+  exportAlertsCSV() {
+    this.exportAlertsXLSX();
   }
 
   // ============================================================
@@ -9866,40 +10205,74 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
     }
   }
 
-  exportNaftalReportCSV() {
+  exportNaftalReportXLSX() {
     const naftalPrice = this.naftalPricePerLiter || 31;
     if (!this.naftalReportLogs || this.naftalReportLogs.length === 0) {
-      alert('Générez d\'abord le rapport.');
+      if (typeof showToast === 'function') showToast('Générez d\'abord le rapport Naftal.', 'warning');
+      else alert('Générez d\'abord le rapport.');
       return;
     }
-    // Header
-    let csv = 'RAPPORT NAFTAL — Cartes Naftal Enregistrées\n';
-    csv += `Généré le: ${new Date().toLocaleString('fr-FR')}\n`;
-    csv += `Prix Naftal: ${naftalPrice} DA/L\n\n`;
-    csv += 'Carte Naftal,Camion,Date,Heure,Litres,Coût (DA),Cumul Litres,Cumul DA\n';
+
+    const data = [];
     this.naftalReportLogs.forEach(card => {
       let cumL = 0, cumDA = 0;
       const cardLabel = card.cardNum === '__no_card__' ? 'Sans Carte Naftal' : `N° ${card.cardNum}`;
       card.events.forEach(e => {
-        cumL += e.liters;
-        cumDA += Math.round(e.liters * naftalPrice);
+        cumL += Number(e.liters || 0);
+        const cost = Math.round(Number(e.liters || 0) * naftalPrice);
+        cumDA += cost;
         const dt = new Date(e.date);
-        csv += `"${cardLabel}","${e.truckName}","${dt.toLocaleDateString('fr-FR')}","${dt.toLocaleTimeString('fr-FR')}",${e.liters},${Math.round(e.liters * naftalPrice)},${cumL},${cumDA}\n`;
+        data.push({
+          cardLabel: cardLabel,
+          truckName: e.truckName || '',
+          date: dt.toLocaleDateString('fr-FR'),
+          time: dt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          liters: Number(e.liters || 0),
+          costDzd: cost,
+          cumLiters: cumL,
+          cumDzd: cumDA
+        });
       });
-      // Card subtotal row
-      const totalL = card.events.reduce((s, e) => s + e.liters, 0);
-      const totalDA = Math.round(totalL * naftalPrice);
-      csv += `"=== TOTAL ${cardLabel}","${card.truckName}","","",${totalL},${totalDA},"",""\n\n`;
     });
-    // Grand total
-    const grandL = this.naftalReportLogs.reduce((s, c) => s + c.events.reduce((ss, e) => ss + e.liters, 0), 0);
-    const grandDA = Math.round(grandL * naftalPrice);
-    csv += `"=== TOTAL GÉNÉRAL","","","",${grandL},${grandDA},"",""\n`;
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `RAPPORT_NAFTAL_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
+
+    const columns = [
+      { header: 'Carte Naftal', key: 'cardLabel', type: 'string' },
+      { header: 'Camion', key: 'truckName', type: 'string' },
+      { header: 'Date', key: 'date', type: 'string' },
+      { header: 'Heure', key: 'time', type: 'string' },
+      { header: 'Volume (L)', key: 'liters', type: 'number', format: '#,##0' },
+      { header: 'Coût', key: 'costDzd', type: 'currency', format: '#,##0 "DZD"' },
+      { header: 'Cumul Volume (L)', key: 'cumLiters', type: 'number', format: '#,##0' },
+      { header: 'Cumul Coût', key: 'cumDzd', type: 'currency', format: '#,##0 "DZD"' }
+    ];
+
+    const filename = `RAPPORT_NAFTAL_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const sheetName = 'Cartes Naftal';
+    const title = 'RAPPORT DE GESTION DES CARTES CARBURANT NAFTAL';
+
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename,
+        sheetName,
+        title,
+        columns,
+        data,
+        metadata: { exportedAt: new Date().toISOString(), naftalPrice, totalEntries: data.length }
+      });
+      if (typeof showToast === 'function') showToast(`Export Naftal Excel réussi (${data.length} transactions).`, 'success');
+    } else {
+      let csv = 'RAPPORT NAFTAL — Cartes Naftal Enregistrées\n';
+      csv += `Généré le: ${new Date().toLocaleString('fr-FR')}\nPrix Naftal: ${naftalPrice} DA/L\n\n`;
+      csv += 'Carte Naftal,Camion,Date,Heure,Litres,Coût (DA),Cumul Litres,Cumul DA\n';
+      data.forEach(r => {
+        csv += `"${r.cardLabel}","${r.truckName}","${r.date}","${r.time}",${r.liters},${r.costDzd},${r.cumLiters},${r.cumDzd}\n`;
+      });
+      this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+    }
+  }
+
+  exportNaftalReportCSV() {
+    this.exportNaftalReportXLSX();
   }
 
   // ============================================================
@@ -11086,42 +11459,126 @@ let csv = `RAPPORT GLOBAL DE FLOTTE - ${now}\n\n`;
       </div>`;
   }
 
-  applyMaintenanceHistoryFilters() {
-    // Reads from BOTH the original HTML filter controls AND the dynamic ones
-    const truckF   = (document.getElementById('maintTruckSearch')?.value || '').toLowerCase().trim();
-    const typeF    = document.getElementById('maintTypeFilter')?.value || '';
-    const prioF    = document.getElementById('maintHistoryPrioFilter')?.value || '';
+  // Helper to retrieve maintenance logs strictly honoring active UI filter inputs
+  getFilteredMaintenanceLogs() {
+    const truckF    = (document.getElementById('maintTruckSearch')?.value || '').toLowerCase().trim();
+    const typeF     = document.getElementById('maintTypeFilter')?.value || '';
+    const prioF     = document.getElementById('maintHistoryPrioFilter')?.value || '';
     const dateStart = document.getElementById('maintDateStart')?.value ||
                       document.getElementById('maintHistoryDateStart')?.value || '';
     const dateEnd   = document.getElementById('maintDateEnd')?.value ||
                       document.getElementById('maintHistoryDateEnd')?.value || '';
 
     let filtered = [...(this.allMaintenanceLogs || [])];
-    if (truckF)    filtered = filtered.filter(l => (l.truckName || '').toLowerCase().includes(truckF));
+    if (truckF) filtered = filtered.filter(l => (l.truckName || '').toLowerCase().includes(truckF));
     if (typeF && typeF !== 'all') filtered = filtered.filter(l => l.type === typeF);
-    if (prioF)     filtered = filtered.filter(l => l.priority === prioF);
+    if (prioF) filtered = filtered.filter(l => (l.priority || '').toLowerCase() === prioF.toLowerCase());
     if (dateStart) filtered = filtered.filter(l => new Date(l.date || l.createdAt) >= new Date(dateStart));
-    if (dateEnd)   filtered = filtered.filter(l => new Date(l.date || l.createdAt) <= new Date(dateEnd + 'T23:59:59'));
+    if (dateEnd) filtered = filtered.filter(l => new Date(l.date || l.createdAt) <= new Date(dateEnd + 'T23:59:59'));
+    return filtered;
+  }
 
+  applyMaintenanceHistoryFilters() {
+    const filtered = this.getFilteredMaintenanceLogs();
     const listEl = document.getElementById('maintenanceHistoryList');
     if (!listEl) return;
     listEl.innerHTML = this._renderMaintenanceRows(filtered);
   }
 
-exportMaintenanceCSV() {
-      if(!this.allMaintenanceLogs || this.allMaintenanceLogs.length === 0) { alert("Rien à exporter."); return; }
-      
-      let csv = "Date,Type,Camion,Compteur (km),Lieu,Note,Auto\n";
-      this.allMaintenanceLogs.forEach(item => {
-          csv += `"${new Date(item.date).toLocaleString()}","${item.type}","${item.truckName}",${item.odometer},"${item.location}","${item.note || ''}","${item.isAuto ? 'Oui' : 'Non'}"\n`;
+  // =========================================================================
+  // 3. NATIVE FORMATTED EXCEL MAINTENANCE EXPORT (F3 - FILTER BUG RESOLVED)
+  // =========================================================================
+  exportMaintenanceXLSX() {
+    if (!this.allMaintenanceLogs || this.allMaintenanceLogs.length === 0) {
+      if (typeof showToast === 'function') showToast('Aucun enregistrement de maintenance disponible.', 'warning');
+      else alert('Rien à exporter.');
+      return;
+    }
+
+    const filtered = this.getFilteredMaintenanceLogs();
+    if (filtered.length === 0) {
+      if (typeof showToast === 'function') showToast('Aucun enregistrement ne correspond aux filtres de maintenance.', 'warning');
+      else alert('Rien à exporter pour les filtres sélectionnés.');
+      return;
+    }
+
+    const data = filtered.map(item => {
+      const d = new Date(item.date || item.createdAt || Date.now());
+      const dateStr = d.toLocaleDateString('fr-FR');
+      const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const prio = (item.priority || 'normal').toUpperCase();
+      const status = item.status || 'done';
+      const statusLabel = (status === 'done' || status === 'completed' || status === 'termine' || status === 'terminé')
+        ? 'Terminé'
+        : (status === 'cancelled' || status === 'annule' || status === 'annulé')
+          ? 'Annulé'
+          : 'En cours';
+
+      return {
+        date: dateStr,
+        time: timeStr,
+        truckName: item.truckName || '—',
+        type: item.type || 'Maintenance Générale',
+        priority: prio,
+        odometer: Number(item.odometer) || 0,
+        location: item.location || '—',
+        description: item.description || item.note || '—',
+        technician: item.technician || '—',
+        costDzd: Number(item.cost) || 0,
+        status: statusLabel,
+        isAuto: item.isAuto ? 'Oui' : 'Non'
+      };
+    });
+
+    const columns = [
+      { header: 'Date', key: 'date', type: 'string' },
+      { header: 'Heure', key: 'time', type: 'string' },
+      { header: 'Camion', key: 'truckName', type: 'string' },
+      { header: 'Type d\'Intervention', key: 'type', type: 'string' },
+      { header: 'Priorité', key: 'priority', type: 'string' },
+      { header: 'Compteur (km)', key: 'odometer', type: 'number', format: '#,##0' },
+      { header: 'Lieu / Garage', key: 'location', type: 'string' },
+      { header: 'Description / Note', key: 'description', type: 'string' },
+      { header: 'Technicien / Intervenant', key: 'technician', type: 'string' },
+      { header: 'Coût', key: 'costDzd', type: 'currency', format: '#,##0 "DZD"' },
+      { header: 'Statut', key: 'status', type: 'string' },
+      { header: 'Auto', key: 'isAuto', type: 'string' }
+    ];
+
+    const filename = `maintenance_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const sheetName = 'Maintenance';
+    const title = 'HISTORIQUE DES OPÉRATIONS DE MAINTENANCE & VIDANGES';
+
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename,
+        sheetName,
+        title,
+        columns,
+        data,
+        metadata: {
+          exportedAt: new Date().toISOString(),
+          totalRecords: data.length,
+          activeFilters: {
+            truck: document.getElementById('maintTruckSearch')?.value || 'Tous',
+            type: document.getElementById('maintTypeFilter')?.value || 'Tous',
+            dateStart: document.getElementById('maintDateStart')?.value || document.getElementById('maintHistoryDateStart')?.value || 'Tous',
+            dateEnd: document.getElementById('maintDateEnd')?.value || document.getElementById('maintHistoryDateEnd')?.value || 'Tous'
+          }
+        }
       });
-      
-      const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `maintenance_export_${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
+      if (typeof showToast === 'function') showToast(`Export Excel réussi (${data.length} opérations).`, 'success');
+    } else {
+      let csv = "Date,Heure,Camion,Type,Priorité,Compteur (km),Lieu,Note,Technicien,Coût (DA),Statut,Auto\n";
+      data.forEach(r => {
+        csv += `"${r.date}","${r.time}","${r.truckName}","${r.type}","${r.priority}",${r.odometer},"${r.location}","${r.description.replace(/"/g, '""')}","${r.technician}",${r.costDzd},"${r.status}","${r.isAuto}"\n`;
+      });
+      this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+    }
+  }
+
+  exportMaintenanceCSV() {
+    this.exportMaintenanceXLSX();
   }
 
   // ============================================================
@@ -13977,10 +14434,44 @@ exportMaintenanceCSV() {
         throw new Error(err.error || `HTTP ${r.status}`);
       }
 
+      const resData = await r.json().catch(() => ({}));
+
       if (window.showToast) showToast(isEdit ? 'Ordre modifié ✅' : 'Ordre enregistré ✅', 'success');
       this.closeMaintenanceModal();
       await this.refreshMaintenanceFollowup();
       if (typeof this.fetchAndRenderMaintenance === 'function') await this.fetchAndRenderMaintenance();
+
+      // ✅ Update vidange overrides and live refresh UI
+      if (resData && resData.vidangeOverrides) {
+        FLEET_CONFIG.VIDANGE_OVERRIDES = resData.vidangeOverrides;
+        FLEET_CONFIG.vidangeOverrides = resData.vidangeOverrides;
+      } else if (typeof this.loadSettingsFromCloud === 'function') {
+        await this.loadSettingsFromCloud();
+      }
+
+      const isVidangeType = type && (type.toLowerCase().includes('vidange'));
+      if (isVidangeType && deviceId && odometer > 0) {
+        if (!FLEET_CONFIG.VIDANGE_OVERRIDES) FLEET_CONFIG.VIDANGE_OVERRIDES = {};
+        if (!FLEET_CONFIG.vidangeOverrides) FLEET_CONFIG.vidangeOverrides = FLEET_CONFIG.VIDANGE_OVERRIDES;
+        FLEET_CONFIG.VIDANGE_OVERRIDES[String(deviceId)] = {
+          lastVidangeKm: odometer,
+          odometerAtConfirm: odometer,
+          confirmedAt: new Date().toISOString(),
+          truckName: truckName || ''
+        };
+        FLEET_CONFIG.vidangeOverrides[String(deviceId)] = FLEET_CONFIG.VIDANGE_OVERRIDES[String(deviceId)];
+      }
+
+      const appInstance = (typeof app !== 'undefined' && app) || window.app;
+      if (appInstance && typeof appInstance.forceRecalculateVidanges === 'function') {
+        appInstance.forceRecalculateVidanges();
+      }
+      this.renderTrucks();
+      this.renderStats();
+      if (typeof this.renderVidangeSection === 'function') {
+        this.renderVidangeSection();
+      }
+      return resData;
     } catch(e) {
       alert('Erreur sauvegarde: ' + e.message);
       console.error('[saveManualMaintenance]', e);
@@ -13989,14 +14480,77 @@ exportMaintenanceCSV() {
 
   // ── Generate Ordre de Réparation (save + open PDF) ─────────────
   async generateOrdreReparation() {
-    // First save the record
+    // 1. Snapshot all 16 parameters before closing modal or resetting state
+    const truckSelect = document.getElementById('modalMaintTruck');
+    const sel = truckSelect ? truckSelect.options[truckSelect.selectedIndex] : null;
+    const truckName = sel ? sel.value : (document.getElementById('modalMaintTruck')?.value || '');
+    const deviceId = sel ? (sel.dataset.id || '') : (this._pendingVidangeDeviceId || '');
+
+    const appInstance = (typeof app !== 'undefined' && app) || window.app;
+    const trucks = (appInstance && typeof appInstance.getAllTrucks === 'function') ? appInstance.getAllTrucks() : [];
+    const truck = trucks.find(t => String(t.id || t.deviceId) === String(deviceId) || String(t.name).toLowerCase() === String(truckName).toLowerCase());
+    const dbTruck = (Array.isArray(this.truckDbCache) ? this.truckDbCache : []).find(d => String(d.deviceId) === String(deviceId) || String(d.name).toLowerCase() === String(truckName).toLowerCase()) || {};
+
+    const type = document.getElementById('modalMaintType')?.value || 'Vidange';
+    const dateVal = document.getElementById('modalMaintDate')?.value;
+    const date = dateVal ? new Date(dateVal).toISOString() : new Date().toISOString();
+    const odo = document.getElementById('modalMaintOdo')?.value || (truck ? truck.odometer : '') || (sel ? (sel.dataset.odo || '') : '');
+    const location = document.getElementById('modalMaintLocation')?.value || '';
+    const priority = document.getElementById('modalMaintPriority')?.value || 'normal';
+    const tech = document.getElementById('modalMaintTechnician')?.value || '';
+    const cost = document.getElementById('modalMaintLabor')?.value || document.getElementById('modalMaintCost')?.value || '0';
+    const desc = document.getElementById('modalMaintDescription')?.value || '';
+    const imm = document.getElementById('modalMaintImm')?.value || dbTruck.immatriculation || (truck && truck.immatriculation) || '';
+    const chassis = document.getElementById('modalMaintChassis')?.value || dbTruck.chassisNumber || (truck && truck.chassisNumber) || '';
+    const scheme = document.getElementById('modalMaintScheme')?.value || 'vehicule';
+    const forfaitName = document.getElementById('modalMaintForfait')?.value || '';
+
+    // Collect parts from wizard table
+    const parts = [];
+    document.querySelectorAll('.maint-part-row').forEach(row => {
+      const chk = row.querySelector('input[type="checkbox"]');
+      if (chk && chk.checked) {
+        parts.push({
+          name: row.dataset.name || chk.dataset.name || '',
+          qty: parseInt(row.querySelector('.part-qty')?.value || '1', 10),
+          cost: parseFloat(row.querySelector('.part-price')?.value || '0')
+        });
+      }
+    });
+
+    // Collect marked tires
+    const tires = [];
+    document.querySelectorAll('.mark').forEach(m => {
+      if (m.classList.contains('on') || (m.style.display && m.style.display === 'block')) {
+        if (m.id) tires.push(m.id);
+      }
+    });
+
+    // 2. Save the maintenance record first
     await this.saveManualMaintenance();
-    // Then open the PDF generator page if available
+
+    // 3. Open the repair order generator with all 16 parameters
     try {
-      const truckName = document.getElementById('modalMaintTruck')?.value || '';
-      const type = document.getElementById('modalMaintType')?.value || '';
       if (truckName && typeof window.open === 'function') {
-        const url = `ordre_reparation_v21.html?truck=${encodeURIComponent(truckName)}&type=${encodeURIComponent(type)}`;
+        const queryParams = new URLSearchParams({
+          truck: truckName,
+          imm: String(imm),
+          odo: String(odo),
+          tech: String(tech),
+          date: String(date),
+          chassis: String(chassis),
+          type: String(type),
+          desc: String(desc),
+          location: String(location),
+          priority: String(priority),
+          cost: String(cost),
+          scheme: String(scheme),
+          tires: tires.join(','),
+          parts: JSON.stringify(parts),
+          status: 'en_cours'
+        });
+        if (forfaitName) queryParams.set('forfaitName', forfaitName);
+        const url = `ordre_reparation_v21.html?${queryParams.toString()}`;
         window.open(url, '_blank');
       }
     } catch(e) { console.warn('PDF generation:', e.message); }
@@ -14016,16 +14570,61 @@ exportMaintenanceCSV() {
       await this.fetchAndRenderMaintenance();
       
       // ✅ Force a full sync of settings (to get the updated vidangeOverrides) and refresh dashboard
-      if (typeof this.syncSettings === 'function') {
-         await this.syncSettings();
+      if (typeof this.loadSettingsFromCloud === 'function') {
+        await this.loadSettingsFromCloud();
       }
-      if (typeof app !== 'undefined' && typeof app.forceRecalculateVidanges === 'function') {
-         app.forceRecalculateVidanges();
+      const appInstance = (typeof app !== 'undefined' && app) || window.app;
+      if (appInstance && typeof appInstance.forceRecalculateVidanges === 'function') {
+        appInstance.forceRecalculateVidanges();
       }
+      this.renderTrucks();
+      this.renderStats();
       if (typeof this.renderVidangeSection === 'function') {
-         this.renderVidangeSection();
+        this.renderVidangeSection();
       }
     } catch(e) { alert('Erreur suppression: ' + e.message); }
+  }
+
+  // ── Dedicated Vidange Acknowledge Helper (F12 / F13) ───────────
+  async acknowledgeVidange(deviceId, truckName, odometerKm, technician = '', note = '') {
+    try {
+      const code = localStorage.getItem('fleetAccessCode') || this.currentCode || '12345';
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/vidange/acknowledge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': code },
+        body: JSON.stringify({
+          deviceId: String(deviceId),
+          truckName: truckName || '',
+          odometer: parseInt(odometerKm, 10) || 0,
+          technician: technician || '',
+          note: note || 'Acknowledge via UI'
+        })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const resData = await res.json().catch(() => ({}));
+      if (resData && resData.vidangeOverrides) {
+        FLEET_CONFIG.VIDANGE_OVERRIDES = resData.vidangeOverrides;
+        FLEET_CONFIG.vidangeOverrides = resData.vidangeOverrides;
+      } else if (typeof this.loadSettingsFromCloud === 'function') {
+        await this.loadSettingsFromCloud();
+      }
+      const appInstance = (typeof app !== 'undefined' && app) || window.app;
+      if (appInstance && typeof appInstance.forceRecalculateVidanges === 'function') {
+        appInstance.forceRecalculateVidanges();
+      }
+      this.renderTrucks();
+      this.renderStats();
+      if (typeof this.renderVidangeSection === 'function') {
+        this.renderVidangeSection();
+      }
+      if (typeof window.showToast === 'function') {
+        window.showToast(`✅ Vidange acquittée pour ${truckName || deviceId} (${odometerKm} km)`, 'success');
+      }
+      return resData;
+    } catch(err) {
+      console.error('[acknowledgeVidange]', err);
+      alert('Erreur acquittement vidange: ' + err.message);
+    }
   }
 
   // ── Utility methods (button event stubs) ────────────────────
@@ -14046,19 +14645,93 @@ exportMaintenanceCSV() {
     }
   }
 
-  exportCSV() {
+  // =========================================================================
+  // 5. NATIVE FORMATTED EXCEL FLEET STATUS EXPORT (F5)
+  // =========================================================================
+  exportFleetXLSX() {
     const trucks = (app && typeof app.getAllTrucks === 'function') ? app.getAllTrucks() : [];
-    if (!trucks.length) { alert('Aucune donnée camion disponible.'); return; }
-    let csv = 'Camion,IMEI,Vitesse (km/h),Carburant (L),Latitude,Longitude,Mise à jour\n';
-    trucks.forEach(t => {
-      csv += [`"${t.name}"`, `"${t.id}"`, t.speed||0, t.fuelLevel||0, t.lat||0, t.lng||0,
-        `"${new Date(t.lastUpdate||Date.now()).toLocaleString('fr-FR')}"`].join(',') + '\n';
+    if (!trucks.length) {
+      if (typeof showToast === 'function') showToast('Aucune donnée camion disponible.', 'warning');
+      else alert('Aucune donnée camion disponible.');
+      return;
+    }
+
+    const data = trucks.map(t => {
+      const status = t.isGpsCut ? 'Coupure GPS' : (t.speed > 0 ? 'En route' : 'À l\'arrêt');
+      const gpsQuality = t.isGpsCut ? 'OFFLINE' : 'ONLINE';
+      const loc = t.location ? (t.location.formatted || `${t.location.city || ''}, ${t.location.wilaya || ''}`) : 'Inconnu';
+      const vidangeKm = (t.vidange && t.vidange.kmUntilNext !== undefined && t.vidange.kmUntilNext !== 999999)
+        ? t.vidange.kmUntilNext
+        : 'N/A';
+      const vidangeStatus = t.vidange?.status || 'OK';
+
+      return {
+        truckName: t.name || '',
+        deviceId: String(t.id || ''),
+        status: status,
+        speed: t.speed || 0,
+        fuelLiters: t.fuelLiters || t.fuelLevel || 0,
+        fuelPercentage: t.fuelPercentage || 0,
+        fuelCapacity: t.fuelTankCapacity || 600,
+        rangeKm: t.rangeKm || 0,
+        odometer: t.odometer || 0,
+        vidangeRemaining: vidangeKm,
+        vidangeStatus: vidangeStatus,
+        location: loc,
+        lat: t.coordinates?.lat || t.lat || 0,
+        lng: t.coordinates?.lng || t.lng || 0,
+        gpsSignal: gpsQuality,
+        lastUpdate: t.timestamp ? new Date(t.timestamp).toLocaleString('fr-FR') : new Date().toLocaleString('fr-FR')
+      };
     });
-    const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url;
-    a.download = `fleet_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click(); URL.revokeObjectURL(url);
+
+    const columns = [
+      { header: 'Camion', key: 'truckName', type: 'string' },
+      { header: 'IMEI / ID', key: 'deviceId', type: 'string' },
+      { header: 'Statut', key: 'status', type: 'string' },
+      { header: 'Vitesse (km/h)', key: 'speed', type: 'number', format: '#,##0' },
+      { header: 'Carburant (L)', key: 'fuelLiters', type: 'number', format: '#,##0' },
+      { header: 'Carburant (%)', key: 'fuelPercentage', type: 'number', format: '0' },
+      { header: 'Capacité (L)', key: 'fuelCapacity', type: 'number', format: '#,##0' },
+      { header: 'Autonomie (km)', key: 'rangeKm', type: 'number', format: '#,##0' },
+      { header: 'Odomètre (km)', key: 'odometer', type: 'number', format: '#,##0' },
+      { header: 'Vidange Dans (km)', key: 'vidangeRemaining', type: 'string' },
+      { header: 'Statut Vidange', key: 'vidangeStatus', type: 'string' },
+      { header: 'Lieu Actuel', key: 'location', type: 'string' },
+      { header: 'Latitude', key: 'lat', type: 'number', format: '0.0000' },
+      { header: 'Longitude', key: 'lng', type: 'number', format: '0.0000' },
+      { header: 'Signal GPS', key: 'gpsSignal', type: 'string' },
+      { header: 'Dernière MàJ', key: 'lastUpdate', type: 'string' }
+    ];
+
+    const filename = `flotte_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const sheetName = 'Statut Flotte';
+    const title = 'ÉTAT GÉNÉRAL DU PARC DE VÉHICULES EN TEMPS RÉEL';
+
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename,
+        sheetName,
+        title,
+        columns,
+        data,
+        metadata: {
+          exportedAt: new Date().toISOString(),
+          totalTrucks: data.length
+        }
+      });
+      if (typeof showToast === 'function') showToast(`Export Excel flotte réussi (${data.length} camions).`, 'success');
+    } else {
+      let csv = 'Camion,IMEI,Statut,Vitesse (km/h),Carburant (L),Carburant (%),Capacité (L),Odomètre,Lieu,Signal GPS,Mise à jour\n';
+      data.forEach(r => {
+        csv += `"${r.truckName}","${r.deviceId}","${r.status}",${r.speed},${r.fuelLiters},${r.fuelPercentage},${r.fuelCapacity},${r.odometer},"${r.location.replace(/"/g, '""')}","${r.gpsSignal}","${r.lastUpdate}"\n`;
+      });
+      this._downloadCSV(csv, filename.replace('.xlsx', '.csv'));
+    }
+  }
+
+  exportCSV() {
+    this.exportFleetXLSX();
   }
 
   exportJSON() {

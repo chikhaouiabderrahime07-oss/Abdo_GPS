@@ -24,6 +24,9 @@
   <!-- jsPDF for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- ExcelJS for native XLSX generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
   
   <!-- V4.0 Unified Theme -->
   <link rel="stylesheet" href="theme.css?v=13">
@@ -1447,7 +1450,7 @@
                   <button class="btn-secondary" id="refuelCleanRescanBtn" style="background:var(--warning-subtle); border-color:rgba(245,158,11,0.3); color:var(--maintenance);" title="Supprime les remplissages auto de la période puis reconstruit l'historique complet.">
                       <i class="fa-solid fa-broom"></i> Nettoyer auto + re-scan
                   </button>
-                  <button class="btn-primary" id="exportRefuelsBtn">Exporter</button>
+                  <button class="btn-primary" id="exportRefuelsBtn"><i class="fa-solid fa-file-excel"></i> Exporter Excel</button>
                   <button class="btn-primary" onclick="if(window.FleetPDF && ui.allRefuelLogs){FleetPDF.generateRefuelReport(ui.allRefuelLogs)}" style="background:var(--primary); border:none;"><i class="fa-solid fa-file-pdf"></i> PDF</button>
               </div>
           </div>
@@ -1479,8 +1482,8 @@
               
               <div style="margin-left: auto;">
                    <button class="btn-secondary" id="applyDecouchageFiltersBtn"><i class="fa-solid fa-rotate"></i> Actualiser</button>
-                   <button class="btn-primary" onclick="ui.exportDecouchageRecapCSV()" id="btnExportRecap"><i class="fa-solid fa-file-csv"></i> Export Récap</button>
-                   <button class="btn-primary" id="exportDecouchageBtn" style="display:none;"><i class="fa-solid fa-file-csv"></i> Export Détails</button>
+                   <button class="btn-primary" onclick="ui.exportDecouchageRecapCSV()" id="btnExportRecap"><i class="fa-solid fa-file-excel"></i> Export Excel (Récap)</button>
+                   <button class="btn-primary" id="exportDecouchageBtn" style="display:none;"><i class="fa-solid fa-file-excel"></i> Export Excel (Détails)</button>
               </div>
           </div>
           
@@ -1508,7 +1511,7 @@
             <h2 style="color: var(--danger); margin: 0;"><i class="fa-solid fa-triangle-exclamation"></i> Alertes en Temps Réel</h2>
             <div style="display:flex; gap:8px; align-items:center;">
                 <button class="btn-secondary" onclick="ui.refreshAlerts()"><i class="fa-solid fa-sync"></i> Actualiser</button>
-                <button class="btn-primary" onclick="ui.exportAlertsCSV()" style="background:var(--danger); border:none;"><i class="fa-solid fa-file-csv"></i> Exporter</button>
+                <button class="btn-primary" onclick="ui.exportAlertsCSV()" style="background:var(--danger); border:none;"><i class="fa-solid fa-file-excel"></i> Exporter Excel</button>
             </div>
         </div>
 
@@ -2318,6 +2321,7 @@ window.addEventListener('unhandledrejection', function(e) {
 
   <script src="algeria-map.js?v=13"></script> 
   <script src="geocode.js"></script>
+  <script src="excel-export-engine.js"></script>
   <script src="app.js"></script>
   <script src="ui.js"></script>
   <script src="transport-report.js"></script>

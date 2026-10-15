@@ -32,11 +32,24 @@ class FleetTrackerApp {
       const displayName = config.alias ? config.alias : truck.name;
 
       // ----------------------------------------------------------
-      // 1. GPS SIGNAL HEALTH CHECK (Context-Aware V39)
+      // 1. GPS SIGNAL HEALTH CHECK (Context-Aware V39 / Resilient F30)
       // ----------------------------------------------------------
-      let rawTime = parseInt(truck.last_gps || truck.timestamp);
-      if (!rawTime || isNaN(rawTime)) rawTime = Date.now();
-      if (rawTime < 10000000000) rawTime *= 1000; // Convert seconds → ms
+      let rawTime = null;
+      const rawCandidate = truck.lastUpdate || truck.dt_server || truck.dt_tracker || truck.timestamp || truck.time || truck.last_gps;
+      if (rawCandidate) {
+        if (typeof rawCandidate === 'string') {
+          const parsed = new Date(rawCandidate).getTime();
+          if (!isNaN(parsed) && parsed > 0) rawTime = parsed;
+        }
+        if (!rawTime) {
+          let num = parseInt(rawCandidate, 10);
+          if (!isNaN(num) && num > 0) {
+            if (num < 10000000000) num *= 1000; // Convert seconds → ms
+            rawTime = num;
+          }
+        }
+      }
+      if (!rawTime) rawTime = Date.now();
 
       const now = Date.now();
       const minutesSilence = (now - rawTime) / 60000;
@@ -82,10 +95,12 @@ class FleetTrackerApp {
       }
       odometerKm = Math.round(odometerKm);
 
-            // ✅ If a vidange was confirmed, ignore the serviced milestone for alerts
-            const ovr = FLEET_CONFIG.VIDANGE_OVERRIDES?.[deviceId]; const skipUntilKm = ovr?.lastVidangeKm || ovr?.odometerAtConfirm || ovr?.skipUntilKm || null;
-            const vidangeStatus = calculateVidangeStatus(odometerKm, config, skipUntilKm);
-      vidangeStatus.alertKm = config.vidangeAlertKm || 5000;
+      // ✅ If a vidange was confirmed, ignore the serviced milestone for alerts
+      const ovr = (FLEET_CONFIG.VIDANGE_OVERRIDES && FLEET_CONFIG.VIDANGE_OVERRIDES[deviceId]) ||
+                  (FLEET_CONFIG.vidangeOverrides && FLEET_CONFIG.vidangeOverrides[deviceId]) || null;
+      const skipUntilKm = ovr?.lastVidangeKm || ovr?.odometerAtConfirm || ovr?.skipUntilKm || null;
+      const vidangeStatus = calculateVidangeStatus(odometerKm, config, skipUntilKm);
+      vidangeStatus.alertKm = (config && Number.isFinite(Number(config.vidangeAlertKm))) ? parseInt(config.vidangeAlertKm, 10) : 500;
       if (vidangeStatus.kmUntilNext === undefined) vidangeStatus.kmUntilNext = 999999;
       if (vidangeStatus.nextKm === undefined) vidangeStatus.nextKm = 'N/A';
 
@@ -323,10 +338,11 @@ class FleetTrackerApp {
     this.trucks.forEach(truck => {
       const config = typeof getTruckConfig === 'function' ? getTruckConfig(truck.id) : (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG || {});
       const odometerKm = truck.odometer || 0;
-      const ovr = FLEET_CONFIG.vidangeOverrides ? FLEET_CONFIG.vidangeOverrides[truck.id] : null; 
+      const ovr = (FLEET_CONFIG.VIDANGE_OVERRIDES && FLEET_CONFIG.VIDANGE_OVERRIDES[truck.id]) ||
+                  (FLEET_CONFIG.vidangeOverrides && FLEET_CONFIG.vidangeOverrides[truck.id]) || null;
       const skipUntilKm = ovr ? (ovr.lastVidangeKm || ovr.odometerAtConfirm || ovr.skipUntilKm || null) : null;
       const vidangeStatus = typeof calculateVidangeStatus === 'function' ? calculateVidangeStatus(odometerKm, config, skipUntilKm) : truck.vidange;
-      vidangeStatus.alertKm = config.vidangeAlertKm || 5000;
+      vidangeStatus.alertKm = (config && Number.isFinite(Number(config.vidangeAlertKm))) ? parseInt(config.vidangeAlertKm, 10) : 500;
       if (vidangeStatus.kmUntilNext === undefined) vidangeStatus.kmUntilNext = 999999;
       if (vidangeStatus.nextKm === undefined) vidangeStatus.nextKm = 'N/A';
       truck.vidange = vidangeStatus;
@@ -360,6 +376,29 @@ class FleetTrackerApp {
 
   recordHistory() {
     this.trackingHistory.push({ timestamp: new Date().toISOString(), trucks: this.getAllTrucks() });
+  }
+
+  exportXLSX() {
+    if (typeof window !== 'undefined' && window.ui && typeof window.ui.exportFleetXLSX === 'function') {
+      return window.ui.exportFleetXLSX();
+    }
+    const trucks = this.getAllTrucks();
+    if (!trucks.length) return;
+    if (typeof window !== 'undefined' && window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      const columns = [
+        { header: 'Camion', key: 'name', type: 'string' },
+        { header: 'Carburant (L)', key: 'fuelLiters', type: 'number' },
+        { header: 'Odomètre (km)', key: 'odometer', type: 'number' },
+        { header: 'Dernière MàJ', key: 'timestamp', type: 'string' }
+      ];
+      window.ExcelExportEngine.exportTableToXlsx({
+        filename: `flotte_app_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: 'Flotte',
+        title: 'FLOTTE APP EXPORT',
+        columns,
+        data: trucks
+      });
+    }
   }
 
   exportCSV() {

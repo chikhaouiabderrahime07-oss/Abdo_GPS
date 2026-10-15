@@ -4,6 +4,15 @@ const fetch = require('node-fetch');
 const mongoose = require('mongoose');
 const fs = require('fs');
 require('dotenv').config();
+const { calculateVidangeStatus } = require('./config.js');
+
+// Process Error Boundaries (F32)
+process.on('uncaughtException', (err) => {
+  console.error('💥 [Server Protection] Uncaught Exception:', err.stack || err.message);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 [Server Protection] Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 const app = express();
 app.use(cors());
@@ -198,6 +207,30 @@ const MaintenanceArticleSchema = new mongoose.Schema({
 });
 const MaintenanceArticle = mongoose.model('MaintenanceArticle', MaintenanceArticleSchema);
 
+const RepairOrderSchema = new mongoose.Schema({
+  reference: { type: String, unique: true, required: true },
+  truckName: String,
+  deviceId: String,
+  immatriculation: String,
+  chassisNumber: String,
+  odometer: Number,
+  interventionType: String,
+  garage: String,
+  technician: String,
+  estimatedCostDzd: Number,
+  status: { type: String, default: 'en_cours' },
+  parts: Array,
+  services: Array,
+  data: mongoose.Schema.Types.Mixed,
+  note: String,
+  date: String,
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+RepairOrderSchema.index({ reference: 1 });
+RepairOrderSchema.index({ truckName: 1 });
+const RepairOrder = mongoose.model('RepairOrder', RepairOrderSchema);
+
 const VehicleReferenceSchema = new mongoose.Schema({
   deviceId: { type: String, required: true, index: true },
   truckName: String,
@@ -301,6 +334,7 @@ const ZoneOperationSchema = new mongoose.Schema({
     actualArrival: { type: Number, default: null },
     actualDeparture: { type: Number, default: null },
     waitingTimeMinutes: { type: Number, default: null },
+    skipReason: { type: String, default: null },
     status: { type: String, default: 'pending', enum: ['pending','arrived','departed','late','skipped'] }
   }],
   planStart: { type: Number, default: null },
@@ -443,11 +477,30 @@ function getZoneClientMeta(zoneName) {
 
 function formatZoneEventForPowerBI(e, nowMs) {
   const now = nowMs || Date.now();
-  const durMins = e.exitTime ? (e.durationMinutes ?? Math.round((new Date(e.exitTime).getTime() - new Date(e.entryTime).getTime()) / 60000)) : Math.round((now - new Date(e.entryTime).getTime()) / 60000);
+  const entryMs = new Date(e.entryTime).getTime();
+  const exitMs = e.exitTime ? new Date(e.exitTime).getTime() : null;
+  const rawDur = exitMs != null
+    ? (e.durationMinutes != null && Number.isFinite(e.durationMinutes) ? e.durationMinutes : Math.round((exitMs - entryMs) / 60000))
+    : (Number.isFinite(entryMs) ? Math.round((now - entryMs) / 60000) : 0);
+  const durMins = Number.isFinite(rawDur) ? Math.max(0, rawDur) : 0;
   const h = Math.floor(durMins / 60); const m = durMins % 60;
-  const entryDt = new Date(e.entryTime);
-  const exitDt = e.exitTime ? new Date(e.exitTime) : null;
+  const entryDt = Number.isFinite(entryMs) ? new Date(entryMs) : new Date();
+  const exitDt = exitMs != null && Number.isFinite(exitMs) ? new Date(exitMs) : null;
   const meta = getZoneClientMeta(e.zoneName);
+
+  let recapMins = durMins;
+  if (e.plannedArrival && e.operationSource !== 'auto') {
+    const plannedMs = new Date(e.plannedArrival).getTime();
+    if (Number.isFinite(plannedMs)) {
+      if (e.engagementMinutes != null && Number.isFinite(e.engagementMinutes)) {
+        recapMins = Math.max(0, e.engagementMinutes);
+      } else {
+        const refEnd = exitMs != null ? exitMs : now;
+        recapMins = Math.max(0, Math.round((refEnd - plannedMs) / 60000));
+      }
+    }
+  }
+
   return {
     ...meta,
     Camion: e.truckName, Zone: e.zoneName, Type_Zone: e.zoneType || 'unknown',
@@ -455,14 +508,15 @@ function formatZoneEventForPowerBI(e, nowMs) {
     Heure_Entree: entryDt.toTimeString().slice(0,8),
     Heure_Sortie: exitDt ? exitDt.toTimeString().slice(0,8) : 'En cours',
     Date_Sortie: exitDt ? exitDt.toISOString().slice(0,10) : null,
-    Duree_Minutes: durMins, Duree_Heures: Math.round(durMins/60*100)/100,
-    Duree_Formatee: h > 0 ? h+'h '+m+'min' : m+'min',
-    Statut: e.exitTime ? 'Termin\u00e9' : 'En cours',
+    Duree_Minutes: durMins,
+    Duree_Heures: Math.round(durMins / 60 * 100) / 100,
+    Duree_Formatee: h > 0 ? `${h}h ${m}min` : `${m}min`,
+    Statut: e.exitTime ? 'Terminé' : 'En cours',
     Timestamp_Entree: entryDt.toISOString(),
     Timestamp_Sortie: exitDt ? exitDt.toISOString() : null,
     Source: e.source || 'live-bot',
     _lastUpdated: new Date().toISOString(),
-    _Exported_From: 'Website dedsite.online \u2014 dev by Chikhaoui Abderrahime',
+    _Exported_From: 'Website dedsite.online — dev by Chikhaoui Abderrahime',
     _Dev: 'Chikhaoui Abderrahime', _Version: 'Fleet Analytics v2.0',
     _Export_Timestamp: new Date().toISOString(),
     _Server_Time: new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Algiers' }),
@@ -471,8 +525,8 @@ function formatZoneEventForPowerBI(e, nowMs) {
     Depart_Planifie: e.plannedDeparture ? new Date(e.plannedDeparture).toISOString() : null,
     Arrivee_Reelle: entryDt.toISOString(),
     Depart_Reel: exitDt ? exitDt.toISOString() : null,
-    Diff_Arrivee_Min: (e.plannedArrival && e.entryTime) ? Math.round((e.entryTime - e.plannedArrival)/60000) : null,
-    Recap_Immobilisation_Min: (!e.plannedArrival || e.operationSource === 'auto') ? (e.durationMinutes || null) : (e.engagementMinutes || e.durationMinutes || null),
+    Diff_Arrivee_Min: (e.plannedArrival && e.entryTime) ? Math.round((e.entryTime - e.plannedArrival) / 60000) : null,
+    Recap_Immobilisation_Min: Number.isFinite(recapMins) ? Math.max(0, recapMins) : 0,
     Detection: e.source === 'auto' || !e.source ? 'Automatique (GPS)' : 'Manuel (utilisateur)',
     Operation_ID: e.operationId || '',
     Operation_Nom: e.operationName || 'Aucune',
@@ -682,7 +736,18 @@ function getConfiguredFuelSensorKeys(config) {
   if (config && typeof config.fuelSensorIo === 'string' && config.fuelSensorIo.trim()) {
     return normalizeFuelSensorKeys(config.fuelSensorIo);
   }
-  const sensorType = SYSTEM_SETTINGS.refuelRules && SYSTEM_SETTINGS.refuelRules.sensorType;
+  if (config && ((typeof config.fuelSensors === 'string' && config.fuelSensors.trim()) || (Array.isArray(config.fuelSensors) && config.fuelSensors.length > 0))) {
+    return normalizeFuelSensorKeys(config.fuelSensors);
+  }
+  if (config && typeof config.sensorType === 'string' && config.sensorType.trim()) {
+    return normalizeFuelSensorKeys(config.sensorType);
+  }
+  const capacityMap = getConfiguredFuelSensorCapacityMap(config);
+  const capacityKeys = Object.keys(capacityMap || {});
+  if (capacityKeys.length > 0) {
+    return normalizeFuelSensorKeys(capacityKeys);
+  }
+  const sensorType = typeof SYSTEM_SETTINGS !== 'undefined' && SYSTEM_SETTINGS && SYSTEM_SETTINGS.refuelRules && SYSTEM_SETTINGS.refuelRules.sensorType;
   if (sensorType) return normalizeFuelSensorKeys(sensorType);
   return ['io87'];
 }
@@ -819,24 +884,35 @@ function getConfiguredFuelSensorCapacitiesLabel(config) {
 
 function getConfiguredFuelEffectiveCapacity(config) {
   const plan = buildFuelSensorCapacityPlan(config);
-  return plan.totalCapacity || (parseFloat(config && config.fuelTankCapacity) || 0);
+  return Math.max(plan.totalCapacity || 0, parseFloat(config && config.fuelTankCapacity) || 0);
 }
 
 function interpolateFuelCalibration(sensorValue, calibrationTable) {
   if (!Array.isArray(calibrationTable) || calibrationTable.length < 2) return 0;
-  if (sensorValue <= calibrationTable[0].x) return calibrationTable[0].y;
-  if (sensorValue >= calibrationTable[calibrationTable.length - 1].x) {
-    return calibrationTable[calibrationTable.length - 1].y;
-  }
-  for (let i = 0; i < calibrationTable.length - 1; i++) {
-    const p1 = calibrationTable[i];
-    const p2 = calibrationTable[i + 1];
-    if (sensorValue >= p1.x && sensorValue <= p2.x) {
-      const slope = (p2.y - p1.y) / (p2.x - p1.x);
-      return Math.round(p1.y + slope * (sensorValue - p1.x));
+  const valid = calibrationTable
+    .map(p => ({ x: parseFloat(p && p.x), y: parseFloat(p && p.y) }))
+    .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y))
+    .sort((a, b) => a.x - b.x);
+  if (valid.length < 2) return valid.length === 1 ? Math.round(valid[0].y) : 0;
+
+  const val = parseFloat(sensorValue);
+  if (!Number.isFinite(val)) return 0;
+
+  if (val <= valid[0].x) return Math.round(valid[0].y);
+  if (val >= valid[valid.length - 1].x) return Math.round(valid[valid.length - 1].y);
+
+  for (let i = 0; i < valid.length - 1; i++) {
+    const p1 = valid[i];
+    const p2 = valid[i + 1];
+    if (val >= p1.x && val <= p2.x) {
+      const dx = p2.x - p1.x;
+      if (dx === 0) return Math.round(p1.y);
+      const slope = (p2.y - p1.y) / dx;
+      const res = p1.y + slope * (val - p1.x);
+      return Number.isFinite(res) ? Math.round(res) : Math.round(p1.y);
     }
   }
-  return 0;
+  return Math.round(valid[valid.length - 1].y);
 }
 
 function readConfiguredFuelSensorValues(params, config) {
@@ -872,55 +948,66 @@ function readConfiguredFuelSensorValues(params, config) {
 function calculateFuelMetricsFromParams(params, config) {
     const defaultTotalCapacity = parseFloat(config && config.fuelTankCapacity) || 0;
     const calibration = Array.isArray(config && config.calibration) ? config.calibration : [];
+    const configuredKeys = getConfiguredFuelSensorKeys(config);
     const { keys, values } = readConfiguredFuelSensorValues(params, config);
     const rawEntries = values
         .map(v => ({ key: String(v.key || '').trim().toLowerCase(), raw: parseFloat(v.raw) }))
-        .filter(v => !isNaN(v.raw));
-    const capacityPlan = buildFuelSensorCapacityPlan(config, rawEntries.map(v => v.key));
+        .filter(v => Number.isFinite(v.raw));
+    const capacityPlan = buildFuelSensorCapacityPlan(config, configuredKeys);
     let effectiveCapacity = capacityPlan.totalCapacity || defaultTotalCapacity || 0;
+    const avgConsumption = parseFloat(config && (config.fuelConsumption || config.defaultConsumption || config.avgConsumption)) || 32;
 
     if (rawEntries.length === 0) {
         return {
             liters: 0,
             percent: 0,
+            rangeKm: 0,
             usedCalibration: false,
             keys,
             rawValues: [],
             mode: 'missing',
             effectiveCapacity,
             tankCapacities: capacityPlan.list,
-            capacityMap: capacityPlan.resolvedMap
+            capacityMap: capacityPlan.resolvedMap,
+            sensorBreakdown: []
         };
     }
+
+    const explicitUnitRaw = (config && (config.fuelSensorUnit || config.sensorUnit || config.fuelUnit || config.unit || ''));
+    const explicitUnit = typeof explicitUnitRaw === 'string' ? explicitUnitRaw.trim().toLowerCase() : '';
+    const isExplicitPercent = explicitUnit === 'percent' || explicitUnit === 'percentage' || explicitUnit === '%';
 
     let liters = 0;
     let percent = 0;
     let usedCalibration = false;
     let mode = 'missing';
 
+    const capByKey = {};
+    capacityPlan.list.forEach((item) => { capByKey[item.key] = item.capacity; });
+    const fallbackEach = effectiveCapacity > 0 ? (effectiveCapacity / Math.max(configuredKeys.length, 1)) : 0;
+
     if (calibration.length > 1 && rawEntries.length === 1) {
         liters = Math.max(0, interpolateFuelCalibration(rawEntries[0].raw, calibration));
         usedCalibration = true;
         mode = 'calibrated';
     } else {
-        const capByKey = {};
-        capacityPlan.list.forEach((item) => { capByKey[item.key] = item.capacity; });
-        const fallbackEach = effectiveCapacity > 0 ? (effectiveCapacity / Math.max(rawEntries.length, 1)) : 0;
-
         liters = rawEntries.reduce((sum, entry) => {
             const raw = entry.raw;
             if (!Number.isFinite(raw)) return sum;
-            if (raw > 100) return sum + Math.max(0, raw);
             const tankCapacity = capByKey[entry.key] > 0 ? capByKey[entry.key] : fallbackEach;
-            const safePercent = Math.max(0, Math.min(100, raw));
-            return sum + ((safePercent / 100) * tankCapacity);
+            if (isExplicitPercent) {
+                const safePercent = Math.max(0, Math.min(100, raw));
+                return sum + ((safePercent / 100) * tankCapacity);
+            } else {
+                return sum + Math.max(0, raw);
+            }
         }, 0);
 
-        const hasLitersInput = rawEntries.some(entry => entry.raw > 100);
-        const hasPercentInput = rawEntries.some(entry => entry.raw <= 100);
-        if (hasLitersInput && hasPercentInput) mode = 'mixed';
-        else if (hasLitersInput) mode = rawEntries.length > 1 ? 'multi-liters' : 'single-liters';
-        else mode = rawEntries.length > 1 ? 'multi-percent' : 'single-percent';
+        if (isExplicitPercent) {
+            mode = rawEntries.length > 1 ? 'multi-percent' : 'single-percent';
+        } else {
+            mode = rawEntries.length > 1 ? 'multi-liters' : 'single-liters';
+        }
     }
 
     liters = Math.round(liters);
@@ -928,7 +1015,7 @@ function calculateFuelMetricsFromParams(params, config) {
     if (!effectiveCapacity) {
         if (capacityPlan.totalCapacity > 0) effectiveCapacity = capacityPlan.totalCapacity;
         else if (defaultTotalCapacity > 0) effectiveCapacity = defaultTotalCapacity;
-        else if (liters > 0 && rawEntries.every(entry => entry.raw > 100)) effectiveCapacity = liters;
+        else if (liters > 0) effectiveCapacity = liters;
     }
 
     if (usedCalibration) {
@@ -937,7 +1024,7 @@ function calculateFuelMetricsFromParams(params, config) {
             : Math.round(Math.max(0, rawEntries[0].raw));
     } else if (effectiveCapacity > 0) {
         percent = Math.round((liters / effectiveCapacity) * 100);
-    } else if (rawEntries.length === 1 && rawEntries[0].raw <= 100) {
+    } else if (isExplicitPercent && rawEntries.length === 1) {
         percent = Math.round(Math.max(0, Math.min(100, rawEntries[0].raw)));
     } else {
         percent = 0;
@@ -946,17 +1033,30 @@ function calculateFuelMetricsFromParams(params, config) {
     if (!Number.isFinite(liters) || liters < 0) liters = 0;
     if (!Number.isFinite(percent) || percent < 0) percent = 0;
     if (effectiveCapacity > 0 && percent > 100) percent = 100;
+    const rangeKm = avgConsumption > 0 ? Math.round((liters / avgConsumption) * 100) : 0;
+
+    const sensorBreakdown = rawEntries.map((entry) => {
+        const cap = capByKey[entry.key] > 0 ? capByKey[entry.key] : fallbackEach;
+        return {
+            key: entry.key,
+            raw: entry.raw,
+            capacity: cap,
+            unit: isExplicitPercent ? 'percent' : 'liters'
+        };
+    });
 
     return {
         liters,
         percent,
+        rangeKm,
         usedCalibration,
         keys,
         rawValues: rawEntries.map(v => v.raw),
         mode,
         effectiveCapacity,
         tankCapacities: capacityPlan.list,
-        capacityMap: capacityPlan.resolvedMap
+        capacityMap: capacityPlan.resolvedMap,
+        sensorBreakdown
     };
 }
 
@@ -994,20 +1094,17 @@ function smoothFuelSeriesPoints(points, windowSize = 3, maxFuelLevel = null) {
     const size = Math.max(1, parseInt(windowSize, 10) || 1);
     const radius = Math.max(0, Math.floor(size / 2));
     const MAX_SMOOTH_GAP_MS = 3 * 60 * 1000;
-    const MAX_STEP_NOISE_LITERS = 35;
 
     return safe.map((point, idx) => {
         const neighbors = [point.liters];
         for (let b = 1; b <= radius; b += 1) {
             const prev = safe[idx - b];
             if (!prev || Math.abs(point.time - prev.time) > (b * MAX_SMOOTH_GAP_MS)) break;
-            if (Math.abs(prev.liters - point.liters) > MAX_STEP_NOISE_LITERS) break;
             neighbors.push(prev.liters);
         }
         for (let f = 1; f <= radius; f += 1) {
             const nxt = safe[idx + f];
             if (!nxt || Math.abs(nxt.time - point.time) > (f * MAX_SMOOTH_GAP_MS)) break;
-            if (Math.abs(nxt.liters - point.liters) > MAX_STEP_NOISE_LITERS) break;
             neighbors.push(nxt.liters);
         }
         return { ...point, litersSmooth: Math.round(medianForNumbers(neighbors) * 10) / 10 };
@@ -1140,9 +1237,11 @@ function detectRefillEventsFromSeries(points, options = {}) {
         const windowPoints = [];
         for (let k = fromIdx; k < prepared.length; k += 1) {
             if (prepared[k].time > (eventTime + horizonMs)) break;
-            windowPoints.push(prepared[k]);
+            if (prepared[k].time > eventTime) {
+                windowPoints.push(prepared[k]);
+            }
         }
-        if (windowPoints.length === 0) return true;
+        if (windowPoints.length === 0) return false;
         const valid = windowPoints.map((p) => p.litersSmooth);
         const med = medianForNumbers(valid);
         return med >= (minLevel - 15);
@@ -1214,20 +1313,30 @@ function detectRefillEventsFromSeries(points, options = {}) {
     }
 
     // 2. Sleep Gap / Ignition-Off Step Refill (tracker wakes up after station stop)
+    const minSleepGapMs = Math.max(60000, (parseFloat(options.minOffMinutes ?? 2) || 2) * 60000);
     for (let i = 0; i < prepared.length - 1; i += 1) {
         const ptA = prepared[i];
         const ptB = prepared[i + 1];
         const deltaMs = ptB.time - ptA.time;
+        if (deltaMs < minSleepGapMs) continue;
         const rise = ptB.litersSmooth - ptA.litersSmooth;
 
         if (rise >= minRefuelLiters && rise <= maxRealisticRefillLiters) {
+            const cruisingLimit = Math.max(15, stopSpeedThreshold + 5);
+            if (ptA.speed > cruisingLimit || ptB.speed > cruisingLimit) {
+                continue;
+            }
+            const isStoppedA = ptA.speed <= (stopSpeedThreshold + 2) || ptA.ign === 0;
+            const isStoppedB = ptB.speed <= (stopSpeedThreshold + 2);
+            if (!isStoppedA && !isStoppedB) {
+                continue;
+            }
             const dist = (Number.isFinite(ptA.lat) && Number.isFinite(ptB.lat))
                 ? haversineDistanceMeters(ptA.lat, ptA.lng, ptB.lat, ptB.lng)
                 : 0;
-            const bothSlowOrGap = (ptA.speed <= (stopSpeedThreshold + 2) || ptB.speed <= (stopSpeedThreshold + 2) || deltaMs >= 120000);
             const isPersistent = checkPersistence(i + 1, ptB.time, ptB.litersSmooth - (rise * 0.25));
 
-            if (dist <= maxStationarySpreadMeters && bothSlowOrGap && isPersistent) {
+            if (dist <= maxStationarySpreadMeters && isPersistent) {
                 candidateEvents.push({
                     index: ptB.index,
                     time: ptB.time,
@@ -1279,62 +1388,74 @@ function parseVidangeMilestones(milestonesRaw) {
   return [];
 }
 
-// 🔧 calculateVidangeStatus (same as config.js helper, but supports skipUntilKm)
-// - skipUntilKm: last confirmed vidange milestone.
-//   IMPORTANT: the alert MUST stay active (even overdue) until a vidange is recorded.
-function calculateVidangeStatus(currentOdometer, config, lastVidangeKm = null) {
-    const alertKm = parseInt((config && config.vidangeAlertKm) || 500);
-    const startKm = parseInt((config && config.vidangeStartKm) || 5000);
-    const rotKm   = parseInt((config && config.vidangeRotationKm) || 25000);
+// 🔧 calculateVidangeStatus is canonically imported from ./config.js.
+// Strictly holds overdue milestones (M_passed = S + k * R) without auto-advancing to subsequent rotations.
 
-    // Rotation logic (primary)
-    if (rotKm > 0) {
-        const lastKm = parseInt(lastVidangeKm || 0);
-        const odo    = parseInt(currentOdometer);
-        let nextKm;
-        if (lastKm > 0) {
-            nextKm = lastKm + rotKm;
-        } else if (odo <= startKm) {
-            nextKm = startKm;
-        } else {
-            const rotsPassed = Math.floor((odo - startKm) / rotKm);
-            nextKm = startKm + (rotsPassed + 1) * rotKm;
-        }
-        const kmUntilNext = nextKm - odo;
-        return { alert: kmUntilNext <= alertKm, nextKm, kmUntilNext, alertKm, lastKm: lastKm > 0 ? lastKm : null, isVirtual: lastKm === 0 };
-    }
-
-    // Legacy milestone fallback
-    let milestones = [];
-    if (config && config.vidangeMilestones) {
-        if (typeof config.vidangeMilestones === 'string') {
-            milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a,b)=>a-b);
-        } else if (Array.isArray(config.vidangeMilestones)) {
-            milestones = config.vidangeMilestones.slice().sort((a,b)=>a-b);
-        }
-    }
-    if (milestones.length === 0) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm, lastKm: null };
-    const base = parseInt(lastVidangeKm || 0);
-    const active = milestones.filter(m => m > base && (parseInt(currentOdometer) - m) <= 10000);
-    const next = active[0] || null;
-    if (!next) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
-    const kmUntilNext = next - parseInt(currentOdometer);
-    return { alert: kmUntilNext <= alertKm, nextKm: next, kmUntilNext, alertKm, lastKm: base > 0 ? base : null, isVirtual: false };
-}
-
-
-async function acknowledgeVidange(deviceId, truckName, odometerKm) {
+async function acknowledgeVidange(deviceId, truckName, odometerKm, date = null, note = '') {
     try {
+        const id = String(deviceId);
+        const odo = Math.round(Number(odometerKm) || 0);
+        if (!id || odo <= 0) {
+            console.warn(`[Vidange] acknowledgeVidange invalid params: deviceId=${deviceId}, odo=${odometerKm}`);
+            return null;
+        }
+
         if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
-        SYSTEM_SETTINGS.vidangeOverrides[String(deviceId)] = {
-            lastVidangeKm: odometerKm,        // actual km at time of vidange (rotation anchor)
-            odometerAtConfirm: odometerKm,    // kept for backward compat
-            confirmedAt: new Date().toISOString(),
-            truckName: truckName || ''
+        const confirmedAt = date ? new Date(date).toISOString() : new Date().toISOString();
+        const resolvedTruckName = truckName || SYSTEM_SETTINGS.vidangeOverrides[id]?.truckName || id;
+
+        SYSTEM_SETTINGS.vidangeOverrides[id] = {
+            lastVidangeKm: odo,               // actual km at time of vidange (canonical rotation anchor)
+            odometerAtConfirm: odo,           // kept for backward compat
+            confirmedAt,
+            truckName: resolvedTruckName,
+            note: note || ''
         };
+        // Keep uppercase compatibility alias synchronized
+        SYSTEM_SETTINGS.VIDANGE_OVERRIDES = SYSTEM_SETTINGS.vidangeOverrides;
+
         await saveSettings();
-        console.log(`[Vidange] Acknowledged ${truckName||deviceId} @ ${odometerKm} km`);
-        return odometerKm;
+        console.log(`[Vidange] Acknowledged ${resolvedTruckName} (${id}) @ ${odo} km`);
+
+        // Recompute current vidangeStatus for this truck
+        let liveOdo = odo;
+        try {
+            const dbTruck = await Truck.findOne({ deviceId: id }).lean();
+            if (dbTruck) {
+                const modelName = dbTruck.model ? dbTruck.model.toUpperCase() : "";
+                if ((modelName.includes('HOWO') || !dbTruck.params?.io192) && dbTruck.odometer) {
+                    liveOdo = parseFloat(dbTruck.odometer) || 0;
+                } else if (dbTruck.params?.io192) {
+                    liveOdo = (parseInt(dbTruck.params.io192, 10) || 0) / 1000;
+                } else if (dbTruck.odometer) {
+                    liveOdo = parseFloat(dbTruck.odometer) || 0;
+                }
+            }
+        } catch (findErr) {
+            console.warn(`[Vidange] Error retrieving truck ${id} live odo:`, findErr.message);
+        }
+        liveOdo = Math.round(liveOdo > 0 ? liveOdo : odo);
+
+        const truckCfg = (SYSTEM_SETTINGS.truckConfigs && SYSTEM_SETTINGS.truckConfigs[id]) || {};
+        const cfg = {
+            vidangeStartKm: truckCfg.vidangeStartKm || SYSTEM_SETTINGS.vidangeStartKm || 5000,
+            vidangeRotationKm: truckCfg.vidangeRotationKm || SYSTEM_SETTINGS.vidangeRotationKm || 25000,
+            vidangeAlertKm: truckCfg.vidangeAlertKm || SYSTEM_SETTINGS.vidangeAlertKm || 500,
+            vidangeMilestones: truckCfg.vidangeMilestones || SYSTEM_SETTINGS.vidangeMilestones
+        };
+
+        const vidangeStatus = calculateVidangeStatus(liveOdo, cfg, odo);
+
+        return {
+            success: true,
+            deviceId: id,
+            truckName: resolvedTruckName,
+            acknowledgedOdometer: odo,
+            lastVidangeKm: odo,
+            confirmedAt,
+            vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
+            vidangeStatus
+        };
     } catch(e) {
         console.error('acknowledgeVidange error:', e.message);
         return null;
@@ -1647,6 +1768,7 @@ function getRefuelSourcePriority(source = '') {
     'manual-entry': 100,
     'gps-history-nightly': 80,
     'gps-history-reconciled': 80,
+    'gps-history-recovery': 75,
     'gps-history-rebuild': 70,
     'gps-history-verified': 65,
     'live-verified': 40,
@@ -1770,7 +1892,7 @@ async function deleteAutoRefuelsForWindow({ deviceId, startMs, endMs } = {}) {
   const cleanup = await Refuel.deleteMany({
     deviceId: String(deviceId),
     timestamp: { $gte: new Date(startMs), $lte: new Date(endMs) },
-    source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified', 'gps-history-reconciled', 'gps-history-nightly'] }
+    source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified', 'gps-history-reconciled', 'gps-history-nightly', 'gps-history-recovery'] }
   });
   return cleanup.deletedCount || 0;
 }
@@ -1781,7 +1903,7 @@ async function deleteLowVolumeAutoRefuelsForWindow({ deviceId, startMs, endMs, m
     deviceId: String(deviceId),
     timestamp: { $gte: new Date(startMs), $lte: new Date(endMs) },
     addedLiters: { $lt: Math.max(60, parseFloat(minLiters) || 60) },
-    source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified', 'gps-history-reconciled', 'gps-history-nightly'] }
+    source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified', 'gps-history-reconciled', 'gps-history-nightly', 'gps-history-recovery'] }
   });
   return cleanup.deletedCount || 0;
 }
@@ -2132,9 +2254,22 @@ async function calculateTransportWindowStats({ deviceId, truckName, start, end, 
   })), rules);
   const refillEvents = refillEventsAll.filter((event) => event.time >= requestedStartMs && event.time <= requestedEndMs);
 
+  const smoothedWindow = smoothFuelSeriesPoints(windowPoints.map((point) => ({
+    time: point.time,
+    liters: point.fuelLiters,
+    speed: point.speed,
+    ign: point.ign,
+    lat: point.lat,
+    lng: point.lng
+  })), 5, (effectiveCapacity || 600) + 50);
+
+  const fuelStart = smoothedWindow.length > 0
+    ? (smoothedWindow[0].litersSmooth ?? smoothedWindow[0].liters)
+    : Math.round((parseFloat(startPoint.fuelLiters) || 0) * 100) / 100;
+  const fuelEnd = smoothedWindow.length > 0
+    ? (smoothedWindow[smoothedWindow.length - 1].litersSmooth ?? smoothedWindow[smoothedWindow.length - 1].liters)
+    : Math.round((parseFloat(endPoint.fuelLiters) || 0) * 100) / 100;
   const fuelAddedDuringTrip = Math.round(refillEvents.reduce((sum, event) => sum + (parseFloat(event.addedLiters) || 0), 0) * 100) / 100;
-  const fuelStart = Math.round((parseFloat(startPoint.fuelLiters) || 0) * 100) / 100;
-  const fuelEnd = Math.round((parseFloat(endPoint.fuelLiters) || 0) * 100) / 100;
   const fuelConsumedRaw = Math.max(0, Math.round((fuelStart - fuelEnd) * 100) / 100);
   const fuelConsumedTotal = Math.max(0, Math.round((fuelStart + fuelAddedDuringTrip - fuelEnd) * 100) / 100);
 
@@ -2311,8 +2446,8 @@ async function runVidangeDetection(truck, dbTruck, config) {
         });
 
         // ✅ If it was a Vidange, acknowledge it so the "vidange alert" goes away for the serviced milestone
-        if (maintenanceType === 'Vidange') {
-          await acknowledgeVidange(deviceId, truckName, odometerKm);
+        if (maintenanceType === 'Vidange' || maintenanceType === 'Vidange Complète') {
+          await acknowledgeVidange(deviceId, truckName, odometerKm, createdLog.date);
         }
 
 	        // Save logId so we can close the session when the truck leaves
@@ -3177,11 +3312,87 @@ app.get('/api/speeding/history', checkAccess, async (req, res) => {
   }
 });
 
-app.get('/api/settings', checkAccess, (req, res) => res.json(SYSTEM_SETTINGS));
+app.get('/api/settings', checkAccess, (req, res) => {
+  if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
+  SYSTEM_SETTINGS.VIDANGE_OVERRIDES = SYSTEM_SETTINGS.vidangeOverrides;
+  res.json(SYSTEM_SETTINGS);
+});
 app.post('/api/settings', checkAccess, async (req, res) => {
+  if (req.body.VIDANGE_OVERRIDES && !req.body.vidangeOverrides) {
+    req.body.vidangeOverrides = req.body.VIDANGE_OVERRIDES;
+  }
   SYSTEM_SETTINGS = { ...SYSTEM_SETTINGS, ...req.body };
+  if (SYSTEM_SETTINGS.vidangeOverrides) {
+    SYSTEM_SETTINGS.VIDANGE_OVERRIDES = SYSTEM_SETTINGS.vidangeOverrides;
+  }
   await saveSettings();
-  res.json({ success: true });
+  res.json({ success: true, vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides });
+});
+
+// ════════════════════════════════════════════════════════════════
+// POST /api/vidange/acknowledge (Feature F12)
+// Dedicated endpoint to acknowledge/declare a vidange for a truck.
+// Accepts: { deviceId, truckName, odometer, date, note, technician, createMaintenanceRecord }
+// Returns: { success, deviceId, acknowledgedOdometer, confirmedAt, vidangeOverrides, vidangeStatus, maintenanceId }
+// ════════════════════════════════════════════════════════════════
+app.post('/api/vidange/acknowledge', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, truckName, odometer, date, note, technician, createMaintenanceRecord } = req.body || {};
+    if (!deviceId) {
+      return res.status(400).json({ error: 'deviceId est requis' });
+    }
+    const odo = Math.round(Number(odometer));
+    if (isNaN(odo) || odo <= 0) {
+      return res.status(400).json({ error: 'Un kilométrage valide (odometer > 0) est requis' });
+    }
+
+    const id = String(deviceId);
+    let resolvedTruckName = truckName;
+    if (!resolvedTruckName) {
+      const dbTruck = await Truck.findOne({ deviceId: id }).lean();
+      resolvedTruckName = dbTruck?.truckName || dbTruck?.name || SYSTEM_SETTINGS.vidangeOverrides?.[id]?.truckName || id;
+    }
+
+    const confirmedDate = date ? new Date(date) : new Date();
+    const confirmedAt = confirmedDate.toISOString();
+
+    let maintenanceId = null;
+    // Default createMaintenanceRecord to true if not explicitly false
+    if (createMaintenanceRecord !== false) {
+      const maintDoc = await Maintenance.create({
+        deviceId: id,
+        truckName: resolvedTruckName,
+        type: 'Vidange',
+        odometer: odo,
+        date: confirmedDate,
+        note: note || 'Vidange déclarée via /api/vidange/acknowledge',
+        technician: technician || '',
+        status: 'termine',
+        exitDate: confirmedDate
+      });
+      maintenanceId = maintDoc._id.toString();
+      DB_STATS.lastWriteAt = new Date().toISOString();
+      DB_STATS.totalWrites++;
+    }
+
+    const ackResult = await acknowledgeVidange(id, resolvedTruckName, odo, confirmedAt, note);
+    if (!ackResult) {
+      return res.status(500).json({ error: "Échec de l'enregistrement de l'acquittement de vidange" });
+    }
+
+    res.json({
+      success: true,
+      deviceId: id,
+      acknowledgedOdometer: odo,
+      confirmedAt,
+      vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
+      vidangeStatus: ackResult.vidangeStatus,
+      maintenanceId
+    });
+  } catch (e) {
+    console.error('❌ /api/vidange/acknowledge error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/maintenance', checkAccess, async (req, res) => {
@@ -3197,16 +3408,29 @@ app.post('/api/maintenance/add', checkAccess, async (req, res) => {
     DB_STATS.lastWriteAt = new Date().toISOString();
     DB_STATS.totalWrites++;
 
-    // ✅ If a Vidange was manually added, acknowledge it to silence the current milestone alert
+    // ✅ If a Vidange was manually added, acknowledge it to silence the current milestone alert and reset rotation anchor
+    let ackResult = null;
     try {
-      if (req.body && req.body.type === 'Vidange' && req.body.deviceId && req.body.odometer) {
-        await acknowledgeVidange(req.body.deviceId, req.body.truckName, parseInt(req.body.odometer, 10));
+      const isVidange = req.body && (req.body.type === 'Vidange' || req.body.type === 'Vidange Complète');
+      if (isVidange && req.body.deviceId && req.body.odometer) {
+        ackResult = await acknowledgeVidange(
+          req.body.deviceId,
+          req.body.truckName,
+          parseInt(req.body.odometer, 10),
+          req.body.date || req.body.entryDate,
+          req.body.notes || req.body.note
+        );
       }
     } catch (e) {
       console.warn('Vidange acknowledge (manual) failed:', e.message);
     }
 
-    res.json({ success: true, id: newDoc._id });
+    res.json({
+      success: true,
+      id: newDoc._id,
+      vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
+      vidangeStatus: ackResult?.vidangeStatus || null
+    });
   } catch (e) {
     DB_STATS.lastWriteError = e.message;
     DB_STATS.totalErrors++;
@@ -3243,16 +3467,28 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     if (immatriculation !== undefined) doc.immatriculation = immatriculation;
     await doc.save();
 
-    // ✅ If user changed the entry to Vidange, acknowledge
+    // ✅ If the entry is a Vidange (or updated to Vidange), synchronize vidangeOverrides
+    let ackResult = null;
     try {
-      if (prevType !== 'Vidange' && (doc.type === 'Vidange' || doc.type === 'Vidange Complète') && doc.deviceId && doc.odometer) {
-        await acknowledgeVidange(doc.deviceId, doc.truckName, parseInt(doc.odometer, 10));
+      const isVidange = doc.type === 'Vidange' || doc.type === 'Vidange Complète';
+      if (isVidange && doc.deviceId && doc.odometer) {
+        ackResult = await acknowledgeVidange(
+          doc.deviceId,
+          doc.truckName,
+          parseInt(doc.odometer, 10),
+          doc.date,
+          doc.note
+        );
       }
     } catch (e) {
       console.warn('Vidange acknowledge (update) failed:', e.message);
     }
 
-    res.json({ success: true });
+    res.json({
+      success: true,
+      vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
+      vidangeStatus: ackResult?.vidangeStatus || null
+    });
 
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3262,16 +3498,34 @@ app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
     if (doc) {
       if (doc.type === 'Vidange' || doc.type === 'Vidange Complète') {
         if (SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[doc.deviceId]) {
-          delete SYSTEM_SETTINGS.vidangeOverrides[doc.deviceId];
-          const mongoose = require('mongoose');
-          await mongoose.models.Settings.findOneAndUpdate({}, { vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides }, { upsert: true });
+          // Check if there is an earlier completed vidange record to fallback to
+          const prevVidange = await Maintenance.findOne({
+            _id: { $ne: doc._id },
+            deviceId: doc.deviceId,
+            type: { $in: ['Vidange', 'Vidange Complète'] },
+            status: { $nin: ['annule', 'annulé'] },
+            odometer: { $gt: 0 }
+          }).sort({ odometer: -1 });
+
+          if (prevVidange) {
+            SYSTEM_SETTINGS.vidangeOverrides[doc.deviceId] = {
+              lastVidangeKm: Math.round(prevVidange.odometer),
+              odometerAtConfirm: Math.round(prevVidange.odometer),
+              confirmedAt: prevVidange.date ? new Date(prevVidange.date).toISOString() : new Date().toISOString(),
+              truckName: prevVidange.truckName || doc.truckName || ''
+            };
+          } else {
+            delete SYSTEM_SETTINGS.vidangeOverrides[doc.deviceId];
+          }
+          SYSTEM_SETTINGS.VIDANGE_OVERRIDES = SYSTEM_SETTINGS.vidangeOverrides;
+          await saveSettings();
         }
       }
       await Maintenance.findByIdAndDelete(req.body.id);
     }
     DB_STATS.lastWriteAt = new Date().toISOString();
     DB_STATS.totalWrites++;
-    res.json({ success: true });
+    res.json({ success: true, vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides });
   } catch (e) {
     DB_STATS.lastWriteError = e.message;
     DB_STATS.totalErrors++;
@@ -3344,7 +3598,29 @@ app.post('/api/maintenance/close', checkAccess, async (req, res) => {
     if (technician !== undefined) doc.technician = technician;
     if (Array.isArray(parts)) doc.parts = parts;
     await doc.save();
-    res.json({ success: true });
+
+    // ✅ If closing a vidange record, acknowledge vidange if not already acknowledged
+    let ackResult = null;
+    try {
+      const isVidange = doc.type === 'Vidange' || doc.type === 'Vidange Complète';
+      if (isVidange && doc.deviceId && doc.odometer) {
+        ackResult = await acknowledgeVidange(
+          doc.deviceId,
+          doc.truckName,
+          parseInt(doc.odometer, 10),
+          doc.exitDate || doc.date,
+          doc.note
+        );
+      }
+    } catch (e) {
+      console.warn('Vidange acknowledge (close) failed:', e.message);
+    }
+
+    res.json({
+      success: true,
+      vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
+      vidangeStatus: ackResult?.vidangeStatus || null
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ✅ V4.0: GPS Geofence Confirmation — Confirm or reject a maintenance via GPS proximity
@@ -3355,17 +3631,39 @@ app.post('/api/maintenance/gps-confirm', checkAccess, async (req, res) => {
     const doc = await Maintenance.findById(id);
     if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
     
+    let ackResult = null;
     if (confirmed) {
       doc.gpsConfirmed = true;
       doc.gpsConfirmedAt = new Date();
       doc.status = 'termine';
       doc.exitDate = new Date();
+
+      // ✅ If confirmed order was a Vidange, acknowledge vidange override
+      try {
+        const isVidange = doc.type === 'Vidange' || doc.type === 'Vidange Complète';
+        if (isVidange && doc.deviceId && doc.odometer) {
+          ackResult = await acknowledgeVidange(
+            doc.deviceId,
+            doc.truckName,
+            parseInt(doc.odometer, 10),
+            doc.exitDate || doc.date,
+            doc.note
+          );
+        }
+      } catch (e) {
+        console.warn('Vidange acknowledge (gps-confirm) failed:', e.message);
+      }
     } else {
       doc.gpsRejected = true;
       doc.gpsRejectedReason = rejectedReason || 'Non confirmé par utilisateur';
     }
     await doc.save();
-    res.json({ success: true, order: doc });
+    res.json({
+      success: true,
+      order: doc,
+      vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
+      vidangeStatus: ackResult?.vidangeStatus || null
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ✅ V4.0: Get maintenance orders pending GPS confirmation
@@ -3470,17 +3768,26 @@ app.get('/api/refuels', checkAccess, async (req, res) => {
     // Rule 4: same truck + within 2h + within 10L → reject later
     const deduped = [];
     const TWO_HOURS_MS = 2 * 3600000;
+    const rules = getResolvedRefuelRules();
+    const minRefuelLimit = parseFloat(rules.minRefuelLiters || 60) || 60;
     for (const refuel of data) {
-      const liters = refuel.addedLiters || 0;
-      if (liters < 70 || liters > 700) continue;
-      if (refuel.isAuto === false) { deduped.push(refuel); continue; }
+      const liters = parseFloat(refuel.addedLiters) || 0;
+      const isManual = refuel.source === 'manual' || refuel.isAuto === false;
+      if (isManual) {
+        if (liters > 0) deduped.push(refuel);
+        continue;
+      }
+      const truckConf = refuel.deviceId ? getTruckConfig(refuel.deviceId) : null;
+      const effectiveCap = truckConf ? Math.max(getConfiguredFuelEffectiveCapacity(truckConf) || 0, parseFloat(truckConf.fuelTankCapacity) || 0, 600) : 600;
+      const maxRefuelLimit = Math.max(effectiveCap + 100, parseFloat(rules.maxRealisticRefillLiters || 1000) || 1000);
+      if (liters < minRefuelLimit || liters > maxRefuelLimit) continue;
       const ts = refuel.timestamp ? refuel.timestamp.getTime() : 0;
       const day = refuel.timestamp ? refuel.timestamp.toISOString().slice(0, 10) : '';
       const isDupe = deduped.some(prev => {
         if (prev.deviceId !== refuel.deviceId) return false;
-        if (prev.isAuto === false) return false;
+        if (prev.source === 'manual' || prev.isAuto === false) return false;
         const prevTs = prev.timestamp ? prev.timestamp.getTime() : 0;
-        const prevLiters = prev.addedLiters || 0;
+        const prevLiters = parseFloat(prev.addedLiters) || 0;
         const prevDay = prev.timestamp ? prev.timestamp.toISOString().slice(0, 10) : '';
         if (prevDay === day && Math.abs(prevLiters - liters) < 5) return true;
         if (Math.abs(prevTs - ts) < TWO_HOURS_MS && Math.abs(prevLiters - liters) < 10) return true;
@@ -3494,10 +3801,107 @@ app.get('/api/refuels', checkAccess, async (req, res) => {
   }
 });
 
-// 🔧 FIX: Découchage route returns clean data without status complexity
+// ============================================================
+// 🔧 REPAIR ORDERS (ORDRES DE RÉPARATION) API (F31)
+// ============================================================
+app.get('/api/repair-orders', checkAccess, async (req, res) => {
+  try {
+    const limit = Math.min(5000, parseInt(req.query.limit, 10) || 500);
+    const filter = {};
+    if (req.query.truck) {
+      filter.$or = [
+        { truckName: new RegExp(req.query.truck, 'i') },
+        { deviceId: String(req.query.truck) },
+        { immatriculation: new RegExp(req.query.truck, 'i') }
+      ];
+    }
+    if (req.query.status && req.query.status !== 'all') {
+      filter.status = req.query.status;
+    }
+    if (req.query.reference) {
+      filter.reference = req.query.reference;
+    }
+    const orders = await RepairOrder.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+    res.json(fmt(orders));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/repair-orders/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(id);
+    const order = await RepairOrder.findOne({
+      $or: [
+        ...(isObjectId ? [{ _id: id }] : []),
+        { reference: id }
+      ]
+    }).lean();
+    if (!order) return res.status(404).json({ error: 'Ordre introuvable' });
+    res.json(fmt(order));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/repair-orders', checkAccess, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.reference) {
+      body.reference = `OR-${Date.now()}`;
+    }
+    body.updatedAt = new Date();
+    const existing = await RepairOrder.findOne({ reference: body.reference });
+    let doc;
+    if (existing) {
+      doc = await RepairOrder.findByIdAndUpdate(existing._id, { $set: body }, { new: true });
+    } else {
+      doc = await RepairOrder.create(body);
+    }
+    res.json({ success: true, order: fmt(doc.toObject ? doc.toObject() : doc) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/repair-orders/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(id);
+    await RepairOrder.findOneAndDelete({
+      $or: [
+        ...(isObjectId ? [{ _id: id }] : []),
+        { reference: id }
+      ]
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 🔧 FIX: Découchage route with pagination, truck and date filters (F28)
 app.get('/api/decouchages', checkAccess, async (req, res) => {
-  const data = await Decouchage.find().sort({ date: -1 }).limit(300);
-  res.json(fmt(data));
+  try {
+    const limit = Math.min(5000, parseInt(req.query.limit, 10) || 500);
+    const filter = {};
+    if (req.query.truck) {
+      filter.$or = [
+        { truckName: new RegExp(req.query.truck, 'i') },
+        { deviceId: String(req.query.truck) }
+      ];
+    }
+    if (req.query.startDate || req.query.endDate) {
+      filter.date = {};
+      if (req.query.startDate) filter.date.$gte = req.query.startDate;
+      if (req.query.endDate) filter.date.$lte = req.query.endDate;
+    }
+    const data = await Decouchage.find(filter).sort({ date: -1 }).limit(limit).lean();
+    res.json(fmt(data));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/history', checkAccess, async (req, res) => {
@@ -3541,7 +3945,8 @@ app.get('/api/backup/download', checkAccess, async (req, res) => {
       speedViolations: await SpeedViolation.find(),
       auditReports: await AuditReport.find(),
       itinerarySegments: await ItinerarySegment.find(),
-      missedWindows: await MissedWindow.find()
+      missedWindows: await MissedWindow.find(),
+      repairOrders: await RepairOrder.find()
     };
     res.json(dbData);
   } catch (e) { res.status(500).send(e.message); }
@@ -3629,6 +4034,14 @@ app.post('/api/backup/restore', checkAccess, async (req, res) => {
     if (Array.isArray(req.body.missedWindows) && req.body.missedWindows.length > 0) {
       for (const m of req.body.missedWindows) {
         await MissedWindow.findOneAndUpdate({ _id: m._id }, m, { upsert: true, new: true });
+      }
+    }
+    if (Array.isArray(req.body.repairOrders) && req.body.repairOrders.length > 0) {
+      for (const ro of req.body.repairOrders) {
+        if (ro.reference) {
+          await RepairOrder.findOneAndUpdate({ reference: ro.reference }, ro, { upsert: true, new: true });
+          stats.repairOrders = (stats.repairOrders || 0) + 1;
+        }
       }
     }
     DB_STATS.lastWriteAt = new Date().toISOString();
@@ -3945,18 +4358,37 @@ app.get('/api/zone-events', checkAccess, async (req, res) => {
     const events = await ZoneEvent.find(filter).sort({ [sortField]: sortDir }).skip(skip).limit(limit).lean();
     const now = Date.now();
     const rows = events.map(e => {
-      const durMin = e.exitTime ? (e.durationMinutes ?? Math.round((new Date(e.exitTime).getTime() - new Date(e.entryTime).getTime()) / 60000)) : Math.round((now - new Date(e.entryTime).getTime()) / 60000);
+      const entryMs = new Date(e.entryTime).getTime();
+      const exitMs = e.exitTime ? new Date(e.exitTime).getTime() : null;
+      const rawDur = exitMs != null
+        ? (e.durationMinutes != null && Number.isFinite(e.durationMinutes) ? e.durationMinutes : Math.round((exitMs - entryMs) / 60000))
+        : (Number.isFinite(entryMs) ? Math.round((now - entryMs) / 60000) : 0);
+      const durMin = Number.isFinite(rawDur) ? Math.max(0, rawDur) : 0;
+
       let recapMin = durMin;
       if (e.plannedArrival && e.operationSource !== 'auto') {
-        recapMin = e.engagementMinutes || (e.exitTime ? Math.round((e.exitTime - e.plannedArrival) / 60000) : Math.round((now - e.plannedArrival) / 60000));
+        const plannedMs = new Date(e.plannedArrival).getTime();
+        if (Number.isFinite(plannedMs)) {
+          if (e.engagementMinutes != null && Number.isFinite(e.engagementMinutes)) {
+            recapMin = Math.max(0, e.engagementMinutes);
+          } else {
+            const refEnd = exitMs != null ? exitMs : now;
+            recapMin = Math.max(0, Math.round((refEnd - plannedMs) / 60000));
+          }
+        }
       }
+
+      const engagementMin = (e.engagementMinutes != null && Number.isFinite(e.engagementMinutes))
+        ? Math.max(0, e.engagementMinutes)
+        : null;
+
       return {
         id: e._id, deviceId: e.deviceId, truckName: e.truckName,
         zoneName: e.zoneName, zoneType: e.zoneType,
-        entryTime: new Date(e.entryTime).toISOString(),
-        exitTime: e.exitTime ? new Date(e.exitTime).toISOString() : null,
+        entryTime: Number.isFinite(entryMs) ? new Date(entryMs).toISOString() : null,
+        exitTime: (exitMs != null && Number.isFinite(exitMs)) ? new Date(exitMs).toISOString() : null,
         durationMinutes: durMin,
-        durationHours: Math.round((durMin || 0) / 60 * 100) / 100,
+        durationHours: Math.round(durMin / 60 * 100) / 100,
         status: e.exitTime ? 'closed' : 'open',
         entryLat: e.entryLat, entryLng: e.entryLng,
         exitLat: e.exitLat, exitLng: e.exitLng,
@@ -3967,8 +4399,8 @@ app.get('/api/zone-events', checkAccess, async (req, res) => {
         plannedArrival: e.plannedArrival ? new Date(e.plannedArrival).toISOString() : null,
         plannedDeparture: e.plannedDeparture ? new Date(e.plannedDeparture).toISOString() : null,
         diffArrivalMin: (e.plannedArrival && e.entryTime) ? Math.round((e.entryTime - e.plannedArrival) / 60000) : null,
-        engagementMinutes: e.engagementMinutes || null,
-        recapImmobilisationMin: recapMin,
+        engagementMinutes: engagementMin,
+        recapImmobilisationMin: Number.isFinite(recapMin) ? Math.max(0, recapMin) : 0,
         clientId:        e.clientId        || null,
         clientName:      e.clientName      || null,
         finalClientId:   e.finalClientId   || null,
@@ -3980,7 +4412,7 @@ app.get('/api/zone-events', checkAccess, async (req, res) => {
     res.json({ data: rows, pagination: { page, perPage: limit, total, totalPages: Math.ceil(total / limit) } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// PUT /api/zone-events/:id// PUT /api/zone-events/:id — manual edit from zone-report
+// PUT /api/zone-events/:id — manual edit from zone-report
 app.put('/api/zone-events/:id', checkAccess, async (req, res) => {
   try {
     const { entryTime, exitTime, plannedArrival, operationSource, operationName } = req.body;
@@ -3991,105 +4423,67 @@ app.put('/api/zone-events/:id', checkAccess, async (req, res) => {
     if (operationSource) update.operationSource = operationSource;
     if (operationName !== undefined) update.operationName = operationName;
     if (update.entryTime && update.exitTime) {
-      update.durationMinutes = Math.round((update.exitTime - update.entryTime) / 60000);
+      update.durationMinutes = Math.max(0, Math.round((update.exitTime - update.entryTime) / 60000));
     }
     const updated = await ZoneEvent.findByIdAndUpdate(req.params.id, update, { new: true });
     if (!updated) return res.status(404).json({ error: 'Not found' });
     res.json({ ok: true, data: updated });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ════════════════════════════════════════════════════════════════
 // GET /api/zone-events/live — trucks currently inside a zone (with elapsed time)
-// Enhanced: also detects trucks in-zone via GPS that are missing ZoneEvent records
+// F26: Strictly read-only & idempotent — zero database mutations or side-effects
+// ════════════════════════════════════════════════════════════════
 app.get('/api/zone-events/live', checkAccess, async (req, res) => {
   try {
-    let openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: -1 }).lean();
+    const openEvents = await ZoneEvent.find({
+      $or: [{ exitTime: null }, { status: 'en cours' }]
+    }).sort({ entryTime: -1 }).lean();
     const now = Date.now();
 
-    // ── Auto-create missing events for trucks in-zone via GPS ──────────
-    try {
-      const allZones = SYSTEM_SETTINGS.customLocations || [];
-      if (allZones.length > 0) {
-        const gpsRes = await fetch(GPS_API_URL);
-        const gpsJson = await gpsRes.json();
-        const liveSnapshot = gpsJson.data || gpsJson || [];
-
-        const openKeys = new Set(openEvents.map(e => `${e.deviceId}__${e.zoneName}`));
-        let created = 0;
-
-        for (const liveT of liveSnapshot) {
-          const did = String(liveT.id || liveT.imei || '');
-          if (!did) continue;
-          const lat = parseFloat(liveT.lat);
-          const lng = parseFloat(liveT.lng);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-
-          for (const zone of allZones) {
-            const zLat = parseFloat(zone.lat);
-            const zLng = parseFloat(zone.lng);
-            const zR = zone.radius || 500;
-            if (!Number.isFinite(zLat) || !Number.isFinite(zLng)) continue;
-
-            const dist = calculateDistance(lat, lng, zLat, zLng);
-            if (dist <= zR) {
-              const key = `${did}__${zone.name}`;
-              if (!openKeys.has(key)) {
-                const truckDoc = await Truck.findOne({ deviceId: did }).lean();
-                const tName = truckDoc ? truckDoc.truckName : (liveT.name || did);
-                // Smart entry time: check if a previous event was force-closed by old bugs
-                const prevClosed = await ZoneEvent.findOne({
-                  deviceId: did, zoneName: zone.name, exitTime: { $ne: null }
-                }).sort({ exitTime: -1 }).lean();
-                const smartEntry = (prevClosed && (now - prevClosed.exitTime) < 48 * 3600000)
-                  ? prevClosed.entryTime : now;
-                await ZoneEvent.create({
-                  deviceId: did, truckName: tName, zoneName: zone.name,
-                  entryTime: smartEntry, exitTime: null, status: 'en cours',
-                  source: 'vérifié', entryLat: lat, entryLng: lng,
-                  entryConfirmed: smartEntry !== now, verificationLayer: 'live-sync'
-                });
-                await Truck.findOneAndUpdate({ deviceId: did }, { _zoneEventZone: zone.name });
-                openKeys.add(key);
-                created++;
-                // Async backtrack to refine entry time (staggered to avoid API overload)
-                const newEv = await ZoneEvent.findOne({ deviceId: did, zoneName: zone.name, exitTime: null }).lean();
-                if (newEv && smartEntry === now) {
-                  const z = zone;
-                  const delay = created * 3000;
-                  setTimeout(() => runEntryBacktrack(newEv._id, did, z, now).catch(() => {}), delay);
-                }
-              }
-            }
-          }
-        }
-        if (created > 0) {
-          console.log(`[Live API] ➕ Created ${created} missing zone events on-the-fly`);
-          openEvents = await ZoneEvent.find({ exitTime: null }).sort({ entryTime: -1 }).lean();
-        }
-      }
-    } catch (gpsErr) {
-      console.warn('[Live API] GPS sync failed (non-fatal):', gpsErr.message);
-    }
-
     res.json(openEvents.map(e => {
-      const elapsedMs = now - e.entryTime;
+      const entryMs = new Date(e.entryTime).getTime();
+      const elapsedMs = Number.isFinite(entryMs) ? Math.max(0, now - entryMs) : 0;
       const h = Math.floor(elapsedMs / 3600000);
       const m = Math.floor((elapsedMs % 3600000) / 60000);
       const s = Math.floor((elapsedMs % 60000) / 1000);
+      const elapsedMinutes = Math.max(0, Math.round(elapsedMs / 60000));
+
       return {
+        id: e._id ? String(e._id) : null,
+        _id: e._id ? String(e._id) : null,
         deviceId: e.deviceId,
         truckName: e.truckName,
         zoneName: e.zoneName,
         zoneType: e.zoneType,
-        entryTime: new Date(e.entryTime).toISOString(),
+        entryTime: Number.isFinite(entryMs) ? new Date(entryMs).toISOString() : new Date().toISOString(),
         elapsedMs,
         elapsedFormatted: `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`,
-        elapsedMinutes: Math.round(elapsedMs / 60000),
-        entryLat: e.entryLat, entryLng: e.entryLng,
+        elapsedMinutes,
+        entryLat: e.entryLat,
+        entryLng: e.entryLng,
+        operationId: e.operationId || null,
         operationName: e.operationName || null,
-        source: e.source || 'auto'
+        source: e.source || 'auto',
+        clientId: e.clientId || null,
+        clientName: e.clientName || null,
+        finalClientId: e.finalClientId || null,
+        finalClientName: e.finalClientName || null,
+        zoneRadius: e.zoneRadius || null,
+        ...(!e.clientId && e.zoneName ? (() => {
+          const ctx = resolveZoneClientContext(e.zoneName);
+          return {
+            clientId: ctx.clientId,
+            clientName: ctx.clientName,
+            finalClientId: ctx.finalClientId,
+            finalClientName: ctx.finalClientName
+          };
+        })() : {})
       };
     }));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 // ── SMART MERGE ENDPOINT (FUSIONNER) ──
 app.post('/api/zone-events/merge', checkAccess, async (req, res) => {
@@ -4865,24 +5259,40 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
       confirmedAtLeastOnce = true;
     }
 
-    // ── Decision: Confirmed or Delete? ────────────────────────────────────────
+    // ── Decision: Confirmed or Delete? (F25 Fix) ───────────────────────────
     const event = await ZoneEvent.findById(eventId);
     if (!event) return;
 
     if (!confirmedAtLeastOnce) {
-      // Protect live-sync events from deletion
-      if (event.verificationLayer === 'live-sync' || event.verificationLayer === 'fixer-30m-sync') {
-        await ZoneEvent.findByIdAndUpdate(eventId, { entryConfirmed: false, source: 'auto' });
+      const isLiveActive = (event.exitTime === null || event.status === 'en cours');
+      const isRecentlyCreated = (Date.now() - new Date(event.entryTime).getTime()) < 30 * 60000;
+
+      // ── F25 FIX: NEVER delete fresh active events during early dwell ──
+      if (isLiveActive || isRecentlyCreated || event.verificationLayer === 'live-sync' || event.verificationLayer === 'fixer-30m-sync') {
+        await ZoneEvent.findByIdAndUpdate(eventId, {
+          entryConfirmed: false,
+          source: 'vérifié',
+          lastVerifiedAt: Date.now()
+        });
+        console.log(`ℹ️ [Backtrack] Fresh active event retained: ${deviceId} in "${zone.name}" (early dwell, live entry at ${new Date(event.entryTime).toISOString()})`);
         return;
       }
-      // Could not find genuine GPS dwell → this event is a FAKE (drive-by or GPS noise)
-      await ZoneEvent.findByIdAndDelete(eventId);
-      // Also clear truck's zone state if it was pointing here
-      await Truck.findOneAndUpdate(
-        { deviceId: String(deviceId), _zoneEventZone: zone.name },
-        { _zoneEventZone: null }
-      );
-      console.log(`🗑️ [Backtrack] DELETED fake event — ${deviceId} in "${zone.name}" (no genuine GPS dwell found)`);
+
+      // If event is already closed AND total dwell was under 2 minutes, prune it
+      const closedDurationMs = event.exitTime ? (new Date(event.exitTime).getTime() - new Date(event.entryTime).getTime()) : null;
+      if (closedDurationMs !== null && closedDurationMs < 2 * 60000) {
+        const closedDuration = Math.max(0, Math.round(closedDurationMs / 60000));
+        await ZoneEvent.findByIdAndDelete(eventId);
+        await Truck.findOneAndUpdate(
+          { deviceId: String(deviceId), _zoneEventZone: zone.name },
+          { _zoneEventZone: null }
+        );
+        console.log(`🗑️ [Backtrack] DELETED zero-minute glitch event — ${deviceId} in "${zone.name}" (${closedDuration} min, ${closedDurationMs}ms)`);
+        return;
+      }
+
+      // Keep historical event with unconfirmed entry rather than silently destroying
+      await ZoneEvent.findByIdAndUpdate(eventId, { entryConfirmed: false, lastVerifiedAt: Date.now() });
       return;
     }
 
@@ -4894,7 +5304,7 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
       source: 'vérifié'
     });
 
-    const dur = event.exitTime ? Math.round((event.exitTime - finalEntryMs) / 60000) : null;
+    const dur = event.exitTime ? Math.max(0, Math.round((new Date(event.exitTime).getTime() - finalEntryMs) / 60000)) : null;
     if (dur !== null) await ZoneEvent.findByIdAndUpdate(eventId, { durationMinutes: dur });
 
     console.log(`✅ [Backtrack] ${deviceId} in "${zone.name}": Entry confirmed at ${new Date(finalEntryMs).toISOString()}`);
@@ -4915,7 +5325,7 @@ async function runEntryBacktrack(eventId, deviceId, zone, knownEntryMs) {
 //   If duration < 15 minutes → deletes the event (glitch/drive-by).
 //   Otherwise closes the event with exitConfirmed=true.
 // ════════════════════════════════════════════════════════════════
-const MIN_DWELL_MINUTES = 15; // Events shorter than this are deleted as glitches
+const MIN_DWELL_MINUTES = 2; // Glitch threshold: < 2 min is pruned
 
 async function runExitForwardSearch(eventId, deviceId, zone, entryTimeMs) {
   const zoneLat = parseFloat(zone.lat);
@@ -4965,39 +5375,46 @@ async function runExitForwardSearch(eventId, deviceId, zone, entryTimeMs) {
     const event = await ZoneEvent.findById(eventId);
     if (!event) return;
 
+    // ── F23 SAFE EXIT GUARD ──
+    // If forward search did not find an earlier point (API lag or no GPS fix),
+    // PRESERVE the synchronous exitTime! Never leave it open or revert to null.
     if (!trueExitMs) {
-      // No exit found → truck is still in zone
       await ZoneEvent.findByIdAndUpdate(eventId, {
         lastVerifiedAt: nowMs,
-        entryConfirmed: true,
         source: 'vérifié'
       });
       return;
     }
 
-    const durationMinutes = Math.round((trueExitMs - event.entryTime) / 60000);
+    const refinedExitMs = event.exitTime ? Math.min(trueExitMs, new Date(event.exitTime).getTime()) : trueExitMs;
+    const durationMs = refinedExitMs - new Date(event.entryTime).getTime();
+    const durationMinutes = Math.max(0, Math.round(durationMs / 60000));
 
-    if (durationMinutes < MIN_DWELL_MINUTES) {
-      // Too short → it's a glitch/drive-by, delete it
+    if (durationMs < MIN_DWELL_MINUTES * 60000) {
       await ZoneEvent.findByIdAndDelete(eventId);
-      console.log(`🗑️ [ExitSearch] Deleted glitch event for ${deviceId} in "${zone.name}" (${durationMinutes} min)`);
+      console.log(`🗑️ [ExitSearch] Deleted glitch event for ${deviceId} in "${zone.name}" (${durationMinutes} min, ${durationMs}ms)`);
       return;
     }
 
-    // Close the event with the confirmed exit time
+    // Close the event with the confirmed exit time (strictly non-negative)
     const engagementMinutes = event.plannedArrival
-      ? Math.round((trueExitMs - event.plannedArrival) / 60000)
+      ? Math.max(0, Math.round((refinedExitMs - new Date(event.plannedArrival).getTime()) / 60000))
       : null;
 
     const updated = await ZoneEvent.findByIdAndUpdate(eventId, {
-      exitTime: trueExitMs, durationMinutes,
-      exitLat, exitLng, engagementMinutes,
-      status: 'terminé', source: 'vérifié',
-      exitConfirmed: true, lastVerifiedAt: nowMs,
+      exitTime: refinedExitMs,
+      durationMinutes,
+      engagementMinutes,
+      exitLat: exitLat || event.exitLat,
+      exitLng: exitLng || event.exitLng,
+      status: 'terminé',
+      source: 'vérifié',
+      exitConfirmed: true,
+      lastVerifiedAt: nowMs,
       verificationLayer: event.verificationLayer || 'fixer-30m'
     }, { new: true });
 
-    console.log(`✅ [ExitSearch] ${deviceId} left "${zone.name}" at ${new Date(trueExitMs).toISOString()} (${durationMinutes} min)`);
+    console.log(`✅ [ExitSearch] ${deviceId} exit confirmed in "${zone.name}" at ${new Date(refinedExitMs).toISOString()} (${durationMinutes} min)`);
     if (updated) pushToPowerBI(formatZoneEventForPowerBI(updated.toObject(), nowMs)).catch(() => {});
 
   } catch (e) {
@@ -5007,7 +5424,7 @@ async function runExitForwardSearch(eventId, deviceId, zone, entryTimeMs) {
 
 
 // ════════════════════════════════════════════════════════════════
-// V5: logZoneEntry — creates a "vérifié" event and triggers async backtrack
+// V5.2: logZoneEntry — SEQUENTIAL STOP PROGRESSION & SAFE 2H RE-ENTRY (F22 & F24)
 // ════════════════════════════════════════════════════════════════
 async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
   if (!ENABLE_AUTO_ZONE_TRACKING) return;
@@ -5043,63 +5460,91 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
 
     if (result !== null) return; // Already exists, do nothing
 
-    // Check if the truck came back within 2h of a previous exit → reopen old event
-    const justCreated = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName: zone.name, source: 'vérifié', entryTime: { $gte: now - 5000 } });
+    let doc = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName: zone.name, source: 'vérifié', entryTime: { $gte: now - 5000 } });
     const oldClosed = await ZoneEvent.findOne({ deviceId, zoneName: zone.name, exitTime: { $ne: null } }).sort({ exitTime: -1 });
-    if (justCreated && oldClosed) {
+
+    // ── F22 SEQUENTIAL PROGRESSION EVALUATION ──
+    let activeOp = await ZoneOperation.findOne({ deviceId, status: { $in: ['pending','active'] } });
+    let eligibleStopIndex = -1;
+    if (activeOp && Array.isArray(activeOp.route)) {
+      const idx = activeOp.route.findIndex(s => s.zoneName === zone.name && s.status === 'pending');
+      if (idx !== -1) {
+        // Stop idx can only advance to 'arrived' if ALL previous stops (0 .. idx-1) are 'departed' or 'skipped'
+        const prevCleared = activeOp.route.slice(0, idx).every(s => s.status === 'departed' || s.status === 'skipped');
+        if (prevCleared) {
+          eligibleStopIndex = idx;
+        } else {
+          console.warn(`[OpLink] Out-of-order entry: ${truckName} entered "${zone.name}" (stop ${idx}), but preceding stop(s) not cleared. Stop remains pending.`);
+        }
+      }
+    }
+
+    // ── F24 SAFE 2-HOUR RE-ENTRY HANDLING ──
+    // Only resurrect oldClosed if this entry is NOT an eligible next stop of an active mission.
+    // If it IS an eligible next stop, treat as a genuine distinct route stop (do NOT merge).
+    if (doc && oldClosed && eligibleStopIndex === -1) {
       const timeSinceExit = now - oldClosed.exitTime;
       if (timeSinceExit < 2 * 3600000) {
-        await ZoneEvent.findByIdAndDelete(justCreated._id);
+        await ZoneEvent.findByIdAndDelete(doc._id);
         oldClosed.exitTime = null;
         oldClosed.durationMinutes = null;
         oldClosed.status = 'en cours';
         oldClosed.lastVerifiedAt = now;
         await oldClosed.save();
-        console.log(`[Resurrection] ${truckName} back in "${zone.name}" within 2h. Restored original entry.`);
-        // Re-run backtrack to confirm entry date of restored event
-        setTimeout(() => runEntryBacktrack(oldClosed._id, deviceId, zone, oldClosed.entryTime).catch(() => {}), 2000);
-        return;
+        console.log(`[Resurrection] ${truckName} back in "${zone.name}" within 2h. Restored original entry (stop alignment preserved).`);
+        doc = oldClosed;
+        // CRITICAL FIX: DO NOT return early! Proceed to stale cleanup, Power BI push & op alignment.
       }
     }
 
-    // Close any stale open events from OTHER zones
+    if (!doc) return;
+
+    // Close any stale open events from OTHER zones with minimum dwell check (F25)
     const staleEvs = await ZoneEvent.find({ deviceId, exitTime: null, zoneName: { $ne: zone.name } });
     for (const stale of staleEvs) {
-      await ZoneEvent.findByIdAndUpdate(stale._id, { $set: { exitTime: now, durationMinutes: Math.round((now - new Date(stale.entryTime).getTime()) / 60000), status: 'terminé', exitConfirmed: false } });
+      const durMs = now - new Date(stale.entryTime).getTime();
+      const durMin = Math.max(0, Math.round(durMs / 60000));
+      if (durMs < 2 * 60000) {
+        await ZoneEvent.findByIdAndDelete(stale._id);
+        console.log(`🗑️ [Stale-Exit] Deleted zero-minute glitch event for ${truckName} in "${stale.zoneName}" (${durMin} min, ${durMs}ms)`);
+      } else {
+        await ZoneEvent.findByIdAndUpdate(stale._id, {
+          $set: {
+            exitTime: now,
+            durationMinutes: durMin,
+            status: 'terminé',
+            exitConfirmed: false,
+            lastVerifiedAt: now
+          }
+        });
+      }
     }
-
-    const doc = await ZoneEvent.findOne({ deviceId, exitTime: null, zoneName: zone.name });
-    if (!doc) return;
 
     console.log(`📍 [ZoneEvent] ${truckName} → ENTRÉ dans "${zone.name}" (vérifié en cours...)`);
     pushToPowerBI(formatZoneEventForPowerBI(doc.toObject(), now)).catch(() => {});
 
     // Trigger backtrack ASYNCHRONOUSLY — don't block the bot cycle
-    setTimeout(() => runEntryBacktrack(doc._id, deviceId, zone, now).catch(() => {}), 3000);
+    setTimeout(() => runEntryBacktrack(doc._id, deviceId, zone, doc.entryTime || now).catch(() => {}), 3000);
 
-    // Link to operation if exists
+    // ── F22 LINK ELIGIBLE STOP TO OPERATION ──
     try {
-      let activeOp = await ZoneOperation.findOne({ deviceId, status: { $in: ['pending','active'] } });
-      let linked = false;
-      if (activeOp && Array.isArray(activeOp.route)) {
-        const nextStop = activeOp.route.find(s => s.status === 'pending' && s.zoneName === zone.name);
-        if (nextStop) {
-          nextStop.actualArrival = now;
-          nextStop.status = 'arrived';
-          activeOp.status = 'active';
-          activeOp.updatedAt = new Date();
-          await activeOp.save();
-          await ZoneEvent.findByIdAndUpdate(doc._id, {
-            operationId: activeOp._id.toString(),
-            operationName: activeOp.operationName,
-            operationSource: activeOp.source || 'manual',
-            plannedArrival: nextStop.expectedArrival || null,
-            plannedDeparture: nextStop.expectedDeparture || null
-          });
-          linked = true;
-        }
+      if (activeOp && eligibleStopIndex !== -1 && activeOp.route[eligibleStopIndex]) {
+        const nextStop = activeOp.route[eligibleStopIndex];
+        nextStop.actualArrival = now;
+        nextStop.status = 'arrived';
+        activeOp.status = 'active';
+        activeOp.updatedAt = new Date();
+        await activeOp.save();
+
+        await ZoneEvent.findByIdAndUpdate(doc._id, {
+          operationId: activeOp._id.toString(),
+          operationName: activeOp.operationName,
+          operationSource: activeOp.source || 'manual',
+          plannedArrival: nextStop.expectedArrival || null,
+          plannedDeparture: nextStop.expectedDeparture || null
+        });
+        console.log(`[OpLink] Stop ${eligibleStopIndex} ("${zone.name}") of op "${activeOp.operationName}" transitioned to 'arrived' for ${truckName}`);
       }
-      // Note: No auto-create of operation — only link to existing ones
     } catch (opErr) { console.error('OpLink entry:', opErr.message); }
 
   } catch (e) {
@@ -5110,7 +5555,7 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
 
 
 // ════════════════════════════════════════════════════════════════
-// V5: logZoneExit — triggers async exit forward search
+// V5.2: logZoneExit — SYNCHRONOUS EXIT RECORDING & ROUTE COMPLETION (F22, F23, F25)
 // ════════════════════════════════════════════════════════════════
 async function logZoneExit(deviceId, truckName, zoneName, lat, lng) {
   try {
@@ -5118,48 +5563,70 @@ async function logZoneExit(deviceId, truckName, zoneName, lat, lng) {
     if (!openEvent) return;
 
     const now = Date.now();
+    const entryTimeMs = new Date(openEvent.entryTime).getTime();
+    const durationMs = now - entryTimeMs;
+    const durationMinutes = Math.max(0, Math.round(durationMs / 60000));
+
+    // ── F25 DRIVE-BY & ZERO-MINUTE GLITCH GUARD ──
+    // Reject and prune transient border crossings under 2 minutes (120,000 ms)
+    if (durationMs < 2 * 60000) {
+      await ZoneEvent.findByIdAndDelete(openEvent._id);
+      console.log(`🗑️ [ZoneExit] Pruned zero-minute glitch event for ${truckName} in "${zoneName}" (${durationMinutes} min, ${durationMs}ms)`);
+      return;
+    }
+
     const allZones = SYSTEM_SETTINGS.customLocations || [];
     const zone = allZones.find(z => z.name === zoneName);
 
-    console.log(`🏁 [ZoneEvent] ${truckName} → SORTI de "${zoneName}" (vérifié en cours...)`);
+    console.log(`🏁 [ZoneEvent] ${truckName} → SORTI de "${zoneName}" (${durationMinutes} min, synchronous close)`);
 
-    // Trigger forward search ASYNCHRONOUSLY
-    if (zone) {
-      setTimeout(() => runExitForwardSearch(openEvent._id, deviceId, zone, openEvent.entryTime).catch(() => {}), 3000);
-    } else {
-      // Zone config not found — do a simple close based on current time
-      const durationMinutes = Math.round((now - openEvent.entryTime) / 60000);
-      if (durationMinutes < MIN_DWELL_MINUTES) {
-        await ZoneEvent.findByIdAndDelete(openEvent._id);
-        console.log(`🗑️ [ZoneExit] Deleted glitch event for ${truckName} (${durationMinutes} min)`);
-        return;
-      }
-      await ZoneEvent.findByIdAndUpdate(openEvent._id, {
-        exitTime: now, exitLat: lat, exitLng: lng,
-        durationMinutes, status: 'terminé',
-        source: 'vérifié', exitConfirmed: false
-      });
-    }
+    // ── F23 SYNCHRONOUS CLOSURE: Always close immediately ──
+    const engagementMinutes = openEvent.plannedArrival
+      ? Math.max(0, Math.round((now - new Date(openEvent.plannedArrival).getTime()) / 60000))
+      : null;
 
-    // Update operation link
+    await ZoneEvent.findByIdAndUpdate(openEvent._id, {
+      exitTime: now,
+      exitLat: lat,
+      exitLng: lng,
+      durationMinutes,
+      engagementMinutes,
+      status: 'terminé',
+      source: 'vérifié',
+      exitConfirmed: false,
+      lastVerifiedAt: now
+    });
+
+    // ── F22 ROUTE PROGRESSION LIFECYCLE ──
     try {
       const activeOp = await ZoneOperation.findOne({
         deviceId, status: { $in: ['active','pending'] },
         'route.zoneName': zoneName, 'route.status': 'arrived'
       });
-      if (activeOp) {
+      if (activeOp && Array.isArray(activeOp.route)) {
         const stop = activeOp.route.find(s => s.zoneName === zoneName && s.status === 'arrived');
         if (stop) {
           stop.actualDeparture = now;
-          stop.waitingTimeMinutes = stop.actualArrival ? Math.round((now - stop.actualArrival) / 60000) : 0;
+          stop.waitingTimeMinutes = stop.actualArrival
+            ? Math.max(0, Math.round((now - new Date(stop.actualArrival).getTime()) / 60000))
+            : durationMinutes;
           stop.status = 'departed';
-          const allDone = activeOp.route.every(s => ['departed','skipped'].includes(s.status));
-          if (allDone) activeOp.status = 'completed';
+          const allDone = activeOp.route.length > 0 && activeOp.route.every(s => ['departed','skipped'].includes(s.status));
+          if (allDone) {
+            activeOp.status = 'completed';
+            console.log(`🎯 [OpLink] Operation "${activeOp.operationName}" (${activeOp._id}) completed — all stops departed/skipped.`);
+          }
           activeOp.updatedAt = new Date();
           await activeOp.save();
         }
       }
     } catch (opErr) { console.error('OpLink exit:', opErr.message); }
+
+    // Schedule forward search ONLY to refine/backdate exit time if historical points exist
+    if (zone) {
+      setTimeout(() => runExitForwardSearch(openEvent._id, deviceId, zone, openEvent.entryTime).catch(() => {}), 3000);
+    }
+
   } catch (e) { console.error('logZoneExit error:', e.message); }
 }
 
@@ -5215,11 +5682,29 @@ async function runZoneEntryExitTracking(truck, dbTruck) {
         // Scan already tracked this — just sync the truck state silently
         console.log(`[State-Sync] ${truckName}: _zoneEventZone was "${prevZoneName}", open event exists for "${currentZone.name}". Syncing state.`);
         if (prevZoneName && prevZoneName !== currentZone.name) {
-          // Close the old zone event if there's a conflicting open one
-          await ZoneEvent.updateMany(
-            { deviceId, exitTime: null, zoneName: prevZoneName },
-            { $set: { exitTime: Date.now(), durationMinutes: 0, status: 'terminé' } }
-          );
+          // ── F25 FIX: Calculate actual duration instead of hardcoding durationMinutes: 0 ──
+          const conflictingEvents = await ZoneEvent.find({ deviceId, exitTime: null, zoneName: prevZoneName });
+          const nowMs = Date.now();
+          for (const confEv of conflictingEvents) {
+            const durMs = nowMs - new Date(confEv.entryTime).getTime();
+            const durMin = Math.max(0, Math.round(durMs / 60000));
+            if (durMs < 2 * 60000) {
+              // Zero-minute glitch / transient crossing — delete to avoid database pollution
+              await ZoneEvent.findByIdAndDelete(confEv._id);
+              console.log(`🗑️ [Conflict-Exit] Deleted zero-minute glitch event for ${truckName} in "${prevZoneName}" (${durMin} min, ${durMs}ms)`);
+            } else {
+              await ZoneEvent.findByIdAndUpdate(confEv._id, {
+                $set: {
+                  exitTime: nowMs,
+                  durationMinutes: durMin,
+                  status: 'terminé',
+                  exitConfirmed: false,
+                  lastVerifiedAt: nowMs
+                }
+              });
+              console.log(`✅ [Conflict-Exit] Closed previous zone event for ${truckName} in "${prevZoneName}" (${durMin} min)`);
+            }
+          }
         }
         await Truck.findOneAndUpdate({ deviceId }, { _zoneEventZone: currentZone.name });
         return; // Done — state is now correct, no duplicate created
@@ -6164,27 +6649,70 @@ app.post('/api/zone-operations', checkAccess, async (req, res) => {
     res.json(op);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
-// PUT /api/zone-operations/:id — update
+// POST /api/zone-operations/:id/stops/:stopIndex/skip — explicitly skip/bypass a stop (F22)
+app.post('/api/zone-operations/:id/stops/:stopIndex/skip', checkAccess, async (req, res) => {
+  try {
+    const op = await ZoneOperation.findById(req.params.id);
+    if (!op) return res.status(404).json({ error: 'Opération introuvable' });
+    const idx = parseInt(req.params.stopIndex, 10);
+    if (isNaN(idx) || idx < 0 || !Array.isArray(op.route) || !op.route[idx]) {
+      return res.status(400).json({ error: 'Index d\'arrêt invalide' });
+    }
+    const stop = op.route[idx];
+    if (stop.status !== 'pending') {
+      return res.status(400).json({ error: `Impossible d'ignorer un arrêt avec le statut '${stop.status}' (seuls les arrêts 'pending' peuvent être ignorés)` });
+    }
+    stop.status = 'skipped';
+    stop.skipReason = (req.body && req.body.reason) ? String(req.body.reason).trim() : 'Ignoré manuellement';
+    stop.actualDeparture = Date.now();
+
+    // Check if all stops are now departed or skipped -> auto-complete
+    const allDone = op.route.length > 0 && op.route.every(s => ['departed', 'skipped'].includes(s.status));
+    if (allDone) {
+      op.status = 'completed';
+    } else if (op.status === 'pending') {
+      op.status = 'active';
+    }
+    op.updatedAt = new Date();
+    await op.save();
+    console.log(`[OpLink] Stop ${idx} ("${stop.zoneName}") of op "${op.operationName}" skipped. Status: ${op.status}`);
+    res.json(op);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/zone-operations/:id — update with auto-completion guard
 app.put('/api/zone-operations/:id', checkAccess, async (req, res) => {
   try {
     const { routeTimings, ...rest } = req.body;
     const update = { ...rest, updatedAt: new Date() };
+    const existing = await ZoneOperation.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+
     // If routeTimings is provided, merge timing edits into existing route stops
     if (routeTimings && Array.isArray(routeTimings)) {
-      const existing = await ZoneOperation.findById(req.params.id);
-      if (existing && existing.route) {
+      if (existing.route) {
         routeTimings.forEach((t, i) => {
           if (existing.route[i]) {
             if (t.expectedArrival !== undefined) existing.route[i].expectedArrival = t.expectedArrival;
             if (t.expectedDeparture !== undefined) existing.route[i].expectedDeparture = t.expectedDeparture;
             if (t.errorMarginMinutes !== undefined) existing.route[i].errorMarginMinutes = t.errorMarginMinutes;
+            if (t.status !== undefined && ['pending','arrived','departed','late','skipped'].includes(t.status)) {
+              existing.route[i].status = t.status;
+            }
+            if (t.skipReason !== undefined) existing.route[i].skipReason = t.skipReason;
           }
         });
         update.route = existing.route;
       }
     }
+
+    const currentRoute = update.route || existing.route || [];
+    const allDone = currentRoute.length > 0 && currentRoute.every(s => ['departed','skipped'].includes(s.status));
+    if (allDone && (!update.status || update.status === 'active' || update.status === 'pending')) {
+      update.status = 'completed';
+    }
+
     const op = await ZoneOperation.findByIdAndUpdate(req.params.id, update, { new: true }).lean();
-    if (!op) return res.status(404).json({ error: 'Not found' });
     res.json(op);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -6905,7 +7433,7 @@ app.post('/api/admin/sync-vidange-overrides', checkAccess, async (req, res) => {
 
     // Find all completed vidange records grouped by deviceId
     const vidanges = await Maintenance.find({
-      type: { $in: ['Vidange', 'Vidange Complète', 'Maintenance Générale', 'Maintenance'] },
+      type: { $in: ['Vidange', 'Vidange Complète'] },
       status: { $nin: ['annule', 'annulé'] },
       odometer: { $gt: 0 }
     }).sort({ odometer: 1 }).lean();
@@ -7119,7 +7647,29 @@ app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
     if (note !== undefined) doc.note = note;
     if (Array.isArray(parts)) doc.parts = parts;
     await doc.save();
-    res.json({ success: true });
+
+    // ✅ If completing a vidange record, synchronize vidangeOverrides
+    let ackResult = null;
+    try {
+      const isVidange = doc.type === 'Vidange' || doc.type === 'Vidange Complète';
+      if (isVidange && doc.deviceId && doc.odometer) {
+        ackResult = await acknowledgeVidange(
+          doc.deviceId,
+          doc.truckName,
+          parseInt(doc.odometer, 10),
+          doc.exitDate || doc.date,
+          doc.note
+        );
+      }
+    } catch (e) {
+      console.warn('Vidange acknowledge (complete) failed:', e.message);
+    }
+
+    res.json({
+      success: true,
+      vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
+      vidangeStatus: ackResult?.vidangeStatus || null
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -7200,7 +7750,7 @@ app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
 
       // Last recorded vidange
       const lastVidange = await Maintenance.findOne(
-        { deviceId: tid, type: { $in: ['Vidange', 'Vidange Complète', 'Maintenance Générale', 'Maintenance'] }, status: 'termine' },
+        { deviceId: tid, type: { $in: ['Vidange', 'Vidange Complète'] }, status: 'termine' },
         'odometer date type',
         { sort: { odometer: -1 } }
       ).lean();
@@ -7912,7 +8462,8 @@ async function runDailyBackup() {
       zoneEvents: await ZoneEvent.find({ timestamp: { $gte: fourteenDaysAgo } }),
       zoneOperations: await ZoneOperation.find(),
       maintenanceArticles: await MaintenanceArticle.find(),
-      vehicleReferences: await VehicleReference.find()
+      vehicleReferences: await VehicleReference.find(),
+      repairOrders: await RepairOrder.find()
     };
 
     // Save minified JSON (reduces file size by ~40%)
@@ -9054,7 +9605,7 @@ async function autoSyncVidangeOverrides() {
   try {
     await loadSettings();
     const entries = await Maintenance.find({
-      type: { $in: ['Vidange', 'Vidange Complète', 'Maintenance Générale', 'Maintenance'] },
+      type: { $in: ['Vidange', 'Vidange Complète'] },
       status: { $nin: ['annule', 'annulé'] },
       odometer: { $gt: 0 }
     }).sort({ odometer: 1 }).lean();

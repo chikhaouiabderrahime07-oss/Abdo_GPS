@@ -295,6 +295,7 @@
     .route-stop-dot.departed  { background: var(--green-dim); border-color: var(--green); color: var(--green); }
     .route-stop-dot.pending   { background: var(--bg-3); border-color: var(--border-2); color: var(--text-3); }
     .route-stop-dot.late      { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+    .route-stop-dot.skipped   { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #ef4444; }
     .route-stop-name { font-size: 10px; font-weight: 600; color: var(--text); text-align: center; margin-top: 5px; word-break: break-word; line-height: 1.3; }
     .route-stop-time { font-size: 9px; color: var(--text-3); text-align: center; margin-top: 2px; font-family: var(--mono); }
     .route-stop-wait { font-size: 9px; color: var(--teal); text-align: center; }
@@ -673,7 +674,8 @@
   });
 })();
 </script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="excel-export-engine.js"></script>
 <!-- LOGIN SCREEN (hidden — auto-login via localStorage) -->
 <div id="loginScreen" style="display:none;">
   <div class="login-box">
@@ -840,7 +842,7 @@
               <label id="correctiveModeLabel" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#f59e0b;cursor:pointer;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:6px;padding:4px 9px;" title="Recalcule toutes les entrees/sorties depuis les donnees GPS brutes. Corrige les evenements incorrects."><input type="checkbox" id="correctiveModeToggle" style="accent-color:#f59e0b;"> Correctif</label><button id="btnForceGlobalSync" class="hdr-btn" style="background:linear-gradient(135deg,#0ea5e9,#0284c7);color:#fff;border:none;border-radius:6px;padding:5px 13px;font-weight:800;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;" onclick="ZMC.forceGlobalSync()"><i class="fa-solid fa-rotate"></i> Force Sync</button>
             </div>
             <button class="hdr-btn" onclick="ZMC.refreshLive()"><i class="fa-solid fa-arrows-rotate"></i> Actualiser</button>
-            <button class="hdr-btn" onclick="ZMC.exportLiveCSV()"><i class="fa-solid fa-file-arrow-down"></i> CSV</button>
+            <button class="hdr-btn" onclick="ZMC.exportLiveXLSX()"><i class="fa-solid fa-file-excel"></i> Export Excel</button>
           </div>
         </div>
         <div class="kpi-strip">
@@ -870,7 +872,7 @@
               <option value="cancelled">❌ Annulées</option>
               <option value="">Toutes</option>
             </select>
-            <button class="hdr-btn" onclick="ZMC.exportOpsCSV()" title="Exporter toutes les opérations en CSV"><i class="fa-solid fa-file-csv"></i> CSV</button>
+            <button class="hdr-btn" onclick="ZMC.exportOpsXLSX()" title="Exporter les opérations en Excel"><i class="fa-solid fa-file-excel"></i> Export Excel</button>
             <button class="hdr-btn accent" onclick="ZMC.openNewOp()"><i class="fa-solid fa-plus"></i> Nouvelle Opération</button>
           </div>
         </div>
@@ -988,7 +990,7 @@
               <option value="">Toutes les zones</option>
             </select>
             <button class="hdr-btn" onclick="ZMC.loadFleetData()"><i class="fa-solid fa-arrows-rotate"></i> Actualiser</button>
-            <button class="hdr-btn" onclick="ZMC.exportFleetCSV()"><i class="fa-solid fa-file-arrow-down"></i> CSV</button>
+            <button class="hdr-btn" onclick="ZMC.exportFleetXLSX()"><i class="fa-solid fa-file-excel"></i> Export Excel</button>
           </div>
         </div>
 
@@ -1041,7 +1043,7 @@
               <option value="">Toutes les zones</option>
             </select>
             <button class="hdr-btn" onclick="ZMC.exportAllChartsPNG()" title="Télécharger tous les graphiques"><i class="fa-solid fa-images"></i> Export PNG</button>
-            <button class="hdr-btn" onclick="ZMC.exportAnalyticsCSV()" title="Exporter données CSV"><i class="fa-solid fa-file-csv"></i> CSV</button>
+            <button class="hdr-btn" onclick="ZMC.exportAnalyticsXLSX()" title="Exporter les analytiques en Excel"><i class="fa-solid fa-file-excel"></i> Export Excel</button>
             <button class="hdr-btn" onclick="ZMC.printAnalytics()" title="Imprimer le rapport complet"><i class="fa-solid fa-print"></i> Imprimer</button>
             <button class="hdr-btn" onclick="ZMC.loadAnalytics()"><i class="fa-solid fa-refresh"></i> Recalculer</button>
           </div>
@@ -1669,15 +1671,68 @@ const ZMC = (() => {
     }, 1000);
   }
 
-  function exportLiveCSV() {
-    if (!state.liveData.length) { toast('Aucune donnée live','error'); return; }
-    let csv = '\uFEFFCamion,Zone,Entrée,Durée (min)\n';
-    state.liveData.forEach(e => {
-      const mins = Math.round((Date.now() - new Date(e.entryTime).getTime()) / 60000);
-      csv += `"${e.truckName}","${e.zoneName}","${e.entryTime}","${mins}"\n`;
-    });
-    downloadCSV(csv, 'live_zones');
+  async function exportLiveXLSX() {
+    let data = state.liveData || [];
+    if (!data.length) { toast('Aucune donnée live à exporter', 'warning'); return; }
+
+    // Honor active UI filters (consistent with renderLive)
+    const f = state.filters || {};
+    if (f.client) {
+      if (f.client === 'none') data = data.filter(e => !e.clientId && !e.clientName);
+      else data = data.filter(e => e.clientId === f.client || (e.clientName && e.clientName === (state.clientMap && state.clientMap[f.client])));
+    }
+    if (f.finalClient) {
+      data = data.filter(e => e.finalClientId === f.finalClient || e.finalClientName === (state.finalClientMap && state.finalClientMap[f.finalClient]));
+    }
+    const liveZone = document.getElementById('liveZoneFilter')?.value;
+    const liveStatus = document.getElementById('liveStatusFilter')?.value;
+    if (liveZone) data = data.filter(e => e.zoneName === liveZone);
+    const now = Date.now();
+    if (liveStatus === 'long') data = data.filter(e => (now - new Date(e.entryTime).getTime()) > 2 * 3600000);
+    if (liveStatus === 'late') data = data.filter(e => (now - new Date(e.entryTime).getTime()) > 4 * 3600000);
+
+    if (!data.length) { toast('Aucune donnée correspondant aux filtres actifs', 'warning'); return; }
+
+    const columns = [
+      { header: 'Camion', key: 'truckName', type: 'string', width: 18 },
+      { header: 'Zone', key: 'zoneName', type: 'string', width: 22 },
+      { header: 'Date & Heure d\'Entrée', key: 'entryTime', type: 'datetime', format: 'dd/mm/yyyy hh:mm:ss', width: 22 },
+      { header: 'Durée en Zone (min)', key: 'durationMinutes', type: 'integer', format: '#,##0', width: 20 },
+      { header: 'Opération Associée', key: 'operationName', type: 'string', width: 25 },
+      { header: 'Client', key: 'clientName', type: 'string', width: 20 }
+    ];
+
+    const rows = data.map(e => ({
+      truckName: e.truckName || '',
+      zoneName: e.zoneName || '',
+      entryTime: e.entryTime ? new Date(e.entryTime) : null,
+      durationMinutes: Math.max(0, Math.round((now - new Date(e.entryTime).getTime()) / 60000)),
+      operationName: e.operationName || '—',
+      clientName: e.clientName || '—'
+    }));
+
+    if (window.ExcelExportEngine) {
+      await window.ExcelExportEngine.exportTableToXlsx({
+        filename: `live_zones_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: 'Live Zones',
+        title: 'TABLEAU DE BORD LIVE — CAMIONS ACTUELLEMENT EN ZONE',
+        columns,
+        data: rows,
+        metadata: {
+          filtersApplied: `Zone: ${liveZone || 'Toutes'} | Statut: ${liveStatus || 'Tous'} | Total: ${rows.length}`
+        }
+      });
+      toast(`✅ ${rows.length} camions en zone exportés (Excel)`, 'success');
+    } else {
+      let csv = '\uFEFFCamion,Zone,Entrée,Durée (min),Opération,Client\n';
+      rows.forEach(r => {
+        csv += `"${r.truckName}","${r.zoneName}","${r.entryTime ? r.entryTime.toLocaleString('fr-FR') : ''}","${r.durationMinutes}","${r.operationName}","${r.clientName}"\n`;
+      });
+      downloadCSV(csv, 'live_zones');
+      toast(`📥 ${rows.length} camions en zone exportés (CSV)`, 'info');
+    }
   }
+  const exportLiveCSV = exportLiveXLSX;
 
   // ── OPERATIONS ──
   async function loadOperations() {
@@ -1718,13 +1773,13 @@ const ZMC = (() => {
     const route = op.route || [];
     const routeHtml = route.map((stop, i) => {
       const dotClass = stop.status || 'pending';
-      const dotIcon = stop.status === 'departed' ? '✓' : stop.status === 'arrived' ? '▲' : (i+1);
+      const dotIcon = stop.status === 'departed' ? '✓' : stop.status === 'skipped' ? '✕' : stop.status === 'arrived' ? '▲' : (i+1);
       const arrTime = stop.actualArrival ? new Date(stop.actualArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : (stop.expectedArrival ? new Date(stop.expectedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) + ' (prévu)' : '—');
-      const wait = stop.waitingTimeMinutes ? `⏱ ${stop.waitingTimeMinutes}min` : '';
+      const wait = stop.status === 'skipped' ? `<span style="font-size:9px;color:var(--red);">Ignoré</span>` : (stop.waitingTimeMinutes ? `⏱ ${stop.waitingTimeMinutes}min` : '');
       return `
         ${i > 0 ? '<div class="route-arrow"></div>' : ''}
         <div class="route-stop">
-          <div class="route-stop-dot ${dotClass}">${dotIcon}</div>
+          <div class="route-stop-dot ${dotClass}" title="${stop.status === 'skipped' ? (stop.skipReason || 'Arrêt ignoré') : ''}">${dotIcon}</div>
           <div class="route-stop-name">${stop.zoneName}</div>
           <div class="route-stop-time">${arrTime}</div>
           <div class="route-stop-wait">${wait}</div>
@@ -1782,7 +1837,8 @@ const ZMC = (() => {
       const depVal = s.expectedDeparture ? new Date(s.expectedDeparture).toISOString().slice(0,16) : '';
       const actArr = s.actualArrival ? new Date(s.actualArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '';
       const actDep = s.actualDeparture ? new Date(s.actualDeparture).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '';
-      const statusIcon = s.status==='departed'?'✅':s.status==='arrived'?'🔵':s.status==='late'?'🔴':'⏳';
+      const statusIcon = s.status==='departed'?'✅':s.status==='arrived'?'🔵':s.status==='skipped'?'⏭️':s.status==='late'?'🔴':'⏳';
+      const canSkip = s.status === 'pending' && op.status !== 'completed' && op.status !== 'cancelled';
       return `<div class="route-stop-row" id="eostop_${i}" style="align-items:start;">
         <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
@@ -1791,6 +1847,8 @@ const ZMC = (() => {
             <span style="font-size:10px;color:var(--text-3);">Stop ${i+1}</span>
             ${actArr ? `<span style="font-size:10px;background:rgba(45,212,191,0.15);color:var(--teal);padding:2px 8px;border-radius:10px;"><i class="fa-solid fa-check"></i> Arrivé ${actArr}</span>` : ''}
             ${actDep ? `<span style="font-size:10px;background:rgba(96,165,250,0.15);color:var(--blue);padding:2px 8px;border-radius:10px;"><i class="fa-solid fa-check"></i> Parti ${actDep}</span>` : ''}
+            ${s.status === 'skipped' ? `<span style="font-size:10px;background:rgba(239,68,68,0.15);color:#ef4444;padding:2px 8px;border-radius:10px;"><i class="fa-solid fa-forward-step"></i> Ignoré (${s.skipReason || 'Bypass'})</span>` : ''}
+            ${canSkip ? `<button type="button" onclick="ZMC.skipOpStop('${op._id||op.id}', ${i})" style="margin-left:auto;background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:700;cursor:pointer;" title="Ignorer cet arrêt"><i class="fa-solid fa-forward-step"></i> Ignorer</button>` : ''}
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;">
             <div><label style="font-size:9px;font-weight:700;color:var(--text-3);display:block;margin-bottom:2px;">Arrivée prévue</label><input type="datetime-local" class="eostop-arr" value="${arrVal}" style="width:100%;background:var(--bg-3);border:1px solid var(--border-1);border-radius:4px;padding:5px;color:var(--text-1);font-size:11px;box-sizing:border-box;"></div>
@@ -1859,6 +1917,27 @@ const ZMC = (() => {
     } catch(e) { toast('Erreur: ' + e.message, 'error'); }
   }
 
+  async function skipOpStop(id, stopIndex) {
+    const reason = prompt("Raison du passage de l'arrêt (ex: Route barrée, Client fermé, Annulation) :", "Route barrée");
+    if (reason === null) return;
+    try {
+      const r = await fetch(`${state.base}/api/zone-operations/${id}/stops/${stopIndex}/skip`, {
+        method: 'POST',
+        headers: { ...headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() || 'Ignoré manuellement' })
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || 'Erreur lors du saut d\'arrêt');
+      }
+      toast('✅ Arrêt ignoré avec succès', 'success');
+      document.getElementById('editOpModal')?.remove();
+      await loadOperations();
+    } catch (e) {
+      toast('Erreur: ' + e.message, 'error');
+    }
+  }
+
   function exportOpPDF(id) {
     const op = (state.opsData||[]).find(x => (x._id||x.id) === id);
     if (!op) return;
@@ -1897,20 +1976,59 @@ const ZMC = (() => {
     w.document.close();
   }
 
-  function exportOpsCSV() {
+  async function exportOpsXLSX() {
     const ops = state.opsData;
-    if (!ops || !ops.length) { toast('Aucune opération', 'error'); return; }
-    let csv = '\uFEFFOpération,Camion,Statut,Stops,Créé le,Notes\n';
-    ops.forEach(op => {
-      csv += `"${op.operationName}","${op.truckName}","${op.status}","${(op.route||[]).map(s=>s.zoneName).join(' → ')}","${new Date(op.createdAt).toLocaleDateString('fr-FR')}","${op.notes||''}"\n`;
-    });
-    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `fleet_operations_${new Date().toISOString().slice(0,10)}.csv`;
-    link.click();
-    toast('📥 ' + ops.length + ' opérations exportées');
+    if (!ops || !ops.length) { toast('Aucune opération à exporter', 'warning'); return; }
+
+    const statusFilter = document.getElementById('opsFilter')?.value || 'active';
+    const statusLabels = { active: 'Active', pending: 'En attente', completed: 'Terminée', cancelled: 'Annulée' };
+
+    const columns = [
+      { header: 'Nom de l\'Opération', key: 'operationName', type: 'string', width: 26 },
+      { header: 'Camion', key: 'truckName', type: 'string', width: 18 },
+      { header: 'Statut', key: 'status', type: 'string', width: 14 },
+      { header: 'Itinéraire & Arrêts (Stops)', key: 'stops', type: 'string', width: 38 },
+      { header: 'Nombre d\'Arrêts', key: 'stopCount', type: 'integer', format: '#,##0', width: 16 },
+      { header: 'Date de Création', key: 'createdAt', type: 'datetime', format: 'dd/mm/yyyy hh:mm', width: 20 },
+      { header: 'Remarques / Notes', key: 'notes', type: 'string', width: 32 }
+    ];
+
+    const rows = ops.map(op => ({
+      operationName: op.operationName || '',
+      truckName: op.truckName || '',
+      status: statusLabels[op.status] || op.status || '—',
+      stops: (op.route || []).map(s => s.zoneName).join(' → ') || '—',
+      stopCount: (op.route || []).length,
+      createdAt: op.createdAt ? new Date(op.createdAt) : null,
+      notes: op.notes || ''
+    }));
+
+    if (window.ExcelExportEngine) {
+      await window.ExcelExportEngine.exportTableToXlsx({
+        filename: `operations_missions_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: 'Opérations',
+        title: 'PLANIFICATION DES OPÉRATIONS & TOURNÉES MULTI-ZONES',
+        columns,
+        data: rows,
+        metadata: {
+          filtersApplied: `Filtre Statut: ${statusFilter} | Total: ${rows.length}`
+        }
+      });
+      toast(`✅ ${ops.length} opérations exportées (Excel)`, 'success');
+    } else {
+      let csv = '\uFEFFOpération,Camion,Statut,Stops,Nb Stops,Créé le,Notes\n';
+      rows.forEach(r => {
+        csv += `"${r.operationName}","${r.truckName}","${r.status}","${r.stops}",${r.stopCount},"${r.createdAt ? r.createdAt.toLocaleString('fr-FR') : ''}","${r.notes}"\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `fleet_operations_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      toast(`📥 ${ops.length} opérations exportées (CSV)`, 'info');
+    }
   }
+  const exportOpsCSV = exportOpsXLSX;
 
   // Auto-check Power BI freshness
   async function checkPBFreshness() {
@@ -2069,7 +2187,11 @@ const ZMC = (() => {
   function histNextPage() { if (state.histPagination && histPage < state.histPagination.totalPages) loadHistory(histPage + 1); }
   function histLastPage() { if (state.histPagination) loadHistory(state.histPagination.totalPages); }
 
-  function fmtMin(m) { if (m == null) return '—'; return m >= 60 ? `${Math.floor(m/60)}h${m%60}m` : `${m}m`; }
+  function fmtMin(m) {
+    if (m == null || m === '' || Number.isNaN(Number(m))) return '—';
+    const safeM = Math.max(0, Math.round(Number(m)));
+    return safeM >= 60 ? `${Math.floor(safeM / 60)}h${safeM % 60}m` : `${safeM}m`;
+  }
 
   function renderHistory(data, pag) {
     const tbody = document.getElementById('histBody');
@@ -2078,10 +2200,12 @@ const ZMC = (() => {
 
     // Stats
     const closed = data.filter(e => e.status==='closed'||e.exitTime);
-    const totalMin = closed.reduce((s,e)=>(s+(e.durationMinutes||0)),0);
-    const avgMin = closed.length ? Math.round(totalMin/closed.length) : 0;
-    const recapValues = data.filter(e => e.recapImmobilisationMin != null).map(e => e.recapImmobilisationMin);
-    const avgRecap = recapValues.length ? Math.round(recapValues.reduce((a,b)=>a+b,0)/recapValues.length) : 0;
+    const totalMin = closed.reduce((s, e) => (s + Math.max(0, Number(e.durationMinutes) || 0)), 0);
+    const avgMin = closed.length ? Math.round(totalMin / closed.length) : 0;
+    const recapValues = data
+      .filter(e => e.recapImmobilisationMin != null && !Number.isNaN(Number(e.recapImmobilisationMin)))
+      .map(e => Math.max(0, Number(e.recapImmobilisationMin)));
+    const avgRecap = recapValues.length ? Math.round(recapValues.reduce((a, b) => a + b, 0) / recapValues.length) : 0;
     statsBar.style.display='grid';
     document.getElementById('hkpiVisits').textContent = pag?.total || data.length;
     document.getElementById('hkpiTrucks').textContent = new Set(data.map(e=>e.truckName)).size;
@@ -2115,7 +2239,7 @@ const ZMC = (() => {
       const planned = e.plannedArrival ? new Date(e.plannedArrival).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) : '—';
       const diff = e.diffArrivalMin != null ? `<span style="color:${e.diffArrivalMin > 0 ? 'var(--red)' : 'var(--green)'};">${e.diffArrivalMin > 0 ? '+' : ''}${e.diffArrivalMin}m</span>` : '—';
       const recap = fmtMin(e.recapImmobilisationMin);
-      const recapColor = (e.recapImmobilisationMin||0) > 240 ? 'var(--red)' : (e.recapImmobilisationMin||0) > 120 ? 'var(--orange)' : 'var(--green)';
+      const recapColor = (Math.max(0, Number(e.recapImmobilisationMin) || 0)) > 240 ? 'var(--red)' : (Math.max(0, Number(e.recapImmobilisationMin) || 0)) > 120 ? 'var(--orange)' : 'var(--green)';
       const evtDataKey = 'histEvt_' + (e._id || Date.now());
       try { sessionStorage.setItem(evtDataKey, JSON.stringify({ _id: e._id, truckName: e.truckName, deviceId: e.deviceId, zoneName: e.zoneName, zoneType: e.zoneType, entryTime: e.entryTime, exitTime: e.exitTime, durationMinutes: e.durationMinutes, entryLat: e.entryLat, entryLng: e.entryLng, clientName: e.clientName, finalClientName: e.finalClientName, recapImmobilisationMin: e.recapImmobilisationMin })); } catch(_) {}
       return `<tr style="transition:all 0.2s;">
@@ -2227,20 +2351,20 @@ const ZMC = (() => {
     } catch(err) { toast('Erreur: ' + err.message, 'error'); }
   }
 
-  async function exportHistoryCSV() {
+  async function exportHistoryXLSX() {
     // Re-fetch ALL records matching active filters
-    const zone   = document.getElementById('histZoneFilter')?.value || '';
+    const zone     = document.getElementById('histZoneFilter')?.value || '';
     const truckVal = document.getElementById('histTruckFilter')?.value || '';
-    const status = document.getElementById('histStatusFilter')?.value || '';
+    const status   = document.getElementById('histStatusFilter')?.value || '';
     const startVal = document.getElementById('histStart')?.value || '';
     const endVal   = document.getElementById('histEnd')?.value   || '';
-    const today = new Date().toISOString().slice(0,10);
+    const today = new Date().toISOString().slice(0, 10);
     const start = startVal || today;
     const end   = endVal   || today;
     const isDeviceId = truckVal && /^\d{8,}$/.test(truckVal.trim());
 
     let url = `${state.base}/api/zone-events?limit=10000&page=1&sort=${histSortDir}&sortField=${histSortField}`;
-    if (zone)   url += `&zone=${encodeURIComponent(zone)}`;
+    if (zone)     url += `&zone=${encodeURIComponent(zone)}`;
     if (truckVal) {
       if (isDeviceId) url += `&deviceId=${encodeURIComponent(truckVal)}`;
       else url += `&truck=${encodeURIComponent(truckVal)}`;
@@ -2250,48 +2374,71 @@ const ZMC = (() => {
     url += `&end=${new Date(end + 'T23:59:59').toISOString()}`;
 
     const label = (startVal || endVal) ? (start === end ? start : `${start}_${end}`) : "aujourd-hui";
-    toast(`📥 Export Excel en cours (${label.replace('_',' → ')})...`, 'info');
+    toast(`📥 Export Excel en cours (${label.replace('_', ' → ')})...`, 'info');
+
     try {
       const r = await fetch(url, { headers: headers() });
       const json = await r.json();
       const all = Array.isArray(json) ? json : (json.data || []);
       if (!all.length) { toast("Aucune donnée pour cette période", 'error'); return; }
 
-      // Build rows for Excel
+      const columns = [
+        { header: 'Date', key: 'date', type: 'date', format: 'dd/mm/yyyy', width: 14 },
+        { header: 'Camion', key: 'truckName', type: 'string', width: 18 },
+        { header: 'Zone', key: 'zoneName', type: 'string', width: 24 },
+        { header: 'Heure d\'Entrée', key: 'entryTime', type: 'datetime', format: 'dd/mm/yyyy hh:mm:ss', width: 20 },
+        { header: 'Heure de Sortie', key: 'exitTime', type: 'datetime', format: 'dd/mm/yyyy hh:mm:ss', width: 20 },
+        { header: 'Durée (min)', key: 'durationMinutes', type: 'integer', format: '#,##0', width: 14 },
+        { header: 'Arrivée Planifiée', key: 'plannedArrival', type: 'datetime', format: 'dd/mm/yyyy hh:mm', width: 18 },
+        { header: 'Écart Arrivée (min)', key: 'diffArrivalMin', type: 'integer', format: '#,##0', width: 18 },
+        { header: 'Recap Immob. (min)', key: 'recapImmobilisationMin', type: 'integer', format: '#,##0', width: 20 },
+        { header: 'Type Détection', key: 'operationSource', type: 'string', width: 16 },
+        { header: 'Précision GPS', key: 'source', type: 'string', width: 16 },
+        { header: 'Opération', key: 'operationName', type: 'string', width: 24 },
+        { header: 'Statut', key: 'status', type: 'string', width: 14 }
+      ];
+
       const rows = all.map(e => ({
-        'Date': new Date(e.entryTime||e.createdAt).toLocaleDateString('fr-FR'),
-        'Camion': e.truckName || '',
-        'Zone': e.zoneName || '',
-        'Entrée': e.entryTime ? new Date(e.entryTime).toLocaleString('fr-FR') : '',
-        'Sortie': e.exitTime ? new Date(e.exitTime).toLocaleString('fr-FR') : 'En cours',
-        'Durée (min)': e.durationMinutes ?? '',
-        'Arrivée Planifiée': e.plannedArrival ? new Date(e.plannedArrival).toLocaleString('fr-FR') : '',
-        'Écart Arrivée (min)': e.diffArrivalMin ?? '',
-        'Recap Immobilisation (min)': e.recapImmobilisationMin ?? '',
-        'Type': e.operationSource || 'auto',
-        'Opération': e.operationName || '',
-        'Statut': e.status || ''
+        date: e.entryTime ? new Date(e.entryTime) : (e.createdAt ? new Date(e.createdAt) : null),
+        truckName: e.truckName || '',
+        zoneName: e.zoneName || '',
+        entryTime: e.entryTime ? new Date(e.entryTime) : null,
+        exitTime: e.exitTime ? new Date(e.exitTime) : null,
+        durationMinutes: (e.durationMinutes != null && Number.isFinite(Number(e.durationMinutes))) ? Math.max(0, Number(e.durationMinutes)) : null,
+        plannedArrival: e.plannedArrival ? new Date(e.plannedArrival) : null,
+        diffArrivalMin: e.diffArrivalMin != null ? Number(e.diffArrivalMin) : null,
+        recapImmobilisationMin: (e.recapImmobilisationMin != null && Number.isFinite(Number(e.recapImmobilisationMin))) ? Math.max(0, Number(e.recapImmobilisationMin)) : null,
+        operationSource: e.operationSource || 'Automatique',
+        source: e.source || (e.entryConfirmed ? 'Vérifié' : 'GPS'),
+        operationName: e.operationName || '—',
+        status: e.exitTime ? 'Terminé' : (e.status || 'En cours')
       }));
 
-      if (typeof XLSX !== 'undefined') {
-        const ws = XLSX.utils.json_to_sheet(rows);
-        // Auto-width columns
-        const colWidths = Object.keys(rows[0]).map(k => ({
-          wch: Math.max(k.length, ...rows.map(r => String(r[k] || '').length).slice(0, 100)) + 2
-        }));
-        ws['!cols'] = colWidths;
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Historique');
-        XLSX.writeFile(wb, `historique_${label}_${new Date().toISOString().slice(0,10)}.xlsx`);
+      if (window.ExcelExportEngine) {
+        await window.ExcelExportEngine.exportTableToXlsx({
+          filename: `historique_zones_${label}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+          sheetName: 'Historique Zones',
+          title: 'HISTORIQUE DES ENTRÉES / SORTIES DE ZONES & IMMOBILISATION',
+          columns,
+          data: rows,
+          metadata: {
+            filtersApplied: `Période: ${start} → ${end} | Zone: ${zone || 'Toutes'} | Camion: ${truckVal || 'Tous'} | Statut: ${status || 'Tous'} | Total: ${rows.length}`
+          }
+        });
+        toast(`✅ ${all.length} enregistrements exportés (Excel)`, 'success');
       } else {
-        // Fallback to CSV if XLSX not loaded
-        let csv = '\uFEFF' + Object.keys(rows[0]).join(',') + '\n';
-        rows.forEach(r => { csv += Object.values(r).map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',') + '\n'; });
+        let csv = '\uFEFF' + columns.map(c => c.header).join(',') + '\n';
+        rows.forEach(r => {
+          csv += `"${r.date ? r.date.toLocaleDateString('fr-FR') : ''}","${r.truckName}","${r.zoneName}","${r.entryTime ? r.entryTime.toLocaleString('fr-FR') : ''}","${r.exitTime ? r.exitTime.toLocaleString('fr-FR') : 'En cours'}",${r.durationMinutes ?? ''},"${r.plannedArrival ? r.plannedArrival.toLocaleString('fr-FR') : ''}",${r.diffArrivalMin ?? ''},${r.recapImmobilisationMin ?? ''},"${r.operationSource}","${r.source}","${r.operationName}","${r.status}"\n`;
+        });
         downloadCSV(csv, 'historique_' + label);
+        toast(`✅ ${all.length} enregistrements exportés (CSV)`, 'success');
       }
-      toast('✅ ' + all.length + ' enregistrements exportés', 'success');
-    } catch(err) { toast('Erreur export: ' + err.message, 'error'); }
+    } catch(err) {
+      toast('Erreur export: ' + err.message, 'error');
+    }
   }
+  const exportHistoryCSV = exportHistoryXLSX;
 
   async function scanHistory() {
     const start = document.getElementById('sbStart').value;
@@ -3400,15 +3547,72 @@ const ZMC = (() => {
     loadFleetData();
   }
 
-  function exportFleetCSV() {
-    if (!state.fleetData || !state.fleetData.length) { toast('Aucune donnée', 'error'); return; }
-    let csv = '\uFEFFCamion,Statut,Vitesse,Carburant %,Odomètre,Zone,Dernière MAJ\n';
-    state.fleetData.forEach(t => {
-      const zone = state._fleetLiveZones?.[t.deviceId] || state._fleetLiveZones?.[t.name] || '';
-      csv += `"${t.name}","${t.speed > 3 ? 'En route' : 'Arrêt'}","${t.speed || 0}","${t.fuelPercent || ''}","${t.odometer || ''}","${zone}","${t.lastUpdate || ''}"\n`;
+  async function exportFleetXLSX() {
+    if (!state.fleetData || !state.fleetData.length) { toast('Aucune donnée de flotte', 'error'); return; }
+
+    const trucks = state.fleetData;
+    const liveZones = state._fleetLiveZones || {};
+    const statusF = document.getElementById('fleetStatusFilter')?.value || '';
+    const zoneF   = document.getElementById('fleetZoneFilter')?.value || '';
+
+    // CRITICAL FILTER FIX: strictly honor active UI filters (same as renderFleetTable)
+    let filtered = trucks;
+    if (statusF === 'moving')  filtered = filtered.filter(t => t.speed > 3);
+    if (statusF === 'stopped') filtered = filtered.filter(t => !t.speed || t.speed <= 3);
+    if (statusF === 'inzone')  filtered = filtered.filter(t => liveZones[t.deviceId] || liveZones[t.name]);
+    if (zoneF)                 filtered = filtered.filter(t => (liveZones[t.deviceId] || liveZones[t.name]) === zoneF);
+
+    if (!filtered.length) { toast('Aucun camion ne correspond aux filtres actifs', 'warning'); return; }
+
+    const columns = [
+      { header: 'Camion', key: 'name', type: 'string', width: 18 },
+      { header: 'Statut', key: 'status', type: 'string', width: 14 },
+      { header: 'Vitesse (km/h)', key: 'speed', type: 'number', format: '#,##0.0', width: 15 },
+      { header: 'Carburant (%)', key: 'fuelPercent', type: 'percentage', format: '0%', width: 15 },
+      { header: 'Odomètre (km)', key: 'odometer', type: 'integer', format: '#,##0', width: 16 },
+      { header: 'Zone Actuelle', key: 'zone', type: 'string', width: 22 },
+      { header: 'Km Aujourd\'hui', key: 'totalKm', type: 'integer', format: '#,##0', width: 16 },
+      { header: 'Dernière MAJ', key: 'lastUpdate', type: 'datetime', format: 'dd/mm/yyyy hh:mm:ss', width: 20 }
+    ];
+
+    const rows = filtered.sort((a,b) => (a.name||'').localeCompare(b.name||'')).map(t => {
+      const zone = liveZones[t.deviceId] || liveZones[t.name] || '—';
+      const statusText = t.speed > 3 ? 'En route' : 'Arrêt';
+      const fuelNum = t.fuelPercent != null ? Number(t.fuelPercent) / 100 : null;
+      return {
+        name: t.name || '',
+        status: statusText,
+        speed: t.speed != null ? Number(t.speed) : 0,
+        fuelPercent: fuelNum,
+        odometer: t.odometer != null ? Math.round(Number(t.odometer)) : null,
+        zone: zone,
+        totalKm: t.totalKm != null ? Math.round(Number(t.totalKm)) : null,
+        lastUpdate: t.lastUpdate ? new Date(t.lastUpdate) : null
+      };
     });
-    downloadCSV(csv, 'flotte_complete');
+
+    if (window.ExcelExportEngine) {
+      await window.ExcelExportEngine.exportTableToXlsx({
+        filename: `flotte_complete_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: 'Flotte Complète',
+        title: 'ÉTAT GÉNÉRAL DE LA FLOTTE COMPLÈTE',
+        columns,
+        data: rows,
+        metadata: {
+          filtersApplied: `Statut: ${statusF || 'Tous'} | Zone: ${zoneF || 'Toutes'} | Camions exportés: ${rows.length}/${trucks.length}`
+        }
+      });
+      toast(`✅ ${rows.length} camions exportés (Excel filtré)`, 'success');
+    } else {
+      let csv = '\uFEFFCamion,Statut,Vitesse,Carburant %,Odomètre,Zone,Km Auj.,Dernière MAJ\n';
+      rows.forEach(r => {
+        csv += `"${r.name}","${r.status}",${r.speed},"${r.fuelPercent != null ? Math.round(r.fuelPercent*100)+'%' : ''}",${r.odometer ?? ''},"${r.zone}",${r.totalKm ?? ''},"${r.lastUpdate ? r.lastUpdate.toLocaleString('fr-FR') : ''}"\n`;
+      });
+      downloadCSV(csv, 'flotte_complete');
+      toast(`📥 ${rows.length} camions exportés (CSV filtré)`, 'info');
+    }
   }
+  const exportFleetCSV = exportFleetXLSX;
 
   function renderFleetTable() {
     if (!state.fleetData) return;
@@ -3601,14 +3805,51 @@ const ZMC = (() => {
     toast('Exportation des graphiques lancée', 'success');
   }
 
-  function exportAnalyticsCSV() {
+  async function exportAnalyticsXLSX() {
     if (!state.analyticsData || state.analyticsData.length === 0) {
       toast('Aucune donnée à exporter', 'warning');
       return;
     }
+    if (window.ExcelExportEngine) {
+      const columns = [
+        { header: 'Date', key: 'date', type: 'string', width: 14 },
+        { header: 'Camion', key: 'truck', type: 'string', width: 18 },
+        { header: 'Zone', key: 'zone', type: 'string', width: 22 },
+        { header: 'Entrée', key: 'entry', type: 'string', width: 20 },
+        { header: 'Sortie', key: 'exit', type: 'string', width: 20 },
+        { header: 'Durée (min)', key: 'duration', type: 'integer', format: '#,##0', width: 14 },
+        { header: 'Immobilisation (min)', key: 'immo', type: 'integer', format: '#,##0', width: 18 },
+        { header: 'Type', key: 'type', type: 'string', width: 14 },
+        { header: 'Opération', key: 'operation', type: 'string', width: 24 }
+      ];
+      const data = state.analyticsData.map(e => ({
+        date: new Date(e.entryTime || e.createdAt).toLocaleDateString('fr-FR'),
+        truck: e.truckName || '',
+        zone: e.zoneName || '',
+        entry: e.entryTime || '',
+        exit: e.exitTime || '',
+        duration: (e.durationMinutes != null && e.durationMinutes !== '') ? Number(e.durationMinutes) : null,
+        immo: (e.recapImmobilisationMin != null && e.recapImmobilisationMin !== '') ? Number(e.recapImmobilisationMin) : null,
+        type: e.operationSource || 'auto',
+        operation: e.operationName || ''
+      }));
+      await (window.ExcelExportEngine.exportTableToXlsx || window.ExcelExportEngine.exportTable)({
+        filename: 'analytics_zones_' + new Date().toISOString().slice(0, 10) + '.xlsx',
+        sheetName: 'Analytics',
+        title: 'ANALYTICS DES ZONES ET IMMOBILISATIONS',
+        columns,
+        data,
+        metadata: {
+          companyName: 'SPA DOUROUB EL DJAZAIR',
+          exportedAt: new Date().toISOString()
+        }
+      });
+      toast('Export Excel réussi', 'success');
+      return;
+    }
     let csv = '\uFEFFDate,Camion,Zone,Entrée,Sortie,Durée (min),Immobilisation (min),Type,Opération\n';
     state.analyticsData.forEach(e => {
-      csv += `"${new Date(e.entryTime||e.createdAt).toLocaleDateString('fr-FR')}","${e.truckName}","${e.zoneName}","${e.entryTime||''}","${e.exitTime||''}","${e.durationMinutes ?? ''}","${e.recapImmobilisationMin ?? ''}","${e.operationSource||'auto'}","${e.operationName||''}"\n`;
+      csv += `"${new Date(e.entryTime||e.createdAt).toLocaleDateString('fr-FR')}","${e.truckName || ''}","${e.zoneName || ''}","${e.entryTime||''}","${e.exitTime||''}","${e.durationMinutes ?? ''}","${e.recapImmobilisationMin ?? ''}","${e.operationSource||'auto'}","${e.operationName||''}"\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -3618,6 +3859,7 @@ const ZMC = (() => {
     link.click();
     toast('Export CSV réussi', 'success');
   }
+  function exportAnalyticsCSV() { return exportAnalyticsXLSX(); }
 
   function printAnalytics() {
     window.print();
@@ -4047,7 +4289,7 @@ const ZMC = (() => {
     } catch(e) { toast('Erreur correctif: ' + e.message, 'error'); }
   }
 
-  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsCSV, printAnalytics, exportOpsCSV, checkPBFreshness, renderLive, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryCSV, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, launchGpsRadar, runCorrectifV5, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey, forceGlobalSync, initializeSystem, refreshSystemStatus, makeSortable, goBack };
+  return { login, autoLogin, switchTab, applyFilters, resetFilters, refreshAll, refreshLive, onClientChange, openEditHistory, saveEditHistory, openEditOp, saveEditOp, skipOpStop, exportOpPDF, downloadChart, exportAllChartsPNG, exportAnalyticsXLSX, exportAnalyticsCSV, printAnalytics, exportOpsXLSX, exportOpsCSV, checkPBFreshness, renderLive, exportLiveXLSX, exportLiveCSV, loadOperations, cancelOp, deleteOp, openNewOp, addRouteStop, createOperation, loadHistory, histPrevPage, histNextPage, exportHistoryXLSX, exportHistoryCSV, histSortBy, scanHistory, loadAnalytics, filterAnalytics, buildPBUrl, copyPBUrl, toggleTheme, toast, loadFleetData, renderFleetTable, reloadGPSHistory, launchGpsRadar, runCorrectifV5, exportFleetXLSX, exportFleetCSV, toggleGpsTruckSelect, checkAllGpsTrucks, updateGpsTrucksBtnText, renderGpsTruckSelect, filterGpsTrucks, onPBTypeChange, onPBPeriodChange, loadApiKeys, createApiKey, deleteApiKey, forceGlobalSync, initializeSystem, refreshSystemStatus, makeSortable, goBack };
 })();
 
 // ── BOOTSTRAP ──

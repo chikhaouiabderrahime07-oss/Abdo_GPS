@@ -226,9 +226,19 @@ function getConfiguredFuelSensorKeys(config) {
     if (config && typeof config.fuelSensorIo === 'string' && config.fuelSensorIo.trim()) {
         return normalizeFuelSensorKeys(config.fuelSensorIo);
     }
+    if (config && ((typeof config.fuelSensors === 'string' && config.fuelSensors.trim()) || (Array.isArray(config.fuelSensors) && config.fuelSensors.length > 0))) {
+        return normalizeFuelSensorKeys(config.fuelSensors);
+    }
     if (config && typeof config.sensorType === 'string' && config.sensorType.trim()) {
         return normalizeFuelSensorKeys(config.sensorType);
     }
+    const capacityMap = getConfiguredFuelSensorCapacityMap(config);
+    const capacityKeys = Object.keys(capacityMap || {});
+    if (capacityKeys.length > 0) {
+        return normalizeFuelSensorKeys(capacityKeys);
+    }
+    const defaultSensorType = typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG && FLEET_CONFIG.REFUEL_RULES && FLEET_CONFIG.REFUEL_RULES.sensorType;
+    if (defaultSensorType) return normalizeFuelSensorKeys(defaultSensorType);
     return ['io87'];
 }
 
@@ -364,24 +374,35 @@ function getConfiguredFuelSensorCapacitiesLabel(config) {
 
 function getConfiguredFuelEffectiveCapacity(config) {
     const plan = buildFuelSensorCapacityPlan(config);
-    return plan.totalCapacity || (parseFloat(config && config.fuelTankCapacity) || 0);
+    return Math.max(plan.totalCapacity || 0, parseFloat(config && config.fuelTankCapacity) || 0);
 }
 
 function interpolateFuelCalibration(sensorValue, calibrationTable) {
     if (!Array.isArray(calibrationTable) || calibrationTable.length < 2) return 0;
-    if (sensorValue <= calibrationTable[0].x) return calibrationTable[0].y;
-    if (sensorValue >= calibrationTable[calibrationTable.length - 1].x) {
-        return calibrationTable[calibrationTable.length - 1].y;
-    }
-    for (let i = 0; i < calibrationTable.length - 1; i++) {
-        const p1 = calibrationTable[i];
-        const p2 = calibrationTable[i + 1];
-        if (sensorValue >= p1.x && sensorValue <= p2.x) {
-            const slope = (p2.y - p1.y) / (p2.x - p1.x);
-            return Math.round(p1.y + slope * (sensorValue - p1.x));
+    const valid = calibrationTable
+        .map(p => ({ x: parseFloat(p && p.x), y: parseFloat(p && p.y) }))
+        .filter(p => Number.isFinite(p.x) && Number.isFinite(p.y))
+        .sort((a, b) => a.x - b.x);
+    if (valid.length < 2) return valid.length === 1 ? Math.round(valid[0].y) : 0;
+
+    const val = parseFloat(sensorValue);
+    if (!Number.isFinite(val)) return 0;
+
+    if (val <= valid[0].x) return Math.round(valid[0].y);
+    if (val >= valid[valid.length - 1].x) return Math.round(valid[valid.length - 1].y);
+
+    for (let i = 0; i < valid.length - 1; i++) {
+        const p1 = valid[i];
+        const p2 = valid[i + 1];
+        if (val >= p1.x && val <= p2.x) {
+            const dx = p2.x - p1.x;
+            if (dx === 0) return Math.round(p1.y);
+            const slope = (p2.y - p1.y) / dx;
+            const res = p1.y + slope * (val - p1.x);
+            return Number.isFinite(res) ? Math.round(res) : Math.round(p1.y);
         }
     }
-    return 0;
+    return Math.round(valid[valid.length - 1].y);
 }
 
 function readConfiguredFuelSensorValues(params, config) {
@@ -420,55 +441,66 @@ function readConfiguredFuelSensorValues(params, config) {
 function calculateFuelMetricsFromParams(params, config) {
     const defaultTotalCapacity = parseFloat(config && config.fuelTankCapacity) || 0;
     const calibration = Array.isArray(config && config.calibration) ? config.calibration : [];
+    const configuredKeys = getConfiguredFuelSensorKeys(config);
     const { keys, values } = readConfiguredFuelSensorValues(params, config);
     const rawEntries = values
         .map(v => ({ key: String(v.key || '').trim().toLowerCase(), raw: parseFloat(v.raw) }))
-        .filter(v => !isNaN(v.raw));
-    const capacityPlan = buildFuelSensorCapacityPlan(config, rawEntries.map(v => v.key));
+        .filter(v => Number.isFinite(v.raw));
+    const capacityPlan = buildFuelSensorCapacityPlan(config, configuredKeys);
     let effectiveCapacity = capacityPlan.totalCapacity || defaultTotalCapacity || 0;
+    const avgConsumption = parseFloat(config && (config.fuelConsumption || config.defaultConsumption || config.avgConsumption)) || 32;
 
     if (rawEntries.length === 0) {
         return {
             liters: 0,
             percent: 0,
+            rangeKm: 0,
             usedCalibration: false,
             keys,
             rawValues: [],
             mode: 'missing',
             effectiveCapacity,
             tankCapacities: capacityPlan.list,
-            capacityMap: capacityPlan.resolvedMap
+            capacityMap: capacityPlan.resolvedMap,
+            sensorBreakdown: []
         };
     }
+
+    const explicitUnitRaw = (config && (config.fuelSensorUnit || config.sensorUnit || config.fuelUnit || config.unit || ''));
+    const explicitUnit = typeof explicitUnitRaw === 'string' ? explicitUnitRaw.trim().toLowerCase() : '';
+    const isExplicitPercent = explicitUnit === 'percent' || explicitUnit === 'percentage' || explicitUnit === '%';
 
     let liters = 0;
     let percent = 0;
     let usedCalibration = false;
     let mode = 'missing';
 
+    const capByKey = {};
+    capacityPlan.list.forEach((item) => { capByKey[item.key] = item.capacity; });
+    const fallbackEach = effectiveCapacity > 0 ? (effectiveCapacity / Math.max(configuredKeys.length, 1)) : 0;
+
     if (calibration.length > 1 && rawEntries.length === 1) {
         liters = Math.max(0, interpolateFuelCalibration(rawEntries[0].raw, calibration));
         usedCalibration = true;
         mode = 'calibrated';
     } else {
-        const capByKey = {};
-        capacityPlan.list.forEach((item) => { capByKey[item.key] = item.capacity; });
-        const fallbackEach = effectiveCapacity > 0 ? (effectiveCapacity / Math.max(rawEntries.length, 1)) : 0;
-
         liters = rawEntries.reduce((sum, entry) => {
             const raw = entry.raw;
             if (!Number.isFinite(raw)) return sum;
-            if (raw > 100) return sum + Math.max(0, raw);
             const tankCapacity = capByKey[entry.key] > 0 ? capByKey[entry.key] : fallbackEach;
-            const safePercent = Math.max(0, Math.min(100, raw));
-            return sum + ((safePercent / 100) * tankCapacity);
+            if (isExplicitPercent) {
+                const safePercent = Math.max(0, Math.min(100, raw));
+                return sum + ((safePercent / 100) * tankCapacity);
+            } else {
+                return sum + Math.max(0, raw);
+            }
         }, 0);
 
-        const hasLitersInput = rawEntries.some(entry => entry.raw > 100);
-        const hasPercentInput = rawEntries.some(entry => entry.raw <= 100);
-        if (hasLitersInput && hasPercentInput) mode = 'mixed';
-        else if (hasLitersInput) mode = rawEntries.length > 1 ? 'multi-liters' : 'single-liters';
-        else mode = rawEntries.length > 1 ? 'multi-percent' : 'single-percent';
+        if (isExplicitPercent) {
+            mode = rawEntries.length > 1 ? 'multi-percent' : 'single-percent';
+        } else {
+            mode = rawEntries.length > 1 ? 'multi-liters' : 'single-liters';
+        }
     }
 
     liters = Math.round(liters);
@@ -476,7 +508,7 @@ function calculateFuelMetricsFromParams(params, config) {
     if (!effectiveCapacity) {
         if (capacityPlan.totalCapacity > 0) effectiveCapacity = capacityPlan.totalCapacity;
         else if (defaultTotalCapacity > 0) effectiveCapacity = defaultTotalCapacity;
-        else if (liters > 0 && rawEntries.every(entry => entry.raw > 100)) effectiveCapacity = liters;
+        else if (liters > 0) effectiveCapacity = liters;
     }
 
     if (usedCalibration) {
@@ -485,7 +517,7 @@ function calculateFuelMetricsFromParams(params, config) {
             : Math.round(Math.max(0, rawEntries[0].raw));
     } else if (effectiveCapacity > 0) {
         percent = Math.round((liters / effectiveCapacity) * 100);
-    } else if (rawEntries.length === 1 && rawEntries[0].raw <= 100) {
+    } else if (isExplicitPercent && rawEntries.length === 1) {
         percent = Math.round(Math.max(0, Math.min(100, rawEntries[0].raw)));
     } else {
         percent = 0;
@@ -494,17 +526,30 @@ function calculateFuelMetricsFromParams(params, config) {
     if (!Number.isFinite(liters) || liters < 0) liters = 0;
     if (!Number.isFinite(percent) || percent < 0) percent = 0;
     if (effectiveCapacity > 0 && percent > 100) percent = 100;
+    const rangeKm = avgConsumption > 0 ? Math.round((liters / avgConsumption) * 100) : 0;
+
+    const sensorBreakdown = rawEntries.map((entry) => {
+        const cap = capByKey[entry.key] > 0 ? capByKey[entry.key] : fallbackEach;
+        return {
+            key: entry.key,
+            raw: entry.raw,
+            capacity: cap,
+            unit: isExplicitPercent ? 'percent' : 'liters'
+        };
+    });
 
     return {
         liters,
         percent,
+        rangeKm,
         usedCalibration,
         keys,
         rawValues: rawEntries.map(v => v.raw),
         mode,
         effectiveCapacity,
         tankCapacities: capacityPlan.list,
-        capacityMap: capacityPlan.resolvedMap
+        capacityMap: capacityPlan.resolvedMap,
+        sensorBreakdown
     };
 }
 
@@ -541,20 +586,17 @@ function smoothFuelSeriesPoints(points, windowSize = 3, maxFuelLevel = null) {
     const size = Math.max(1, parseInt(windowSize, 10) || 1);
     const radius = Math.max(0, Math.floor(size / 2));
     const MAX_SMOOTH_GAP_MS = 3 * 60 * 1000;
-    const MAX_STEP_NOISE_LITERS = 35;
 
     return safe.map((point, idx) => {
         const neighbors = [point.liters];
         for (let b = 1; b <= radius; b += 1) {
             const prev = safe[idx - b];
             if (!prev || Math.abs(point.time - prev.time) > (b * MAX_SMOOTH_GAP_MS)) break;
-            if (Math.abs(prev.liters - point.liters) > MAX_STEP_NOISE_LITERS) break;
             neighbors.push(prev.liters);
         }
         for (let f = 1; f <= radius; f += 1) {
             const nxt = safe[idx + f];
             if (!nxt || Math.abs(nxt.time - point.time) > (f * MAX_SMOOTH_GAP_MS)) break;
-            if (Math.abs(nxt.liters - point.liters) > MAX_STEP_NOISE_LITERS) break;
             neighbors.push(nxt.liters);
         }
         return { ...point, litersSmooth: Math.round(medianForNumbers(neighbors) * 10) / 10 };
@@ -687,9 +729,11 @@ function detectRefillEventsFromSeries(points, options = {}) {
         const windowPoints = [];
         for (let k = fromIdx; k < prepared.length; k += 1) {
             if (prepared[k].time > (eventTime + horizonMs)) break;
-            windowPoints.push(prepared[k]);
+            if (prepared[k].time > eventTime) {
+                windowPoints.push(prepared[k]);
+            }
         }
-        if (windowPoints.length === 0) return true;
+        if (windowPoints.length === 0) return false;
         const valid = windowPoints.map((p) => p.litersSmooth);
         const med = medianForNumbers(valid);
         return med >= (minLevel - 15);
@@ -761,20 +805,30 @@ function detectRefillEventsFromSeries(points, options = {}) {
     }
 
     // 2. Sleep Gap / Ignition-Off Step Refill (tracker wakes up after station stop)
+    const minSleepGapMs = Math.max(60000, (parseFloat(options.minOffMinutes ?? 2) || 2) * 60000);
     for (let i = 0; i < prepared.length - 1; i += 1) {
         const ptA = prepared[i];
         const ptB = prepared[i + 1];
         const deltaMs = ptB.time - ptA.time;
+        if (deltaMs < minSleepGapMs) continue;
         const rise = ptB.litersSmooth - ptA.litersSmooth;
 
         if (rise >= minRefuelLiters && rise <= maxRealisticRefillLiters) {
+            const cruisingLimit = Math.max(15, stopSpeedThreshold + 5);
+            if (ptA.speed > cruisingLimit || ptB.speed > cruisingLimit) {
+                continue;
+            }
+            const isStoppedA = ptA.speed <= (stopSpeedThreshold + 2) || ptA.ign === 0;
+            const isStoppedB = ptB.speed <= (stopSpeedThreshold + 2);
+            if (!isStoppedA && !isStoppedB) {
+                continue;
+            }
             const dist = (Number.isFinite(ptA.lat) && Number.isFinite(ptB.lat))
                 ? haversineDistanceMeters(ptA.lat, ptA.lng, ptB.lat, ptB.lng)
                 : 0;
-            const bothSlowOrGap = (ptA.speed <= (stopSpeedThreshold + 2) || ptB.speed <= (stopSpeedThreshold + 2) || deltaMs >= 120000);
             const isPersistent = checkPersistence(i + 1, ptB.time, ptB.litersSmooth - (rise * 0.25));
 
-            if (dist <= maxStationarySpreadMeters && bothSlowOrGap && isPersistent) {
+            if (dist <= maxStationarySpreadMeters && isPersistent) {
                 candidateEvents.push({
                     index: ptB.index,
                     time: ptB.time,
@@ -810,6 +864,7 @@ function detectRefillEventsFromSeries(points, options = {}) {
 // AUTO-RESOLVE BACKEND URL
 // =====================================================
 (function resolveFleetBaseUrl() {
+    if (typeof window === 'undefined') return;
     function normalizeUrl(u) {
         if (!u) return null;
         u = String(u).trim();
@@ -892,54 +947,156 @@ function getTruckConfig(deviceId) {
 }
 
 function calculateVidangeStatus(currentOdometer, config, lastVidangeKm = null) {
-    const alertKm   = parseInt((config && config.vidangeAlertKm)   || 500);
-    const startKm   = parseInt((config && config.vidangeStartKm)   || 5000);
-    const rotKm     = parseInt((config && config.vidangeRotationKm) || 25000);
+    const rawOdo = Number(currentOdometer);
+    const odo = (Number.isFinite(rawOdo) && rawOdo >= 0) ? Math.round(rawOdo) : 0;
+
+    const rawLast = Number(lastVidangeKm);
+    const lastKm = (Number.isFinite(rawLast) && rawLast > 0) ? Math.round(rawLast) : null;
+
+    let alertKm = 500;
+    if (config && config.vidangeAlertKm !== undefined && config.vidangeAlertKm !== null) {
+        const parsed = parseInt(config.vidangeAlertKm, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) alertKm = parsed;
+    }
+
+    let startKm = 5000;
+    if (config && config.vidangeStartKm !== undefined && config.vidangeStartKm !== null) {
+        const parsed = parseInt(config.vidangeStartKm, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) startKm = parsed;
+    }
+
+    let rotKm = 25000;
+    if (config && config.vidangeRotationKm !== undefined && config.vidangeRotationKm !== null) {
+        const parsed = parseInt(config.vidangeRotationKm, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) rotKm = parsed;
+    }
 
     // ── Rotation logic (primary) ─────────────────────────────────
     if (rotKm > 0) {
-        const lastKm = parseInt(lastVidangeKm || 0);
-        const odo    = parseInt(currentOdometer);
         let nextKm;
-        if (lastKm > 0) {
-            // Known last vidange → rotate from there
+        let isVirtual = false;
+
+        if (lastKm !== null && lastKm > 0) {
+            // Known last vidange → rotate from recorded anchor
             nextKm = lastKm + rotKm;
+            isVirtual = false;
         } else if (odo <= startKm) {
-            // Truck hasn't reached first vidange yet
+            // Fresh vehicle before initial baseline
             nextKm = startKm;
+            isVirtual = true;
         } else {
-            // No history but truck is past startKm: compute virtual rotation
+            // Past initial baseline with no recorded service:
+            // Hold strictly at the passed scheduled rotation milestone without jumping
             const rotsPassed = Math.floor((odo - startKm) / rotKm);
-            const prevKm = startKm + rotsPassed * rotKm;
-            // If the truck is overdue for the PREVIOUS virtual rotation by less than half a rotation (e.g. < 12500 km),
-            // we assume it missed it and flag it as URGENT (nextKm = prevKm).
-            // Otherwise, we assume it was done and we target the next rotation.
-            if ((odo - prevKm) <= (rotKm / 2)) {
-                nextKm = prevKm;
-            } else {
-                nextKm = startKm + (rotsPassed + 1) * rotKm;
-            }
+            nextKm = startKm + rotsPassed * rotKm;
+            isVirtual = true;
         }
+
         const kmUntilNext = nextKm - odo;
-        return { alert: kmUntilNext <= alertKm, nextKm, kmUntilNext, alertKm, lastKm: lastKm > 0 ? lastKm : null, isVirtual: lastKm === 0 };
+        const isOverdue = kmUntilNext < 0;
+        const alert = isOverdue || kmUntilNext <= alertKm;
+        const overdueKm = isOverdue ? Math.abs(kmUntilNext) : 0;
+        const status = isOverdue ? 'URGENT' : (alert ? 'BIENTÔT' : 'OK');
+
+        return {
+            alert,
+            isOverdue,
+            status,
+            nextKm,
+            nextDueKm: nextKm,
+            kmUntilNext,
+            overdueKm,
+            alertKm,
+            lastKm: lastKm > 0 ? lastKm : null,
+            isVirtual,
+            currentOdometer: odo,
+            startKm,
+            rotKm
+        };
     }
 
-    // ── Legacy milestone fallback ─────────────────────────────────
+    // ── Legacy milestone fallback (when rotKm <= 0) ───────────────
     let milestones = [];
     if (config && config.vidangeMilestones) {
         if (typeof config.vidangeMilestones === 'string') {
-            milestones = config.vidangeMilestones.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)).sort((a, b) => a - b);
+            milestones = config.vidangeMilestones
+                .split(',')
+                .map(s => parseInt(s.trim(), 10))
+                .filter(n => Number.isFinite(n) && n > 0)
+                .sort((a, b) => a - b);
         } else if (Array.isArray(config.vidangeMilestones)) {
-            milestones = config.vidangeMilestones.slice().sort((a,b)=>a-b);
+            milestones = config.vidangeMilestones
+                .map(n => parseInt(n, 10))
+                .filter(n => Number.isFinite(n) && n > 0)
+                .sort((a, b) => a - b);
         }
     }
-    if (milestones.length === 0) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm, lastKm: null };
-    const base = parseInt(lastVidangeKm || 0);
-    const active = milestones.filter(m => m > base && (parseInt(currentOdometer) - m) <= 10000);
-    const next = active[0] || null;
-    if (!next) return { alert: false, nextKm: 'NA', kmUntilNext: 999999, alertKm };
-    const kmUntilNext = next - parseInt(currentOdometer);
-    return { alert: kmUntilNext <= alertKm, nextKm: next, kmUntilNext, alertKm, lastKm: base > 0 ? base : null, isVirtual: false };
+
+    if (milestones.length === 0) {
+        return {
+            alert: false,
+            isOverdue: false,
+            status: 'OK',
+            nextKm: 'NA',
+            nextDueKm: 'NA',
+            kmUntilNext: 999999,
+            overdueKm: 0,
+            alertKm,
+            lastKm: lastKm > 0 ? lastKm : null,
+            isVirtual: false,
+            currentOdometer: odo,
+            startKm,
+            rotKm
+        };
+    }
+
+    const base = lastKm || 0;
+    const active = milestones.filter(m => m > base);
+    const next = active.length > 0 ? active[0] : null;
+
+    if (!next) {
+        return {
+            alert: false,
+            isOverdue: false,
+            status: 'OK',
+            nextKm: 'NA',
+            nextDueKm: 'NA',
+            kmUntilNext: 999999,
+            overdueKm: 0,
+            alertKm,
+            lastKm: base > 0 ? base : null,
+            isVirtual: false,
+            currentOdometer: odo,
+            startKm,
+            rotKm
+        };
+    }
+
+    const kmUntilNext = next - odo;
+    const isOverdue = kmUntilNext < 0;
+    const alert = isOverdue || kmUntilNext <= alertKm;
+    const overdueKm = isOverdue ? Math.abs(kmUntilNext) : 0;
+    const status = isOverdue ? 'URGENT' : (alert ? 'BIENTÔT' : 'OK');
+
+    return {
+        alert,
+        isOverdue,
+        status,
+        nextKm: next,
+        nextDueKm: next,
+        kmUntilNext,
+        overdueKm,
+        alertKm,
+        lastKm: base > 0 ? base : null,
+        isVirtual: false,
+        currentOdometer: odo,
+        startKm,
+        rotKm
+    };
+}
+
+if (typeof window !== 'undefined') {
+    window.calculateVidangeStatus = calculateVidangeStatus;
 }
 
 function calculateFuelNeeded(distanceKm, consumptionPer100) {
@@ -958,10 +1115,21 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         FLEETCONFIG,
+        FLEET_CONFIG,
         detectRefillEventsFromSeries,
         mergeRefillEvents,
         calculateVidangeStatus,
         calculateFuelNeeded,
-        calculateDistance
+        calculateDistance,
+        calculateFuelMetricsFromParams,
+        interpolateFuelCalibration,
+        smoothFuelSeriesPoints,
+        buildFuelSensorCapacityPlan,
+        readConfiguredFuelSensorValues,
+        getConfiguredFuelSensorKeys,
+        getConfiguredFuelSensorCapacityMap,
+        getConfiguredFuelEffectiveCapacity,
+        haversineDistanceMeters,
+        medianForNumbers
     };
 }

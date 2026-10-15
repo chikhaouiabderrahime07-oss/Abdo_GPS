@@ -1053,7 +1053,7 @@
       if (this.calcBtn) this.calcBtn.addEventListener('click', () => this.calculate(false));
       if (this.saveBtn) this.saveBtn.addEventListener('click', () => this.calculate(true));
       if (this.reloadBtn) this.reloadBtn.addEventListener('click', () => this.loadRows());
-      if (this.exportBtn) this.exportBtn.addEventListener('click', () => this.exportCsv());
+      if (this.exportBtn) this.exportBtn.addEventListener('click', () => this.exportXlsx());
       if (this.rebuildBtn) this.rebuildBtn.addEventListener('click', () => this.rebuildRefuels(false));
       if (this.cleanRebuildBtn) this.cleanRebuildBtn.addEventListener('click', () => this.rebuildRefuels(true));
       if (this.applyFiltersBtn) this.applyFiltersBtn.addEventListener('click', () => this.applyFilters(true));
@@ -2650,7 +2650,7 @@
       }
     }
 
-    async exportCsv() {
+    async exportXlsx() {
       const exportRows = Array.isArray(this.filteredRows) ? this.filteredRows : [];
       if (!exportRows.length) {
         this.showToast('Aucune ligne à exporter', 'error');
@@ -2667,119 +2667,72 @@
         await this.hydrateLocationTargets(exportRows.flatMap((row) => [row.startLocation, row.endLocation]));
 
         const columns = [
-          { title: 'Camion', width: 90, type: 'String', value: (row) => row.truckName || '' },
-          { title: 'DH départ', width: 130, type: 'String', value: (row) => this.formatDateTime(row.requestedStartAt || row.startAt) },
-          { title: 'DH fin', width: 130, type: 'String', value: (row) => this.formatDateTime(row.requestedEndAt || row.endAt) },
-          { title: 'KM totale', width: 90, type: 'Number', value: (row) => Number(row.kmTotal) || 0 },
-          { title: 'Carburant départ', width: 105, type: 'Number', value: (row) => Number(row.fuelStart) || 0 },
-          { title: 'Carburant fin', width: 95, type: 'Number', value: (row) => Number(row.fuelEnd) || 0 },
-          { title: 'Pleins détectés', width: 85, type: 'Number', value: (row) => Number(row.refillCount) || 0 },
-          { title: 'Litres ajoutés', width: 100, type: 'Number', value: (row) => Number(row.fuelAddedDuringTrip) || 0 },
-          { title: 'Consommation gasoil', width: 115, type: 'Number', value: (row) => Number(row.fuelConsumedTotal) || 0 },
-          { title: 'Source KM', width: 85, type: 'String', value: (row) => row.distanceSource === 'odometer' ? 'Odomètre' : 'Trace GPS' },
-          { title: 'Observation', width: 180, type: 'String', value: (row) => row.note || '' },
-          { title: 'Lieu départ', width: 220, type: 'String', value: (row) => this.getDisplayLocation(row.startLocation || '') },
-          { title: 'Lieu fin', width: 240, type: 'String', value: (row) => this.getDisplayLocation(row.endLocation || '') }
+          { header: 'Camion', key: 'truckName', type: 'string', width: 16 },
+          { header: 'DH départ', key: 'startAt', type: 'string', width: 20 },
+          { header: 'DH fin', key: 'endAt', type: 'string', width: 20 },
+          { header: 'KM totale', key: 'kmTotal', type: 'number', format: '#,##0.00', width: 14 },
+          { header: 'Carburant départ', key: 'fuelStart', type: 'number', format: '#,##0.00', width: 16 },
+          { header: 'Carburant fin', key: 'fuelEnd', type: 'number', format: '#,##0.00', width: 16 },
+          { header: 'Pleins détectés', key: 'refillCount', type: 'number', format: '#,##0', width: 14 },
+          { header: 'Litres ajoutés', key: 'fuelAddedDuringTrip', type: 'number', format: '#,##0.00', width: 14 },
+          { header: 'Consommation gasoil', key: 'fuelConsumedTotal', type: 'number', format: '#,##0.00', width: 18 },
+          { header: 'Source KM', key: 'distanceSource', type: 'string', width: 14 },
+          { header: 'Observation', key: 'note', type: 'string', width: 24 },
+          { header: 'Lieu départ', key: 'startLocation', type: 'string', width: 28 },
+          { header: 'Lieu fin', key: 'endLocation', type: 'string', width: 28 }
         ];
 
-        const xmlEscape = (value) => String(value ?? '')
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&apos;');
+        const data = exportRows.map((row) => ({
+          truckName: row.truckName || '',
+          startAt: this.formatDateTime(row.requestedStartAt || row.startAt),
+          endAt: this.formatDateTime(row.requestedEndAt || row.endAt),
+          kmTotal: Number(row.kmTotal) || 0,
+          fuelStart: Number(row.fuelStart) || 0,
+          fuelEnd: Number(row.fuelEnd) || 0,
+          refillCount: Number(row.refillCount) || 0,
+          fuelAddedDuringTrip: Number(row.fuelAddedDuringTrip) || 0,
+          fuelConsumedTotal: Number(row.fuelConsumedTotal) || 0,
+          distanceSource: row.distanceSource === 'odometer' ? 'Odomètre' : 'Trace GPS',
+          note: row.note || '',
+          startLocation: this.getDisplayLocation(row.startLocation || ''),
+          endLocation: this.getDisplayLocation(row.endLocation || '')
+        }));
 
-        const headerCells = columns.map((col) => `<Cell ss:StyleID="sHeader"><Data ss:Type="String">${xmlEscape(col.title)}</Data></Cell>`).join('');
-        const dataRows = exportRows.map((row) => {
-          const cells = columns.map((col) => {
-            const rawValue = col.value(row);
-            if (col.type === 'Number') {
-              const num = Number(rawValue);
-              return `<Cell ss:StyleID="sNumber"><Data ss:Type="Number">${Number.isFinite(num) ? num : 0}</Data></Cell>`;
-            }
-            return `<Cell ss:StyleID="sText"><Data ss:Type="String">${xmlEscape(rawValue)}</Data></Cell>`;
-          }).join('');
-          return `<Row>${cells}</Row>`;
-        }).join('');
+        if (window.ExcelExportEngine) {
+          await (window.ExcelExportEngine.exportTableToXlsx || window.ExcelExportEngine.exportTable)({
+            filename: `rapport-transport-filtre-${new Date().toISOString().slice(0, 10)}.xlsx`,
+            sheetName: 'Rapport Transport',
+            columns,
+            data
+          });
+          this.showToast('Export Excel filtré généré', 'success');
+          return;
+        }
 
-        const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:html="http://www.w3.org/TR/REC-html40">
-  <Styles>
-    <Style ss:ID="Default" ss:Name="Normal">
-      <Alignment ss:Vertical="Center"/>
-      <Borders/>
-      <Font ss:FontName="Segoe UI" ss:Size="10"/>
-      <Interior/>
-      <NumberFormat/>
-      <Protection/>
-    </Style>
-    <Style ss:ID="sHeader">
-      <Font ss:Bold="1" ss:Color="#0F172A"/>
-      <Interior ss:Color="#E2E8F0" ss:Pattern="Solid"/>
-      <Borders>
-        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-        <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-        <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-      </Borders>
-    </Style>
-    <Style ss:ID="sText">
-      <Alignment ss:Vertical="Top" ss:WrapText="1"/>
-      <Borders>
-        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-      </Borders>
-    </Style>
-    <Style ss:ID="sNumber">
-      <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
-      <Borders>
-        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
-      </Borders>
-      <NumberFormat ss:Format="0.00"/>
-    </Style>
-  </Styles>
-  <Worksheet ss:Name="Rapport Transport">
-    <Table ss:ExpandedColumnCount="${columns.length}" ss:ExpandedRowCount="${exportRows.length + 1}" x:FullColumns="1" x:FullRows="1">
-      ${columns.map((col) => `<Column ss:Width="${col.width}"/>`).join('')}
-      <Row ss:Height="22">${headerCells}</Row>
-      ${dataRows}
-    </Table>
-    <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-      <FreezePanes/>
-      <FrozenNoSplit/>
-      <SplitHorizontal>1</SplitHorizontal>
-      <TopRowBottomPane>1</TopRowBottomPane>
-      <ActivePane>2</ActivePane>
-      <Panes>
-        <Pane><Number>3</Number></Pane>
-        <Pane><Number>2</Number></Pane>
-      </Panes>
-      <ProtectObjects>False</ProtectObjects>
-      <ProtectScenarios>False</ProtectScenarios>
-    </WorksheetOptions>
-  </Worksheet>
-</Workbook>`;
-
-        const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+        // CSV Fallback
+        const headerLine = columns.map(c => `"${c.header}"`).join(',');
+        const rowLines = data.map(row => columns.map(c => `"${String(row[c.key] ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+        const csv = '\uFEFF' + headerLine + '\n' + rowLines;
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `rapport-transport-filtre-${new Date().toISOString().slice(0, 10)}.xls`;
+        link.download = `rapport-transport-filtre-${new Date().toISOString().slice(0, 10)}.csv`;
         document.body.appendChild(link);
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
-        this.showToast('Export Excel filtré généré', 'success');
+        this.showToast('Export CSV filtré généré', 'success');
       } finally {
         if (this.exportBtn) {
           this.exportBtn.disabled = false;
           this.exportBtn.innerHTML = originalText;
         }
       }
+    }
+
+    async exportCsv() {
+      return this.exportXlsx();
     }
 
 

@@ -34,9 +34,11 @@
     calculateScore(truck) {
       const name = truck.truckName || truck.name || 'Unknown';
       const speed = truck.speed || 0;
-      const fuelPercent = truck.lastFuelPercent || 0;
+      const fuelPercent = (truck.fuelPercentage !== undefined && !isNaN(truck.fuelPercentage))
+        ? Number(truck.fuelPercentage)
+        : ((truck.lastFuelPercent !== undefined && !isNaN(truck.lastFuelPercent)) ? Number(truck.lastFuelPercent) : 0);
       const attributes = truck.attributes || {};
-      const ignition = attributes.ignition === true;
+      const ignition = attributes.ignition === true || (truck.params && (truck.params.io1 === '1' || truck.params.io1 === 1 || truck.params.acc === '1' || truck.params.acc === 1));
       
       const reasons = { speed: [], fuel: [], activity: [], night: [], maintenance: [] };
 
@@ -54,7 +56,13 @@
       else if (fuelPercent < 20) { fuelScore -= 30; reasons.fuel.push("Niveau carburant bas (<20%). Remplissage recommandé."); }
       else { reasons.fuel.push("Niveau de carburant sécurisant et bien géré."); }
       
-      const myRefuels = this.refuels.filter(r => r.truckName === name || r.truck === truck.id);
+      const thirtyDaysAgo = Date.now() - (30 * 24 * 3600 * 1000);
+      const myRefuels = this.refuels.filter(r => {
+        const matchesTruck = r.truckName === name || r.truck === truck.id || String(r.deviceId) === String(truck.id);
+        if (!matchesTruck) return false;
+        const ts = new Date(r.timestamp || r.date || 0).getTime();
+        return !ts || ts >= thirtyDaysAgo;
+      });
       if (myRefuels.length > 5) {
          fuelScore -= 10;
          reasons.fuel.push("Remplissages inhabituellement fréquents détectés. Possible anomalie de consommation ou siphonage.");

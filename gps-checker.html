@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GPS Auditor Pro V38</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+  <script src="excel-export-engine.js"></script>
   <style>
     :root {
       --bg: #0f172a; --panel: #1e293b; --border: #334155;
@@ -138,7 +140,7 @@
   </button>
   <div style="display:flex;gap:5px;margin-top:-8px">
     <button class="btn btn-save" onclick="auditor.saveAuditToDB()"><i class="fa-solid fa-floppy-disk"></i> SAUVER</button>
-    <button class="btn btn-exp" onclick="auditor.exportReport()"><i class="fa-solid fa-file-export"></i> RAPPORT</button>
+    <button class="btn btn-exp" onclick="auditor.exportReport()"><i class="fa-solid fa-file-excel"></i> EXCEL</button>
   </div>
   <button class="btn btn-clear" onclick="auditor.clearAll()"><i class="fa-solid fa-eraser"></i> Effacer l'écran</button>
 </div>
@@ -945,19 +947,135 @@ class GPSAuditor {
     });
   }
 
-  exportReport() {
-    if (this.incidents.length === 0 && this.parkings.length === 0 && this.refills.length === 0) {
+  async exportReport() {
+    const incidents = this.incidents || [];
+    const parkings = this.parkings || [];
+    const refills = this.refills || [];
+    const decouchages = this.decouchages_found || [];
+
+    if (incidents.length === 0 && parkings.length === 0 && refills.length === 0 && decouchages.length === 0) {
       return alert('Aucune donnée.');
     }
+
+    if (window.ExcelExportEngine) {
+      await window.ExcelExportEngine.exportWorkbook({
+        filename: `RAPPORT_AUDIT_GPS_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheets: [
+          {
+            sheetName: 'Coupures',
+            name: 'Coupures',
+            title: 'AUDIT GPS — COUPURES ET ANOMALIES DE SIGNAL',
+            columns: [
+              { header: 'Camion', key: 'truck', width: 16, type: 'string' },
+              { header: 'Début', key: 'startTime', width: 20, type: 'string' },
+              { header: 'Fin', key: 'endTime', width: 20, type: 'string' },
+              { header: 'Durée (h)', key: 'dur', width: 14, type: 'number', format: '#,##0.0', numFmt: '#,##0.0' },
+              { header: 'Vitesse (km/h)', key: 'spd', width: 16, type: 'number', format: '#,##0', numFmt: '#,##0' },
+              { header: 'Motif', key: 'reason', width: 28, type: 'string' },
+              { header: 'Latitude', key: 'lat', width: 14, type: 'number', format: '0.00000', numFmt: '0.00000' },
+              { header: 'Longitude', key: 'lng', width: 14, type: 'number', format: '0.00000', numFmt: '0.00000' }
+            ],
+            data: incidents.map(i => ({
+              truck: i.truck || '',
+              startTime: i.startTime || '',
+              endTime: i.endTime || '',
+              dur: Number(i.dur) || 0,
+              spd: Number(i.spd) || 0,
+              reason: i.reason || '',
+              lat: (i.lat != null && i.lat !== '') ? Number(i.lat) : null,
+              lng: (i.lng != null && i.lng !== '') ? Number(i.lng) : null
+            }))
+          },
+          {
+            sheetName: 'Parkings',
+            name: 'Parkings',
+            title: 'AUDIT GPS — PARKINGS ET ARRÊTS PROLONGÉS',
+            columns: [
+              { header: 'Camion', key: 'truck', width: 16, type: 'string' },
+              { header: 'Début', key: 'startTime', width: 20, type: 'string' },
+              { header: 'Fin', key: 'endTime', width: 20, type: 'string' },
+              { header: 'Durée (h)', key: 'dur', width: 14, type: 'number', format: '#,##0.0', numFmt: '#,##0.0' },
+              { header: 'Motif', key: 'reason', width: 24, type: 'string' },
+              { header: 'Latitude', key: 'lat', width: 14, type: 'number', format: '0.00000', numFmt: '0.00000' },
+              { header: 'Longitude', key: 'lng', width: 14, type: 'number', format: '0.00000', numFmt: '0.00000' }
+            ],
+            data: parkings.map(p => ({
+              truck: p.truck || '',
+              startTime: p.startTime || '',
+              endTime: p.endTime || '',
+              dur: Number(p.dur) || 0,
+              reason: p.reason || '',
+              lat: (p.lat != null && p.lat !== '') ? Number(p.lat) : null,
+              lng: (p.lng != null && p.lng !== '') ? Number(p.lng) : null
+            }))
+          },
+          {
+            sheetName: 'Pleins',
+            name: 'Pleins',
+            title: 'AUDIT GPS — PLEINS ET APPROVISIONNEMENTS CARBURANT',
+            columns: [
+              { header: 'Camion', key: 'truck', width: 16, type: 'string' },
+              { header: 'Début', key: 'startTime', width: 20, type: 'string' },
+              { header: 'Fin', key: 'endTime', width: 20, type: 'string' },
+              { header: 'Litres ajoutés (L)', key: 'addedLiters', width: 18, type: 'number', format: '#,##0', numFmt: '#,##0' },
+              { header: 'Ancien niveau (L)', key: 'oldLevel', width: 18, type: 'number', format: '#,##0', numFmt: '#,##0' },
+              { header: 'Nouveau niveau (L)', key: 'newLevel', width: 18, type: 'number', format: '#,##0', numFmt: '#,##0' },
+              { header: 'Lieu / Station', key: 'location', width: 24, type: 'string' },
+              { header: 'Interne', key: 'isInternal', width: 12, type: 'string' }
+            ],
+            data: refills.map(r => ({
+              truck: r.truck || '',
+              startTime: r.startTime || '',
+              endTime: r.endTime || '',
+              addedLiters: Number(r.addedLiters) || 0,
+              oldLevel: (r.oldLevel != null && r.oldLevel !== '') ? Number(r.oldLevel) : null,
+              newLevel: (r.newLevel != null && r.newLevel !== '') ? Number(r.newLevel) : null,
+              location: r.location || '',
+              isInternal: r.isInternal ? 'Oui' : 'Non'
+            }))
+          },
+          {
+            sheetName: 'Découchages',
+            name: 'Découchages',
+            title: 'AUDIT GPS — DÉCOUCHAGES ET NUITS HORS SITE',
+            columns: [
+              { header: 'Date nuit', key: 'date', width: 14, type: 'string' },
+              { header: 'Camion', key: 'truck', width: 16, type: 'string' },
+              { header: 'Horodatage', key: 'startTime', width: 20, type: 'string' },
+              { header: 'Lieu détecté', key: 'location', width: 26, type: 'string' },
+              { header: 'Distance site (m)', key: 'distanceFromSite', width: 18, type: 'number', format: '#,##0', numFmt: '#,##0' },
+              { header: 'Latitude', key: 'lat', width: 14, type: 'number', format: '0.00000', numFmt: '0.00000' },
+              { header: 'Longitude', key: 'lng', width: 14, type: 'number', format: '0.00000', numFmt: '0.00000' }
+            ],
+            data: decouchages.map(d => ({
+              date: d.date || '',
+              truck: d.truck || '',
+              startTime: d.startTime || '',
+              location: d.location || '',
+              distanceFromSite: Number(d.distanceFromSite) || 0,
+              lat: (d.lat != null && d.lat !== '') ? Number(d.lat) : null,
+              lng: (d.lng != null && d.lng !== '') ? Number(d.lng) : null
+            }))
+          }
+        ],
+        metadata: {
+          title: 'AUDIT GLOBAL DE TÉLÉMÉTRIE GPS',
+          companyName: 'SPA DOUROUB EL DJAZAIR',
+          exportedAt: new Date().toISOString()
+        }
+      });
+      return;
+    }
+
     let txt = '=== RAPPORT AUDIT GPS ===\n\n';
-    txt += `COUPURES (${this.incidents.length})\n`;
-    this.incidents.forEach(i => txt += `  COUPURE | ${i.startTime} | ${i.truck} | ${i.reason} | ${i.durh}\n`);
-    txt += `\nPARKINGS (${this.parkings.length})\n`;
-    this.parkings.forEach(p => txt += `  PARKING | ${p.startTime} | ${p.truck} | ${p.durh}\n`);
-    txt += `\nPLEINS CARBURANT (${this.refills.length})\n`;
-    this.refills.forEach(r => txt += `  PLEIN | ${r.startTime} | ${r.truck} | +${r.addedLiters}L | ${r.location}\n`);
-    txt += `\nDÉCOUCHAGES (${this.decouchages_found.length})\n`;
-    this.decouchages_found.forEach(d => txt += `  DÉCOUCHAGE | ${d.date} | ${d.truck} | ${d.location}\n`);
+    txt += `COUPURES (${incidents.length})\n`;
+    incidents.forEach(i => txt += `  COUPURE | ${i.startTime} | ${i.truck} | ${i.reason} | ${i.durh}\n`);
+    txt += `\nPARKINGS (${parkings.length})\n`;
+    parkings.forEach(p => txt += `  PARKING | ${p.startTime} | ${p.truck} | ${p.durh}\n`);
+    txt += `\nPLEINS CARBURANT (${refills.length})\n`;
+    refills.forEach(r => txt += `  PLEIN | ${r.startTime} | ${r.truck} | +${r.addedLiters}L | ${r.location}\n`);
+    txt += `\nDÉCOUCHAGES (${decouchages.length})\n`;
+    decouchages.forEach(d => txt += `  DÉCOUCHAGE | ${d.date} | ${d.truck} | ${d.location}\n`);
     const url = window.URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
     const a = document.createElement('a');
     a.href = url;

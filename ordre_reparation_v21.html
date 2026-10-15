@@ -1,9 +1,11 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ordre de Réparation v13</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="excel-export-engine.js"></script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;font-family:Arial,Helvetica,sans-serif;background:#d7d7d7;color:#111;font-size:12.5px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
@@ -617,12 +619,37 @@ function saveData(){
   const ref = $('ref').value.trim();
   if(!ref){ alert('Veuillez saisir une référence.'); return; }
   const all = getAllData();
-  all[ref] = collectData();
+  const current = collectData();
+  all[ref] = current;
   saveAllData(all);
   localStorage.setItem(K_LAST, ref);
   renderLoadList(); renderHistory(); refreshClients();
   $('footRef').textContent = 'Réf: ' + ref;
   showOk('Bon sauvegardé dans la base');
+
+  // Server persistence (F31)
+  try {
+    const code = localStorage.getItem('fleetAccessCode') || '';
+    fetch('/api/repair-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-access-code': code },
+      body: JSON.stringify({
+        reference: ref,
+        truckName: current.f_name || current.f_unit || '',
+        deviceId: current.f_deviceId || '',
+        immatriculation: current.f_lic || '',
+        chassisNumber: current.f_model || '',
+        odometer: parseInt(current.f_km) || 0,
+        interventionType: current.f_type || '',
+        garage: current.f_garage || '',
+        technician: current.f_tech1 || '',
+        estimatedCostDzd: parseFloat(current.f_total) || 0,
+        status: current.f_status || 'en_cours',
+        data: current,
+        updatedAt: new Date().toISOString()
+      })
+    }).catch(function(err){ console.warn('Repair order server sync:', err.message); });
+  } catch(e) {}
 }
 
 function loadRecord(ref){
@@ -643,6 +670,15 @@ function deleteRecord(ref){
   saveAllData(all);
   renderLoadList(); renderHistory(); refreshClients();
   showOk('Bon supprimé');
+
+  // Server delete (F31)
+  try {
+    const code = localStorage.getItem('fleetAccessCode') || '';
+    fetch('/api/repair-orders/' + encodeURIComponent(ref), {
+      method: 'DELETE',
+      headers: { 'x-access-code': code }
+    }).catch(function(){});
+  } catch(e) {}
 }
 
 function renderLoadList(){
@@ -676,20 +712,84 @@ function renderHistory(){
   $('histBody').innerHTML = rows.join('') || '<tr><td colspan="6" style="color:#888;text-align:center">Aucun résultat.</td></tr>';
 }
 
-function exportCSV(){
+async function exportXLSX(){
   const all = getAllData();
-  let csv = 'Reference,Date,Client,Adresse,Ville,Telephone,Vehicule,Immatriculation,Statut,Forfait,Produits\n';
-  Object.keys(all).forEach(k=>{
+  const searchInput = $('histSearch');
+  const q = searchInput ? (searchInput.value || '').trim().toLowerCase() : '';
+  const columns = [
+    { header: 'Référence', key: 'ref', width: 16, type: 'string' },
+    { header: 'Date', key: 'date', width: 14, type: 'string' },
+    { header: 'Client', key: 'name', width: 22, type: 'string' },
+    { header: 'Adresse', key: 'addr', width: 24, type: 'string' },
+    { header: 'Ville', key: 'city', width: 16, type: 'string' },
+    { header: 'Téléphone', key: 'phone', width: 16, type: 'string' },
+    { header: 'Véhicule', key: 'model', width: 20, type: 'string' },
+    { header: 'Immatriculation', key: 'lic', width: 18, type: 'string' },
+    { header: 'Statut', key: 'status', width: 14, type: 'string' },
+    { header: 'Forfait', key: 'serviceKey', width: 20, type: 'string' },
+    { header: 'Produits', key: 'products', width: 30, type: 'string' }
+  ];
+  const keys = Object.keys(all).sort((a, b) => String(all[b]._ts || '').localeCompare(String(all[a]._ts || '')));
+  const filteredKeys = keys.filter(k => {
     const d = all[k];
-    let status = '';
-    if(d.s_bill) status='Facturé'; else if(d.s_deliv) status='Livré'; else if(d.s_done) status='Terminé'; else if(d.s_prog) status='En cours'; else if(d.s_wait) status='En attente';
-    const products = (d.products||[]).filter(x=>x.code||x.des).map(x=>`${x.code}:${x.des}`).join('; ');
-    const row = [k,d.f_date||'',d.f_name||'',d.f_addr||'',d.f_city||'',d.f_phone||'',d.f_model||'',d.f_lic||'',status,d.serviceKey||'',products].map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',');
-    csv += row + '\n';
+    if (!q) return true;
+    const blob = (k + ' ' + (d.f_name || '') + ' ' + (d.f_model || '') + ' ' + (d.f_lic || '')).toLowerCase();
+    return blob.includes(q);
   });
-  const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8;'});
+  const data = filteredKeys.map(k => {
+    const d = all[k];
+    let status = '—';
+    if(d.s_bill) status='Facturé';
+    else if(d.s_deliv) status='Livré';
+    else if(d.s_done) status='Terminé';
+    else if(d.s_prog) status='En cours';
+    else if(d.s_wait) status='En attente';
+    const products = (d.products||[]).filter(x=>x.code||x.des).map(x=>`${x.code}:${x.des}`).join('; ');
+    return {
+      ref: k,
+      date: d.f_date || '',
+      name: d.f_name || '',
+      addr: d.f_addr || '',
+      city: d.f_city || '',
+      phone: d.f_phone || '',
+      model: d.f_model || '',
+      lic: d.f_lic || '',
+      status: status,
+      serviceKey: d.serviceKey || '',
+      products: products
+    };
+  });
+
+  if (window.ExcelExportEngine) {
+    await window.ExcelExportEngine.exportTable({
+      filename: 'historique_ordres_' + new Date().toISOString().slice(0, 10) + '.xlsx',
+      sheetName: 'Ordres de Réparation',
+      title: 'HISTORIQUE DES ORDRES DE RÉPARATION',
+      columns,
+      data,
+      metadata: {
+        companyName: 'SPA DOUROUB EL DJAZAIR',
+        filtersApplied: q ? `Recherche: "${q}"` : 'Tous les ordres',
+        exportedAt: new Date().toISOString()
+      }
+    });
+    return;
+  }
+
+  // Fallback CSV
+  let csv = '\uFEFF' + columns.map(c => `"${c.header}"`).join(',') + '\n';
+  data.forEach(row => {
+    csv += columns.map(c => `"${String(row[c.key] || '').replace(/"/g, '""')}"`).join(',') + '\n';
+  });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'historique_ordres.csv'; a.click();
+  a.href = URL.createObjectURL(blob);
+  a.download = 'historique_ordres.csv';
+  a.click();
+}
+
+function exportCSV(){
+  return exportXLSX();
 }
 
 function renderProducts(){
@@ -951,11 +1051,32 @@ function newForm(){
   applyDefaultFields();
 }
 
+async function syncServerRepairOrders() {
+  try {
+    const code = localStorage.getItem('fleetAccessCode') || '';
+    const r = await fetch('/api/repair-orders?limit=1000', { headers: { 'x-access-code': code } });
+    if (r.ok) {
+      const orders = await r.json();
+      if (Array.isArray(orders) && orders.length > 0) {
+        const all = getAllData();
+        orders.forEach(function(o) {
+          if (o.reference && o.data && !all[o.reference]) {
+            all[o.reference] = o.data;
+          }
+        });
+        saveAllData(all);
+        renderLoadList(); renderHistory(); refreshClients();
+      }
+    }
+  } catch(e) { console.warn('Sync repair orders error:', e.message); }
+}
+
 window.addEventListener('DOMContentLoaded', function(){
   DB.init();
   initRows();
   populateServiceSelect();
   refreshClients();
+  syncServerRepairOrders();
   const d = nowDZ();
   $('f_date').value = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
   $('ref').value = localStorage.getItem(K_LAST) || makeRef();
@@ -968,101 +1089,113 @@ window.addEventListener('DOMContentLoaded', function(){
   // ✅ Auto-fill from URL parameters (sent by the fleet management system)
   try {
     const urlP = new URLSearchParams(window.location.search);
-    if (urlP.get('truck')) $('f_name').value = 'Douroub El Djazair';
-    if (urlP.get('truck')) $('f_unit').value = urlP.get('truck');
-    if (urlP.get('imm')) $('f_lic').value = urlP.get('imm');
-    if (urlP.get('odo')) $('f_km').value = urlP.get('odo');
-    if (urlP.get('tech')) $('f_tech1').value = urlP.get('tech');
-    if (urlP.get('date')) {
-      try { $('f_date').value = urlP.get('date').slice(0, 10); } catch(e) {}
-    }
-    if (urlP.get('chassis')) $('f_model').value = urlP.get('chassis');
-    const parts = [];
-    if (urlP.get('type')) {
-        if ($('f_type')) $('f_type').value = urlP.get('type');
-        parts.push('Type: ' + urlP.get('type'));
-    }
-    if (urlP.get('desc')) parts.push(urlP.get('desc'));
-    if (urlP.get('location')) parts.push('Lieu: ' + urlP.get('location'));
-    if (urlP.get('priority')) parts.push('Priorité: ' + urlP.get('priority'));
-    if (urlP.get('cost')) parts.push('Coût estimé: ' + urlP.get('cost') + ' DA');
-    if (urlP.get('forfaitName')) parts.push('PACK CHOISI: ' + decodeURIComponent(urlP.get('forfaitName')));
-    if (urlP.get('scheme')) {
-        setTimeout(() => {
-            setScheme(urlP.get('scheme'));
-        }, 100);
-    }
-    
-    if (parts.length && $('f_symptoms')) $('f_symptoms').value = parts.join('\n');
-    
-    // Set scheme and tires if passed
-    if (urlP.get('scheme')) {
-      try { setScheme(urlP.get('scheme')); } catch(e){}
-    }
-    if (urlP.get('tires')) {
-      const tires = urlP.get('tires').split(',');
-      tires.forEach(t => {
-        try { toggleMark(t); } catch(e){}
-      });
-    }
-
-    // Set status if passed
-    if (urlP.get('status')) {
-      const s = urlP.get('status');
-      if (s === 'en_cours' && $('s_prog')) $('s_prog').checked = true;
-      else if (s === 'termine' && $('s_done')) $('s_done').checked = true;
-      else if (s === 'en_attente' && $('s_wait')) $('s_wait').checked = true;
-      else if (s === 'annule' && $('s_wait')) $('s_wait').checked = true;
-    }
-
-    // Hide scheme switcher and disable edits if pre-selected
-    const sBtns = document.querySelector('.schemeBtns');
-    if (sBtns) sBtns.style.display = 'none';
-    document.querySelectorAll('.scheme').forEach(el => el.style.pointerEvents = 'none');
-
-    // Make the entire document read-only since it's a generated order
-    document.querySelectorAll('input, select, textarea').forEach(el => {
-      if (el.type === 'checkbox') el.onclick = e => e.preventDefault();
-      else el.readOnly = true;
-      if (el.tagName === 'SELECT') el.disabled = true;
-    });
-    
-    // Hide the action bar completely for generated orders to prevent modification
-    const bar = document.querySelector('.bar');
-    if (bar) bar.style.display = 'none';
-
-    // Pre-fill articles if passed via URL (from Forfait)
-    if (urlP.get('parts')) {
-      try {
-        const partsArr = JSON.parse(decodeURIComponent(urlP.get('parts')));
-        partsArr.forEach((part, index) => {
-          const i = index + 1;
-          if (i > 10) return; // limit to 10 rows
-          if ($('pn_' + i)) { $('pn_' + i).value = 'P' + i; } // dummy code if not provided
-          if ($('pd_' + i)) { $('pd_' + i).value = part.name || ''; }
-          if ($('pq_' + i)) { $('pq_' + i).value = part.qty || part.quantity || '1'; }
-          if ($('pp_' + i)) { $('pp_' + i).value = part.cost || part.unitCost || '0'; }
-          // Removed undefined calcRow(i) call
-        });
-        // Disable the forfait picker
-        const bar = document.querySelector('.bar');
-        if (bar) bar.style.display = 'none';
-        
-        // Hide auto-complete drops
-        document.querySelectorAll('.acList').forEach(e => e.style.display = 'none');
-      } catch (err) {
-        console.warn('Error parsing parts:', err);
+    const hasParams = [...urlP.keys()].length > 0;
+    if (hasParams) {
+      if (urlP.get('truck')) $('f_name').value = 'Douroub El Djazair';
+      if (urlP.get('truck')) $('f_unit').value = urlP.get('truck');
+      if (urlP.get('imm')) $('f_lic').value = urlP.get('imm');
+      if (urlP.get('odo')) $('f_km').value = urlP.get('odo');
+      if (urlP.get('tech')) $('f_tech1').value = urlP.get('tech');
+      if (urlP.get('date')) {
+        try { $('f_date').value = urlP.get('date').slice(0, 10); } catch(e) {}
       }
-    } else if (urlP.get('type') === 'Vidange') {
-      if ($('pn_1')) $('pn_1').value = 'VIDANGE';
-      if ($('pd_1')) $('pd_1').value = 'Vidange huile moteur complète';
-      if ($('pq_1')) $('pq_1').value = '1';
-      if ($('pn_2')) $('pn_2').value = 'FILTRE-HUILE';
-      if ($('pd_2')) $('pd_2').value = 'Filtre à huile';
-      if ($('pq_2')) $('pq_2').value = '1';
-      if ($('pn_3')) $('pn_3').value = 'FILTRE-AIR';
-      if ($('pd_3')) $('pd_3').value = 'Filtre à air';
-      if ($('pq_3')) $('pq_3').value = '1';
+      if (urlP.get('chassis')) $('f_model').value = urlP.get('chassis');
+      const symptomsNotes = [];
+      if (urlP.get('type')) {
+        if ($('f_type')) $('f_type').value = urlP.get('type');
+        symptomsNotes.push('Type: ' + urlP.get('type'));
+      }
+      if (urlP.get('desc')) symptomsNotes.push(urlP.get('desc'));
+      if (urlP.get('location')) symptomsNotes.push('Lieu: ' + urlP.get('location'));
+      if (urlP.get('priority')) symptomsNotes.push('Priorité: ' + urlP.get('priority'));
+      if (urlP.get('cost')) symptomsNotes.push('Coût estimé: ' + urlP.get('cost') + ' DA');
+      if (urlP.get('forfaitName')) {
+        try {
+          symptomsNotes.push('PACK CHOISI: ' + decodeURIComponent(urlP.get('forfaitName')));
+        } catch(e) {
+          symptomsNotes.push('PACK CHOISI: ' + urlP.get('forfaitName'));
+        }
+      }
+
+      if (symptomsNotes.length && $('f_symptoms')) $('f_symptoms').value = symptomsNotes.join('\n');
+
+      // Set scheme and tires if passed
+      if (urlP.get('scheme')) {
+        try { setScheme(urlP.get('scheme')); } catch(e){}
+      }
+      if (urlP.get('tires')) {
+        const tires = urlP.get('tires').split(',').map(s => s.trim()).filter(Boolean);
+        tires.forEach(t => {
+          try {
+            const el = $(t);
+            if (el && !el.classList.contains('on')) el.classList.add('on');
+          } catch(e){}
+        });
+      }
+
+      // Set status if passed
+      if (urlP.get('status')) {
+        const s = urlP.get('status');
+        if (s === 'en_cours' && $('s_prog')) $('s_prog').checked = true;
+        else if (s === 'termine' && $('s_done')) $('s_done').checked = true;
+        else if (s === 'en_attente' && $('s_wait')) $('s_wait').checked = true;
+        else if (s === 'annule' && $('s_wait')) $('s_wait').checked = true;
+      }
+
+      // Hide scheme switcher and disable edits if pre-selected
+      const sBtns = document.querySelector('.schemeBtns');
+      if (sBtns) sBtns.style.display = 'none';
+      document.querySelectorAll('.scheme').forEach(el => el.style.pointerEvents = 'none');
+
+      // Make the entire document read-only since it's a generated order
+      document.querySelectorAll('input, select, textarea').forEach(el => {
+        if (el.type === 'checkbox') el.onclick = e => e.preventDefault();
+        else el.readOnly = true;
+        if (el.tagName === 'SELECT') el.disabled = true;
+      });
+
+      // Hide the action bar completely for generated orders to prevent modification
+      const bar = document.querySelector('.bar');
+      if (bar) bar.style.display = 'none';
+
+      // Pre-fill articles if passed via URL (from Forfait)
+      if (urlP.get('parts')) {
+        try {
+          let partsArr = null;
+          const rawParts = urlP.get('parts');
+          try {
+            partsArr = JSON.parse(rawParts);
+          } catch (e1) {
+            try {
+              partsArr = JSON.parse(decodeURIComponent(rawParts));
+            } catch (e2) {}
+          }
+          if (Array.isArray(partsArr)) {
+            partsArr.forEach((part, index) => {
+              const i = index + 1;
+              if (i > 10) return; // limit to 10 rows
+              if ($('pn_' + i)) { $('pn_' + i).value = part.code || ('P' + i); }
+              if ($('pd_' + i)) { $('pd_' + i).value = part.name || part.description || ''; }
+              if ($('pq_' + i)) { $('pq_' + i).value = part.qty || part.quantity || '1'; }
+              if ($('pp_' + i)) { $('pp_' + i).value = part.cost || part.price || part.unitCost || '0'; }
+            });
+          }
+          // Hide auto-complete drops
+          document.querySelectorAll('.acList').forEach(e => e.style.display = 'none');
+        } catch (err) {
+          console.warn('Error parsing parts:', err);
+        }
+      } else if (urlP.get('type') === 'Vidange') {
+        if ($('pn_1')) $('pn_1').value = 'VIDANGE';
+        if ($('pd_1')) $('pd_1').value = 'Vidange huile moteur complète';
+        if ($('pq_1')) $('pq_1').value = '1';
+        if ($('pn_2')) $('pn_2').value = 'FILTRE-HUILE';
+        if ($('pd_2')) $('pd_2').value = 'Filtre à huile';
+        if ($('pq_2')) $('pq_2').value = '1';
+        if ($('pn_3')) $('pn_3').value = 'FILTRE-AIR';
+        if ($('pd_3')) $('pd_3').value = 'Filtre à air';
+        if ($('pq_3')) $('pq_3').value = '1';
+      }
     }
   } catch(e) { console.warn('URL param read error:', e); }
 });
