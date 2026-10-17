@@ -2491,54 +2491,60 @@ renderDecouchageList() {
       const card = document.createElement('div');
       card.className = `card-premium ${isSpeeding ? 'speeding' : ''} ${truck.speed >= 1 ? 'moving' : 'stopped'} ${hasExpiringRef ? 'doc-expiring' : ''}`;
       card.style.cssText = `
-        border: 1.5px solid ${cardAccentColor}55;
+        border: 1px solid var(--border);
         border-radius: 16px;
         overflow: hidden;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.12), 0 1px 4px ${cardAccentColor}22;
-        transition: transform .18s ease, box-shadow .18s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        transition: all .2s cubic-bezier(.4,0,.2,1);
         background: var(--bg-surface);
       `;
       card.onmouseenter = () => {
-        card.style.transform = 'translateY(-4px)';
-        card.style.boxShadow = `0 10px 32px rgba(0,0,0,0.18), 0 2px 8px ${cardAccentColor}44`;
-        card.style.borderColor = cardAccentColor;
+        card.style.transform = 'translateY(-2px)';
+        card.style.boxShadow = `0 8px 28px rgba(0,0,0,0.18)`;
+        card.style.borderColor = `${cardAccentColor}60`;
       };
       card.onmouseleave = () => {
         card.style.transform = '';
-        card.style.boxShadow = `0 4px 20px rgba(0,0,0,0.12), 0 1px 4px ${cardAccentColor}22`;
-        card.style.borderColor = `${cardAccentColor}55`;
+        card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+        card.style.borderColor = 'var(--border)';
       };
       const lat = truck.coordinates?.lat || 0;
       const lng = truck.coordinates?.lng || 0;
       const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}&t=k&z=17`;
 
       card.innerHTML = `
-        <!-- Colored header bar — clickable → Google Maps satellite -->
-        <div class="tcm-link" style="background:${cardAccentGrad}; padding:10px 14px; display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;" title="Voir sur Google Maps satellite">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:16px;font-weight:900;color:white;letter-spacing:-0.5px;">${truck.name}</span>
-            ${truck.speed >= 1 ? '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.9);display:inline-block;box-shadow:0 0 6px rgba(255,255,255,0.8);"></span>' : '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);display:inline-block;"></span>'}
+        <!-- ▸ Accent bar -->
+        <div style="height:4px; background:${cardAccentGrad};"></div>
+
+        <!-- ▸ Header -->
+        <div class="tcm-link" style="padding:12px 14px 0; display:flex; justify-content:space-between; align-items:flex-start; cursor:pointer;" title="Voir sur Google Maps satellite">
+          <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
+            <div style="width:36px; height:36px; border-radius:10px; background:${cardAccentGrad}; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 3px 10px ${cardAccentColor}40;">
+              ${truck.speed >= 1 ? '<i class="fa-solid fa-truck-fast" style="color:#fff; font-size:14px;"></i>' : '<i class="fa-solid fa-truck" style="color:#fff; font-size:13px;"></i>'}
+            </div>
+            <div style="min-width:0; flex:1;">
+              <div style="font-size:15px; font-weight:900; color:var(--text-primary); letter-spacing:-0.3px;">${truck.name}</div>
+              ${ruleLabel}
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;">
+          <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
             ${(() => {
               const db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id);
               const isMoving = truck.speed >= 1;
               const sit = isMoving ? 'mission' : (db?.situation || 'disponible');
-              const sitLabel = isMoving ? 'En Mission' : (sit === 'maintenance' ? 'Maintenance' : (sit === 'repos' ? 'Découchage' : 'Disponible'));
-              const sitColor = isMoving ? '#10b981' : (sit === 'maintenance' ? '#f59e0b' : (sit === 'repos' ? '#a78bfa' : '#38bdf8'));
-              return `<span style="background:rgba(0,0,0,0.3); color:${sitColor}; border:1px solid ${sitColor}60; padding:2px 8px; border-radius:12px; font-size:10px; font-weight:800; text-transform:uppercase;">${sitLabel}</span>`;
+              const sitLabel = isMoving ? 'En Mission' : (sit === 'maintenance' ? 'Maintenance' : (sit === 'panne' ? 'En Panne' : (sit === 'repos' ? 'Découchage' : 'Disponible')));
+              const sitColor = isMoving ? '#10b981' : (sit === 'maintenance' ? '#f59e0b' : (sit === 'panne' ? '#ef4444' : (sit === 'repos' ? '#a78bfa' : '#0284c7')));
+              return `<span style="background:${sitColor}18; color:${sitColor}; border:1px solid ${sitColor}30; padding:2px 8px; border-radius:8px; font-size:9px; font-weight:800; text-transform:uppercase;">${sitLabel}</span>`;
             })()}
-            <span style="background:rgba(0,0,0,0.2); color:white; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:800; white-space:nowrap;">
-              ${isSpeeding ? '<i class="fa-solid fa-triangle-exclamation"></i> ' : ''}${truck.speed} km/h
-            </span>
-            <span style="background:rgba(0,0,0,0.2);color:white;padding:3px 8px;border-radius:20px;font-size:10px;" title="Ouvrir sur Google Maps satellite">
-              <i class="fa-solid fa-map-location-dot"></i>
+            <span style="background:${truck.speed >= 1 ? 'rgba(16,185,129,0.12)' : 'var(--bg-elevated)'}; color:${truck.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; padding:3px 8px; border-radius:8px; font-size:11px; font-weight:800; font-family:monospace; border:1px solid ${truck.speed >= 1 ? 'rgba(16,185,129,0.2)' : 'var(--border)'};">
+              ${isSpeeding ? '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;margin-right:2px;"></i>' : ''}${truck.speed} <span style="font-size:8px;">km/h</span>
             </span>
           </div>
         </div>
-        <!-- Card body -->
-        <div style="padding:12px 14px; background:var(--bg-surface);">
-          <div style="display:flex; gap:4px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
+
+        <!-- ▸ Meta tags -->
+        <div style="padding:8px 14px 0;">
+          <div style="display:flex; gap:4px; flex-wrap:wrap; align-items:center;">
             ${(() => { 
               const db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id); 
               if (!db) return ''; 
@@ -2552,58 +2558,61 @@ renderDecouchageList() {
             ${this.renderReferenceBadges ? this.renderReferenceBadges(truck.id) : ''}
             ${hasExpiringRef ? `<span class="truck-meta-tag" style="background:#f97316;color:white;"><i class="fa-solid fa-triangle-exclamation"></i> Doc Expire</span>` : ''}
           </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; background:var(--bg-elevated); padding:10px; border-radius:10px; border:1px solid var(--border-light); margin-bottom:10px;">
-            <div style="text-align:center;">
-              <div style="color:var(--text-muted); font-size:9px; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Odomètre</div>
-              <strong style="color:${cardAccentColor}; font-size:1.15rem; font-weight:800;">${truck.odometer.toLocaleString()} <span style="font-size:9px; opacity:0.7">km</span></strong>
-            </div>
-            <div style="text-align:center; border-left:1px solid var(--border-light);">
-              <div style="color:var(--text-muted); font-size:9px; text-transform:uppercase; font-weight:700; letter-spacing:0.5px;">Carburant</div>
-              <strong style="color:${truck.isCriticalFuel ? '#ef4444' : 'var(--text-primary)'}; font-size:1.15rem; font-weight:800;">${truck.fuelLiters} <span style="font-size:9px; opacity:0.7">L</span></strong>
-              <div style="font-size:9px; color:var(--text-muted);">${truck.fuelPercentage}% plein</div>
-            </div>
+        </div>
+
+        <!-- ▸ Metrics strip -->
+        <div style="padding:10px 14px; display:flex; gap:6px;">
+          <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1px solid var(--border);">
+            <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">ODOMÈTRE</div>
+            <div style="font-size:16px; font-weight:900; color:var(--text-primary); font-family:monospace; line-height:1.3;">${truck.odometer.toLocaleString()}</div>
+            <div style="font-size:7px; color:var(--text-muted);">km</div>
           </div>
-          <div style="font-size:11px; color:var(--text-secondary); display:flex; align-items:center; gap:6px; margin-bottom:10px;">
-            <i class="fa-solid fa-location-dot" style="color:${truck.location.isCustom ? cardAccentColor : 'var(--text-muted)'}"></i>
-            <strong style="color:${truck.location.isCustom ? cardAccentColor : 'var(--text-primary)'}; font-size:11px;">${truck.location.city}</strong>
-            <span style="color:var(--text-muted);">— ${truck.location.wilaya}</span>
+          <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1px solid var(--border);">
+            <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">CARBURANT</div>
+            <div style="font-size:16px; font-weight:900; color:${truck.isCriticalFuel ? '#ef4444' : 'var(--text-primary)'}; font-family:monospace; line-height:1.3;">${truck.fuelLiters}<span style="font-size:9px;">L</span></div>
+            <div style="height:3px; background:var(--bg-surface); border-radius:2px; margin-top:2px; overflow:hidden;"><div style="height:100%; width:${truck.fuelPercentage}%; background:${truck.isCriticalFuel ? '#ef4444' : truck.isLowFuel ? '#f59e0b' : '#10b981'}; border-radius:2px;"></div></div>
+          </div>
+          <div style="flex:1.2; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1px solid var(--border);">
+            <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">POSITION</div>
+            <div style="font-size:11px; font-weight:700; color:${truck.location.isCustom ? cardAccentColor : 'var(--text-primary)'}; margin-top:3px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${truck.location.city}</div>
+            <div style="font-size:8px; color:var(--text-muted);">${truck.location.wilaya}</div>
           </div>
         </div>
 
         ${truck.vidange.alert ? `
-          <div style="margin-bottom: 12px; padding: 10px; background: ${vidangeBg}; border: 1px solid ${vidangeColor}40; border-left: 3px solid ${vidangeColor}; border-radius: var(--radius-md); font-size: 12px;">
-            <strong style="color: ${vidangeColor};"><i class="fa-solid fa-wrench"></i> ${vidangeTitle}</strong>
-            <div style="margin-top: 4px; color:var(--text-secondary);">Prévue à ${truck.vidange.nextKm}km (${vidangeRemainingText})</div>
-            <button class="btn-primary tcv-btn" data-tid="${truck.id}" style="margin-top:8px; width:100%; background: ${vidangeColor}; box-shadow: 0 4px 12px ${vidangeColor}40; border:none;">
+          <div style="margin:0 14px 10px; padding:10px; background:${vidangeBg}; border:1px solid ${vidangeColor}30; border-radius:10px; font-size:12px;">
+            <strong style="color:${vidangeColor};"><i class="fa-solid fa-wrench"></i> ${vidangeTitle}</strong>
+            <div style="margin-top:4px; color:var(--text-secondary);">Prévue à ${truck.vidange.nextKm}km (${vidangeRemainingText})</div>
+            <button class="btn-primary tcv-btn" data-tid="${truck.id}" style="margin-top:8px; width:100%; background:${vidangeColor}; box-shadow:0 4px 12px ${vidangeColor}40; border:none;">
               <i class="fa-solid fa-circle-check"></i> Déclarer Vidange
             </button>
           </div>
         ` : ''}
         
         ${truck.isVidangeCandidate ? `
-          <div style="margin-bottom: 12px; padding: 8px 12px; background: var(--info-subtle); border-radius: 6px; border: 1px solid var(--info)40; font-size: 11px; color: var(--info); font-weight: 600; display:flex; align-items:center; gap:6px;">
+          <div style="margin:0 14px 10px; padding:8px 12px; background:var(--info-subtle); border-radius:8px; border:1px solid var(--info)40; font-size:11px; color:var(--info); font-weight:600; display:flex; align-items:center; gap:6px;">
             <i class="fa-solid fa-wrench"></i> VIDANGE EN COURS (${truck.zoneTimeMinutes}min)
           </div>
         ` : truck.inMaintenanceZone ? `
-          <div style="margin-bottom: 12px; padding: 8px 12px; background: var(--primary-subtle); border-radius: 6px; border: 1px solid var(--primary)40; font-size: 11px; color: var(--primary); font-weight: 600; display:flex; align-items:center; gap:6px;">
+          <div style="margin:0 14px 10px; padding:8px 12px; background:var(--primary-subtle); border-radius:8px; border:1px solid var(--primary)40; font-size:11px; color:var(--primary); font-weight:600; display:flex; align-items:center; gap:6px;">
             <i class="fa-solid fa-screwdriver-wrench"></i> ZONE MAINTENANCE (${truck.zoneTimeMinutes}min)
           </div>
         ` : ''}
-        
-          <div style="display:flex; gap:6px; border-top:1px solid var(--border-light); padding-top:10px;">
-            <button class="tc-suivre" data-lat="${truck.coordinates?.lat||0}" data-lng="${truck.coordinates?.lng||0}" data-tid="${truck.id}"
-              style="flex:1; background:${cardAccentGrad}; color:white; font-size:11px; padding:8px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px ${cardAccentColor}40;">
-              <i class="fa-solid fa-map-location-dot"></i> Suivre
-            </button>
-            <button class="tc-docs" data-tid="${truck.id}"
-              style="flex:1; background:linear-gradient(135deg,#38bdf8,#0284c7); color:white; font-size:11px; padding:8px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px rgba(56,189,248,0.3);">
-              <i class="fa-solid fa-file-contract"></i> Docs
-            </button>
-            <button class="tc-maint" data-tid="${truck.id}"
-              style="flex:1; background:var(--bg-elevated); color:var(--text-secondary); font-size:11px; padding:8px; border:1px solid var(--border-light); border-radius:8px; cursor:pointer; font-weight:700;">
-              <i class="fa-solid fa-wrench"></i> Maint.
-            </button>
-          </div>
+
+        <!-- ▸ Action bar -->
+        <div style="display:flex; gap:5px; padding:0 14px 12px;">
+          <button class="tc-suivre" data-lat="${truck.coordinates?.lat||0}" data-lng="${truck.coordinates?.lng||0}" data-tid="${truck.id}"
+            style="flex:1; background:${cardAccentGrad}; color:white; font-size:10px; padding:7px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px ${cardAccentColor}30;">
+            <i class="fa-solid fa-map-location-dot"></i> Suivre
+          </button>
+          <button class="tc-docs" data-tid="${truck.id}"
+            style="flex:1; background:linear-gradient(135deg,#38bdf8,#0284c7); color:white; font-size:10px; padding:7px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px rgba(56,189,248,0.2);">
+            <i class="fa-solid fa-file-contract"></i> Docs
+          </button>
+          <button class="tc-maint" data-tid="${truck.id}"
+            style="flex:1; background:var(--bg-elevated); color:var(--text-secondary); font-size:10px; padding:7px; border:1px solid var(--border); border-radius:8px; cursor:pointer; font-weight:700;">
+            <i class="fa-solid fa-wrench"></i> Maint.
+          </button>
         </div>
       `;
 
@@ -15463,94 +15472,142 @@ _naftalSortTable(tblId, colIdx) {
   }
 
   renderDispoCards(items, container) {
-    let html = `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px;">`;
+    let html = `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px;">`;
     items.forEach(item => {
       const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
       const mission = item.activeMission;
       const isMoving = item.speed >= 1;
-      let accentColor = '#64748b', accentGrad = 'linear-gradient(135deg,#334155,#475569)';
-      if (item.isGpsCut) { accentColor = '#ef4444'; accentGrad = 'linear-gradient(135deg,#991b1b,#dc2626)'; }
-      else if (isMoving) { accentColor = '#10b981'; accentGrad = 'linear-gradient(135deg,#059669,#10b981)'; }
-      else if (item.situation === 'maintenance') { accentColor = '#f59e0b'; accentGrad = 'linear-gradient(135deg,#d97706,#f59e0b)'; }
-      else if (item.situation === 'repos') { accentColor = '#8b5cf6'; accentGrad = 'linear-gradient(135deg,#7c3aed,#a78bfa)'; }
-      else { accentColor = '#3b82f6'; accentGrad = 'linear-gradient(135deg,#1d4ed8,#3b82f6)'; }
-      const fuelPct = item.fuelPercent || 0;
-      const fuelColor = fuelPct <= 15 ? '#ef4444' : fuelPct <= 30 ? '#f59e0b' : '#10b981';
       const tn = (item.truckName||'').replace(/'/g, "\\'");
+
+      /* ── accent color based on state ── */
+      let ac = '#3b82f6', ag = 'linear-gradient(135deg,#1d4ed8,#60a5fa)';
+      if (item.isGpsCut) { ac = '#ef4444'; ag = 'linear-gradient(135deg,#991b1b,#f87171)'; }
+      else if (isMoving) { ac = '#10b981'; ag = 'linear-gradient(135deg,#059669,#6ee7b7)'; }
+      else if (item.situation === 'maintenance') { ac = '#f59e0b'; ag = 'linear-gradient(135deg,#d97706,#fcd34d)'; }
+      else if (item.situation === 'panne') { ac = '#ef4444'; ag = 'linear-gradient(135deg,#dc2626,#fca5a5)'; }
+      else if (item.situation === 'repos') { ac = '#8b5cf6'; ag = 'linear-gradient(135deg,#7c3aed,#c4b5fd)'; }
+
+      /* ── fuel gauge ── */
+      const fp = item.fuelPercent || 0;
+      const fc = fp <= 15 ? '#ef4444' : fp <= 30 ? '#f59e0b' : '#10b981';
+      const odoKm = (item.odometer||0).toLocaleString();
+      const fuelL = item.fuelLiters||0;
+
+      /* ── situation badge ── */
+      const sitLabel = item.situationLabel || 'Inconnu';
+      const sitBadge = item.situationBadge || '';
+
       html += `
-        <div style="background:var(--bg-surface); border:1px solid ${accentColor}30; border-radius:16px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.15); transition:transform 0.15s, box-shadow 0.15s;" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 10px 32px rgba(0,0,0,0.25)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 20px rgba(0,0,0,0.15)'">
-          <div style="background:${accentGrad}; padding:12px 16px; display:flex; justify-content:space-between; align-items:center;">
-            <div style="display:flex; align-items:center; gap:10px;">
-              ${isMoving ? '<span style="width:10px;height:10px;border-radius:50%;background:#fff;display:inline-block;box-shadow:0 0 8px rgba(255,255,255,0.8);animation:pulse 2s infinite;"></span>' : '<span style="width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.3);display:inline-block;"></span>'}
-              <div>
-                <div style="font-size:15px; font-weight:900; color:#fff; letter-spacing:-0.3px;">${item.truckName}</div>
-                <div style="font-size:10px; color:rgba(255,255,255,0.7); margin-top:1px; font-family:monospace;">${item.immatriculation || '\u2014'}</div>
+        <div class="ftc-card" style="
+          position:relative; background:var(--bg-surface); border-radius:16px; overflow:hidden;
+          border:1px solid var(--border); transition:all 0.2s cubic-bezier(.4,0,.2,1);
+          box-shadow:0 2px 8px rgba(0,0,0,0.08);
+        " onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 28px rgba(0,0,0,0.18)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
+
+          <!-- ▸ Top Accent Bar -->
+          <div style="height:4px; background:${ag};"></div>
+
+          <!-- ▸ Header Row -->
+          <div style="padding:12px 14px 0; display:flex; justify-content:space-between; align-items:flex-start;">
+            <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
+              <div style="
+                width:38px; height:38px; border-radius:10px; background:${ag};
+                display:flex; align-items:center; justify-content:center; flex-shrink:0;
+                box-shadow:0 4px 12px ${ac}40;
+              ">
+                ${isMoving
+                  ? '<i class="fa-solid fa-truck-fast" style="color:#fff; font-size:15px;"></i>'
+                  : '<i class="fa-solid fa-truck" style="color:#fff; font-size:14px;"></i>'}
+              </div>
+              <div style="min-width:0; flex:1;">
+                <div style="font-size:15px; font-weight:900; color:var(--text-primary); letter-spacing:-0.3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.truckName}</div>
+                <div style="font-size:10px; color:var(--text-muted); font-family:monospace; margin-top:1px;">${item.immatriculation || '\u2014'}</div>
               </div>
             </div>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <span style="background:rgba(0,0,0,0.25); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:800;">${item.speed} km/h</span>
-              <a href="${mapsUrl}" target="_blank" style="background:rgba(0,0,0,0.25); color:#fff; padding:4px 8px; border-radius:8px; font-size:10px; text-decoration:none;" title="Google Maps"><i class="fa-solid fa-map-location-dot"></i></a>
+            <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+              <span class="situation-badge ${sitBadge}" style="font-size:10px;">${sitLabel}</span>
+              <span style="
+                background:${isMoving ? 'rgba(16,185,129,0.12)' : 'var(--bg-elevated)'};
+                color:${isMoving ? '#10b981' : 'var(--text-muted)'};
+                padding:3px 8px; border-radius:8px; font-size:11px; font-weight:800;
+                font-family:monospace; border:1px solid ${isMoving ? 'rgba(16,185,129,0.2)' : 'var(--border)'};
+              ">${item.speed} <span style="font-size:8px;">km/h</span></span>
             </div>
           </div>
-          <div style="padding:10px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-            <span class="situation-badge ${item.situationBadge}" style="font-size:11px;">${item.situationLabel}</span>
-            ${item.carteNaftal ? `<span style="background:rgba(56,189,248,0.1); color:#38bdf8; padding:2px 8px; border-radius:12px; font-size:10px; font-weight:700; font-family:monospace;"><i class="fa-solid fa-credit-card" style="font-size:8px;"></i> ${item.carteNaftal}</span>` : ''}
+
+          <!-- ▸ Driver + Trailer Row -->
+          <div style="padding:10px 14px; display:flex; gap:8px;">
+            <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1px solid var(--border); min-width:0;">
+              <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:3px;"><i class="fa-solid fa-user" style="margin-right:3px;"></i>CHAUFFEUR</div>
+              ${item.driver
+                ? `<div style="font-weight:700; color:var(--primary); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\\\'")}', '${item.driver.situation}')">${item.driver.name}</div>${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:var(--text-secondary); font-size:10px; text-decoration:none; display:flex; align-items:center; gap:2px; margin-top:1px;"><i class="fa-solid fa-phone" style="font-size:7px; color:#10b981;"></i>${item.driver.phone}</a>` : ''}`
+                : `<button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:2px 6px; font-size:9px; width:100%;"><i class="fa-solid fa-plus"></i> Assigner</button>`}
+            </div>
+            <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1px solid var(--border); min-width:0;">
+              <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:3px;"><i class="fa-solid fa-trailer" style="margin-right:3px;"></i>REMORQUE</div>
+              ${item.trailer
+                ? `<div style="font-weight:700; color:#a78bfa; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.trailer.immatriculation}</div><div style="font-size:10px; color:var(--text-muted); margin-top:1px;">${item.trailer.type || 'Plateau'}</div>`
+                : `<div style="font-size:11px; color:var(--text-muted); font-style:italic;">—</div>`}
+            </div>
           </div>
-          <div style="padding:14px 16px;">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
-              <div style="background:var(--bg-elevated); border-radius:10px; padding:10px; border:1px solid var(--border);">
-                <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:4px;"><i class="fa-solid fa-user"></i> Chauffeur</div>
-                ${item.driver ? `<div style="font-weight:700; color:var(--primary); font-size:12px; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\'")}', '${item.driver.situation}')">${item.driver.name}</div>${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:10px; text-decoration:none; display:flex; align-items:center; gap:3px; margin-top:2px;"><i class="fa-solid fa-phone" style="font-size:8px;"></i> ${item.driver.phone}</a>` : ''}` : `<button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:3px 8px; font-size:10px; width:100%;"><i class="fa-solid fa-plus"></i> Assigner</button>`}
-              </div>
-              <div style="background:var(--bg-elevated); border-radius:10px; padding:10px; border:1px solid var(--border);">
-                <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:4px;"><i class="fa-solid fa-trailer"></i> Remorque</div>
-                ${item.trailer ? `<div style="font-weight:700; color:#c084fc; font-size:12px;">${item.trailer.immatriculation}</div><div style="font-size:10px; color:var(--text-muted); margin-top:1px;">${item.trailer.type || 'Plateau'}</div>` : `<div style="font-size:11px; color:var(--text-muted); font-style:italic;">Aucune</div>`}
-              </div>
+
+          <!-- ▸ Metrics Strip -->
+          <div style="padding:0 14px; display:flex; gap:6px; margin-bottom:10px;">
+            <!-- Odomètre -->
+            <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1px solid var(--border);">
+              <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">ODOMÈTRE</div>
+              <div style="font-size:15px; font-weight:900; color:var(--text-primary); font-family:monospace; line-height:1.3;">${odoKm}</div>
+              <div style="font-size:7px; color:var(--text-muted);">km</div>
             </div>
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px;">
-              <div style="text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px; border:1px solid var(--border);">
-                <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);">Odom\u00e8tre</div>
-                <div style="font-size:14px; font-weight:900; color:var(--text-primary); font-family:monospace; margin-top:2px;">${(item.odometer||0).toLocaleString()}</div>
-                <div style="font-size:8px; color:var(--text-muted);">km</div>
-              </div>
-              <div style="text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px; border:1px solid var(--border);">
-                <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);">Carburant</div>
-                <div style="font-size:14px; font-weight:900; color:${fuelColor}; font-family:monospace; margin-top:2px;">${item.fuelLiters||0}L</div>
-                <div style="height:3px; background:var(--bg-surface); border-radius:2px; margin-top:3px; overflow:hidden;"><div style="height:100%; width:${fuelPct}%; background:${fuelColor}; border-radius:2px;"></div></div>
-              </div>
-              <div style="text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px; border:1px solid var(--border);">
-                <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);">Position</div>
-                <div style="font-size:11px; font-weight:700; color:var(--text-primary); margin-top:4px; line-height:1.2;">${item.locationCity || 'En route'}</div>
-              </div>
+            <!-- Carburant -->
+            <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1px solid var(--border);">
+              <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">CARBURANT</div>
+              <div style="font-size:15px; font-weight:900; color:${fc}; font-family:monospace; line-height:1.3;">${fuelL}<span style="font-size:9px;">L</span></div>
+              <div style="height:3px; background:var(--bg-surface); border-radius:2px; margin-top:2px; overflow:hidden;"><div style="height:100%; width:${fp}%; background:${fc}; border-radius:2px; transition:width 0.3s;"></div></div>
             </div>
-            ${mission ? `
-              <div style="background:rgba(56,189,248,0.06); padding:10px 12px; border-radius:10px; border:1px solid rgba(56,189,248,0.15); margin-bottom:12px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                  <div style="flex:1; min-width:0;">
-                    <div style="display:flex; align-items:center; gap:6px;">
-                      <span style="font-size:9px; text-transform:uppercase; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-route"></i> Mission en cours</span>
-                      ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(139,92,246,0.15); color:#a78bfa; padding:1px 6px; border-radius:8px; font-size:8px; font-weight:800;">🤖 Auto</span>' : ''}
-                    </div>
-                    <div style="font-weight:800; color:var(--primary); font-size:13px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${mission.origin} \u2192 ${mission.destination}</div>
-                    <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${mission.cargo || 'Fret'} ${mission.orderRef ? '\u00b7 BL: ' + mission.orderRef : ''}</div>
-                  </div>
-                  <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${tn}')" style="padding:6px 12px; font-size:11px; color:#10b981; border-color:rgba(16,185,129,0.3); white-space:nowrap; margin-left:8px;">
-                    <i class="fa-solid fa-flag-checkered"></i> Terminer
-                  </button>
+            <!-- Position -->
+            <div style="flex:1.2; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1px solid var(--border);">
+              <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">POSITION</div>
+              <div style="font-size:11px; font-weight:700; color:var(--text-primary); margin-top:3px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.locationCity || 'En route'}</div>
+              <a href="${mapsUrl}" target="_blank" style="font-size:8px; color:${ac}; text-decoration:none;"><i class="fa-solid fa-map-pin"></i> Maps</a>
+            </div>
+          </div>
+
+          ${item.carteNaftal ? `
+          <div style="padding:0 14px 8px; display:flex; align-items:center; gap:6px;">
+            <span style="background:rgba(56,189,248,0.08); color:#38bdf8; padding:2px 8px; border-radius:8px; font-size:9px; font-weight:700; font-family:monospace; border:1px solid rgba(56,189,248,0.15);"><i class="fa-solid fa-credit-card" style="font-size:7px; margin-right:3px;"></i>${item.carteNaftal}</span>
+          </div>` : ''}
+
+          <!-- ▸ Mission Panel (if active) -->
+          ${mission ? `
+          <div style="margin:0 14px 10px; background:rgba(16,185,129,0.06); padding:10px 12px; border-radius:10px; border:1px solid rgba(16,185,129,0.15);">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="flex:1; min-width:0;">
+                <div style="display:flex; align-items:center; gap:5px;">
+                  <span style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-route" style="margin-right:2px;"></i>Mission</span>
+                  ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(139,92,246,0.12); color:#a78bfa; padding:1px 5px; border-radius:6px; font-size:7px; font-weight:800;">🤖 Auto</span>' : ''}
                 </div>
+                <div style="font-weight:800; color:#10b981; font-size:12px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${mission.origin} → ${mission.destination}</div>
+                <div style="font-size:9px; color:var(--text-secondary); margin-top:1px;">${mission.cargo || 'Fret'} ${mission.orderRef ? '· BL: ' + mission.orderRef : ''}</div>
               </div>
-            ` : ''}
-            <div style="display:flex; gap:6px;">
-              ${!mission ? `<button class="btn-secondary" onclick="ui.openNewMissionModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:8px; font-size:11px; color:#38bdf8; border-color:rgba(56,189,248,0.3); font-weight:700;"><i class="fa-solid fa-route"></i> Mission</button>` : ''}
-              <button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:8px; font-size:11px; font-weight:700;" title="Modifier"><i class="fa-solid fa-pen-to-square"></i> Modifier</button>
-              <button class="btn-secondary" onclick="ui.openStatusModal('truck', '${item.deviceId}')" style="padding:8px 10px; font-size:11px; color:#ef4444; border-color:rgba(239,68,68,0.3);" title="Signaler"><i class="fa-solid fa-triangle-exclamation"></i></button>
+              <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${tn}')" style="padding:5px 10px; font-size:10px; color:#10b981; border-color:rgba(16,185,129,0.3); white-space:nowrap; margin-left:6px;">
+                <i class="fa-solid fa-flag-checkered"></i> Fin
+              </button>
             </div>
+          </div>` : ''}
+
+          <!-- ▸ Action Bar -->
+          <div style="padding:0 14px 12px; display:flex; gap:5px;">
+            ${!mission ? `<button class="btn-secondary" onclick="ui.openNewMissionModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:7px; font-size:10px; color:#38bdf8; border-color:rgba(56,189,248,0.25); font-weight:700; border-radius:8px;"><i class="fa-solid fa-route"></i> Mission</button>` : ''}
+            <button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:7px; font-size:10px; font-weight:700; border-radius:8px;"><i class="fa-solid fa-pen-to-square"></i> Modifier</button>
+            <button class="btn-secondary" onclick="ui.openStatusModal('truck', '${item.deviceId}')" style="padding:7px 10px; font-size:10px; color:#ef4444; border-color:rgba(239,68,68,0.25); border-radius:8px;" title="Signaler"><i class="fa-solid fa-triangle-exclamation"></i></button>
           </div>
         </div>`;
     });
     html += `</div>`;
     container.innerHTML = html;
   }
+
 
 
     // ── MODALS: DRIVER CRUD ───────────────────────────────────────
