@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -597,6 +597,18 @@
       border-radius: var(--radius-lg); padding: 10px 14px; margin: 4px; border: 1px solid rgba(194,65,12,0.2);
       color: var(--text-primary); font-size: 12px; display: inline-flex; align-items: center; gap: 8px; }
 
+    /* Card entrance animations */
+    @keyframes cardSlideIn { from { opacity:0; transform:translateY(16px) scale(0.97); } to { opacity:1; transform:translateY(0) scale(1); } }
+    .ftc-card { animation: cardSlideIn 0.35s ease-out both; }
+    .rfv2-card { animation: cardSlideIn 0.3s ease-out both; border-radius:14px; overflow:hidden; transition: transform 0.22s cubic-bezier(.4,0,.2,1), box-shadow 0.22s ease; }
+    .rfv2-card:hover { transform:translateY(-3px); box-shadow:0 12px 32px rgba(0,0,0,0.2) !important; }
+    .rfv2-fuel-bar-fill { transition: width 0.6s cubic-bezier(.4,0,.2,1); }
+    .rfv2-source-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:9px; font-weight:700; white-space:nowrap; }
+    .rfv2-stat { background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 10px; text-align:center; transition:transform 0.2s; }
+    .rfv2-stat:hover { transform:translateY(-2px); }
+    .rfv2-stat .val { font-size:22px; font-weight:900; line-height:1.1; font-family:var(--font-mono,monospace); }
+    .rfv2-stat .lbl { font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px; margin-top:4px; }
+
     /* Settings accordion */
     .settings-accordion-item { border: 1px solid var(--border) !important; border-radius: var(--radius-md) !important; 
       margin-bottom: 10px; padding: 10px; background: var(--bg-surface) !important; }
@@ -1163,81 +1175,123 @@
           </div>
         </div>
 
-        <!-- KPI Summary Cards with all logistics possibilities -->
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-top:18px;">
-          <div class="stat-card" style="border-left:4px solid var(--primary); padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border);">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">Total Flotte</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiTotal" style="font-size:22px; font-weight:900; color:var(--text-primary);">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);"><i class="fa-solid fa-truck"></i> Camions</span>
-            </div>
+
+        <!-- KPI Summary Cards — Premium Design -->
+        <style>
+          .fleet-kpi-grid { display:flex; gap:8px; margin-top:18px; overflow-x:auto; padding-bottom:4px; scrollbar-width:thin; }
+          .fleet-kpi-grid::-webkit-scrollbar { height:4px; }
+          .fleet-kpi-grid::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+          .fleet-kpi-card {
+            position:relative; min-width:105px; flex:1; padding:14px 12px 10px; border-radius:14px;
+            background:var(--bg-elevated); border:1px solid var(--border);
+            cursor:pointer; transition:all 0.25s cubic-bezier(.4,0,.2,1); overflow:hidden;
+          }
+          .fleet-kpi-card:hover { transform:translateY(-3px); box-shadow:0 12px 32px rgba(0,0,0,0.2); }
+          .fleet-kpi-card::before {
+            content:''; position:absolute; top:0; left:0; right:0; height:3px;
+            background:var(--kpi-accent); border-radius:14px 14px 0 0;
+          }
+          .fleet-kpi-card .kpi-icon {
+            width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+            font-size:13px; color:#fff; margin-bottom:6px;
+          }
+          .fleet-kpi-card .kpi-value {
+            font-size:24px; font-weight:900; letter-spacing:-1px; line-height:1;
+            color:var(--kpi-accent); font-family:'Inter',system-ui,sans-serif;
+          }
+          .fleet-kpi-card .kpi-label {
+            font-size:9px; text-transform:uppercase; font-weight:800; letter-spacing:0.5px;
+            color:var(--text-muted); margin-top:3px;
+          }
+          .fleet-kpi-card .kpi-sub {
+            font-size:8px; color:var(--text-secondary); margin-top:1px; font-weight:600;
+          }
+          .fleet-kpi-card.kpi-total { --kpi-accent:var(--primary); }
+          .fleet-kpi-card.kpi-total .kpi-icon { background:linear-gradient(135deg,#2563eb,#3b82f6); }
+          .fleet-kpi-card.kpi-total .kpi-value { color:var(--text-primary); }
+          .fleet-kpi-card.kpi-mission { --kpi-accent:#10b981; }
+          .fleet-kpi-card.kpi-mission .kpi-icon { background:linear-gradient(135deg,#059669,#34d399); }
+          .fleet-kpi-card.kpi-dispo { --kpi-accent:#0284c7; }
+          .fleet-kpi-card.kpi-dispo .kpi-icon { background:linear-gradient(135deg,#0369a1,#38bdf8); }
+          .fleet-kpi-card.kpi-sans { --kpi-accent:#f97316; }
+          .fleet-kpi-card.kpi-sans .kpi-icon { background:linear-gradient(135deg,#c2410c,#fb923c); }
+          .fleet-kpi-card.kpi-charge { --kpi-accent:#eab308; }
+          .fleet-kpi-card.kpi-charge .kpi-icon { background:linear-gradient(135deg,#a16207,#facc15); }
+          .fleet-kpi-card.kpi-maint { --kpi-accent:#f59e0b; }
+          .fleet-kpi-card.kpi-maint .kpi-icon { background:linear-gradient(135deg,#b45309,#fbbf24); }
+          .fleet-kpi-card.kpi-panne { --kpi-accent:#ef4444; }
+          .fleet-kpi-card.kpi-panne .kpi-icon { background:linear-gradient(135deg,#b91c1c,#f87171); }
+          .fleet-kpi-card.kpi-repos { --kpi-accent:#8b5cf6; }
+          .fleet-kpi-card.kpi-repos .kpi-icon { background:linear-gradient(135deg,#6d28d9,#a78bfa); }
+          .fleet-kpi-card.kpi-recup { --kpi-accent:#06b6d4; }
+          .fleet-kpi-card.kpi-recup .kpi-icon { background:linear-gradient(135deg,#0e7490,#22d3ee); }
+          .fleet-kpi-card.kpi-conge { --kpi-accent:#64748b; }
+          .fleet-kpi-card.kpi-conge .kpi-icon { background:linear-gradient(135deg,#475569,#94a3b8); }
+        </style>
+        <div class="fleet-kpi-grid">
+          <div class="fleet-kpi-card kpi-total">
+            <div class="kpi-icon"><i class="fa-solid fa-truck-fast"></i></div>
+            <div class="kpi-value" id="dispoKpiTotal">0</div>
+            <div class="kpi-label">Total Flotte</div>
+            <div class="kpi-sub">Camions</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #10b981; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('mission')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#10b981; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">
-              <span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse 2s infinite;"></span> En Mission
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiMission" style="font-size:22px; font-weight:900; color:#10b981;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">En route</span>
-            </div>
+          <div class="fleet-kpi-card kpi-mission" onclick="ui.setDispoSituationFilter('mission')">
+            <div class="kpi-icon"><i class="fa-solid fa-route"></i></div>
+            <div class="kpi-value" id="dispoKpiMission">0</div>
+            <div class="kpi-label">En Mission</div>
+            <div class="kpi-sub"><span style="width:5px;height:5px;border-radius:50%;background:#10b981;display:inline-block;animation:pulse 2s infinite;vertical-align:middle;margin-right:2px;"></span>En route</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #0284c7; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('disponible')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#0284c7; letter-spacing:0.5px;">Disponible Parc</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiDispo" style="font-size:22px; font-weight:900; color:#0284c7;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">Prêt</span>
-            </div>
+          <div class="fleet-kpi-card kpi-dispo" onclick="ui.setDispoSituationFilter('disponible')">
+            <div class="kpi-icon"><i class="fa-solid fa-circle-check"></i></div>
+            <div class="kpi-value" id="dispoKpiDispo">0</div>
+            <div class="kpi-label">Disponible</div>
+            <div class="kpi-sub">Prêt</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #f97316; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('sans_chauffeur')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#f97316; letter-spacing:0.5px;">Sans Chauffeur</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiSansChauffeur" style="font-size:22px; font-weight:900; color:#f97316;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">Non assigné</span>
-            </div>
+          <div class="fleet-kpi-card kpi-sans" onclick="ui.setDispoSituationFilter('sans_chauffeur')">
+            <div class="kpi-icon"><i class="fa-solid fa-user-xmark"></i></div>
+            <div class="kpi-value" id="dispoKpiSansChauffeur">0</div>
+            <div class="kpi-label">Sans Chauffeur</div>
+            <div class="kpi-sub">Non assigné</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #eab308; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('chargement')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#eab308; letter-spacing:0.5px;">En Chargement</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiChargement" style="font-size:22px; font-weight:900; color:#eab308;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">À quai</span>
-            </div>
+          <div class="fleet-kpi-card kpi-charge" onclick="ui.setDispoSituationFilter('chargement')">
+            <div class="kpi-icon"><i class="fa-solid fa-boxes-stacked"></i></div>
+            <div class="kpi-value" id="dispoKpiChargement">0</div>
+            <div class="kpi-label">Chargement</div>
+            <div class="kpi-sub">À quai</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #f59e0b; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('maintenance')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#f59e0b; letter-spacing:0.5px;">Maintenance</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiMaint" style="font-size:22px; font-weight:900; color:#f59e0b;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">Atelier</span>
-            </div>
+          <div class="fleet-kpi-card kpi-maint" onclick="ui.setDispoSituationFilter('maintenance')">
+            <div class="kpi-icon"><i class="fa-solid fa-wrench"></i></div>
+            <div class="kpi-value" id="dispoKpiMaint">0</div>
+            <div class="kpi-label">Maintenance</div>
+            <div class="kpi-sub">Atelier</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #ef4444; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('panne')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#ef4444; letter-spacing:0.5px;">En Panne</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiPanne" style="font-size:22px; font-weight:900; color:#ef4444;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">Immobilisé</span>
-            </div>
+          <div class="fleet-kpi-card kpi-panne" onclick="ui.setDispoSituationFilter('panne')">
+            <div class="kpi-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <div class="kpi-value" id="dispoKpiPanne">0</div>
+            <div class="kpi-label">En Panne</div>
+            <div class="kpi-sub">Immobilisé</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #8b5cf6; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('repos')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#8b5cf6; letter-spacing:0.5px;">Découchage</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiRepos" style="font-size:22px; font-weight:900; color:#8b5cf6;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">Repos</span>
-            </div>
+          <div class="fleet-kpi-card kpi-repos" onclick="ui.setDispoSituationFilter('repos')">
+            <div class="kpi-icon"><i class="fa-solid fa-moon"></i></div>
+            <div class="kpi-value" id="dispoKpiRepos">0</div>
+            <div class="kpi-label">Découchage</div>
+            <div class="kpi-sub">Repos</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #06b6d4; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('recup')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#06b6d4; letter-spacing:0.5px;">Récupération</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiRecup" style="font-size:22px; font-weight:900; color:#06b6d4;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">Repos comp.</span>
-            </div>
+          <div class="fleet-kpi-card kpi-recup" onclick="ui.setDispoSituationFilter('recup')">
+            <div class="kpi-icon"><i class="fa-solid fa-bed"></i></div>
+            <div class="kpi-value" id="dispoKpiRecup">0</div>
+            <div class="kpi-label">Récupération</div>
+            <div class="kpi-sub">Repos comp.</div>
           </div>
-          <div class="stat-card" style="border-left:4px solid #64748b; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('conge')">
-            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#94a3b8; letter-spacing:0.5px;">Congé / Maladie</div>
-            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
-              <span id="dispoKpiConge" style="font-size:22px; font-weight:900; color:#cbd5e1;">0</span>
-              <span style="font-size:10px; color:var(--text-secondary);">Chauffeur</span>
-            </div>
+          <div class="fleet-kpi-card kpi-conge" onclick="ui.setDispoSituationFilter('conge')">
+            <div class="kpi-icon"><i class="fa-solid fa-calendar-xmark"></i></div>
+            <div class="kpi-value" id="dispoKpiConge">0</div>
+            <div class="kpi-label">Congé / Maladie</div>
+            <div class="kpi-sub">Chauffeur</div>
           </div>
         </div>
+
+
 
         <!-- Filter & Search Bar -->
         <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:16px; flex-wrap:wrap;">
@@ -2129,7 +2183,11 @@
 
       <div id="reportFuelSection" class="controls-section" style="margin-top: 10px;">
           <h2 style="color: var(--success);"><i class="fa-solid fa-gas-pump"></i> Historique des Remplissages</h2>
-          <div class="report-filters" style="display:flex; gap:10px; align-items:end;">
+          <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.15); border-radius:10px; padding:10px 14px; margin-bottom:12px; font-size:11px; color:var(--text-secondary); display:flex; align-items:center; gap:8px;">
+            <i class="fa-solid fa-circle-info" style="color:#10b981; font-size:14px;"></i>
+            <span><strong>Détection automatique</strong> — Re-scan chaque nuit à minuit. Les remplissages sont détectés via le capteur carburant GPS. Vous pouvez aussi forcer un re-scan manuellement.</span>
+          </div>
+          <div class="report-filters" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:8px; align-items:end; margin-bottom:10px;">
               <div class="form-group"><label>Du:</label><input type="date" id="refuelDateStart"></div>
               <div class="form-group"><label>Au:</label><input type="date" id="refuelDateEnd"></div>
               <div class="form-group"><label>Camion:</label><input type="text" id="refuelTruckSearch" placeholder="Rechercher..."></div>
@@ -2141,21 +2199,32 @@
                       <option value="external">⛽ Station Externe</option>
                   </select>
               </div>
+              <div class="form-group"><label>Source:</label>
+                  <select id="refuelSourceFilter">
+                      <option value="all">📊 Toutes</option>
+                      <option value="auto">🤖 Auto-GPS</option>
+                      <option value="manual">📋 Manuel</option>
+                      <option value="naftal">⛽ Naftal Décl.</option>
+                      <option value="rescan">🔄 Re-scan</option>
+                  </select>
+              </div>
               <div class="form-group"><label>Trier par:</label>
                   <select id="refuelSortSelect">
                       <option value="date_desc">📅 Date (Récent)</option>
                       <option value="qty_desc">💧 Quantité (Grand)</option>
                   </select>
               </div>
-              <div style="margin-left: auto; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
-                  <button class="btn-secondary" id="applyRefuelFiltersBtn">Filtrer</button>
-                  <button class="btn-secondary" id="refuelRescanBtn" title="Relance une analyse complète du carburant sur toute la période sélectionnée.">
-                      <i class="fa-solid fa-rotate"></i> Re-scan période
-                  </button>
-                  <button class="btn-secondary" id="refuelCleanRescanBtn" style="background:var(--warning-subtle); border-color:rgba(245,158,11,0.3); color:var(--maintenance);" title="Supprime les remplissages auto de la période puis reconstruit l'historique complet.">
-                      <i class="fa-solid fa-broom"></i> Nettoyer auto + re-scan
-                  </button>
-                  <button class="btn-primary" id="exportRefuelsBtn"><i class="fa-solid fa-file-excel"></i> Exporter Excel</button>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+              <button class="btn-primary" id="applyRefuelFiltersBtn" style="border:none;"><i class="fa-solid fa-filter"></i> Filtrer</button>
+              <button class="btn-secondary" id="refuelRescanBtn" title="Relance une analyse complète du carburant sur toute la période sélectionnée.">
+                  <i class="fa-solid fa-rotate"></i> Re-scan période
+              </button>
+              <button class="btn-secondary" id="refuelCleanRescanBtn" style="background:var(--warning-subtle); border-color:rgba(245,158,11,0.3); color:var(--maintenance);" title="Supprime les remplissages auto de la période puis reconstruit l'historique complet.">
+                  <i class="fa-solid fa-broom"></i> Nettoyer + re-scan
+              </button>
+              <div style="margin-left:auto; display:flex; gap:6px;">
+                  <button class="btn-primary" id="exportRefuelsBtn"><i class="fa-solid fa-file-excel"></i> Excel</button>
                   <button class="btn-primary" onclick="if(window.FleetPDF && ui.allRefuelLogs){FleetPDF.generateRefuelReport(ui.allRefuelLogs)}" style="background:var(--primary); border:none;"><i class="fa-solid fa-file-pdf"></i> PDF</button>
               </div>
           </div>
@@ -5305,59 +5374,107 @@ setTimeout(function() {
 </div>
 
 <!-- ═══ MODAL: NOUVELLE MISSION / AFFECTATION DESTINATION ════════ -->
+<style>
+.geo-dropdown{position:absolute;top:100%;left:0;right:0;z-index:100001;background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:0 0 10px 10px;max-height:240px;overflow-y:auto;box-shadow:0 12px 32px rgba(0,0,0,0.45);display:none;}
+.geo-dropdown .geo-item{padding:9px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--text-primary,#e2e8f0);transition:background 0.12s;display:flex;align-items:center;gap:8px;}
+.geo-dropdown .geo-item:hover{background:rgba(99,102,241,0.12);}
+.geo-dropdown .geo-item .geo-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
+.geo-dropdown .geo-item .geo-text{flex:1;min-width:0;}
+.geo-dropdown .geo-item .geo-main{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.geo-dropdown .geo-item .geo-sub{font-size:10px;color:var(--text-muted,#64748b);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dispatch-estimate-strip{display:flex;gap:12px;align-items:center;justify-content:center;padding:10px 14px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);border-radius:10px;margin-bottom:12px;}
+.dispatch-estimate-strip .est-item{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-secondary,#94a3b8);}
+.dispatch-estimate-strip .est-item b{color:var(--text-primary,#e2e8f0);font-size:15px;font-weight:900;}
+</style>
 <div id="modalDispatchMission" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
-  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:540px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
-    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:600px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden; max-height:92vh; overflow-y:auto;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a); position:sticky; top:0; z-index:2;">
       <h3 style="margin:0; font-size:15px; color:#10b981; display:flex; align-items:center; gap:8px;">
         <i class="fa-solid fa-route"></i> Nouvelle Mission / Affecter Destination
       </h3>
       <button onclick="ui.closeNewMissionModal()" style="border:none; background:transparent; color:var(--text-muted); font-size:20px; cursor:pointer;">&times;</button>
     </div>
     <form onsubmit="event.preventDefault(); ui.saveNewMissionFromModal();" style="padding:20px;">
+      <!-- ROW 1: Truck + Driver -->
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
         <div class="form-group">
-          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Camion *</label>
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">🚛 Camion *</label>
           <select id="dispatchTruckSelect" onchange="ui.onDispatchTruckChange(this.value)" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
             <option value="">-- Choisir un camion --</option>
           </select>
         </div>
         <div class="form-group">
-          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Chauffeur *</label>
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">👤 Chauffeur *</label>
           <select id="dispatchDriverSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
             <option value="">-- Choisir un chauffeur --</option>
           </select>
         </div>
       </div>
-      <div class="form-group" style="margin-bottom:12px;">
-        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Remorque</label>
-        <select id="dispatchTrailerSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
-          <option value="">-- Aucune / Remorque par défaut --</option>
-        </select>
-      </div>
+      <!-- ROW 2: Trailer + Client -->
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
         <div class="form-group">
-          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Origine (Départ) *</label>
-          <input type="text" id="dispatchOrigin" placeholder="Ex: Rouiba (Dépôt Centrale)" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">🚜 Remorque</label>
+          <select id="dispatchTrailerSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            <option value="">-- Aucune / Par défaut --</option>
+          </select>
         </div>
         <div class="form-group">
-          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Destination (Arrivée) *</label>
-          <input type="text" id="dispatchDest" placeholder="Ex: Hassi Messaoud" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">🏢 Client</label>
+          <select id="dispatchClientSelect" onchange="ui._onDispatchClientChange(this.value)" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            <option value="">-- Optionnel --</option>
+          </select>
         </div>
       </div>
+      <!-- ROW 3: Client Final (shown when client selected) -->
+      <div id="dispatchFCRow" style="margin-bottom:12px; display:none;">
+        <div class="form-group">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">🤝 Client Final / Sous-client</label>
+          <select id="dispatchFCSelect" onchange="ui._onDispatchFCChange(this.value)" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            <option value="">-- Tous --</option>
+          </select>
+        </div>
+      </div>
+      <!-- ROW 4: Origin + Destination with Geoapify autocomplete -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+        <div class="form-group" style="position:relative;">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">📍 Origine (Départ) *</label>
+          <input type="text" id="dispatchOrigin" placeholder="Tapez un lieu, client, zone..." autocomplete="off" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          <div id="dispatchOriginResults" class="geo-dropdown"></div>
+          <input type="hidden" id="dispatchOriginLat">
+          <input type="hidden" id="dispatchOriginLng">
+        </div>
+        <div class="form-group" style="position:relative;">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">🎯 Destination (Arrivée) *</label>
+          <input type="text" id="dispatchDest" placeholder="Tapez un lieu, client, zone..." autocomplete="off" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          <div id="dispatchDestResults" class="geo-dropdown"></div>
+          <input type="hidden" id="dispatchDestLat">
+          <input type="hidden" id="dispatchDestLng">
+        </div>
+      </div>
+      <!-- ROW 5: Route Estimate Strip -->
+      <div id="dispatchRouteEstimate" class="dispatch-estimate-strip" style="display:none;">
+        <div class="est-item"><i class="fa-solid fa-route" style="color:#3b82f6;"></i> <b id="dispEstKm">—</b> km</div>
+        <div class="est-item"><i class="fa-solid fa-gas-pump" style="color:#f59e0b;"></i> <b id="dispEstFuel">—</b> L</div>
+        <div class="est-item"><i class="fa-solid fa-coins" style="color:#10b981;"></i> <b id="dispEstCost">—</b> DA</div>
+        <div style="font-size:9px; color:var(--text-muted); font-style:italic;" id="dispEstSource"></div>
+      </div>
+      <!-- ROW 6: Cargo + BL -->
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
         <div class="form-group">
-          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Fret / Marchandise</label>
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">📦 Fret / Marchandise</label>
           <input type="text" id="dispatchCargo" placeholder="Ex: Hydrocarbure 32 000 L" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
         </div>
         <div class="form-group">
-          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">N° BL / Ordre</label>
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">📋 N° BL / Ordre</label>
           <input type="text" id="dispatchOrderRef" placeholder="Ex: OM-2026-102" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
         </div>
       </div>
+      <!-- ROW 7: Notes -->
       <div class="form-group" style="margin-bottom:14px;">
-        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Instructions de route / Notes</label>
+        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">📝 Instructions / Notes</label>
         <textarea id="dispatchNotes" rows="2" placeholder="Consignes particulières..." style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;"></textarea>
       </div>
+      <!-- Actions -->
       <div style="display:flex; justify-content:flex-end; gap:8px;">
         <button type="button" class="btn-secondary" onclick="ui.closeNewMissionModal()" style="padding:8px 14px;">Annuler</button>
         <button type="submit" class="btn-primary" style="padding:8px 18px; background:linear-gradient(135deg, #10b981, #059669); border:none; font-weight:700;">

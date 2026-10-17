@@ -327,6 +327,16 @@ const FleetAssignmentHistorySchema = new mongoose.Schema({
   startOdometer: Number,
   endOdometer: Number,
   distanceKm: Number,
+  // Client / Final Client linkage
+  clientId: String,
+  clientName: String,
+  finalClientId: String,
+  finalClientName: String,
+  // Route estimates & geometry
+  estimatedDistanceKm: Number,
+  estimatedFuelL: Number,
+  estimatedCostDA: Number,
+  routeGeometry: Object, // GeoJSON LineString for map rendering
   status: { 
     type: String, 
     enum: ['active', 'completed', 'swapped', 'cancelled'],
@@ -5034,7 +5044,9 @@ app.post('/api/fleet/missions', checkAccess, async (req, res) => {
   try {
     const {
       driverId, driverName, truckDeviceId, truckName, trailerId, trailerPlate, trailerType,
-      origin, destination, cargo, orderRef, notes, departureDate, originCoords, destCoords
+      origin, destination, cargo, orderRef, notes, departureDate, originCoords, destCoords,
+      clientId, clientName, finalClientId, finalClientName,
+      estimatedDistanceKm, estimatedFuelL, estimatedCostDA, routeGeometry
     } = req.body || {};
 
     if (!driverId && !driverName && !truckDeviceId && !truckName) {
@@ -5115,6 +5127,14 @@ app.post('/api/fleet/missions', checkAccess, async (req, res) => {
       cargo: cargo || 'Marchandise générale',
       orderRef: orderRef || `OM-${Date.now().toString().slice(-6)}`,
       startOdometer: truckDoc?.odometer || 0,
+      clientId: clientId || '',
+      clientName: clientName || '',
+      finalClientId: finalClientId || '',
+      finalClientName: finalClientName || '',
+      estimatedDistanceKm: Number(estimatedDistanceKm) || null,
+      estimatedFuelL: Number(estimatedFuelL) || null,
+      estimatedCostDA: Number(estimatedCostDA) || null,
+      routeGeometry: routeGeometry || null,
       status: 'active',
       notes: notes || '',
       performedBy: req.user?.username || 'Dispatch'

@@ -3288,7 +3288,7 @@ renderDecouchageList() {
 
 renderFilteredRefuels() {
     if (!this.allRefuelLogs || this.allRefuelLogs.length === 0) {
-        this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:20px; color:#888;">Aucun remplissage détecté.</div>';
+        this.refuelHistoryContainer.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);"><i class="fa-solid fa-gas-pump" style="font-size:32px; display:block; margin-bottom:12px; opacity:0.3;"></i>Aucun remplissage détecté pour cette période.</div>';
         return;
     }
 
@@ -3300,13 +3300,17 @@ renderFilteredRefuels() {
     const truckSearch = this.refuelTruckSearch.value.toLowerCase().trim();
     const locationSearch = this.refuelLocationSearch ? this.refuelLocationSearch.value.toLowerCase().trim() : '';
     const locationType = this.refuelLocationTypeFilter ? this.refuelLocationTypeFilter.value : 'all';
+    const sourceFilter = document.getElementById('refuelSourceFilter')?.value || 'all';
+
+    // Auto source lists
+    const autoSources = ['live-bot','live-replay','live-verified','gps-history-rebuild','gps-history-verified','gps-history-nightly','gps-history-reconciled'];
+    const rescanSources = ['gps-history-rebuild','gps-history-reconciled','gps-history-nightly'];
 
     // 2. Process and Normalize Data
     let processedLogs = this.allRefuelLogs.map(log => {
         const truckConfig = getTruckConfig(log.deviceId);
         const capacity = truckConfig.fuelTankCapacity || 600; 
         
-        // --- COORDINATE FIX (MONGODB COMPATIBILITY) ---
         const rawLat = log.lat || (log.params && log.params.lat);
         const rawLng = log.lng || (log.params && log.params.lng);
         const safeLat = rawLat ? parseFloat(rawLat) : 0;
@@ -3316,7 +3320,6 @@ renderFilteredRefuels() {
         let locationName = "Recherche...";
         let isInternal = false;
         
-        // STEP A: Check Custom Locations (Instant)
         if (safeLat !== 0 && safeLng !== 0 && FLEET_CONFIG.CUSTOM_LOCATIONS) {
             for (const loc of FLEET_CONFIG.CUSTOM_LOCATIONS) {
                 const dist = geocodeService.getDistanceMeters(safeLat, safeLng, loc.lat, loc.lng);
@@ -3328,13 +3331,11 @@ renderFilteredRefuels() {
             }
         }
 
-        // STEP B: Check Geocode Cache or Fetch (Lazy Loading)
         if (!isInternal && safeLat !== 0) {
             const cached = geocodeService.checkCacheInstant(safeLat, safeLng);
             if (cached) {
                 locationName = `${cached.city}, ${cached.wilaya}`;
             } else {
-                // Not in cache? Start background fetching
                 locationName = `<span id="${logId}-text">${safeLat.toFixed(3)}, ${safeLng.toFixed(3)}</span>`;
                 geocodeService.reverseGeocode(safeLat, safeLng).then(res => {
                     const el = document.getElementById(`${logId}-text`);
@@ -3345,25 +3346,29 @@ renderFilteredRefuels() {
             locationName = "Position Inconnue";
         }
 
+        // Resolve driver from truckDbCache
+        const truckDb = (this.truckDbCache || []).find(d => d.deviceId === String(log.deviceId));
+        const driverName = truckDb?.driverName || '';
+        const driverPhone = truckDb?.driverPhone || '';
+        const carteNaftal = truckDb?.carteNaftal || '';
+
         return {
             ...log,
-            lat: safeLat,
-            lng: safeLng,
+            lat: safeLat, lng: safeLng,
             domId: logId,
-            // V6 FIX: Read directly from MongoDB fields (diffPercent/newPercent DON'T EXIST)
             realAdded: Math.round(log.addedLiters || 0),
             realTotal: Math.round(log.newLevel || 0),
             realOld: Math.round(log.oldLevel > 0 ? log.oldLevel : ((log.newLevel || 0) - (log.addedLiters || 0))),
             truckCapacity: capacity, 
             locationDisplay: locationName,
-            isInternal: isInternal
+            isInternal: isInternal,
+            driverName, driverPhone, carteNaftal
         };
     });
 
     // 3. Apply Filters
     processedLogs = processedLogs.filter(log => {
         const logDate = new Date(log.timestamp);
-        // Safety filter: ignore tiny refills (server already filters >50L)
         const minRefuelDisplay = Math.max(60, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60));
         if (Number(log.realAdded) < minRefuelDisplay) return false;
         if (startDate && logDate < startDate) return false;
@@ -3371,124 +3376,157 @@ renderFilteredRefuels() {
         if (truckSearch && !log.truckName.toLowerCase().includes(truckSearch)) return false;
         if (locationType === 'internal' && !log.isInternal) return false;
         if (locationType === 'external' && log.isInternal) return false;
-        // Search inside location name even if it's currently "Recherche..."
         if (locationSearch && !String(log.locationDisplay || '').toLowerCase().includes(locationSearch)) return false;
+        // Source filter
+        if (sourceFilter !== 'all') {
+            const src = log.source || '';
+            if (sourceFilter === 'auto' && !autoSources.includes(src)) return false;
+            if (sourceFilter === 'manual' && src !== 'manual') return false;
+            if (sourceFilter === 'naftal' && src !== 'naftal-declaration') return false;
+            if (sourceFilter === 'rescan' && !rescanSources.includes(src)) return false;
+        }
         return true;
     });
 
-    // 4. Sort based on user selection
+    // 4. Sort
     if (this.refuelSortOrder === 'qtydesc' || this.refuelSortOrder === 'qty_desc') {
         processedLogs.sort((a, b) => (Number(b.realAdded) || 0) - (Number(a.realAdded) || 0));
     } else {
-        // Default: newest first
         processedLogs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     }
 
-    // 5. Pagination
+    // 5. Stats
+    const totalRefuels = processedLogs.length;
+    const totalVolume = processedLogs.reduce((s, l) => s + (Number(l.realAdded) || 0), 0);
+    const internalCount = processedLogs.filter(l => l.isInternal).length;
+    const externalCount = totalRefuels - internalCount;
+    const intPrice = (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG && FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter) || 29;
+    const extPrice = (this.naftalPricePerLiter || 31);
+    const totalCost = processedLogs.reduce((s, l) => s + Math.round((Number(l.realAdded) || 0) * (l.isInternal ? intPrice : extPrice)), 0);
+    const avgPerRefuel = totalRefuels > 0 ? Math.round(totalVolume / totalRefuels) : 0;
+
+    // 6. Pagination
     const totalItems = processedLogs.length;
     const totalPages = Math.ceil(totalItems / this.refuelItemsPerPage);
     const startIndex = (this.refuelCurrentPage - 1) * this.refuelItemsPerPage;
     const paginatedLogs = processedLogs.slice(startIndex, startIndex + this.refuelItemsPerPage);
 
-    // 6. Generate HTML — Enhanced Fuel History Cards
-    // Stats summary at top
-    const totalRefuels = processedLogs.length;
-    const totalVolume = processedLogs.reduce((sum, l) => sum + (Number(l.realAdded) || 0), 0);
-    const internalCount = processedLogs.filter(l => l.isInternal).length;
-    const externalCount = totalRefuels - internalCount;
+    // Source badge helper
+    const srcBadge = (src) => {
+        const s = src || '';
+        if (s === 'manual') return '<span class="rfv2-source-badge" style="background:rgba(59,130,246,0.12);color:#3b82f6;">📋 Manuel</span>';
+        if (s === 'naftal-declaration') return '<span class="rfv2-source-badge" style="background:rgba(245,158,11,0.12);color:#f59e0b;">⛽ Naftal</span>';
+        if (s.includes('nightly')) return '<span class="rfv2-source-badge" style="background:rgba(139,92,246,0.12);color:#a78bfa;">🌙 Nuit</span>';
+        if (s.includes('reconciled') || s.includes('rebuild')) return '<span class="rfv2-source-badge" style="background:rgba(16,185,129,0.12);color:#10b981;">🔄 Re-scan</span>';
+        return '<span class="rfv2-source-badge" style="background:rgba(100,116,139,0.12);color:#94a3b8;">🤖 Auto</span>';
+    };
+    const confDot = (meta) => {
+        const c = (meta && meta.confidence) || 0;
+        const pct = Math.round(c * 100);
+        const col = pct >= 90 ? '#10b981' : pct >= 70 ? '#f59e0b' : '#ef4444';
+        return pct > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;font-size:9px;color:${col};font-weight:700;"><span style="width:6px;height:6px;border-radius:50%;background:${col};display:inline-block;"></span>${pct}%</span>` : '';
+    };
 
+    // 7. Build HTML
     let html = `
-    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:15px;">
-        <div style="background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.2); border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:17px; font-weight:900; color:#10b981;">${totalRefuels}</div>
-            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Remplissages</div>
-        </div>
-        <div style="background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:#3b82f6;">${totalVolume.toLocaleString()} L</div>
-            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Volume Total</div>
-        </div>
-        <div style="background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.2); border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:#22c55e;">${internalCount}</div>
-            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Sur Site</div>
-        </div>
-        <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:8px; padding:12px; text-align:center;">
-            <div style="font-size:22px; font-weight:900; color:var(--text-secondary);">${externalCount}</div>
-            <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Externe</div>
-        </div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:16px;">
+        <div class="rfv2-stat"><div class="val" style="color:#10b981;">${totalRefuels}</div><div class="lbl">⛽ Remplissages</div></div>
+        <div class="rfv2-stat"><div class="val" style="color:#3b82f6;">${totalVolume.toLocaleString()} <span style="font-size:12px;">L</span></div><div class="lbl">💧 Volume Total</div></div>
+        <div class="rfv2-stat"><div class="val" style="color:#f59e0b;">${(totalCost/1000).toFixed(0)}K <span style="font-size:12px;">DA</span></div><div class="lbl">💰 Coût Estimé</div></div>
+        <div class="rfv2-stat"><div class="val" style="color:#22c55e;">${internalCount}</div><div class="lbl">🏭 Sur Site</div></div>
+        <div class="rfv2-stat"><div class="val" style="color:#fb923c;">${externalCount}</div><div class="lbl">⛽ Station</div></div>
+        <div class="rfv2-stat"><div class="val" style="color:#a78bfa;">${avgPerRefuel} <span style="font-size:12px;">L</span></div><div class="lbl">📊 Moy / Plein</div></div>
     </div>`;
 
-    html += '<div style="display:grid; gap:10px;">';
-    for (const log of paginatedLogs) {
+    html += '<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr)); gap:12px;">';
+    paginatedLogs.forEach((log, idx) => {
         const dateObj = new Date(log.timestamp);
-        const dateDisplay = dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
-        const timeDisplay = dateObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-
-        const locBadge = log.isInternal 
-            ? `<span style="background:rgba(22,163,74,0.15); color:#4ade80; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`
-            : `<span style="background:rgba(194,65,12,0.15); color:#fb923c; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><i class="fa-solid fa-gas-pump"></i> STATION</span>`;
-
-        // Fuel bar visualization
+        const dateDisplay = dateObj.toLocaleDateString('fr-FR', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+        const timeDisplay = dateObj.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });
+        const accentColor = log.isInternal ? '#22c55e' : '#f59e0b';
         const fillPercent = log.truckCapacity > 0 ? Math.min(100, Math.round((log.realTotal / log.truckCapacity) * 100)) : 0;
         const oldPercent = log.truckCapacity > 0 ? Math.min(100, Math.round(((log.realOld || 0) / log.truckCapacity) * 100)) : 0;
         const barColor = fillPercent < 15 ? '#dc2626' : fillPercent < 30 ? '#f59e0b' : '#22c55e';
+        const costEst = Math.round((log.realAdded || 0) * (log.isInternal ? intPrice : extPrice));
+        const delay = Math.min(idx * 40, 400);
 
         html += `
-        <div class="refuel-card" style="background:var(--bg-surface); border:1px solid var(--border); border-left: 5px solid ${log.isInternal ? '#22c55e' : '#f59e0b'}; padding:15px; border-radius:10px; box-shadow:var(--shadow-sm);">
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
-                <div>
-                    <div style="font-weight:800; font-size:15px; color:var(--text-primary);">${log.truckName}</div>
-                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
-                        <i class="fa-regular fa-calendar"></i> ${dateDisplay} &nbsp; <i class="fa-regular fa-clock"></i> ${timeDisplay}
+        <div class="rfv2-card" style="background:var(--bg-surface); border:1px solid var(--border); box-shadow:0 2px 8px rgba(0,0,0,0.08); animation-delay:${delay}ms;">
+            <div style="height:4px; background:linear-gradient(90deg,${accentColor},${accentColor}88);"></div>
+            <div style="padding:14px 16px 0;">
+                <!-- Header -->
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px;">
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <span style="font-weight:900; font-size:15px; color:var(--text-primary);">${log.truckName}</span>
+                            ${srcBadge(log.source)}
+                            ${confDot(log.meta)}
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:4px; flex-wrap:wrap;">
+                            ${log.driverName ? `<span style="font-size:11px; color:var(--text-secondary);"><i class="fa-solid fa-user" style="color:var(--primary); font-size:9px; margin-right:2px;"></i>${log.driverName}</span>` : ''}
+                            ${log.driverPhone ? `<a href="tel:${log.driverPhone}" style="font-size:10px; color:#38bdf8; text-decoration:none;"><i class="fa-solid fa-phone" style="font-size:8px;"></i> ${log.driverPhone}</a>` : ''}
+                        </div>
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">
+                            <i class="fa-regular fa-calendar" style="margin-right:2px;"></i>${dateDisplay} &nbsp; <i class="fa-regular fa-clock"></i> ${timeDisplay}
+                        </div>
                     </div>
-                    ${(() => { const db = (this.truckDbCache||[]).find(d=>d.deviceId===String(log.deviceId)); return db&&db.carteNaftal ? `<span class="truck-meta-tag naftal" style="margin-top:4px; display:inline-block; font-size:10px; padding:2px 10px;"><i class="fa-solid fa-credit-card"></i> N° ${db.carteNaftal}</span>` : ''; })()}
+                    <div style="text-align:right; flex-shrink:0; margin-left:10px;">
+                        <div style="font-size:26px; font-weight:900; color:${log.isInternal ? '#16a34a' : 'var(--text-primary)'}; line-height:1;">+${log.realAdded}<span style="font-size:13px;"> L</span></div>
+                        <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">≈ ${costEst.toLocaleString()} DA</div>
+                    </div>
                 </div>
-                <div style="text-align:right;">
-                    <div style="font-size:24px; font-weight:900; color:${log.isInternal ? '#15803d' : 'var(--text-primary)'}; line-height:1;">+${log.realAdded} L</div>
-                    <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">≈ ${Math.round(log.realAdded * (log.isInternal ? (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter || 29) : (ui.naftalPricePerLiter || 31)))} DA${log.isInternal ? '' : ' <span style="color:#f59e0b; font-size:9px;">(Naftal)</span>'}</div>
+                <!-- Fuel Bar -->
+                <div style="margin-bottom:12px;">
+                    <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-bottom:4px;">
+                        <span>${(log.realOld > 0) ? 'Avant: ' + log.realOld + ' L (' + oldPercent + '%)' : ''}</span>
+                        <span style="font-weight:700; color:var(--text-primary);">Après: ${log.realTotal} L (${fillPercent}%)</span>
+                    </div>
+                    <div style="background:var(--bg-elevated); border-radius:6px; height:10px; overflow:hidden; position:relative;">
+                        <div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:rgba(148,163,184,0.25); border-radius:6px;"></div>
+                        <div class="rfv2-fuel-bar-fill" style="position:absolute; left:0; top:0; height:100%; width:${fillPercent}%; background:linear-gradient(90deg,${barColor}cc,${barColor}); border-radius:6px;"></div>
+                    </div>
+                    <div style="font-size:9px; color:var(--text-muted); text-align:right; margin-top:2px;">Capacité: ${log.truckCapacity} L</div>
                 </div>
-            </div>
-
-            <!-- Fuel level bar: before → after -->
-            <div style="margin-bottom:10px;">
-                <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); margin-bottom:3px;">
-                    <span>${(log.realOld && log.realOld > 0) ? ('↓ Avant: ' + log.realOld + ' L (' + oldPercent + '%)') : ''}</span>
-                    <span>Après: ${log.realTotal} L (${fillPercent}%)</span>
+                <!-- Location + Actions -->
+                <div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:12px; border-top:1px solid var(--border); padding-top:10px;">
+                    <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:0;">
+                        ${log.isInternal
+                            ? '<span style="background:rgba(22,163,74,0.12); color:#4ade80; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; white-space:nowrap;"><i class="fa-solid fa-building"></i> SITE</span>'
+                            : '<span style="background:rgba(194,65,12,0.12); color:#fb923c; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; white-space:nowrap;"><i class="fa-solid fa-gas-pump"></i> STATION</span>'}
+                        <span style="font-size:11px; color:var(--text-secondary); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" id="${log.domId}-text">${log.locationDisplay}</span>
+                    </div>
+                    <div style="display:flex; gap:5px; flex-shrink:0;">
+                        ${(log.lat && log.lng && log.lat !== 0) ? `
+                        <a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="font-size:10px; color:#2563eb; text-decoration:none; background:rgba(37,99,235,0.08); padding:4px 8px; border-radius:6px; font-weight:600;">
+                            <i class="fa-solid fa-map-location-dot"></i> Maps
+                        </a>
+                        <button onclick="ui.viewOnMap(${log.lat}, ${log.lng})" style="font-size:10px; color:#0284c7; background:rgba(2,132,199,0.08); padding:4px 8px; border-radius:6px; font-weight:600; border:none; cursor:pointer;">
+                            <i class="fa-solid fa-crosshairs"></i> Carte
+                        </button>` : ''}
+                    </div>
                 </div>
-                <div style="background:var(--bg-elevated); border-radius:4px; height:8px; overflow:hidden; position:relative;">
-                    <div style="position:absolute; left:0; top:0; height:100%; width:${oldPercent}%; background:var(--text-dim); border-radius:4px;"></div>
-                    <div style="position:absolute; left:0; top:0; height:100%; width:${fillPercent}%; background:${barColor}; border-radius:4px; transition:width 0.3s;"></div>
-                </div>
-                <div style="font-size:10px; color:var(--text-muted); text-align:right; margin-top:2px;">Capacité: ${log.truckCapacity} L</div>
-            </div>
-
-            <!-- Location -->
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div style="display:flex; align-items:center; gap:8px;">
-                    ${locBadge}
-                    <span style="font-size:12px; color:var(--text-secondary); font-weight:600;" id="${log.domId}-text">${log.locationDisplay}</span>
-                </div>
-                ${(log.lat && log.lng && log.lat !== 0) ? `
-                <div style="display:flex; gap:6px;">
-                    <a href="https://www.google.com/maps?q=${log.lat},${log.lng}" target="_blank" style="font-size:10px; color:#2563eb; text-decoration:none; background:rgba(37,99,235,0.1); padding:4px 8px; border-radius:4px; font-weight:600;">
-                        <i class="fa-solid fa-map-location-dot"></i> Maps
-                    </a>
-                    <button onclick="ui.viewOnMap(${log.lat}, ${log.lng})" style="font-size:10px; color:#0284c7; background:rgba(2,132,199,0.1); padding:4px 8px; border-radius:4px; font-weight:600; border:none; cursor:pointer;">
-                        <i class="fa-solid fa-crosshairs"></i> Carte
-                    </button>
-                </div>` : ''}
+                ${log.carteNaftal ? `<div style="padding-bottom:10px;"><span style="background:rgba(56,189,248,0.08); color:#38bdf8; padding:2px 10px; border-radius:8px; font-size:9px; font-weight:700; font-family:monospace; border:1px solid rgba(56,189,248,0.15);"><i class="fa-solid fa-credit-card" style="font-size:8px; margin-right:3px;"></i>Carte N° ${log.carteNaftal}</span></div>` : ''}
             </div>
         </div>`;
-    }
+    });
     html += '</div>';
 
-    // 7. Render Pagination Controls
+    // 8. Pagination
     if (totalPages > 1) {
-        html += `
-        <div class="pagination-controls">
-            <button class="pagination-btn" onclick="ui.changeRefuelPage(-1)" ${this.refuelCurrentPage === 1 ? 'disabled' : ''}>«</button>
-            <span class="pagination-info">Page ${this.refuelCurrentPage} / ${totalPages}</span>
-            <button class="pagination-btn" onclick="ui.changeRefuelPage(1)" ${this.refuelCurrentPage === totalPages ? 'disabled' : ''}>»</button>
-        </div>`;
+        let pagHtml = '<div style="display:flex; justify-content:center; align-items:center; gap:6px; margin-top:16px; flex-wrap:wrap;">';
+        pagHtml += `<button class="btn-secondary" onclick="ui.changeRefuelPage(-1)" style="padding:6px 12px; font-size:11px;" ${this.refuelCurrentPage === 1 ? 'disabled' : ''}><i class="fa-solid fa-chevron-left"></i></button>`;
+        const maxBtns = 7;
+        let startP = Math.max(1, this.refuelCurrentPage - Math.floor(maxBtns / 2));
+        let endP = Math.min(totalPages, startP + maxBtns - 1);
+        if (endP - startP < maxBtns - 1) startP = Math.max(1, endP - maxBtns + 1);
+        for (let p = startP; p <= endP; p++) {
+            const isActive = p === this.refuelCurrentPage;
+            pagHtml += `<button onclick="ui.refuelCurrentPage=${p};ui.renderFilteredRefuels();" style="padding:6px 10px; font-size:11px; font-weight:${isActive?'900':'600'}; border-radius:8px; border:1px solid ${isActive?'var(--primary)':'var(--border)'}; background:${isActive?'var(--primary)':'var(--bg-surface)'}; color:${isActive?'#fff':'var(--text-secondary)'}; cursor:pointer;">${p}</button>`;
+        }
+        pagHtml += `<button class="btn-secondary" onclick="ui.changeRefuelPage(1)" style="padding:6px 12px; font-size:11px;" ${this.refuelCurrentPage === totalPages ? 'disabled' : ''}><i class="fa-solid fa-chevron-right"></i></button>`;
+        pagHtml += `<span style="font-size:10px; color:var(--text-muted); margin-left:8px;">${totalItems} résultats</span>`;
+        pagHtml += '</div>';
+        html += pagHtml;
     }
     
     this.refuelHistoryContainer.innerHTML = html;
@@ -15473,7 +15511,7 @@ _naftalSortTable(tblId, colIdx) {
 
   renderDispoCards(items, container) {
     let html = `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px;">`;
-    items.forEach(item => {
+    items.forEach((item, idx) => {
       const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
       const mission = item.activeMission;
       const isMoving = item.speed >= 1;
@@ -15497,12 +15535,38 @@ _naftalSortTable(tblId, colIdx) {
       const sitLabel = item.situationLabel || 'Inconnu';
       const sitBadge = item.situationBadge || '';
 
+      /* ── driver situation ── */
+      let drvSitDot = '#6b7280', drvSitText = '';
+      if (item.driver) {
+        const ds = item.driver.situation || item.situation || '';
+        if (ds === 'en_mission' || mission) { drvSitDot = '#10b981'; drvSitText = 'En mission'; }
+        else if (ds === 'disponible') { drvSitDot = '#3b82f6'; drvSitText = 'Disponible'; }
+        else if (ds === 'repos') { drvSitDot = '#8b5cf6'; drvSitText = 'Repos'; }
+        else if (ds === 'conge') { drvSitDot = '#f59e0b'; drvSitText = 'Congé'; }
+        else if (ds === 'malade') { drvSitDot = '#ef4444'; drvSitText = 'Malade'; }
+        else { drvSitText = ds || ''; }
+      }
+
+      /* ── GPS freshness ── */
+      let gpsAgoText = '';
+      const gpsTs = item.lastUpdate || item.timestamp;
+      if (gpsTs) {
+        const diffMs = Date.now() - new Date(gpsTs).getTime();
+        const diffMin = Math.floor(diffMs / 60000);
+        if (diffMin < 1) gpsAgoText = "à l'instant";
+        else if (diffMin < 60) gpsAgoText = 'il y a ' + diffMin + ' min';
+        else if (diffMin < 1440) gpsAgoText = 'il y a ' + Math.floor(diffMin/60) + 'h' + String(diffMin%60).padStart(2,'0');
+        else gpsAgoText = 'il y a ' + Math.floor(diffMin/1440) + 'j';
+      }
+
       html += `
         <div class="ftc-card" style="
           position:relative; background:var(--bg-surface); border-radius:16px; overflow:hidden;
-          border:1px solid var(--border); transition:all 0.2s cubic-bezier(.4,0,.2,1);
+          border:1px solid var(--border); transition:all 0.3s cubic-bezier(.22,1,.36,1);
           box-shadow:0 2px 8px rgba(0,0,0,0.08);
-        " onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 28px rgba(0,0,0,0.18)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
+          animation: cardSlideIn 0.4s cubic-bezier(.22,1,.36,1) both;
+          animation-delay: ${idx * 40}ms;
+        " onmouseover="this.style.transform='translateY(-3px) scale(1.005)';this.style.boxShadow='0 12px 32px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
 
           <!-- ▸ Top Accent Bar -->
           <div style="height:4px; background:${ag};"></div>
@@ -15538,9 +15602,12 @@ _naftalSortTable(tblId, colIdx) {
           <!-- ▸ Driver + Trailer Row -->
           <div style="padding:10px 14px; display:flex; gap:8px;">
             <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1px solid var(--border); min-width:0;">
-              <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:3px;"><i class="fa-solid fa-user" style="margin-right:3px;"></i>CHAUFFEUR</div>
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;">
+                <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;"><i class="fa-solid fa-user" style="margin-right:3px;"></i>CHAUFFEUR</div>
+                ${item.driver && drvSitText ? `<span style="display:inline-flex; align-items:center; gap:3px; font-size:7px; font-weight:700; color:${drvSitDot}; background:${drvSitDot}12; padding:1px 6px; border-radius:6px; border:1px solid ${drvSitDot}25;"><span style="width:5px;height:5px;border-radius:50%;background:${drvSitDot};display:inline-block;"></span>${drvSitText}</span>` : ''}
+              </div>
               ${item.driver
-                ? `<div style="font-weight:700; color:var(--primary); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\\\'")}', '${item.driver.situation}')">${item.driver.name}</div>${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:var(--text-secondary); font-size:10px; text-decoration:none; display:flex; align-items:center; gap:2px; margin-top:1px;"><i class="fa-solid fa-phone" style="font-size:7px; color:#10b981;"></i>${item.driver.phone}</a>` : ''}`
+                ? `<div style="font-weight:700; color:var(--primary); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\\\'")}', '${item.driver.situation}')">${item.driver.name}</div><div style="display:flex; align-items:center; gap:6px; margin-top:2px; flex-wrap:wrap;">${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:var(--text-secondary); font-size:10px; text-decoration:none; display:inline-flex; align-items:center; gap:2px;"><i class="fa-solid fa-phone" style="font-size:7px; color:#10b981;"></i>${item.driver.phone}</a>` : ''}${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:0 5px; border-radius:5px; font-size:8px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}</div>`
                 : `<button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:2px 6px; font-size:9px; width:100%;"><i class="fa-solid fa-plus"></i> Assigner</button>`}
             </div>
             <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1px solid var(--border); min-width:0;">
@@ -15578,21 +15645,32 @@ _naftalSortTable(tblId, colIdx) {
             <span style="background:rgba(56,189,248,0.08); color:#38bdf8; padding:2px 8px; border-radius:8px; font-size:9px; font-weight:700; font-family:monospace; border:1px solid rgba(56,189,248,0.15);"><i class="fa-solid fa-credit-card" style="font-size:7px; margin-right:3px;"></i>${item.carteNaftal}</span>
           </div>` : ''}
 
+          ${gpsAgoText ? `
+          <div style="padding:0 14px 8px; display:flex; align-items:center; gap:5px;">
+            <i class="fa-solid fa-satellite-dish" style="font-size:8px; color:${(() => { const gm = Math.floor((Date.now() - new Date(gpsTs).getTime()) / 60000); return gm < 5 ? '#10b981' : gm < 30 ? '#f59e0b' : '#ef4444'; })()};"></i>
+            <span style="font-size:9px; font-weight:600; color:var(--text-muted);">GPS: <span style="color:${(() => { const gm = Math.floor((Date.now() - new Date(gpsTs).getTime()) / 60000); return gm < 5 ? '#10b981' : gm < 30 ? '#f59e0b' : '#ef4444'; })()};">${gpsAgoText}</span></span>
+          </div>` : ''}
+
           <!-- ▸ Mission Panel (if active) -->
           ${mission ? `
           <div style="margin:0 14px 10px; background:rgba(16,185,129,0.06); padding:10px 12px; border-radius:10px; border:1px solid rgba(16,185,129,0.15);">
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <div style="flex:1; min-width:0;">
-                <div style="display:flex; align-items:center; gap:5px;">
+                <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
                   <span style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-route" style="margin-right:2px;"></i>Mission</span>
                   ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(139,92,246,0.12); color:#a78bfa; padding:1px 5px; border-radius:6px; font-size:7px; font-weight:800;">🤖 Auto</span>' : ''}
+                  ${mission.clientName ? `<span style="background:rgba(16,185,129,0.1); color:#10b981; padding:1px 5px; border-radius:6px; font-size:7px; font-weight:700;">🏢 ${mission.clientName}</span>` : ''}
+                  ${mission.finalClientName ? `<span style="background:rgba(139,92,246,0.1); color:#a78bfa; padding:1px 5px; border-radius:6px; font-size:7px; font-weight:700;">🤝 ${mission.finalClientName}</span>` : ''}
                 </div>
                 <div style="font-weight:800; color:#10b981; font-size:12px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${mission.origin} → ${mission.destination}</div>
-                <div style="font-size:9px; color:var(--text-secondary); margin-top:1px;">${mission.cargo || 'Fret'} ${mission.orderRef ? '· BL: ' + mission.orderRef : ''}</div>
+                <div style="font-size:9px; color:var(--text-secondary); margin-top:1px;">${mission.cargo || 'Fret'} ${mission.orderRef ? '· BL: ' + mission.orderRef : ''}${mission.estimatedDistanceKm ? ' · 📏 ' + mission.estimatedDistanceKm + ' km' : ''}</div>
               </div>
-              <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${tn}')" style="padding:5px 10px; font-size:10px; color:#10b981; border-color:rgba(16,185,129,0.3); white-space:nowrap; margin-left:6px;">
-                <i class="fa-solid fa-flag-checkered"></i> Fin
-              </button>
+              <div style="display:flex; flex-direction:column; gap:4px; margin-left:6px;">
+                <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${tn}')" style="padding:5px 10px; font-size:10px; color:#10b981; border-color:rgba(16,185,129,0.3); white-space:nowrap;">
+                  <i class="fa-solid fa-flag-checkered"></i> Fin
+                </button>
+                ${mission.routeGeometry ? `<button class="btn-secondary" onclick="ui.showMissionRoute('${mission.historyId}')" style="padding:4px 8px; font-size:9px; color:#3b82f6; border-color:rgba(59,130,246,0.3); white-space:nowrap;"><i class="fa-solid fa-map"></i> Route</button>` : ''}
+              </div>
             </div>
           </div>` : ''}
 
@@ -16051,6 +16129,21 @@ _naftalSortTable(tblId, colIdx) {
       } catch (_) {}
     }
 
+    // Populate Client dropdown from FLEET_CONFIG.CLIENTS
+    const clientSelect = document.getElementById('dispatchClientSelect');
+    if (clientSelect) {
+      clientSelect.innerHTML = '<option value="">-- Optionnel --</option>';
+      (FLEET_CONFIG.CLIENTS || []).forEach(c => {
+        clientSelect.innerHTML += `<option value="${c.id}">${c.icon || '🏢'} ${c.name}</option>`;
+      });
+    }
+
+    // Reset FC row
+    const fcRow = document.getElementById('dispatchFCRow');
+    const fcSelect = document.getElementById('dispatchFCSelect');
+    if (fcRow) fcRow.style.display = 'none';
+    if (fcSelect) fcSelect.innerHTML = '<option value="">-- Tous --</option>';
+
     // Reset input fields
     const elOrig = document.getElementById('dispatchOrigin');
     const elDest = document.getElementById('dispatchDest');
@@ -16063,8 +16156,41 @@ _naftalSortTable(tblId, colIdx) {
     if (elRef) elRef.value = '';
     if (elNotes) elNotes.value = '';
 
-    // Load destination autocomplete suggestions
-    this._loadDestinationSuggestions(elDest, elOrig);
+    // Reset hidden coordinate fields
+    ['dispatchOriginLat','dispatchOriginLng','dispatchDestLat','dispatchDestLng'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+
+    // Reset route estimate strip
+    const estStrip = document.getElementById('dispatchRouteEstimate');
+    if (estStrip) estStrip.style.display = 'none';
+    ['dispEstKm','dispEstFuel','dispEstCost'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = '—';
+    });
+    this._dispatchRouteGeometry = null;
+    this._dispatchEstimateData = null;
+
+    // Clear any previous autocomplete dropdowns
+    ['dispatchOriginResults','dispatchDestResults'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '';
+    });
+
+    // Attach Geoapify unified autocomplete to Origin and Destination
+    this._dispatchAttachAutocomplete('dispatchOrigin', 'dispatchOriginResults', 'dispatchOriginLat', 'dispatchOriginLng', 'origin');
+    this._dispatchAttachAutocomplete('dispatchDest', 'dispatchDestResults', 'dispatchDestLat', 'dispatchDestLng', 'dest');
+
+    // Close dropdowns when clicking outside
+    if (this._dispatchCloseDropdowns) document.removeEventListener('click', this._dispatchCloseDropdowns);
+    this._dispatchCloseDropdowns = (e) => {
+      ['dispatchOriginResults','dispatchDestResults'].forEach(id => {
+        const dd = document.getElementById(id);
+        if (dd && !dd.contains(e.target) && e.target.id !== id.replace('Results','')) dd.innerHTML = '';
+      });
+    };
+    document.addEventListener('click', this._dispatchCloseDropdowns);
 
     if (truckDeviceId) {
       this.onDispatchTruckChange(truckDeviceId);
@@ -16076,6 +16202,36 @@ _naftalSortTable(tblId, colIdx) {
   closeNewMissionModal() {
     const modal = document.getElementById('modalDispatchMission');
     if (modal) modal.style.display = 'none';
+    // Remove click listener
+    if (this._dispatchCloseDropdowns) {
+      document.removeEventListener('click', this._dispatchCloseDropdowns);
+      this._dispatchCloseDropdowns = null;
+    }
+  }
+
+  showMissionRoute(historyId) {
+    // Find mission in current dispo data
+    const items = this._dispoData?.items || [];
+    let mission = null;
+    let truckName = '';
+    for (const item of items) {
+      if (item.activeMission && (item.activeMission.historyId === historyId || item.activeMission.missionId === historyId)) {
+        mission = item.activeMission;
+        truckName = item.truckName || '';
+        break;
+      }
+    }
+    if (!mission || !mission.routeGeometry) {
+      if (typeof showToast === 'function') showToast('Aucune route planifiée disponible pour cette mission.', 'warning');
+      return;
+    }
+    // Switch to map tab if available
+    const mapTab = document.querySelector('[data-tab="map"]') || document.querySelector('[onclick*="showMapTab"]');
+    if (mapTab) mapTab.click();
+    // Draw route on map
+    if (typeof algeriaMap !== 'undefined' && algeriaMap.drawPlannedRoute) {
+      algeriaMap.drawPlannedRoute(mission.routeGeometry, mission.origin, mission.destination, truckName);
+    }
   }
 
   onDispatchTruckChange(truckDeviceId) {
@@ -16103,6 +16259,14 @@ _naftalSortTable(tblId, colIdx) {
     const orderRef = document.getElementById('dispatchOrderRef')?.value.trim();
     const notes = document.getElementById('dispatchNotes')?.value.trim();
 
+    // New enhanced fields
+    const clientId = document.getElementById('dispatchClientSelect')?.value || '';
+    const fcId = document.getElementById('dispatchFCSelect')?.value || '';
+    const originLat = document.getElementById('dispatchOriginLat')?.value || '';
+    const originLng = document.getElementById('dispatchOriginLng')?.value || '';
+    const destLat = document.getElementById('dispatchDestLat')?.value || '';
+    const destLng = document.getElementById('dispatchDestLng')?.value || '';
+
     if (!truckDeviceId && !driverId) {
       alert('Veuillez sélectionner au moins un camion ou un chauffeur.');
       return;
@@ -16110,6 +16274,20 @@ _naftalSortTable(tblId, colIdx) {
     if (!origin || !destination) {
       alert('Veuillez renseigner le lieu de départ (Origine) et la destination.');
       return;
+    }
+
+    // Resolve client & FC names from config
+    let clientName = '';
+    let finalClientName = '';
+    if (clientId) {
+      const client = (FLEET_CONFIG.CLIENTS || []).find(c => c.id === clientId);
+      if (client) {
+        clientName = client.name;
+        if (fcId) {
+          const fc = (client.finalClients || []).find(f => f.id === fcId);
+          if (fc) finalClientName = fc.name;
+        }
+      }
     }
 
     const payload = {
@@ -16120,7 +16298,18 @@ _naftalSortTable(tblId, colIdx) {
       destination,
       cargo,
       orderRef,
-      notes
+      notes,
+      // Enhanced mission fields
+      originCoords: originLat && originLng ? { lat: parseFloat(originLat), lng: parseFloat(originLng) } : undefined,
+      destCoords: destLat && destLng ? { lat: parseFloat(destLat), lng: parseFloat(destLng) } : undefined,
+      clientId: clientId || undefined,
+      clientName: clientName || undefined,
+      finalClientId: fcId || undefined,
+      finalClientName: finalClientName || undefined,
+      estimatedDistanceKm: this._dispatchEstimateData?.distKm || undefined,
+      estimatedFuelL: this._dispatchEstimateData?.fuelL || undefined,
+      estimatedCostDA: this._dispatchEstimateData?.costDA || undefined,
+      routeGeometry: this._dispatchRouteGeometry || undefined
     };
 
     try {
@@ -16131,7 +16320,7 @@ _naftalSortTable(tblId, colIdx) {
       });
       if (res.ok) {
         this.closeNewMissionModal();
-        if (typeof showToast === 'function') showToast('Mission lancée et tracée avec succès !', 'success');
+        if (typeof showToast === 'function') showToast('✅ Mission lancée avec succès !', 'success');
         await this.fetchDisponibiliteData(false);
       } else {
         const err = await res.json().catch(() => ({}));
@@ -16252,6 +16441,232 @@ _naftalSortTable(tblId, colIdx) {
       }
     } catch (e) {
       console.warn('[AutoComplete] Failed to load destinations:', e.message);
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════════
+  // 🔍 DISPATCH MISSION: GEOAPIFY UNIFIED AUTOCOMPLETE
+  // ═════════════════════════════════════════════════════════════════
+
+  _dispatchAttachAutocomplete(inputId, resultsId, latHiddenId, lngHiddenId, role) {
+    const inputEl = document.getElementById(inputId);
+    if (!inputEl) return;
+    // Remove old listeners by cloning
+    const newInput = inputEl.cloneNode(true);
+    inputEl.parentNode.replaceChild(newInput, inputEl);
+    let debounceTimer = null;
+    newInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      const q = newInput.value.trim();
+      if (q.length < 2) {
+        const dd = document.getElementById(resultsId);
+        if (dd) dd.innerHTML = '';
+        return;
+      }
+      debounceTimer = setTimeout(() => this._dispatchDoSearch(q, resultsId, latHiddenId, lngHiddenId, inputId, role), 300);
+    });
+  }
+
+  async _dispatchDoSearch(query, resultsId, latHiddenId, lngHiddenId, inputId, role) {
+    const dd = document.getElementById(resultsId);
+    if (!dd) return;
+    const q = query.toLowerCase();
+    let items = [];
+
+    // 1) Search CUSTOM_LOCATIONS (zones)
+    (FLEET_CONFIG.CUSTOM_LOCATIONS || []).forEach(loc => {
+      if (loc.name && loc.name.toLowerCase().includes(q)) {
+        items.push({
+          type: 'zone', icon: '📍', iconBg: 'rgba(59,130,246,0.12)',
+          main: loc.name, sub: loc.wilaya || loc.type || 'Zone',
+          lat: loc.lat, lng: loc.lng,
+          clientId: loc.clientId || '', finalClientId: loc.finalClientId || ''
+        });
+      }
+    });
+
+    // 2) Search CLIENTS (by name)
+    (FLEET_CONFIG.CLIENTS || []).forEach(client => {
+      if (client.name && client.name.toLowerCase().includes(q)) {
+        const zone = (FLEET_CONFIG.CUSTOM_LOCATIONS || []).find(z => z.clientId === client.id);
+        items.push({
+          type: 'client', icon: client.icon || '🏢', iconBg: 'rgba(16,185,129,0.12)',
+          main: client.name, sub: 'Client',
+          lat: zone ? zone.lat : '', lng: zone ? zone.lng : '',
+          clientId: client.id, finalClientId: ''
+        });
+      }
+      // 3) Search finalClients (sub-clients)
+      (client.finalClients || []).forEach(fc => {
+        if (fc.name && fc.name.toLowerCase().includes(q)) {
+          const zone = (FLEET_CONFIG.CUSTOM_LOCATIONS || []).find(z => z.finalClientId === fc.id || (z.clientId === client.id && z.name.toLowerCase().includes(fc.name.toLowerCase())));
+          items.push({
+            type: 'fc', icon: '🤝', iconBg: 'rgba(139,92,246,0.12)',
+            main: fc.name, sub: `Sous-client de ${client.name}`,
+            lat: zone ? zone.lat : '', lng: zone ? zone.lng : '',
+            clientId: client.id, finalClientId: fc.id
+          });
+        }
+      });
+    });
+
+    // Limit local results
+    items = items.slice(0, 5);
+
+    // 4) Geoapify API search (addresses)
+    try {
+      const keys = FLEET_CONFIG.GEOAPIFY_API_KEYS || [];
+      const key = keys[0];
+      if (key && query.length >= 3) {
+        const url = `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(query)}&lang=fr&filter=countrycode:dz&limit=5&apiKey=${key}`;
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          (data.features || []).forEach(f => {
+            const p = f.properties || {};
+            items.push({
+              type: 'address', icon: '🌍', iconBg: 'rgba(245,158,11,0.12)',
+              main: p.formatted || p.name || '', sub: p.state || p.country || 'Adresse',
+              lat: p.lat, lng: p.lon,
+              clientId: '', finalClientId: ''
+            });
+          });
+        }
+      }
+    } catch (_) {}
+
+    if (!items.length) {
+      dd.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:11px;"><i class="fa-solid fa-search"></i> Aucun résultat</div>';
+      return;
+    }
+
+    // Render dropdown
+    dd.innerHTML = items.map((item, idx) => `
+      <div class="geo-item" data-idx="${idx}" style="display:flex;align-items:center;gap:10px;">
+        <div class="geo-icon" style="background:${item.iconBg};font-size:14px;">${item.icon}</div>
+        <div class="geo-text">
+          <div class="geo-main">${item.main}</div>
+          <div class="geo-sub">${item.sub}</div>
+        </div>
+      </div>
+    `).join('');
+
+    // Attach click handlers
+    dd.querySelectorAll('.geo-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.idx);
+        const item = items[idx];
+        if (!item) return;
+        // Fill input text
+        const inp = document.getElementById(inputId);
+        if (inp) inp.value = item.main;
+        // Fill hidden coords
+        const latEl = document.getElementById(latHiddenId);
+        const lngEl = document.getElementById(lngHiddenId);
+        if (latEl) latEl.value = item.lat || '';
+        if (lngEl) lngEl.value = item.lng || '';
+        // Auto-fill client/FC selects if match
+        if (item.clientId) {
+          const cs = document.getElementById('dispatchClientSelect');
+          if (cs) { cs.value = item.clientId; this._onDispatchClientChange(item.clientId); }
+        }
+        if (item.finalClientId) {
+          setTimeout(() => {
+            const fs = document.getElementById('dispatchFCSelect');
+            if (fs) fs.value = item.finalClientId;
+          }, 50);
+        }
+        // Clear dropdown
+        dd.innerHTML = '';
+        // Try to calculate route if both origin and dest have coords
+        this._dispatchTryCalcRoute();
+      });
+    });
+  }
+
+  _onDispatchClientChange(clientId) {
+    const fcRow = document.getElementById('dispatchFCRow');
+    const fcSelect = document.getElementById('dispatchFCSelect');
+    if (!fcRow || !fcSelect) return;
+    if (!clientId) {
+      fcRow.style.display = 'none';
+      fcSelect.innerHTML = '<option value="">-- Tous --</option>';
+      return;
+    }
+    const client = (FLEET_CONFIG.CLIENTS || []).find(c => c.id === clientId);
+    if (!client || !client.finalClients || !client.finalClients.length) {
+      fcRow.style.display = 'none';
+      fcSelect.innerHTML = '<option value="">-- Tous --</option>';
+      return;
+    }
+    fcRow.style.display = 'block';
+    fcSelect.innerHTML = '<option value="">-- Tous --</option>';
+    client.finalClients.forEach(fc => {
+      fcSelect.innerHTML += `<option value="${fc.id}">${fc.name}</option>`;
+    });
+  }
+
+  _onDispatchFCChange(fcId) {
+    if (!fcId) return;
+    // Try to find a matching zone for this FC and auto-fill destination
+    const zone = (FLEET_CONFIG.CUSTOM_LOCATIONS || []).find(z => z.finalClientId === fcId);
+    if (zone && zone.lat && zone.lng) {
+      const destInput = document.getElementById('dispatchDest');
+      const latEl = document.getElementById('dispatchDestLat');
+      const lngEl = document.getElementById('dispatchDestLng');
+      if (destInput && !destInput.value) {
+        destInput.value = zone.name;
+        if (latEl) latEl.value = zone.lat;
+        if (lngEl) lngEl.value = zone.lng;
+        this._dispatchTryCalcRoute();
+      }
+    }
+  }
+
+  async _dispatchTryCalcRoute() {
+    const oLat = document.getElementById('dispatchOriginLat')?.value;
+    const oLng = document.getElementById('dispatchOriginLng')?.value;
+    const dLat = document.getElementById('dispatchDestLat')?.value;
+    const dLng = document.getElementById('dispatchDestLng')?.value;
+    if (!oLat || !oLng || !dLat || !dLng) return;
+
+    const estStrip = document.getElementById('dispatchRouteEstimate');
+    const srcEl = document.getElementById('dispEstSource');
+    if (estStrip) estStrip.style.display = 'flex';
+    if (srcEl) srcEl.textContent = 'Calcul en cours...';
+
+    try {
+      const keys = FLEET_CONFIG.GEOAPIFY_API_KEYS || [];
+      const key = keys[0];
+      if (!key) { if (srcEl) srcEl.textContent = 'Clé API manquante'; return; }
+      const url = `https://api.geoapify.com/v1/routing?waypoints=${oLat},${oLng}|${dLat},${dLng}&mode=drive&apiKey=${key}`;
+      const res = await fetch(url);
+      if (!res.ok) { if (srcEl) srcEl.textContent = 'Erreur calcul'; return; }
+      const data = await res.json();
+      const feat = data.features && data.features[0];
+      if (!feat || !feat.properties) { if (srcEl) srcEl.textContent = 'Pas de route'; return; }
+      const props = feat.properties;
+      const distKm = Math.round((props.distance || 0) / 1000);
+      const timeMin = Math.round((props.time || 0) / 60);
+      const fuelRate = 45; // L/100km average for trucks
+      const fuelPrice = (FLEET_CONFIG.NAFTAL_MANAGEMENT && FLEET_CONFIG.NAFTAL_MANAGEMENT.defaultNaftalPrice) || 31;
+      const fuelL = Math.round(distKm * fuelRate / 100);
+      const costDA = Math.round(fuelL * fuelPrice);
+
+      // Update UI
+      const kmEl = document.getElementById('dispEstKm');
+      const fuelEl = document.getElementById('dispEstFuel');
+      const costEl = document.getElementById('dispEstCost');
+      if (kmEl) kmEl.textContent = distKm.toLocaleString('fr-DZ');
+      if (fuelEl) fuelEl.textContent = fuelL.toLocaleString('fr-DZ');
+      if (costEl) costEl.textContent = costDA.toLocaleString('fr-DZ');
+      if (srcEl) srcEl.textContent = `~${Math.floor(timeMin/60)}h${String(timeMin%60).padStart(2,'0')} de trajet`;
+
+      // Store for payload
+      this._dispatchEstimateData = { distKm, fuelL, costDA };
+      this._dispatchRouteGeometry = feat.geometry || null;
+    } catch (e) {
+      if (srcEl) srcEl.textContent = 'Erreur: ' + e.message;
     }
   }
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ALGERIA MAP MODULE - TIME MACHINE PRO EDITION
  * Features: 
  * - Live Tracking
@@ -1934,6 +1934,69 @@ deselectTruck: function() {
         } catch(e) {
             if (list) list.innerHTML = `<div style="text-align:center;color:#475569;padding:20px;font-size:12px;"><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;font-size:20px;display:block;margin-bottom:8px;"></i>Erreur: ${e.message}</div>`;
         }
+    },
+
+
+    // =========================================================
+    // PLANNED MISSION ROUTE (DASHED BLUE LINE)
+    // =========================================================
+
+    drawPlannedRoute: function(routeGeoJSON, originName, destName, truckName) {
+        if (!this.map) return;
+        if (!this.map.isStyleLoaded()) {
+            var _self = this;
+            this.map.once('style.load', function() {
+                _self.drawPlannedRoute(routeGeoJSON, originName, destName, truckName);
+            });
+            return;
+        }
+        this.clearPlannedRoute();
+        if (!routeGeoJSON || !routeGeoJSON.coordinates || routeGeoJSON.coordinates.length < 2) return;
+        var coords = [];
+        if (routeGeoJSON.type === 'MultiLineString') {
+            routeGeoJSON.coordinates.forEach(function(seg) { coords = coords.concat(seg); });
+        } else if (routeGeoJSON.type === 'LineString') {
+            coords = routeGeoJSON.coordinates;
+        } else { return; }
+        this.map.addSource('planned-route', {
+            type: 'geojson',
+            data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } }
+        });
+        this.map.addLayer({
+            id: 'planned-route-line', type: 'line', source: 'planned-route',
+            layout: { 'line-join': 'round', 'line-cap': 'round' },
+            paint: { 'line-color': '#3b82f6', 'line-width': 3, 'line-opacity': 0.85, 'line-dasharray': [8, 4] }
+        });
+        var startCoord = coords[0];
+        var endCoord = coords[coords.length - 1];
+        var startEl = document.createElement('div');
+        startEl.innerHTML = '<i class="fa-solid fa-play" style="font-size:11px;"></i>';
+        startEl.style.cssText = 'width:26px;height:26px;border-radius:50%;background:#16a34a;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);z-index:5;';
+        this._plannedStartMk = new mapboxgl.Marker(startEl).setLngLat(startCoord)
+            .setPopup(new mapboxgl.Popup({offset:15}).setHTML('<b style="color:#16a34a;">Depart</b><br>'+(originName||'Origine')+(truckName?'<br><small>'+truckName+'</small>':'')))
+            .addTo(this.map);
+        var endEl = document.createElement('div');
+        endEl.innerHTML = '<i class="fa-solid fa-flag" style="font-size:11px;"></i>';
+        endEl.style.cssText = 'width:26px;height:26px;border-radius:50%;background:#3b82f6;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);z-index:5;';
+        this._plannedEndMk = new mapboxgl.Marker(endEl).setLngLat(endCoord)
+            .setPopup(new mapboxgl.Popup({offset:15}).setHTML('<b style="color:#3b82f6;">Destination</b><br>'+(destName||'Destination')+(truckName?'<br><small>'+truckName+'</small>':'')))
+            .addTo(this.map);
+        var bounds = new mapboxgl.LngLatBounds();
+        coords.forEach(function(c) { bounds.extend(c); });
+        this.map.fitBounds(bounds, { padding: 80, duration: 1200 });
+        this.showToast('Route: ' + (originName||'?') + ' -> ' + (destName||'?'));
+    },
+
+    clearPlannedRoute: function() {
+        if (!this.map) return;
+        try {
+            if (this.map.isStyleLoaded()) {
+                if (this.map.getLayer('planned-route-line')) this.map.removeLayer('planned-route-line');
+                if (this.map.getSource('planned-route')) this.map.removeSource('planned-route');
+            }
+        } catch(e) {}
+        if (this._plannedStartMk) { this._plannedStartMk.remove(); this._plannedStartMk = null; }
+        if (this._plannedEndMk) { this._plannedEndMk.remove(); this._plannedEndMk = null; }
     },
 
 };
