@@ -759,6 +759,324 @@ function updateTruckDeliveryContext(deviceId, truckName, zoneCtx, zoneName) {
   return TRUCK_DELIVERY_CONTEXT[deviceId] || {};
 }
 
+// ════════════════════════════════════════════════════════════════
+// AUTO-MISSION DETECTION ENGINE
+// Tracks per-truck mission lifecycle based on zone proximity:
+// 1. Truck enters client zone → auto-start mission (detect closest sub-client)
+// 2. Truck exits destination zone → auto-complete mission
+// 3. Truck at maintenance zone → auto-set situation='maintenance'
+// 4. Truck at DED/home zone → auto-set situation='disponible'
+// ════════════════════════════════════════════════════════════════
+const AUTO_MISSION_STATE = {}; // deviceId → { phase, clientId, clientName, finalClientId, finalClientName, zoneName, missionId, startedAt }
+
+/**
+ * Find the closest sub-client zone to given coordinates.
+ * If a client has multiple sub-client zones, picks the one within radius 
+ * with the shortest distance. Returns null if none found.
+ */
+function findClosestSubClient(lat, lng, clientId) {
+  const allZones = SYSTEM_SETTINGS.customLocations || [];
+  const client = (SYSTEM_SETTINGS.clients || []).find(c => c.id === clientId);
+  if (!client || !client.finalClients || client.finalClients.length === 0) return null;
+
+  // Find all zones belonging to this client's sub-clients
+  const subClientZones = [];
+  for (const zone of allZones) {
+    if (zone.clientId === clientId && zone.finalClientId) {
+      const fc = client.finalClients.find(f => f.id === zone.finalClientId);
+      if (fc) {
+        const dist = calculateDistance(lat, lng, parseFloat(zone.lat), parseFloat(zone.lng));
+        subClientZones.push({
+          zone,
+          finalClient: fc,
+          distance: dist,
+          inRadius: dist <= (zone.radius || 500)
+        });
+      }
+    }
+  }
+
+  if (subClientZones.length === 0) return null;
+
+  // First try: zones truck is actually inside
+  const inRange = subClientZones.filter(z => z.inRadius).sort((a, b) => a.distance - b.distance);
+  if (inRange.length > 0) return inRange[0];
+
+  // Second try: closest zone even if outside radius (for "approaching" detection)
+  subClientZones.sort((a, b) => a.distance - b.distance);
+  const closest = subClientZones[0];
+  // Only return if reasonably close (within 2x radius)
+  if (closest.distance <= (closest.zone.radius || 500) * 2) return closest;
+  return null;
+}
+
+/**
+ * Auto-mission detection — called each poll cycle per truck.
+ * Analyzes zone context and creates/completes missions automatically.
+ */
+async function runAutoMissionDetection(truck, dbTruck) {
+  try {
+    const deviceId = String(truck.id || truck.imei);
+    const truckName = truck.name || deviceId;
+    const lat = parseFloat(truck.lat);
+    const lng = parseFloat(truck.lng);
+    const speed = parseFloat(truck.speed) || 0;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    const allZones = SYSTEM_SETTINGS.customLocations || [];
+    const now = Date.now();
+    const state = AUTO_MISSION_STATE[deviceId] || { phase: 'idle' };
+
+    // Determine current zone
+    let currentZone = null;
+    let currentDist = Infinity;
+    for (const loc of allZones) {
+      const dist = calculateDistance(lat, lng, parseFloat(loc.lat), parseFloat(loc.lng));
+      if (dist <= (loc.radius || 500)) {
+        if (dist < currentDist) {
+          currentZone = loc;
+          currentDist = dist;
+        }
+      }
+    }
+
+    // ────────────────────────────────────────────────────────
+    // CASE A: Truck is at a MAINTENANCE zone
+    // ────────────────────────────────────────────────────────
+    if (currentZone && currentZone.type === 'maintenance') {
+      // Only auto-set situation if truck has been there > 10 min (avoid drive-throughs)
+      const entryTimeForMaint = state._maintEntryTime || now;
+      if (!state._maintEntryTime) {
+        AUTO_MISSION_STATE[deviceId] = { ...state, _maintEntryTime: now };
+        return;
+      }
+      if ((now - entryTimeForMaint) >= 10 * 60000 && speed < 5) {
+        // Auto-set maintenance situation only if not already set
+        const dbSituation = dbTruck.situation;
+        if (dbSituation !== 'maintenance' && dbSituation !== 'panne') {
+          await Truck.findOneAndUpdate({ deviceId }, { $set: { situation: 'maintenance' } });
+          console.log(`🔧 [AutoMission] ${truckName} at maintenance zone "${currentZone.name}" → situation=maintenance`);
+        }
+      }
+      return;
+    }
+
+    // Clear maintenance timer if truck left maintenance zone
+    if (state._maintEntryTime && (!currentZone || currentZone.type !== 'maintenance')) {
+      delete state._maintEntryTime;
+      AUTO_MISSION_STATE[deviceId] = state;
+      // If truck was in maintenance, revert to disponible when leaving
+      if (dbTruck.situation === 'maintenance') {
+        await Truck.findOneAndUpdate({ deviceId }, { $set: { situation: 'disponible' } });
+        console.log(`✅ [AutoMission] ${truckName} left maintenance zone → situation=disponible`);
+      }
+    }
+
+    // ────────────────────────────────────────────────────────
+    // CASE B: Truck is at a DED/HOME BASE zone (type='douroub')
+    // ────────────────────────────────────────────────────────
+    if (currentZone && currentZone.type === 'douroub') {
+      // Truck is home — if it had an active auto-mission, complete it
+      if (state.phase === 'en_mission' && state.missionId) {
+        try {
+          const hist = await FleetAssignmentHistory.findOneAndUpdate(
+            { historyId: state.missionId, status: 'active' },
+            { $set: { status: 'completed', endDate: new Date(), notes: (state.notes || '') + ' | Auto-complété: retour base' } },
+            { new: true }
+          );
+          if (hist) {
+            await Truck.findOneAndUpdate({ deviceId }, {
+              $set: { situation: 'disponible' },
+              $unset: { currentOrigin: 1, currentDestination: 1, currentCargo: 1, currentMissionId: 1 }
+            });
+            console.log(`🏠 [AutoMission] ${truckName} returned to base "${currentZone.name}" → mission ${state.missionId} completed`);
+          }
+        } catch (e) { console.error('[AutoMission] Base return completion error:', e.message); }
+      }
+      AUTO_MISSION_STATE[deviceId] = { phase: 'at_base', zoneName: currentZone.name };
+      return;
+    }
+
+    // ────────────────────────────────────────────────────────
+    // CASE C: Truck is at a CLIENT zone (has clientId)
+    // ────────────────────────────────────────────────────────
+    if (currentZone && currentZone.clientId) {
+      const zoneCtx = resolveZoneClientContext(currentZone.name);
+      if (!zoneCtx.clientId) return;
+
+      // Detect closest sub-client
+      const subClientMatch = findClosestSubClient(lat, lng, zoneCtx.clientId);
+      const finalClientId = subClientMatch?.finalClient?.id || zoneCtx.finalClientId || null;
+      const finalClientName = subClientMatch?.finalClient?.name || zoneCtx.finalClientName || null;
+
+      // If truck already has an active mission TO this client — auto-complete it (arrived at destination)
+      if (state.phase === 'en_mission' && state.missionId) {
+        // Check if this is the destination client
+        const isDestClient = state.destClientId === zoneCtx.clientId;
+        if (isDestClient || !state.destClientId) {
+          // Arrived at destination → DON'T complete yet, wait for truck to LEAVE
+          AUTO_MISSION_STATE[deviceId] = {
+            ...state,
+            phase: 'at_destination',
+            arrivalZone: currentZone.name,
+            arrivalTime: state.arrivalTime || now,
+            finalClientId,
+            finalClientName
+          };
+          console.log(`📍 [AutoMission] ${truckName} arrived at client "${zoneCtx.clientName}" (${finalClientName || 'main'}) — waiting for departure to close mission`);
+          return;
+        }
+      }
+
+      // If truck was at_destination and is still at same zone — do nothing
+      if (state.phase === 'at_destination' && state.arrivalZone === currentZone.name) {
+        return;
+      }
+
+      // If truck has NO active mission and enters a client zone — START new auto-mission
+      if (state.phase !== 'en_mission' && state.phase !== 'at_destination') {
+        // Check if there's already a manually-created active mission
+        const existingMission = await FleetAssignmentHistory.findOne({
+          truckDeviceId: deviceId,
+          status: 'active',
+          eventType: 'mission_start'
+        }).lean();
+
+        if (existingMission) {
+          // Already has a manual mission — just track arrival
+          AUTO_MISSION_STATE[deviceId] = {
+            phase: 'en_mission',
+            missionId: existingMission.historyId,
+            clientId: zoneCtx.clientId,
+            clientName: zoneCtx.clientName,
+            destClientId: zoneCtx.clientId,
+            zoneName: currentZone.name,
+            startedAt: new Date(existingMission.startDate).getTime(),
+            isManual: true
+          };
+          return;
+        }
+
+        // Auto-create mission: truck entered a client zone with no active mission
+        const originZone = state.zoneName || 'Base DED';
+        const missionId = `AUTO-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
+        try {
+          const truckDoc = await Truck.findOne({ deviceId }).lean();
+          const driver = truckDoc?.driverName ? await Driver.findOne({ name: truckDoc.driverName }).lean() : null;
+
+          await FleetAssignmentHistory.create({
+            historyId: missionId,
+            timestamp: new Date(),
+            startDate: new Date(),
+            eventType: 'mission_start',
+            truckDeviceId: deviceId,
+            truckName,
+            truckPlate: truckDoc?.immatriculation || '',
+            driverId: driver?.driverId || truckDoc?.driverId || '',
+            driverName: driver?.name || truckDoc?.driverName || '',
+            driverPhone: driver?.phone || truckDoc?.driverPhone || '',
+            trailerId: '',
+            trailerPlate: truckDoc?.trailer || '',
+            trailerType: truckDoc?.trailerType || 'Plateau',
+            origin: originZone,
+            originCoords: { lat: state._lastLat || lat, lng: state._lastLng || lng },
+            destination: `${zoneCtx.clientName}${finalClientName ? ' - ' + finalClientName : ''} (${currentZone.name})`,
+            destCoords: { lat: parseFloat(currentZone.lat), lng: parseFloat(currentZone.lng) },
+            cargo: 'Auto-détecté',
+            orderRef: `AUTO-${Date.now().toString().slice(-6)}`,
+            startOdometer: truckDoc?.odometer || 0,
+            status: 'active',
+            notes: `Mission auto-détectée: ${truckName} → ${zoneCtx.clientName}${finalClientName ? ' (' + finalClientName + ')' : ''}`,
+            performedBy: 'Système Auto-Détection'
+          });
+
+          await Truck.findOneAndUpdate({ deviceId }, {
+            $set: {
+              situation: 'mission',
+              currentOrigin: originZone,
+              currentDestination: `${zoneCtx.clientName}${finalClientName ? ' - ' + finalClientName : ''}`,
+              currentMissionId: missionId
+            }
+          });
+
+          AUTO_MISSION_STATE[deviceId] = {
+            phase: 'at_destination',
+            missionId,
+            clientId: zoneCtx.clientId,
+            clientName: zoneCtx.clientName,
+            destClientId: zoneCtx.clientId,
+            finalClientId,
+            finalClientName,
+            zoneName: currentZone.name,
+            arrivalZone: currentZone.name,
+            arrivalTime: now,
+            startedAt: now,
+            isAuto: true
+          };
+
+          console.log(`🚀 [AutoMission] ${truckName} → Auto-mission started: ${originZone} → ${zoneCtx.clientName} (${finalClientName || 'main'}), ID: ${missionId}`);
+        } catch (e) {
+          if (e.code !== 11000) console.error('[AutoMission] Create error:', e.message);
+        }
+        return;
+      }
+    }
+
+    // ────────────────────────────────────────────────────────
+    // CASE D: Truck is OUTSIDE all zones (in transit)
+    // ────────────────────────────────────────────────────────
+    if (!currentZone) {
+      // If truck was at_destination and now left → COMPLETE the mission
+      if (state.phase === 'at_destination' && state.missionId) {
+        const dwellMinutes = state.arrivalTime ? Math.round((now - state.arrivalTime) / 60000) : 0;
+        // Only complete if truck actually stayed at destination > 2 min (not just passing edge)
+        if (dwellMinutes >= 2) {
+          try {
+            const hist = await FleetAssignmentHistory.findOneAndUpdate(
+              { historyId: state.missionId, status: 'active' },
+              {
+                $set: {
+                  status: 'completed',
+                  endDate: new Date(),
+                  notes: `${state.isAuto ? 'Auto-complété' : 'Complété'}: ${dwellMinutes} min chez ${state.clientName || 'client'}${state.finalClientName ? ' (' + state.finalClientName + ')' : ''}`
+                }
+              },
+              { new: true }
+            );
+            if (hist) {
+              await Truck.findOneAndUpdate({ deviceId }, {
+                $set: { situation: 'disponible' },
+                $unset: { currentOrigin: 1, currentDestination: 1, currentCargo: 1, currentMissionId: 1 }
+              });
+              console.log(`✅ [AutoMission] ${truckName} left "${state.arrivalZone}" after ${dwellMinutes} min → mission ${state.missionId} completed`);
+            }
+          } catch (e) { console.error('[AutoMission] Completion error:', e.message); }
+
+          AUTO_MISSION_STATE[deviceId] = { phase: 'idle', _lastLat: lat, _lastLng: lng };
+        } else {
+          // Truck barely passed through — might be a GPS glitch, revert to en_mission
+          AUTO_MISSION_STATE[deviceId] = { ...state, phase: 'en_mission' };
+        }
+        return;
+      }
+
+      // If truck is moving and had a mission from base, keep tracking
+      if (state.phase === 'at_base' && speed >= 5) {
+        AUTO_MISSION_STATE[deviceId] = { phase: 'departed_base', _lastLat: lat, _lastLng: lng, departedAt: now };
+      } else if (state.phase === 'idle' || !state.phase) {
+        AUTO_MISSION_STATE[deviceId] = { phase: 'idle', _lastLat: lat, _lastLng: lng };
+      }
+    }
+
+  } catch (e) {
+    console.error('[AutoMission] Detection error:', e.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+// GET /api/fleet/auto-missions/state: Exposes auto-mission state for UI
+// ════════════════════════════════════════════════════════════════
+
 let BOT_LAST_SUCCESS_MS = 0; // tracks last successful GPS fetch for missed-window detection
 
 function getResolvedRefuelRules(overrides = {}) {
@@ -3058,6 +3376,8 @@ async function runFleetBot() {
     // ZONE ENTRY/EXIT tracking — ONLY if system is initialized
     if (INIT_STATE.initialized) {
       await runZoneEntryExitTracking(truck, freshDbTruck).catch(e => console.error('ZoneTracking error:', e.message));
+      // AUTO-MISSION DETECTION: auto-create/complete missions based on zone context
+      await runAutoMissionDetection(truck, freshDbTruck).catch(e => console.error('AutoMission error:', e.message));
     }
 
     // V6: Always save
@@ -4879,6 +5199,118 @@ app.post('/api/fleet/missions/:id/complete', checkAccess, async (req, res) => {
     }
 
     res.json({ success: true, mission: fmt(hist.toObject ? hist.toObject() : hist) });
+  } catch (e) {
+   res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/fleet/auto-missions/state: Current auto-mission state per truck ────
+app.get('/api/fleet/auto-missions/state', checkAccess, (req, res) => {
+  const result = {};
+  for (const [deviceId, state] of Object.entries(AUTO_MISSION_STATE)) {
+    result[deviceId] = { ...state };
+  }
+  res.json({ success: true, states: result });
+});
+
+// ── POST /api/fleet/auto-missions/confirm: Confirm or reject an auto-mission ────
+app.post('/api/fleet/auto-missions/confirm', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, missionId, confirmed, destination, origin } = req.body;
+    if (!deviceId || !missionId) return res.status(400).json({ error: 'deviceId and missionId required' });
+    
+    if (!confirmed) {
+      // User rejected the auto-mission → cancel it
+      await FleetAssignmentHistory.findOneAndUpdate(
+        { historyId: missionId },
+        { $set: { status: 'cancelled', endDate: new Date(), notes: 'Rejetée par utilisateur' } }
+      );
+      await Truck.findOneAndUpdate({ deviceId }, {
+        $set: { situation: 'disponible' },
+        $unset: { currentOrigin: 1, currentDestination: 1, currentCargo: 1, currentMissionId: 1 }
+      });
+      AUTO_MISSION_STATE[deviceId] = { phase: 'idle' };
+      return res.json({ success: true, action: 'cancelled' });
+    }
+
+    // User confirmed — optionally update destination/origin
+    const update = {};
+    if (destination) update.destination = destination;
+    if (origin) update.origin = origin;
+    if (Object.keys(update).length > 0) {
+      await FleetAssignmentHistory.findOneAndUpdate({ historyId: missionId }, { $set: update });
+    }
+
+    // Save this route as a "saved target" for future autocomplete
+    const mission = await FleetAssignmentHistory.findOne({ historyId: missionId }).lean();
+    if (mission && mission.origin && mission.destination) {
+      const routeKey = `${mission.origin}→${mission.destination}`.toLowerCase();
+      if (!SYSTEM_SETTINGS.savedRoutes) SYSTEM_SETTINGS.savedRoutes = [];
+      const exists = SYSTEM_SETTINGS.savedRoutes.find(r => r.key === routeKey);
+      if (!exists) {
+        const newRoute = {
+          key: routeKey,
+          origin: mission.origin,
+          destination: mission.destination,
+          originCoords: mission.originCoords,
+          destCoords: mission.destCoords,
+          usageCount: 1,
+          lastUsed: new Date().toISOString()
+        };
+        SYSTEM_SETTINGS.savedRoutes.push(newRoute);
+        await Settings.updateOne({ id: 'global' }, { $push: { savedRoutes: newRoute } }).catch(() => {});
+      } else {
+        exists.usageCount = (exists.usageCount || 0) + 1;
+        exists.lastUsed = new Date().toISOString();
+        await Settings.updateOne(
+          { id: 'global', 'savedRoutes.key': routeKey },
+          { $set: { 'savedRoutes.$.usageCount': exists.usageCount, 'savedRoutes.$.lastUsed': exists.lastUsed } }
+        ).catch(() => {});
+      }
+    }
+
+    res.json({ success: true, action: 'confirmed' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/fleet/saved-routes: Get saved route targets for autocomplete ────
+app.get('/api/fleet/saved-routes', checkAccess, async (req, res) => {
+  try {
+    const routes = SYSTEM_SETTINGS.savedRoutes || [];
+    // Also include client zones as potential destinations
+    const clientDestinations = [];
+    for (const zone of (SYSTEM_SETTINGS.customLocations || [])) {
+      if (zone.clientId) {
+        const ctx = resolveZoneClientContext(zone.name);
+        if (ctx.clientName) {
+          clientDestinations.push({
+            name: `${ctx.clientName}${ctx.finalClientName ? ' - ' + ctx.finalClientName : ''} (${zone.name})`,
+            zoneName: zone.name,
+            clientId: ctx.clientId,
+            clientName: ctx.clientName,
+            finalClientId: ctx.finalClientId,
+            finalClientName: ctx.finalClientName,
+            lat: zone.lat,
+            lng: zone.lng,
+            type: 'client_zone'
+          });
+        }
+      }
+    }
+    // Include logistics hubs
+    const hubDestinations = ALGERIA_LOGISTICS_HUBS.map(h => ({
+      name: `${h.name} (${h.wilaya})`,
+      lat: h.lat, lng: h.lng,
+      type: 'logistics_hub'
+    }));
+    res.json({
+      success: true,
+      savedRoutes: routes.sort((a, b) => (b.usageCount || 0) - (a.usageCount || 0)),
+      clientDestinations,
+      hubDestinations
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

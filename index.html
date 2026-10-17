@@ -224,6 +224,7 @@
       animation: slideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1); color: var(--text-primary);
     }
     @keyframes slideDown { from { opacity: 0; transform: translateY(-30px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    @keyframes slideInRight { from { opacity: 0; transform: translateX(100px); } to { opacity: 1; transform: translateX(0); } }
 
     /* Toast bridge */
     #toastContainer { position: fixed; top: 20px; right: 20px; z-index: 100000; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
@@ -1599,6 +1600,14 @@
             <div style="font-size:24px; font-weight:900; color:#8b5cf6;" id="kpiTotalTrailers">—</div>
             <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">Remorques</div>
           </div>
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid rgba(16,185,129,0.2); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:#10b981;" id="kpiActiveMissions">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">Missions</div>
+          </div>
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid rgba(139,92,246,0.2); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:#a78bfa;" id="kpiAutoMissions">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">🤖 Auto</div>
+          </div>
         </div>
 
         <!-- CHARTS ROW -->
@@ -1642,6 +1651,32 @@
             <i class="fa-solid fa-users" style="color:#3b82f6;"></i> Résumé Chauffeurs & Remorques
           </h4>
           <div id="chartDriverSummary" style="min-height:100px;"></div>
+        </div>
+
+        <!-- MORE ANALYTICS -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; margin-bottom:20px;">
+          <!-- Top Movers -->
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border);">
+            <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-ranking-star" style="color:#10b981;"></i> Top 5 Camions les plus Actifs
+            </h4>
+            <div id="chartTopMovers" style="min-height:160px;"></div>
+          </div>
+          <!-- Top Fuel Consumers -->
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border);">
+            <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-fire" style="color:#f97316;"></i> Top 5 Consommation Carburant
+            </h4>
+            <div id="chartTopFuel" style="min-height:160px;"></div>
+          </div>
+        </div>
+
+        <!-- Mission History Summary -->
+        <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border); margin-bottom:20px;">
+          <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-clipboard-list" style="color:#8b5cf6;"></i> Missions Récentes
+          </h4>
+          <div id="chartMissions" style="min-height:120px;"></div>
         </div>
       </div>
     </div>
@@ -3428,6 +3463,16 @@ window.addEventListener('unhandledrejection', function(e) {
         if (el('kpiTotalDrivers')) el('kpiTotalDrivers').textContent = driversNow.length;
         if (el('kpiTotalTrailers')) el('kpiTotalTrailers').textContent = trailersNow.length;
 
+        // Populate mission KPIs
+        try {
+          const mKpiRes = await fetch((window.FLEET_CONFIG?.API?.baseUrl || '') + '/api/fleet/history?status=active&eventType=mission_start&limit=200', { headers: DISPO_HEADERS() });
+          const mKpiData = await mKpiRes.json();
+          const activeMissList = Array.isArray(mKpiData) ? mKpiData : (mKpiData.history || []);
+          const autoCount = activeMissList.filter(m => (m.historyId || '').startsWith('AUTO-')).length;
+          if (el('kpiActiveMissions')) el('kpiActiveMissions').textContent = activeMissList.length;
+          if (el('kpiAutoMissions')) el('kpiAutoMissions').textContent = autoCount;
+        } catch(_) {}
+
         // ── Helper: render CSS bar chart ──
         function renderBarChart(containerId, data) {
           const container = el(containerId);
@@ -3539,6 +3584,106 @@ window.addEventListener('unhandledrejection', function(e) {
                 </div>
               </div>
             </div>`;
+        }
+
+        // ── Chart 6: Top 5 Most Active (highest speed) ──
+        const topMovers = [...trucks].filter(t => t.speed >= 1).sort((a,b) => b.speed - a.speed).slice(0, 5);
+        renderBarChart('chartTopMovers', topMovers.map(t => ({
+          label: t.name || 'Camion',
+          value: t.speed,
+          color: t.speed > (speedLimit || 85) ? '#ef4444' : '#10b981'
+        })));
+        if (!topMovers.length) {
+          const tmC = el('chartTopMovers');
+          if (tmC) tmC.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;"><i class="fa-solid fa-pause" style="font-size:24px; opacity:0.3; display:block; margin-bottom:8px;"></i>Aucun camion en mouvement actuellement</div>';
+        }
+
+        // ── Chart 7: Top 5 Fuel Consumers (lowest fuel %) ──
+        const topFuelLow = [...trucks].filter(t => t.fuelPercentage > 0).sort((a,b) => a.fuelPercentage - b.fuelPercentage).slice(0, 5);
+        if (topFuelLow.length) {
+          const tfC = el('chartTopFuel');
+          if (tfC) {
+            tfC.innerHTML = topFuelLow.map(t => {
+              const pct = t.fuelPercentage || 0;
+              const fc = pct <= 15 ? '#ef4444' : pct <= 30 ? '#f59e0b' : '#10b981';
+              return `<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                <span style="min-width:90px; font-size:11px; color:var(--text-secondary); font-weight:600; text-align:right;">${t.name}</span>
+                <div style="flex:1; background:var(--bg-surface); border-radius:6px; height:22px; overflow:hidden; border:1px solid var(--border); position:relative;">
+                  <div style="height:100%; width:${pct}%; background:${fc}; border-radius:6px;"></div>
+                  <span style="position:absolute; right:6px; top:3px; font-size:10px; color:var(--text-primary); font-weight:800;">${t.fuelLiters}L (${pct}%)</span>
+                </div>
+              </div>`;
+            }).join('');
+          }
+        } else {
+          const tfC = el('chartTopFuel');
+          if (tfC) tfC.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">Aucune donnée carburant</div>';
+        }
+
+        // ── Chart 8: Recent Missions (with auto-mission detection) ──
+        const missC = el('chartMissions');
+        if (missC) {
+          try {
+            const mRes = await fetch((window.FLEET_CONFIG?.API?.baseUrl || '') + '/api/fleet/history?limit=30', { headers: DISPO_HEADERS() });
+            const mData = await mRes.json();
+            const missions = Array.isArray(mData) ? mData : (mData.history || []);
+            
+            // Count auto vs manual missions
+            const autoMissions = missions.filter(m => (m.historyId || '').startsWith('AUTO-'));
+            const manualMissions = missions.filter(m => m.eventType === 'mission_start' && !(m.historyId || '').startsWith('AUTO-'));
+            const activeMissions = missions.filter(m => m.status === 'active' && m.eventType === 'mission_start');
+            const completedMissions = missions.filter(m => m.status === 'completed' && m.eventType === 'mission_start');
+
+            let missionsHeader = `
+              <div style="display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+                <span style="background:rgba(16,185,129,0.12); color:#10b981; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:800;">
+                  <i class="fa-solid fa-route"></i> En cours: ${activeMissions.length}
+                </span>
+                <span style="background:rgba(139,92,246,0.12); color:#a78bfa; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:800;">
+                  🤖 Auto: ${autoMissions.length}
+                </span>
+                <span style="background:rgba(59,130,246,0.12); color:#3b82f6; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:800;">
+                  📋 Manuelles: ${manualMissions.length}
+                </span>
+                <span style="background:rgba(100,116,139,0.12); color:#94a3b8; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:800;">
+                  ✅ Terminées: ${completedMissions.length}
+                </span>
+              </div>`;
+
+            if (missions.length) {
+              const evColors = { assignment: '#3b82f6', mission_start: '#10b981', mission_complete: '#8b5cf6', situation_change: '#f59e0b', driver_assignment: '#06b6d4', trailer_assignment: '#ec4899' };
+              missC.innerHTML = missionsHeader + `<div style="max-height:300px; overflow-y:auto;">` + missions.slice(0, 15).map(m => {
+                const dt = new Date(m.timestamp);
+                const timeStr = dt.toLocaleDateString('fr-FR', {day:'2-digit',month:'short'}) + ' ' + dt.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+                const evColor = evColors[m.eventType] || '#64748b';
+                const isAuto = (m.historyId || '').startsWith('AUTO-');
+                const statusIcon = m.status === 'active' ? '🟢' : m.status === 'completed' ? '✅' : m.status === 'cancelled' ? '❌' : '⏳';
+                return `<div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border);">
+                  <div style="width:8px; height:8px; border-radius:50%; background:${evColor}; flex-shrink:0;"></div>
+                  <div style="flex:1; min-width:0;">
+                    <div style="font-size:12px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:5px;">
+                      ${m.truckName || m.truckPlate || '—'}
+                      ${isAuto ? '<span style="background:rgba(139,92,246,0.15); color:#a78bfa; padding:1px 5px; border-radius:6px; font-size:8px; font-weight:800;">🤖 Auto</span>' : ''}
+                      <span style="font-size:9px; opacity:0.6;">${statusIcon}</span>
+                    </div>
+                    <div style="font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                      ${m.eventType === 'mission_start' ? '🚀 ' + (m.origin||'') + ' → ' + (m.destination||'') : 
+                        m.eventType === 'mission_complete' ? '✅ Mission terminée' :
+                        m.eventType === 'assignment' ? '🔗 Assignation' :
+                        m.eventType === 'driver_assignment' ? '👤 Chauffeur: ' + (m.driverName||'') :
+                        m.eventType === 'situation_change' ? '📋 Statut: ' + (m.notes||m.status||'') :
+                        (m.eventType || 'Événement')}
+                    </div>
+                  </div>
+                  <span style="font-size:10px; color:var(--text-muted); white-space:nowrap;">${timeStr}</span>
+                </div>`;
+              }).join('') + `</div>`;
+            } else {
+              missC.innerHTML = missionsHeader + '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">Aucune mission récente</div>';
+            }
+          } catch(e) {
+            missC.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">Erreur chargement missions</div>';
+          }
         }
 
       } catch (e) {

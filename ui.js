@@ -15235,6 +15235,8 @@ _naftalSortTable(tblId, colIdx) {
         this.updateDispoKPIs();
         this.populateDispoWilayas();
         this.renderDispoContent();
+        // Check for auto-detected missions and show prompts
+        this._checkAutoMissionNotifications().catch(() => {});
       }
     } catch (err) {
       console.warn('Erreur chargement suivi disponibilité:', err.message);
@@ -15461,66 +15463,87 @@ _naftalSortTable(tblId, colIdx) {
   }
 
   renderDispoCards(items, container) {
-    let html = `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;">`;
+    let html = `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:16px;">`;
     items.forEach(item => {
       const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
       const mission = item.activeMission;
+      const isMoving = item.speed >= 1;
+      let accentColor = '#64748b', accentGrad = 'linear-gradient(135deg,#334155,#475569)';
+      if (item.isGpsCut) { accentColor = '#ef4444'; accentGrad = 'linear-gradient(135deg,#991b1b,#dc2626)'; }
+      else if (isMoving) { accentColor = '#10b981'; accentGrad = 'linear-gradient(135deg,#059669,#10b981)'; }
+      else if (item.situation === 'maintenance') { accentColor = '#f59e0b'; accentGrad = 'linear-gradient(135deg,#d97706,#f59e0b)'; }
+      else if (item.situation === 'repos') { accentColor = '#8b5cf6'; accentGrad = 'linear-gradient(135deg,#7c3aed,#a78bfa)'; }
+      else { accentColor = '#3b82f6'; accentGrad = 'linear-gradient(135deg,#1d4ed8,#3b82f6)'; }
+      const fuelPct = item.fuelPercent || 0;
+      const fuelColor = fuelPct <= 15 ? '#ef4444' : fuelPct <= 30 ? '#f59e0b' : '#10b981';
+      const tn = (item.truckName||'').replace(/'/g, "\\'");
       html += `
-        <div style="background:var(--bg-surface); border:1px solid var(--border); border-top:3px solid ${item.situationColor}; border-radius:14px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.2);">
-          <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
-            <div>
-              <strong style="font-size:14px; color:var(--text-primary);">${item.truckName}</strong>
-              <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${item.immatriculation || 'Sans plaque'}</div>
+        <div style="background:var(--bg-surface); border:1px solid ${accentColor}30; border-radius:16px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.15); transition:transform 0.15s, box-shadow 0.15s;" onmouseover="this.style.transform='translateY(-3px)';this.style.boxShadow='0 10px 32px rgba(0,0,0,0.25)'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 20px rgba(0,0,0,0.15)'">
+          <div style="background:${accentGrad}; padding:12px 16px; display:flex; justify-content:space-between; align-items:center;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              ${isMoving ? '<span style="width:10px;height:10px;border-radius:50%;background:#fff;display:inline-block;box-shadow:0 0 8px rgba(255,255,255,0.8);animation:pulse 2s infinite;"></span>' : '<span style="width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.3);display:inline-block;"></span>'}
+              <div>
+                <div style="font-size:15px; font-weight:900; color:#fff; letter-spacing:-0.3px;">${item.truckName}</div>
+                <div style="font-size:10px; color:rgba(255,255,255,0.7); margin-top:1px; font-family:monospace;">${item.immatriculation || '\u2014'}</div>
+              </div>
             </div>
-            <span class="situation-badge ${item.situationBadge}">${item.situationLabel}</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="background:rgba(0,0,0,0.25); color:#fff; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:800;">${item.speed} km/h</span>
+              <a href="${mapsUrl}" target="_blank" style="background:rgba(0,0,0,0.25); color:#fff; padding:4px 8px; border-radius:8px; font-size:10px; text-decoration:none;" title="Google Maps"><i class="fa-solid fa-map-location-dot"></i></a>
+            </div>
           </div>
-          <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
-              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-user"></i> Chauffeur</span>
-              <span style="font-weight:700; color:var(--text-primary); text-align:right;">
-                ${item.driver ? `${item.driver.name} ${item.driver.phone ? `<br><a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:11px;"><i class="fa-solid fa-phone"></i> ${item.driver.phone}</a>` : ''}` : '<em style="color:var(--text-muted);">Non assigné</em>'}
-              </span>
+          <div style="padding:10px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+            <span class="situation-badge ${item.situationBadge}" style="font-size:11px;">${item.situationLabel}</span>
+            ${item.carteNaftal ? `<span style="background:rgba(56,189,248,0.1); color:#38bdf8; padding:2px 8px; border-radius:12px; font-size:10px; font-weight:700; font-family:monospace;"><i class="fa-solid fa-credit-card" style="font-size:8px;"></i> ${item.carteNaftal}</span>` : ''}
+          </div>
+          <div style="padding:14px 16px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+              <div style="background:var(--bg-elevated); border-radius:10px; padding:10px; border:1px solid var(--border);">
+                <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:4px;"><i class="fa-solid fa-user"></i> Chauffeur</div>
+                ${item.driver ? `<div style="font-weight:700; color:var(--primary); font-size:12px; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\'")}', '${item.driver.situation}')">${item.driver.name}</div>${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:10px; text-decoration:none; display:flex; align-items:center; gap:3px; margin-top:2px;"><i class="fa-solid fa-phone" style="font-size:8px;"></i> ${item.driver.phone}</a>` : ''}` : `<button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:3px 8px; font-size:10px; width:100%;"><i class="fa-solid fa-plus"></i> Assigner</button>`}
+              </div>
+              <div style="background:var(--bg-elevated); border-radius:10px; padding:10px; border:1px solid var(--border);">
+                <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:4px;"><i class="fa-solid fa-trailer"></i> Remorque</div>
+                ${item.trailer ? `<div style="font-weight:700; color:#c084fc; font-size:12px;">${item.trailer.immatriculation}</div><div style="font-size:10px; color:var(--text-muted); margin-top:1px;">${item.trailer.type || 'Plateau'}</div>` : `<div style="font-size:11px; color:var(--text-muted); font-style:italic;">Aucune</div>`}
+              </div>
             </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
-              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-trailer"></i> Remorque</span>
-              <span style="font-weight:700; color:#c084fc;">
-                ${item.trailer ? `${item.trailer.immatriculation} (${item.trailer.type || 'Plateau'})` : '<em style="color:var(--text-muted);">Aucune</em>'}
-              </span>
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:12px;">
+              <div style="text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px; border:1px solid var(--border);">
+                <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);">Odom\u00e8tre</div>
+                <div style="font-size:14px; font-weight:900; color:var(--text-primary); font-family:monospace; margin-top:2px;">${(item.odometer||0).toLocaleString()}</div>
+                <div style="font-size:8px; color:var(--text-muted);">km</div>
+              </div>
+              <div style="text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px; border:1px solid var(--border);">
+                <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);">Carburant</div>
+                <div style="font-size:14px; font-weight:900; color:${fuelColor}; font-family:monospace; margin-top:2px;">${item.fuelLiters||0}L</div>
+                <div style="height:3px; background:var(--bg-surface); border-radius:2px; margin-top:3px; overflow:hidden;"><div style="height:100%; width:${fuelPct}%; background:${fuelColor}; border-radius:2px;"></div></div>
+              </div>
+              <div style="text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px; border:1px solid var(--border);">
+                <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);">Position</div>
+                <div style="font-size:11px; font-weight:700; color:var(--text-primary); margin-top:4px; line-height:1.2;">${item.locationCity || 'En route'}</div>
+              </div>
             </div>
             ${mission ? `
-              <div style="background:rgba(56,189,248,0.08); padding:8px 10px; border-radius:8px; border:1px solid rgba(56,189,248,0.2);">
-                <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-route"></i> Trajet en cours</div>
-                <div style="font-weight:700; color:var(--primary); font-size:12px; margin-top:2px;">${mission.origin} → ${mission.destination}</div>
-                <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${mission.cargo || 'Fret'} ${mission.orderRef ? `· BL: ${mission.orderRef}` : ''}</div>
+              <div style="background:rgba(56,189,248,0.06); padding:10px 12px; border-radius:10px; border:1px solid rgba(56,189,248,0.15); margin-bottom:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                  <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span style="font-size:9px; text-transform:uppercase; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-route"></i> Mission en cours</span>
+                      ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(139,92,246,0.15); color:#a78bfa; padding:1px 6px; border-radius:8px; font-size:8px; font-weight:800;">🤖 Auto</span>' : ''}
+                    </div>
+                    <div style="font-weight:800; color:var(--primary); font-size:13px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${mission.origin} \u2192 ${mission.destination}</div>
+                    <div style="font-size:10px; color:var(--text-secondary); margin-top:2px;">${mission.cargo || 'Fret'} ${mission.orderRef ? '\u00b7 BL: ' + mission.orderRef : ''}</div>
+                  </div>
+                  <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${tn}')" style="padding:6px 12px; font-size:11px; color:#10b981; border-color:rgba(16,185,129,0.3); white-space:nowrap; margin-left:8px;">
+                    <i class="fa-solid fa-flag-checkered"></i> Terminer
+                  </button>
+                </div>
               </div>
             ` : ''}
-            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
-              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-location-dot"></i> Localisation</span>
-              <span style="font-weight:700; color:var(--text-primary);">${item.locationCity || 'En route'}</span>
-            </div>
-            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
-              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-gauge"></i> Vitesse & Carburant</span>
-              <span style="font-weight:700; color:var(--text-primary); font-family:var(--font-mono);">${item.speed} km/h · ${item.fuelLiters || 0}L</span>
-            </div>
-            <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
-              ${mission ? `
-                <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${item.truckName.replace(/'/g, "\\'")}')" style="flex:1; justify-content:center; padding:7px 10px; font-size:11px; color:#10b981; border-color:rgba(16,185,129,0.3);">
-                  <i class="fa-solid fa-flag-checkered"></i> Terminer
-                </button>
-              ` : `
-                <button class="btn-secondary" onclick="ui.openNewMissionModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:7px 10px; font-size:11px; color:#38bdf8; border-color:rgba(56,189,248,0.3);">
-                  <i class="fa-solid fa-route"></i> Mission
-                </button>
-              `}
-              <button class="btn-secondary" onclick="ui.openStatusModal('truck', '${item.deviceId}')" style="padding:7px 10px; font-size:11px; color:#ef4444; border-color:rgba(239,68,68,0.3);" title="Signaler statut / panne">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-              </button>
-              <button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:7px 10px; font-size:11px;" title="Assigner">
-                <i class="fa-solid fa-link"></i>
-              </button>
-              <a href="${mapsUrl}" target="_blank" class="btn-secondary" style="padding:7px 10px; font-size:11px; text-decoration:none;" title="GPS">
-                <i class="fa-solid fa-map-location-dot"></i>
-              </a>
+            <div style="display:flex; gap:6px;">
+              ${!mission ? `<button class="btn-secondary" onclick="ui.openNewMissionModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:8px; font-size:11px; color:#38bdf8; border-color:rgba(56,189,248,0.3); font-weight:700;"><i class="fa-solid fa-route"></i> Mission</button>` : ''}
+              <button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:8px; font-size:11px; font-weight:700;" title="Modifier"><i class="fa-solid fa-pen-to-square"></i> Modifier</button>
+              <button class="btn-secondary" onclick="ui.openStatusModal('truck', '${item.deviceId}')" style="padding:8px 10px; font-size:11px; color:#ef4444; border-color:rgba(239,68,68,0.3);" title="Signaler"><i class="fa-solid fa-triangle-exclamation"></i></button>
             </div>
           </div>
         </div>`;
@@ -15529,7 +15552,8 @@ _naftalSortTable(tblId, colIdx) {
     container.innerHTML = html;
   }
 
-  // ── MODALS: DRIVER CRUD ───────────────────────────────────────
+
+    // ── MODALS: DRIVER CRUD ───────────────────────────────────────
   async openAddDriverModal(driverId = null) {
     const modal = document.getElementById('modalAddDriver');
     if (!modal) return;
@@ -15780,6 +15804,16 @@ _naftalSortTable(tblId, colIdx) {
         await this.loadTruckDbCache();
         await this.fetchDisponibiliteData(false);
         this.renderTrucks();
+
+        // 🚀 Mission prompt: ask if this assignment change is a mission start
+        const isMission = confirm(
+          `✅ Assignation enregistrée pour ${payload.truckName || deviceId}.\n\n` +
+          `🚚 Souhaitez-vous lancer une mission pour ce camion ?\n` +
+          `(Destination, trajet et suivi automatique)`
+        );
+        if (isMission) {
+          await this.openNewMissionModal(deviceId);
+        }
       } else {
         alert('Erreur serveur lors de l\'assignation.');
       }
@@ -15972,6 +16006,9 @@ _naftalSortTable(tblId, colIdx) {
     if (elRef) elRef.value = '';
     if (elNotes) elNotes.value = '';
 
+    // Load destination autocomplete suggestions
+    this._loadDestinationSuggestions(elDest, elOrig);
+
     if (truckDeviceId) {
       this.onDispatchTruckChange(truckDeviceId);
     }
@@ -16067,6 +16104,196 @@ _naftalSortTable(tblId, colIdx) {
       }
     } catch (e) {
       alert('Erreur réseau: ' + e.message);
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════
+  // 🎯 DESTINATION AUTOCOMPLETE & AUTO-MISSION DETECTION UI
+  // ═════════════════════════════════════════════════════════════
+
+  async _loadDestinationSuggestions(destInput, origInput) {
+    if (!destInput) return;
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/saved-routes`, {
+        headers: { 'x-access-code': this.currentCode }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      this._savedRoutesData = data;
+
+      // Create datalist for destination autocomplete
+      let datalist = document.getElementById('_destSuggestionsList');
+      if (!datalist) {
+        datalist = document.createElement('datalist');
+        datalist.id = '_destSuggestionsList';
+        document.body.appendChild(datalist);
+      }
+      datalist.innerHTML = '';
+
+      // Add saved routes (most used first)
+      (data.savedRoutes || []).forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.destination;
+        opt.label = `⭐ ${r.destination} (${r.usageCount || 1}x)`;
+        datalist.appendChild(opt);
+      });
+
+      // Add client zones
+      (data.clientDestinations || []).forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.name;
+        opt.label = `🏢 ${c.name}`;
+        datalist.appendChild(opt);
+      });
+
+      // Add logistics hubs
+      (data.hubDestinations || []).slice(0, 20).forEach(h => {
+        const opt = document.createElement('option');
+        opt.value = h.name;
+        opt.label = `📍 ${h.name}`;
+        datalist.appendChild(opt);
+      });
+
+      destInput.setAttribute('list', '_destSuggestionsList');
+
+      // Also add datalist for origin
+      if (origInput) {
+        let origDatalist = document.getElementById('_origSuggestionsList');
+        if (!origDatalist) {
+          origDatalist = document.createElement('datalist');
+          origDatalist.id = '_origSuggestionsList';
+          document.body.appendChild(origDatalist);
+        }
+        origDatalist.innerHTML = '';
+        // Origins from saved routes
+        const origins = new Set();
+        (data.savedRoutes || []).forEach(r => origins.add(r.origin));
+        origins.forEach(o => {
+          const opt = document.createElement('option');
+          opt.value = o;
+          origDatalist.appendChild(opt);
+        });
+        // Add DED bases
+        (data.clientDestinations || []).filter(c => c.name.toLowerCase().includes('base') || c.name.toLowerCase().includes('ded')).forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.name;
+          origDatalist.appendChild(opt);
+        });
+        origInput.setAttribute('list', '_origSuggestionsList');
+      }
+
+      // Auto-fill destination from saved route when origin + truck are known
+      if (destInput && origInput) {
+        origInput.addEventListener('change', () => {
+          const originVal = origInput.value.trim().toLowerCase();
+          if (!originVal) return;
+          const matchRoute = (data.savedRoutes || []).find(r => r.origin.toLowerCase() === originVal);
+          if (matchRoute && !destInput.value) {
+            destInput.value = matchRoute.destination;
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('[AutoComplete] Failed to load destinations:', e.message);
+    }
+  }
+
+  /**
+   * Show auto-mission prompt when an auto-detected mission is created.
+   * Called periodically from fetchDisponibiliteData.
+   */
+  async _checkAutoMissionNotifications() {
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/auto-missions/state`, {
+        headers: { 'x-access-code': this.currentCode }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.states) return;
+
+      // Track which notifications we already showed
+      if (!this._autoMissionNotified) this._autoMissionNotified = new Set();
+
+      for (const [deviceId, state] of Object.entries(data.states)) {
+        if ((state.phase === 'at_destination' || state.phase === 'en_mission') && state.isAuto && state.missionId) {
+          if (this._autoMissionNotified.has(state.missionId)) continue;
+          this._autoMissionNotified.add(state.missionId);
+
+          // Show notification toast with confirm/reject actions
+          const truckItem = (this._dispoData?.items || []).find(t => String(t.deviceId) === deviceId);
+          const truckLabel = truckItem?.truckName || deviceId;
+          const dest = state.clientName ? `${state.clientName}${state.finalClientName ? ' (' + state.finalClientName + ')' : ''}` : state.zoneName;
+
+          this._showAutoMissionPrompt(deviceId, state.missionId, truckLabel, dest);
+        }
+      }
+    } catch (_) {}
+  }
+
+  _showAutoMissionPrompt(deviceId, missionId, truckLabel, dest) {
+    // Create a floating notification for auto-mission confirmation
+    const existing = document.getElementById(`auto-mission-${missionId}`);
+    if (existing) return;
+
+    const notif = document.createElement('div');
+    notif.id = `auto-mission-${missionId}`;
+    notif.style.cssText = `
+      position: fixed; bottom: 80px; right: 20px; z-index: 99999;
+      background: var(--bg-elevated, #1e293b); border: 2px solid var(--primary, #10b981);
+      border-radius: 16px; padding: 16px 20px; min-width: 320px; max-width: 400px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4); animation: slideInRight 0.3s ease;
+      font-family: inherit; color: var(--text-primary, #e2e8f0);
+    `;
+    notif.innerHTML = `
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+        <span style="font-size:24px;">🚀</span>
+        <div>
+          <div style="font-weight:700; font-size:14px;">Mission Auto-Détectée</div>
+          <div style="font-size:12px; opacity:0.7;">${truckLabel}</div>
+        </div>
+      </div>
+      <div style="font-size:13px; margin-bottom:12px; padding:8px 10px; background:rgba(16,185,129,0.1); border-radius:8px; border-left:3px solid var(--primary, #10b981);">
+        📍 Destination: <strong>${dest}</strong>
+      </div>
+      <div style="font-size:12px; opacity:0.7; margin-bottom:12px;">
+        Le camion a été détecté près d'une zone client. Cette mission est-elle correcte ?
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button onclick="ui._confirmAutoMission('${deviceId}', '${missionId}', true, this.parentElement.parentElement)" style="
+          flex:1; padding:8px; border:none; border-radius:8px; cursor:pointer;
+          background:linear-gradient(135deg, #10b981, #059669); color:white; font-weight:600; font-size:12px;
+        ">✅ Confirmer</button>
+        <button onclick="ui._confirmAutoMission('${deviceId}', '${missionId}', false, this.parentElement.parentElement)" style="
+          flex:1; padding:8px; border:none; border-radius:8px; cursor:pointer;
+          background:rgba(239,68,68,0.2); color:#ef4444; font-weight:600; font-size:12px; border:1px solid rgba(239,68,68,0.3);
+        ">❌ Rejeter</button>
+        <button onclick="this.parentElement.parentElement.remove()" style="
+          padding:8px 12px; border:none; border-radius:8px; cursor:pointer;
+          background:rgba(100,116,139,0.2); color:var(--text-secondary, #94a3b8); font-size:12px;
+        ">✕</button>
+      </div>
+    `;
+    document.body.appendChild(notif);
+
+    // Auto-dismiss after 60 seconds
+    setTimeout(() => { if (notif.parentElement) notif.remove(); }, 60000);
+  }
+
+  async _confirmAutoMission(deviceId, missionId, confirmed, notifEl) {
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/auto-missions/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify({ deviceId, missionId, confirmed })
+      });
+      if (res.ok) {
+        const action = confirmed ? 'confirmée' : 'rejetée';
+        if (typeof showToast === 'function') showToast(`Mission ${action} avec succès !`, confirmed ? 'success' : 'info');
+        if (notifEl) notifEl.remove();
+        await this.fetchDisponibiliteData(false);
+      }
+    } catch (e) {
+      console.error('[AutoMission] Confirm error:', e.message);
     }
   }
 
