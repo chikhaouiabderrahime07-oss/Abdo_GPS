@@ -3233,7 +3233,7 @@ renderDecouchageList() {
           if (otherButton) otherButton.disabled = true;
           const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/refuels/rebuild-bulk`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', 'x-access-code': localStorage.getItem('fleetAccessCode') || this.currentCode || '' },
               body: JSON.stringify({
                   start: `${start} 00:00:00`,
                   end: `${end} 23:59:59`,

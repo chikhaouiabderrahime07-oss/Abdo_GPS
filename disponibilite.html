@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Suivi Disponibilité & Itinéraires Chauffeurs — Douroub El Djazair</title>
+  <title>Suivi Transport & Itinéraires Chauffeurs — Douroub El Djazair</title>
   <meta name="description" content="Tableau de bord de disponibilité temps réel de la flotte, chauffeurs, remorques, suivi des destinations, cartographie des itinéraires et historique des rotations. SPA Douroub El Djazair.">
   
   <!-- Google Fonts -->
@@ -1019,6 +1019,19 @@
     let historyEntries = [];
     let pollInterval = null;
 
+    // Auth helper - read access code from URL params, localStorage, or default
+    const ACCESS_CODE = new URLSearchParams(window.location.search).get('code') 
+      || localStorage.getItem('fleetAccessCode') 
+      || 'Douroub_2025_Admin_Secure';
+
+    function authHeaders(extra = {}) {
+      return { 'x-access-code': ACCESS_CODE, ...extra };
+    }
+    function authFetch(url, opts = {}) {
+      opts.headers = authHeaders(opts.headers || {});
+      return fetch(url, opts);
+    }
+
     // Leaflet map instances
     let leafletMap = null;
     let mapMarkers = [];
@@ -1038,10 +1051,10 @@
     async function fetchAvailability() {
       try {
         const [resAvail, resDrivers, resTrailers, resHubs] = await Promise.all([
-          fetch('/api/fleet/availability'),
-          fetch('/api/drivers'),
-          fetch('/api/trailers'),
-          fetch('/api/fleet/hubs')
+          authFetch('/api/fleet/availability'),
+          authFetch('/api/drivers'),
+          authFetch('/api/trailers'),
+          authFetch('/api/fleet/hubs')
         ]);
 
         if (resAvail.ok) {
@@ -1495,7 +1508,7 @@
     // ── ROTATIONS & ASSIGNMENT HISTORY MODULE ─────────────────────
     async function loadHistoryData() {
       try {
-        const res = await fetch('/api/fleet/history?limit=300');
+        const res = await authFetch('/api/fleet/history?limit=300');
         if (res.ok) {
           const json = await res.json();
           historyEntries = json.items || [];
@@ -1547,7 +1560,7 @@
       else if (historyTab === 'trailer') url += `trailerPlate=${encodeURIComponent(val)}`;
 
       try {
-        const res = await fetch(url);
+        const res = await authFetch(url);
         if (res.ok) {
           const json = await res.json();
           historyEntries = json.items || [];
@@ -1714,7 +1727,7 @@
       }
 
       try {
-        const res = await fetch('/api/fleet/missions', {
+        const res = await authFetch('/api/fleet/missions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1817,7 +1830,7 @@
       }
 
       try {
-        const res = await fetch(url, {
+        const res = await authFetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)

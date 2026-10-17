@@ -44,11 +44,12 @@
   }
     /* Bridge: Legacy class compatibility shim */
     .controls-section { 
-      background: var(--bg-surface); 
+      background: linear-gradient(135deg, var(--bg-surface) 0%, rgba(17,24,39,0.92) 100%); 
       padding: var(--sp-6); 
       border-radius: var(--radius-xl); 
       border: 1px solid var(--border); 
-      margin-bottom: var(--sp-6); 
+      margin-bottom: var(--sp-6);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
     }
     .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
     .form-group label { font-size: var(--text-xs); font-weight: var(--weight-bold); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -205,26 +206,33 @@
       background: var(--bg-surface); padding: 12px 20px; border-radius: var(--radius-xl);
       border: 1px solid var(--border-primary); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
 
-    /* Compact nav breakpoint */
-    @media (max-width: 1440px) {
-      .tab-button { padding: 6px 8px; font-size: 0; gap: 0; }
-      .tab-button i { font-size: 14px; }
-      .btn-dashboard { font-size: var(--text-xs) !important; padding: 6px 12px !important; }
+    /* Compact nav breakpoint — icon-only below 1100px */
+    @media (max-width: 1100px) {
+      .tab-button { padding: 7px 10px; font-size: 0; gap: 0; min-width: 38px; justify-content: center; }
+      .tab-button i { font-size: 15px; }
+      .btn-dashboard { font-size: var(--text-xs) !important; padding: 7px 14px !important; }
       .nav-group { padding: 2px 3px; margin-right: 4px; }
     }
+    /* Compact text — show labels between 1100-1440px */
+    @media (min-width: 1101px) and (max-width: 1440px) {
+      .tab-button { padding: 7px 10px; font-size: var(--text-xs); gap: 5px; }
+      .tab-button i { font-size: 13px; }
+      .nav-group { padding: 2px 4px; margin-right: 5px; }
+    }
     @media (min-width: 1441px) {
-      .tab-button { padding: 7px 12px; font-size: var(--text-sm); }
+      .tab-button { padding: 8px 14px; font-size: var(--text-sm); }
     }
 
     /* Dashboard-specific button overrides */
-    .btn-dashboard { background: var(--bg-surface) !important; color: var(--text-primary) !important; 
-      box-shadow: var(--shadow-sm); margin-right: 10px; padding: var(--sp-2) var(--sp-4); border: 1px solid var(--border-primary) !important; }
-    .btn-dashboard i { color: var(--primary) !important; }
-    .btn-dashboard:hover { background: var(--bg-hover) !important; }
-    .btn-dashboard.active { outline: 2px solid var(--primary); outline-offset: 1px; background: var(--primary-subtle) !important; }
-    .btn-calc.active { background: var(--warning-subtle); color: var(--warning); }
-    .btn-history.active { background: var(--danger-subtle) !important; color: var(--danger) !important; }
-    .btn-admin.active { background: var(--info-glow); color: var(--info); }
+    .btn-dashboard { background: linear-gradient(135deg, var(--bg-elevated), var(--bg-surface)) !important; color: var(--text-primary) !important; 
+      box-shadow: var(--shadow-md); margin-right: 10px; padding: var(--sp-2) var(--sp-4); border: 1px solid var(--border-primary) !important; font-weight: 700 !important; }
+    .btn-dashboard i { color: var(--primary) !important; font-size: 1.1rem !important; }
+    .btn-dashboard:hover { background: linear-gradient(135deg, var(--primary-subtle), var(--bg-surface)) !important; border-color: var(--primary) !important; box-shadow: 0 4px 16px rgba(56,189,248,0.25); }
+    .btn-dashboard.active { background: linear-gradient(135deg, var(--primary), var(--primary-dark)) !important; color: #fff !important; border-color: transparent !important; box-shadow: 0 6px 24px rgba(56,189,248,0.35); outline: none; }
+    .btn-dashboard.active i { color: #fff !important; }
+    .btn-calc.active { background: var(--warning-subtle); color: var(--warning); border-color: rgba(245,158,11,0.3) !important; }
+    .btn-history.active { background: var(--danger-subtle) !important; color: var(--danger) !important; border-color: rgba(239,68,68,0.3) !important; }
+    .btn-admin.active { background: var(--info-glow); color: var(--info); border-color: rgba(139,92,246,0.3) !important; }
     .btn-audit { border: 1.5px solid var(--success); color: var(--success); background: var(--success-subtle); }
     .btn-audit:hover { background: rgba(16,185,129,0.15) !important; }
     .btn-audit.active { background: rgba(16,185,129,0.15); }
@@ -860,7 +868,7 @@
       <!-- Theme Toggle -->
       <button class="theme-toggle-btn" id="themeToggleBtn" onclick="toggleTheme()" title="Basculer thème clair/sombre" style="width:auto;height:38px;padding:0 12px;gap:8px;display:inline-flex;align-items:center;border-radius:var(--radius-lg);cursor:pointer;">
         <i class="theme-icon fa-solid fa-moon" id="themeIcon"></i>
-        <span id="themeToggleLabel" style="font-size:11px;font-weight:600;white-space:nowrap;">( dark theme or white theme swap )</span>
+        <span id="themeToggleLabel" style="font-size:11px;font-weight:600;white-space:nowrap;">Thème</span>
       </button>
 
       <!-- Notification Bell -->
@@ -892,7 +900,7 @@
       <!-- 🚖 Disponibilité (Prominent & Real-time) -->
       <div class="nav-group group-disponibilite">
           <button class="tab-button" data-tab="disponibiliteSection" onclick="switchTab('disponibiliteSection')" style="background:linear-gradient(135deg, rgba(14,165,233,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(14,165,233,0.3); font-weight:700;">
-              <i class="fa-solid fa-user-check" style="color:var(--primary);"></i> Suivi Disponibilité
+              <i class="fa-solid fa-truck-moving" style="color:var(--primary);"></i> Suivi Transport
           </button>
       </div>
 
@@ -996,17 +1004,17 @@
     </div>
 
     <!-- ============================================================= -->
-    <!-- 🚖 SUIVI DISPONIBILITÉ (CHAUFFEURS, REMORQUES & SITUATION LIVE) -->
+    <!-- 🚖 SUIVI TRANSPORT (CHAUFFEURS, REMORQUES & SITUATION LIVE) -->
     <!-- ============================================================= -->
     <div id="disponibiliteSection" class="tab-content">
       <div class="controls-section" style="margin-bottom: 20px;">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
           <div>
             <h2 style="color: var(--primary); margin:0; display:flex; align-items:center; gap:10px;">
-              <i class="fa-solid fa-user-check"></i> Suivi de la Disponibilité de la Flotte
+              <i class="fa-solid fa-truck-moving"></i> Suivi Transport — Gestion de la Flotte
             </h2>
             <p style="margin:4px 0 0 0; color:var(--text-secondary); font-size:13px;">
-              Statut opérationnel en temps réel des camions, chauffeurs assignés et remorques attelées.
+              Suivi opérationnel en temps réel: camions, chauffeurs, remorques, missions et itinéraires.
             </p>
           </div>
           <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -1206,7 +1214,7 @@
                 Fleet Tracker
               </div>
               <button onclick="window.AlgeriaMap.togglePanel()" style="background:rgba(255,255,255,0.06);border:none;color:#94a3b8;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;" data-tooltip="Masquer panneau">
-                <i class="fa-solid fa-panel-ement-left" id="panelToggleIcon"></i><i class="fa-solid fa-chevron-left" id="panelToggleIcon2"></i>
+                <i class="fa-solid fa-bars" id="panelToggleIcon"></i><i class="fa-solid fa-chevron-left" id="panelToggleIcon2"></i>
               </button>
             </div>
             <!-- Search -->
@@ -1754,7 +1762,7 @@
             <div style="display:flex; gap:12px; align-items:center;">
                 <input type="date" id="speedHistoryDateFilter" onchange="ui.loadSpeedHistory()" style="font-size:12px; padding:4px 8px; border:1px solid var(--border); border-radius:4px; background:var(--bg-surface); color:var(--text-primary);">
                 <div style="display:flex; background:var(--bg-surface); border:1px solid var(--border); border-radius:6px; padding:2px;">
-                    <button id="speedViewCardsBtn" onclick="ui.setSpeedHistoryView('cards')" class="active" style="border:none; background:var(--bg-elevated); padding:4px 8px; border-radius:4px; cursor:pointer; color:var(--text-primary);" title="Vue Cartes"><i class="fa-solid fa-grid-2"></i></button>
+                    <button id="speedViewCardsBtn" onclick="ui.setSpeedHistoryView('cards')" class="active" style="border:none; background:var(--bg-elevated); padding:4px 8px; border-radius:4px; cursor:pointer; color:var(--text-primary);" title="Vue Cartes"><i class="fa-solid fa-table-cells-large"></i></button>
                     <button id="speedViewTableBtn" onclick="ui.setSpeedHistoryView('table')" style="border:none; background:none; padding:4px 8px; border-radius:4px; cursor:pointer; color:var(--text-muted);" title="Vue Tableau"><i class="fa-solid fa-list"></i></button>
                 </div>
                 <button onclick="ui.loadSpeedHistory()" style="background:none; border:none; color:var(--text-muted); cursor:pointer;" title="Rafraîchir l'historique"><i class="fa-solid fa-sync"></i></button>
@@ -2314,7 +2322,7 @@
             <div class="form-group"><label>Intervalle Temporel (mois)</label><input type="number" id="intFreinsMois" placeholder="12" value="12" style="border:1.5px solid var(--border-primary);"></div>
           </div>
           <div style="background:var(--bg-surface);border:1px solid var(--border-primary);border-radius:10px;padding:16px;">
-            <div style="font-weight:700;color:#0891b2;margin-bottom:12px;font-size:13px;"><i class="fa-solid fa-tire"></i> Pneumatiques</div>
+            <div style="font-weight:700;color:#0891b2;margin-bottom:12px;font-size:13px;"><i class="fa-solid fa-circle-dot"></i> Pneumatiques</div>
             <div class="form-group"><label>Intervalle Kilométrique (km)</label><input type="number" id="intPneuKm" placeholder="50000" value="50000" style="border:1.5px solid var(--border-primary);"></div>
             <div class="form-group"><label>Intervalle Temporel (mois)</label><input type="number" id="intPneuMois" placeholder="18" value="18" style="border:1.5px solid var(--border-primary);"></div>
           </div>
@@ -2343,7 +2351,7 @@
       <div id="notifPrefsPanel" style="display: none; margin-top: 12px;">
         <div id="notifPrefsList" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;"></div>
         <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
-          <div style="font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;"><i class="fa-solid fa-parking" style="color:#f97316;margin-right:5px;"></i>Alertes Immobilisation</div>
+          <div style="font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;"><i class="fa-solid fa-square-parking" style="color:#f97316;margin-right:5px;"></i>Alertes Immobilisation</div>
           <div id="immobilRulesList" style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px;"></div>
           <button onclick="ui.openImmobilRuleEditor()" style="width:100%;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.3);color:#f97316;border-radius:8px;padding:8px;font-size:12px;font-weight:700;cursor:pointer;"><i class="fa-solid fa-plus" style="margin-right:5px;"></i>Nouvelle regle immobilisation</button>
         </div>

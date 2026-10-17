@@ -9795,6 +9795,14 @@ async function runMidnightValidator() {
     // Run the incremental backup immediately after the sweep finishes and DB is clean
     await runDailyBackup();
 
+    // ⛽ Force nightly refuel full rescan after midnight sweep
+    try {
+      console.log('[MidnightValidator] ⛽ STEP 6: Nightly refuel reconciliation (forced)...');
+      const refuelSummary = await runNightlyRefuelReconciliation(true);
+      console.log(`[MidnightValidator] ⛽ Refuel reconcile: +${refuelSummary.totalCreated || 0} created, ${refuelSummary.totalDeleted || 0} purged, ${refuelSummary.totalDuplicatesDeleted || 0} dupes removed`);
+    } catch (refuelErr) {
+      console.error('[MidnightValidator] ⛽ Refuel reconcile error:', refuelErr.message);
+    }
 
   } catch(fatalErr) {
     midnightState.isRunning = false;
@@ -9840,7 +9848,7 @@ if (process.env.NODE_ENV !== 'production' && !process.env.RENDER) {
 app.post('/api/naftal/auth', async (req, res) => {
     try {
         const { section, password } = req.body;
-        if (!section || !password) return res.status(400).json({ error: 'Section and password required' });
+        if (!section) return res.status(400).json({ error: 'Section required' });
         
         const settings = SYSTEM_SETTINGS || {};
         const naftalConfig = settings.naftalManagement || {};
