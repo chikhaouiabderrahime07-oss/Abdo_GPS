@@ -71,6 +71,12 @@ const TruckSchema = new mongoose.Schema({
   chassisNumber: String,       // Numéro de châssis
   immatriculation: String,     // Plaque d'immatriculation
   carteNaftal: String,         // Carte Naftal (fuel card number)
+  trailer: String,             // Remorque attelée (immatriculation ou code)
+  trailerType: String,         // Type de remorque (Citerne, Plateau, Benne, etc.)
+  driverId: String,            // ID chauffeur assigné
+  driverName: String,          // Nom chauffeur assigné
+  driverPhone: String,         // Téléphone chauffeur assigné
+  situation: String,           // Situation opérationnelle (disponible, mission, repos, etc.)
   lastUpdate: Number,
   lastFuelLiters: Number,
   lastFuelPercent: Number,
@@ -243,6 +249,97 @@ const VehicleReferenceSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 const VehicleReference = mongoose.model('VehicleReference', VehicleReferenceSchema);
+
+// ✅ DRIVER, TRAILER & FLEET ASSIGNMENT HISTORY SCHEMAS (Suivi Disponibilité, Missions & Gestion Flotte)
+const DriverSchema = new mongoose.Schema({
+  driverId: { type: String, unique: true, index: true },
+  name: { type: String, required: true, index: true },
+  phone: String,
+  licenseNumber: String,
+  licenseCategory: { type: String, default: 'EC' },
+  licenseExpiry: String,
+  situation: { 
+    type: String, 
+    enum: ['disponible', 'mission', 'repos', 'recup', 'conge', 'maladie', 'formation', 'sans_camion', 'suspendu'],
+    default: 'disponible' 
+  },
+  assignedTruckDeviceId: String,
+  assignedTruckName: String,
+  assignedTrailer: String,
+  currentOrigin: String,
+  currentDestination: String,
+  currentCargo: String,
+  currentMissionId: String,
+  notes: String,
+  statusUpdatedAt: { type: Date, default: Date.now }
+}, { timestamps: true });
+const Driver = mongoose.model('Driver', DriverSchema);
+
+const TrailerSchema = new mongoose.Schema({
+  trailerId: { type: String, unique: true, index: true },
+  immatriculation: { type: String, required: true, index: true },
+  type: { type: String, default: 'Plateau' },
+  brand: String,
+  capacity: String,
+  status: { 
+    type: String, 
+    enum: ['attele', 'disponible', 'mission', 'chargement', 'maintenance', 'hors_service', 'panne', 'reserve'],
+    default: 'disponible' 
+  },
+  attachedTruckDeviceId: String,
+  attachedTruckName: String,
+  currentLocation: String,
+  lastAttachedDriverName: String,
+  notes: String
+}, { timestamps: true });
+const Trailer = mongoose.model('Trailer', TrailerSchema);
+
+const FleetAssignmentHistorySchema = new mongoose.Schema({
+  historyId: { type: String, unique: true, index: true },
+  timestamp: { type: Date, default: Date.now, index: true },
+  startDate: { type: Date, default: Date.now },
+  endDate: { type: Date, default: null },
+  eventType: { 
+    type: String, 
+    enum: ['assignment', 'swap_driver', 'swap_truck', 'swap_trailer', 'unassign', 'mission_start', 'mission_complete', 'status_change'],
+    default: 'assignment',
+    index: true
+  },
+  // Truck
+  truckDeviceId: { type: String, index: true },
+  truckName: String,
+  truckPlate: String,
+  // Driver
+  driverId: { type: String, index: true },
+  driverName: String,
+  driverPhone: String,
+  // Trailer
+  trailerId: { type: String, index: true },
+  trailerPlate: String,
+  trailerType: String,
+  // Route / Mission
+  origin: String,
+  originCoords: { lat: Number, lng: Number },
+  destination: String,
+  destCoords: { lat: Number, lng: Number },
+  cargo: String,
+  orderRef: String,
+  startOdometer: Number,
+  endOdometer: Number,
+  distanceKm: Number,
+  status: { 
+    type: String, 
+    enum: ['active', 'completed', 'swapped', 'cancelled'],
+    default: 'active',
+    index: true
+  },
+  notes: String,
+  performedBy: { type: String, default: 'Admin' }
+}, { timestamps: true });
+FleetAssignmentHistorySchema.index({ driverId: 1, timestamp: -1 });
+FleetAssignmentHistorySchema.index({ truckDeviceId: 1, timestamp: -1 });
+FleetAssignmentHistorySchema.index({ trailerPlate: 1, timestamp: -1 });
+const FleetAssignmentHistory = mongoose.model('FleetAssignmentHistory', FleetAssignmentHistorySchema);
 
 const TransportReportEntrySchema = new mongoose.Schema({
   truckName: String, inputTruckName: String, deviceId: String,
@@ -1463,18 +1560,27 @@ async function acknowledgeVidange(deviceId, truckName, odometerKm, date = null, 
 }
 
 
-const fmt = (list) => list.map(d => {
-  const o = d.toObject ? d.toObject() : d;
-  o.id = (o._id || '').toString();
-  if (o.lat) o.lat = parseFloat(o.lat);
-  if (o.lng) o.lng = parseFloat(o.lng);
-  if (o.locationAtMidnight) {
-    o.locationAtMidnight.lat = parseFloat(o.locationAtMidnight.lat);
-    o.locationAtMidnight.lng = parseFloat(o.locationAtMidnight.lng);
-  }
-  delete o._id;
-  return o;
-});
+const fmt = (list) => {
+  if (!list) return list;
+  const isSingle = !Array.isArray(list);
+  const arr = isSingle ? [list] : list;
+  const formatted = arr.map(d => {
+    if (!d) return d;
+    const o = d.toObject ? d.toObject() : (typeof d === 'object' ? { ...d } : d);
+    if (typeof o === 'object') {
+      o.id = (o._id || o.id || '').toString();
+      o._id = o.id; // Preserve _id so both .id and ._id are accessible everywhere
+      if (o.lat !== undefined && o.lat !== null) o.lat = parseFloat(o.lat);
+      if (o.lng !== undefined && o.lng !== null) o.lng = parseFloat(o.lng);
+      if (o.locationAtMidnight) {
+        if (o.locationAtMidnight.lat !== undefined && o.locationAtMidnight.lat !== null) o.locationAtMidnight.lat = parseFloat(o.locationAtMidnight.lat);
+        if (o.locationAtMidnight.lng !== undefined && o.locationAtMidnight.lng !== null) o.locationAtMidnight.lng = parseFloat(o.locationAtMidnight.lng);
+      }
+    }
+    return o;
+  });
+  return isSingle ? formatted[0] : formatted;
+};
 
 function toDateOrNull(value) {
   if (!value) return null;
@@ -1567,12 +1673,22 @@ async function saveSettings() {
 function parseGpsDateTimeFlexible(value) {
   if (value instanceof Date) return value.getTime();
   if (typeof value === 'number') return value < 1e12 ? value * 1000 : value;
-  const text = String(value || '').trim();
+  let text = String(value || '').trim();
+  if (!text) return NaN;
+  try {
+    while (text.includes('%')) {
+      const decoded = decodeURIComponent(text);
+      if (decoded === text) break;
+      text = decoded;
+    }
+  } catch (_) {}
+  text = text.replace(/\+/g, ' ').trim();
   if (!text) return NaN;
   if (/^\d{13}$/.test(text)) return parseInt(text, 10);
   if (/^\d{10}$/.test(text)) return parseInt(text, 10) * 1000;
 
-  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  // YYYY-MM-DD or YYYY-MM-DD HH:mm(:ss)
+  let match = text.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
   if (match) {
     // The GPS API strings are in Algeria Local Time (UTC+1).
     // We treat the string parts as UTC, then subtract 1 hour (3,600,000 ms) 
@@ -1581,21 +1697,22 @@ function parseGpsDateTimeFlexible(value) {
       Number(match[1]),
       Number(match[2]) - 1,
       Number(match[3]),
-      Number(match[4]),
-      Number(match[5]),
+      Number(match[4] || 0),
+      Number(match[5] || 0),
       Number(match[6] || 0)
     );
     return algMs - 3600000; // Convert Algeria time (UTC+1) back to pure UTC ms
   }
 
-  match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  // DD/MM/YYYY or DD/MM/YYYY HH:mm(:ss)
+  match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
   if (match) {
     const algMs = Date.UTC(
       Number(match[3]),
       Number(match[2]) - 1,
       Number(match[1]),
-      Number(match[4]),
-      Number(match[5]),
+      Number(match[4] || 0),
+      Number(match[5] || 0),
       Number(match[6] || 0)
     );
     return algMs - 3600000; // Convert Algeria time (UTC+1) back to pure UTC ms
@@ -3470,15 +3587,22 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     // ✅ If the entry is a Vidange (or updated to Vidange), synchronize vidangeOverrides
     let ackResult = null;
     try {
-      const isVidange = doc.type === 'Vidange' || doc.type === 'Vidange Complète';
-      if (isVidange && doc.deviceId && doc.odometer) {
-        ackResult = await acknowledgeVidange(
-          doc.deviceId,
-          doc.truckName,
-          parseInt(doc.odometer, 10),
-          doc.date,
-          doc.note
-        );
+      const isVidange = doc.type && doc.type.toLowerCase().includes('vidange');
+      if (isVidange && doc.deviceId) {
+        let odoToAck = parseInt(doc.odometer, 10) || 0;
+        if (odoToAck <= 0) {
+          const truckRec = await Truck.findOne({ deviceId: doc.deviceId }).lean();
+          if (truckRec && truckRec.odometer) odoToAck = parseInt(truckRec.odometer, 10) || 0;
+        }
+        if (odoToAck > 0) {
+          ackResult = await acknowledgeVidange(
+            doc.deviceId,
+            doc.truckName,
+            odoToAck,
+            doc.date,
+            doc.note
+          );
+        }
       }
     } catch (e) {
       console.warn('Vidange acknowledge (update) failed:', e.message);
@@ -3486,6 +3610,8 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
 
     res.json({
       success: true,
+      entry: fmt([doc])[0],
+      vidangeAcknowledged: !!ackResult,
       vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
       vidangeStatus: ackResult?.vidangeStatus || null
     });
@@ -3534,26 +3660,64 @@ app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
   }
 });
 
-// ✅ NEW: Get all trucks from DB with their metadata (chassis, imm, carte naftal)
+// ✅ NEW: Get all trucks from DB with their metadata (chassis, imm, carte naftal, trailer, driver, situation)
 app.get('/api/trucks/db', checkAccess, async (req, res) => {
   try {
-    const trucks = await Truck.find({}, 'deviceId truckName chassisNumber immatriculation carteNaftal lastFuelLiters lastFuelPercent lat lng speed lastUpdate').sort({ truckName: 1 });
+    const trucks = await Truck.find({}, 'deviceId truckName chassisNumber immatriculation carteNaftal trailer trailerType driverId driverName driverPhone situation lastFuelLiters lastFuelPercent lat lng speed lastUpdate').sort({ truckName: 1 });
     res.json(fmt(trucks));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ✅ FIX: Update truck metadata — now uses upsert so it works even if truck isn't in DB yet
 app.post('/api/trucks/update-info', checkAccess, async (req, res) => {
   try {
-    const { deviceId, truckName, chassisNumber, immatriculation, carteNaftal } = req.body;
+    const { deviceId, truckName, chassisNumber, immatriculation, carteNaftal, trailer, trailerType, driverId, driverName, driverPhone, situation } = req.body;
     if (!deviceId && !truckName) return res.status(400).json({ error: 'deviceId ou truckName requis' });
     const filter = deviceId ? { deviceId: String(deviceId) } : { truckName: String(truckName) };
     const update = {};
     if (chassisNumber !== undefined) update.chassisNumber = chassisNumber;
     if (immatriculation !== undefined) update.immatriculation = immatriculation;
     if (carteNaftal !== undefined) update.carteNaftal = carteNaftal;
+    if (trailer !== undefined) update.trailer = trailer;
+    if (trailerType !== undefined) update.trailerType = trailerType;
+    if (driverId !== undefined) update.driverId = driverId;
+    if (driverName !== undefined) update.driverName = driverName;
+    if (driverPhone !== undefined) update.driverPhone = driverPhone;
+    if (situation !== undefined) update.situation = situation;
     if (truckName) update.truckName = truckName;
     if (deviceId) update.deviceId = String(deviceId);
     const truck = await Truck.findOneAndUpdate(filter, { $set: update }, { new: true, upsert: true });
+
+    // Sync back with Driver if driverId / driverName is present
+    if (driverId || driverName) {
+      const drvFilter = driverId ? { $or: [{ driverId }, { _id: mongoose.isValidObjectId(driverId) ? driverId : undefined }].filter(Boolean) } : { name: driverName };
+      await Driver.findOneAndUpdate(
+        drvFilter,
+        { 
+          $set: { 
+            assignedTruckDeviceId: truck.deviceId, 
+            assignedTruckName: truck.truckName, 
+            assignedTrailer: truck.trailer || '',
+            ...(driverPhone ? { phone: driverPhone } : {})
+          } 
+        }
+      ).catch(() => {});
+    }
+
+    // Sync back with Trailer if trailer is present
+    if (trailer) {
+      await Trailer.findOneAndUpdate(
+        { $or: [{ trailerId: trailer }, { immatriculation: trailer }] },
+        { 
+          $set: { 
+            attachedTruckDeviceId: truck.deviceId, 
+            attachedTruckName: truck.truckName,
+            status: 'attele',
+            ...(trailerType ? { type: trailerType } : {})
+          } 
+        }
+      ).catch(() => {});
+    }
+
     res.json({ success: true, truck: fmt([truck])[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -3575,8 +3739,8 @@ app.post('/api/trucks/manual', checkAccess, async (req, res) => {
 app.get('/api/maintenance/active', checkAccess, async (req, res) => {
   try {
     const data = await Maintenance.find({
+      status: { $nin: ['termine', 'annule'] },
       $or: [
-        { status: 'en_cours' },
         { exitDate: { $exists: false } },
         { exitDate: null }
       ]
@@ -3587,9 +3751,26 @@ app.get('/api/maintenance/active', checkAccess, async (req, res) => {
 // ✅ NEW: Close/complete a maintenance order
 app.post('/api/maintenance/close', checkAccess, async (req, res) => {
   try {
-    const { id, note, cost, technician, parts } = req.body;
-    if (!id) return res.status(400).json({ error: 'id requis' });
-    const doc = await Maintenance.findById(id);
+    const targetId = req.body.id || req.body._id;
+    if (!targetId || targetId === 'undefined' || targetId === 'null') {
+      return res.status(400).json({ error: 'id requis' });
+    }
+    const { note, cost, technician, parts } = req.body;
+    let doc = null;
+    try {
+      doc = await Maintenance.findById(targetId);
+    } catch (castErr) {
+      return res.status(400).json({ error: 'Identifiant invalide' });
+    }
+    if (!doc) {
+      doc = await Maintenance.findOne({
+        $or: [
+          { _id: targetId },
+          { id: targetId },
+          { deviceId: targetId }
+        ]
+      }).sort({ date: -1 });
+    }
     if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
     doc.exitDate = new Date();
     doc.status = 'termine';
@@ -3602,15 +3783,22 @@ app.post('/api/maintenance/close', checkAccess, async (req, res) => {
     // ✅ If closing a vidange record, acknowledge vidange if not already acknowledged
     let ackResult = null;
     try {
-      const isVidange = doc.type === 'Vidange' || doc.type === 'Vidange Complète';
-      if (isVidange && doc.deviceId && doc.odometer) {
-        ackResult = await acknowledgeVidange(
-          doc.deviceId,
-          doc.truckName,
-          parseInt(doc.odometer, 10),
-          doc.exitDate || doc.date,
-          doc.note
-        );
+      const isVidange = doc.type && doc.type.toLowerCase().includes('vidange');
+      if (isVidange && doc.deviceId) {
+        let odoToAck = parseInt(doc.odometer, 10) || 0;
+        if (odoToAck <= 0) {
+          const truckRec = await Truck.findOne({ deviceId: doc.deviceId }).lean();
+          if (truckRec && truckRec.odometer) odoToAck = parseInt(truckRec.odometer, 10) || 0;
+        }
+        if (odoToAck > 0) {
+          ackResult = await acknowledgeVidange(
+            doc.deviceId,
+            doc.truckName,
+            odoToAck,
+            doc.exitDate || doc.date,
+            doc.note
+          );
+        }
       }
     } catch (e) {
       console.warn('Vidange acknowledge (close) failed:', e.message);
@@ -3618,6 +3806,8 @@ app.post('/api/maintenance/close', checkAccess, async (req, res) => {
 
     res.json({
       success: true,
+      entry: fmt([doc])[0],
+      vidangeAcknowledged: !!ackResult,
       vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
       vidangeStatus: ackResult?.vidangeStatus || null
     });
@@ -3881,6 +4071,899 @@ app.delete('/api/repair-orders/:id', checkAccess, async (req, res) => {
   }
 });
 
+// =============================================================
+// 🚖 SUIVI DISPONIBILITÉ & GESTION CHAUFFEURS / REMORQUES API
+// =============================================================
+
+// Algerian Logistics & Industrial Hubs Dictionary (58 wilayas & major industrial hubs)
+const ALGERIA_LOGISTICS_HUBS = [
+  { name: 'Rouiba (Dépôt / Base Centrale)', wilaya: 'Alger', wilayaCode: '16', lat: 36.7333, lng: 3.2844, type: 'depot' },
+  { name: 'Alger (Port / Centre)', wilaya: 'Alger', wilayaCode: '16', lat: 36.7538, lng: 3.0588, type: 'port' },
+  { name: 'Baraki (Plateforme Logistique)', wilaya: 'Alger', wilayaCode: '16', lat: 36.6644, lng: 3.0944, type: 'depot' },
+  { name: 'Arzew (Raffinerie / Pétrochimie)', wilaya: 'Oran', wilayaCode: '31', lat: 35.8569, lng: -0.3153, type: 'industrial' },
+  { name: 'Oran (Port / El Kerma)', wilaya: 'Oran', wilayaCode: '31', lat: 35.6987, lng: -0.6349, type: 'port' },
+  { name: 'Hassi Messaoud (Base Sonatrach)', wilaya: 'Ouargla', wilayaCode: '30', lat: 31.6804, lng: 6.0728, type: 'oil_hub' },
+  { name: 'Ouargla (Centre / Haoud El Hamra)', wilaya: 'Ouargla', wilayaCode: '30', lat: 31.9530, lng: 5.3300, type: 'oil_hub' },
+  { name: 'Skikda (Port Pétrolier / GNL)', wilaya: 'Skikda', wilayaCode: '21', lat: 36.8787, lng: 6.9063, type: 'port' },
+  { name: 'Annaba (Port / Complexe El Hadjar)', wilaya: 'Annaba', wilayaCode: '23', lat: 36.9000, lng: 7.7667, type: 'port' },
+  { name: 'Bejaia (Port Commercial / Agro)', wilaya: 'Bejaia', wilayaCode: '06', lat: 36.7558, lng: 5.0843, type: 'port' },
+  { name: 'Constantine (Zone Didouche / Oued Hamimime)', wilaya: 'Constantine', wilayaCode: '25', lat: 36.3650, lng: 6.6147, type: 'industrial' },
+  { name: 'Sétif (Zone Industrielle Ain Arnat)', wilaya: 'Sétif', wilayaCode: '19', lat: 36.1911, lng: 5.4137, type: 'industrial' },
+  { name: 'Bordj Bou Arreridj (Pôle Électronique)', wilaya: 'Bordj Bou Arreridj', wilayaCode: '34', lat: 36.0732, lng: 4.7611, type: 'industrial' },
+  { name: 'Blida (Zone Agroalimentaire Benboulaid)', wilaya: 'Blida', wilayaCode: '09', lat: 36.4700, lng: 2.8300, type: 'industrial' },
+  { name: 'Djelfa (Carrefour Nord-Sud)', wilaya: 'Djelfa', wilayaCode: '17', lat: 34.6728, lng: 3.2630, type: 'hub' },
+  { name: 'Ghardaia (Zone Metlili / Bounoura)', wilaya: 'Ghardaia', wilayaCode: '47', lat: 32.4909, lng: 3.6735, type: 'hub' },
+  { name: 'Biskra (Zone Agro-datte / Ciment)', wilaya: 'Biskra', wilayaCode: '07', lat: 34.8504, lng: 5.7280, type: 'industrial' },
+  { name: 'Laghouat (Pôle Énergie)', wilaya: 'Laghouat', wilayaCode: '03', lat: 33.8000, lng: 2.8651, type: 'hub' },
+  { name: 'In Salah (Base Sonatrach)', wilaya: 'In Salah', wilayaCode: '53', lat: 27.1935, lng: 2.4607, type: 'oil_hub' },
+  { name: 'Tamanrasset (Hub Grand Sud)', wilaya: 'Tamanrasset', wilayaCode: '11', lat: 22.7850, lng: 5.5228, type: 'hub' },
+  { name: 'Adrar (Pôle Cimentier & Énergie)', wilaya: 'Adrar', wilayaCode: '01', lat: 27.8743, lng: -0.2939, type: 'hub' },
+  { name: 'Tindouf (Gara Djebilet)', wilaya: 'Tindouf', wilayaCode: '37', lat: 27.6711, lng: -8.1474, type: 'mining' },
+  { name: 'Bechar (Zone Minerve)', wilaya: 'Bechar', wilayaCode: '08', lat: 31.6167, lng: -2.2167, type: 'hub' },
+  { name: 'Tlemcen (Maghnia / Frontière)', wilaya: 'Tlemcen', wilayaCode: '13', lat: 34.8783, lng: -1.3150, type: 'hub' },
+  { name: 'Mostaganem (Port)', wilaya: 'Mostaganem', wilayaCode: '27', lat: 35.9312, lng: 0.0892, type: 'port' },
+  { name: 'Chlef (Zone Industrielle Oued Sly)', wilaya: 'Chlef', wilayaCode: '02', lat: 36.1652, lng: 1.3345, type: 'industrial' },
+  { name: 'Batna (Zone Ain Yagout)', wilaya: 'Batna', wilayaCode: '05', lat: 35.5559, lng: 6.1741, type: 'industrial' },
+  { name: 'Tebessa (Mines Phosphate)', wilaya: 'Tebessa', wilayaCode: '12', lat: 35.4042, lng: 8.1242, type: 'mining' },
+  { name: 'El Oued (Guemar)', wilaya: 'El Oued', wilayaCode: '39', lat: 33.3683, lng: 6.8674, type: 'hub' },
+  { name: 'Touggourt (Plateforme Logistique)', wilaya: 'Touggourt', wilayaCode: '55', lat: 33.1064, lng: 6.0636, type: 'hub' },
+  { name: 'Tiaret (Zone SNVI / Usine)', wilaya: 'Tiaret', wilayaCode: '14', lat: 35.3710, lng: 1.3169, type: 'industrial' },
+  { name: 'Mascara (Sig)', wilaya: 'Mascara', wilayaCode: '29', lat: 35.3967, lng: 0.1403, type: 'hub' },
+  { name: 'Sidi Bel Abbes', wilaya: 'Sidi Bel Abbes', wilayaCode: '22', lat: 35.1899, lng: -0.6308, type: 'hub' },
+  { name: 'Jijel (Port Djen Djen)', wilaya: 'Jijel', wilayaCode: '18', lat: 36.8206, lng: 5.7667, type: 'port' },
+  { name: 'Boumerdes (Zone Zemmouri)', wilaya: 'Boumerdes', wilayaCode: '35', lat: 36.7664, lng: 3.4772, type: 'industrial' },
+  { name: 'Bouira (Oued El Berdi)', wilaya: 'Bouira', wilayaCode: '10', lat: 36.3749, lng: 3.9020, type: 'industrial' },
+  { name: 'Relizane (Sidi Khettab)', wilaya: 'Relizane', wilayaCode: '48', lat: 35.7400, lng: 0.5500, type: 'industrial' },
+  { name: 'Ain Defla (Khemis Miliana)', wilaya: 'Ain Defla', wilayaCode: '44', lat: 36.2619, lng: 1.9681, type: 'hub' },
+  { name: 'Medea (Berrouaghia)', wilaya: 'Medea', wilayaCode: '26', lat: 36.2642, lng: 2.7539, type: 'hub' },
+  { name: 'Saida', wilaya: 'Saida', wilayaCode: '20', lat: 34.8303, lng: 0.1517, type: 'hub' },
+  { name: 'Guelma', wilaya: 'Guelma', wilayaCode: '24', lat: 36.4621, lng: 7.4261, type: 'hub' },
+  { name: 'Souk Ahras', wilaya: 'Souk Ahras', wilayaCode: '41', lat: 35.2833, lng: 7.9500, type: 'hub' },
+  { name: 'El Tarf', wilaya: 'El Tarf', wilayaCode: '36', lat: 36.7672, lng: 8.3138, type: 'hub' },
+  { name: 'Mila', wilaya: 'Mila', wilayaCode: '43', lat: 36.4503, lng: 6.2644, type: 'hub' },
+  { name: 'Khenchela', wilaya: 'Khenchela', wilayaCode: '40', lat: 35.4358, lng: 7.1433, type: 'hub' },
+  { name: 'Naama (Mecheria)', wilaya: 'Naama', wilayaCode: '45', lat: 33.2667, lng: -0.3167, type: 'hub' },
+  { name: 'El Bayadh', wilaya: 'El Bayadh', wilayaCode: '32', lat: 33.6833, lng: 1.0167, type: 'hub' },
+  { name: 'Illizi', wilaya: 'Illizi', wilayaCode: '33', lat: 26.4833, lng: 8.4667, type: 'hub' },
+  { name: 'Djanet', wilaya: 'Djanet', wilayaCode: '56', lat: 24.5550, lng: 9.4850, type: 'hub' },
+  { name: 'El Meniaa', wilaya: 'El Meniaa', wilayaCode: '58', lat: 30.5833, lng: 2.8833, type: 'hub' }
+];
+
+// Helper: Compute real-time fleet & driver availability with complete logistics possibilities
+async function computeFleetAvailability() {
+  const trucks = await Truck.find({}).lean();
+  const drivers = await Driver.find({}).lean();
+  const trailers = await Trailer.find({}).lean();
+  
+  let activeZoneOps = [];
+  try {
+    activeZoneOps = await ZoneOperation.find({ status: { $in: ['in_progress', 'active', 'en_cours'] } }).lean();
+  } catch(_) {}
+
+  let activeRepairOrders = [];
+  try {
+    activeRepairOrders = await RepairOrder.find({ 
+      status: { $in: ['en_cours', 'En cours', 'Diagnostic', 'En attente pièces', 'attente_pieces'] } 
+    }).lean();
+  } catch(_) {}
+
+  let activeDecouchages = [];
+  try {
+    activeDecouchages = await Decouchage.find({}).sort({ date: -1 }).limit(100).lean();
+  } catch(_) {}
+
+  let activeMissions = [];
+  try {
+    activeMissions = await FleetAssignmentHistory.find({ 
+      status: 'active',
+      eventType: 'mission_start'
+    }).lean();
+  } catch(_) {}
+
+  const missionByTruck = new Map();
+  const missionByDriver = new Map();
+  for (const m of activeMissions) {
+    if (m.truckDeviceId) missionByTruck.set(String(m.truckDeviceId), m);
+    if (m.driverId) missionByDriver.set(String(m.driverId), m);
+  }
+
+  const driverByTruck = new Map();
+  const driverById = new Map();
+  for (const d of drivers) {
+    if (d.driverId) driverById.set(String(d.driverId), d);
+    if (d._id) driverById.set(String(d._id), d);
+    if (d.assignedTruckDeviceId) driverByTruck.set(String(d.assignedTruckDeviceId), d);
+  }
+
+  const trailerByTruck = new Map();
+  for (const tr of trailers) {
+    if (tr.attachedTruckDeviceId) trailerByTruck.set(String(tr.attachedTruckDeviceId), tr);
+  }
+
+  const items = [];
+  const counts = {
+    total: 0,
+    mission: 0,
+    disponible: 0,
+    sans_chauffeur: 0,
+    maintenance: 0,
+    panne: 0,
+    repos: 0,
+    recup: 0,
+    conge: 0,
+    chargement: 0,
+    attente_ordre: 0,
+    reserve: 0
+  };
+
+  const now = Date.now();
+  for (const t of trucks) {
+    const did = String(t.deviceId || '');
+    if (!did) continue;
+    counts.total++;
+
+    const assignedDriver = driverByTruck.get(did) || (t.driverName ? { name: t.driverName, phone: t.driverPhone, situation: t.situation } : null);
+    const assignedTrailer = trailerByTruck.get(did) || (t.trailer ? { immatriculation: t.trailer, type: t.trailerType || 'Plateau' } : null);
+    const activeMission = missionByTruck.get(did) || (assignedDriver?.id ? missionByDriver.get(String(assignedDriver.id)) : null);
+
+    const speed = Number(t.speed) || 0;
+    const isMoving = speed >= 1;
+    const hasActiveZone = activeZoneOps.some(o => String(o.deviceId) === did || (o.truckName && o.truckName === t.truckName));
+    const hasActiveRepair = activeRepairOrders.some(r => String(r.deviceId) === did || (r.truckName && r.truckName === t.truckName));
+    
+    const recentDecouchage = activeDecouchages.find(d => {
+      const matchTruck = String(d.deviceId) === did || (d.truckName && d.truckName === t.truckName);
+      if (!matchTruck) return false;
+      const dDate = new Date(d.date).getTime();
+      return (now - dDate) < 18 * 3600 * 1000;
+    });
+
+    const isAtBase = t.zone && (t.zone.toLowerCase().includes('base') || t.zone.toLowerCase().includes('parc') || t.zone.toLowerCase().includes('depot'));
+
+    let situation = 'disponible';
+    let situationLabel = 'Disponible au Parc';
+    let situationBadge = 'badge-disponible';
+    let situationColor = '#0284c7';
+
+    // ── 1. Panne / Hors Service (Haute priorité) ──
+    if (t.situation === 'panne' || t.situation === 'hors_service') {
+      situation = 'panne';
+      situationLabel = 'En Panne / Immobilisé';
+      situationBadge = 'badge-panne';
+      situationColor = '#ef4444';
+      counts.panne++;
+    }
+    // ── 2. Maintenance / Révision Atelier ──
+    else if (hasActiveRepair || t.situation === 'maintenance') {
+      situation = 'maintenance';
+      situationLabel = 'En Maintenance';
+      situationBadge = 'badge-maintenance';
+      situationColor = '#f59e0b';
+      counts.maintenance++;
+    }
+    // ── 3. Véhicule de Réserve ──
+    else if (t.situation === 'reserve') {
+      situation = 'reserve';
+      situationLabel = 'Véhicule de Réserve';
+      situationBadge = 'badge-reserve';
+      situationColor = '#71717a';
+      counts.reserve++;
+    }
+    // ── 4. Chargement / Déchargement à Quai ──
+    else if (t.situation === 'chargement') {
+      situation = 'chargement';
+      situationLabel = 'En Chargement / Quai';
+      situationBadge = 'badge-chargement';
+      situationColor = '#eab308';
+      counts.chargement++;
+    }
+    // ── 5. Statut Administratif Chauffeur (Recup, Congé, Maladie, Formation, Suspendu) ──
+    else if (assignedDriver && ['recup', 'conge', 'maladie', 'formation', 'suspendu'].includes(assignedDriver.situation)) {
+      if (assignedDriver.situation === 'recup') {
+        situation = 'recup';
+        situationLabel = 'En Récupération';
+        situationBadge = 'badge-recup';
+        situationColor = '#06b6d4';
+        counts.recup++;
+      } else if (assignedDriver.situation === 'conge') {
+        situation = 'conge';
+        situationLabel = 'En Congé';
+        situationBadge = 'badge-conge';
+        situationColor = '#64748b';
+        counts.conge++;
+      } else if (assignedDriver.situation === 'maladie') {
+        situation = 'maladie';
+        situationLabel = 'Arrêt Maladie';
+        situationBadge = 'badge-maladie';
+        situationColor = '#e11d48';
+        counts.conge++;
+      } else if (assignedDriver.situation === 'formation') {
+        situation = 'formation';
+        situationLabel = 'En Formation';
+        situationBadge = 'badge-formation';
+        situationColor = '#6366f1';
+        counts.conge++;
+      } else if (assignedDriver.situation === 'suspendu') {
+        situation = 'suspendu';
+        situationLabel = 'Suspendu';
+        situationBadge = 'badge-suspendu';
+        situationColor = '#475569';
+        counts.conge++;
+      }
+    }
+    // ── 6. Sans Chauffeur Assigné (camion stationné) ──
+    else if (!assignedDriver || (!assignedDriver.name && !assignedDriver.id)) {
+      situation = 'sans_chauffeur';
+      situationLabel = 'Sans Chauffeur';
+      situationBadge = 'badge-sans-chauffeur';
+      situationColor = '#f97316';
+      counts.sans_chauffeur++;
+    }
+    // ── 7. En Route / En Mission (vitesse >= 1 ou zone en cours ou mission active) ──
+    else if (isMoving || hasActiveZone || activeMission) {
+      situation = 'mission';
+      const destText = activeMission?.destination ? ` → ${activeMission.destination}` : '';
+      situationLabel = isMoving ? `En Route (${speed} km/h)${destText}` : `En Mission${destText}`;
+      situationBadge = 'badge-mission';
+      situationColor = '#10b981';
+      counts.mission++;
+    }
+    // ── 8. En Découchage / Repos Chauffeur ──
+    else if (recentDecouchage || assignedDriver.situation === 'repos') {
+      situation = 'repos';
+      situationLabel = 'En Découchage / Repos';
+      situationBadge = 'badge-repos';
+      situationColor = '#8b5cf6';
+      counts.repos++;
+    }
+    // ── 9. En Attente d'Ordre / Fret ──
+    else if (t.situation === 'attente_ordre') {
+      situation = 'attente_ordre';
+      situationLabel = 'En Attente d\'Ordre';
+      situationBadge = 'badge-attente';
+      situationColor = '#d97706';
+      counts.attente_ordre++;
+    }
+    // ── 10. Disponible au Parc (stationné avec chauffeur prêt) ──
+    else if (isAtBase || (!isMoving && speed === 0)) {
+      situation = 'disponible';
+      situationLabel = 'Disponible au Parc';
+      situationBadge = 'badge-disponible';
+      situationColor = '#0284c7';
+      counts.disponible++;
+    } else {
+      situation = 'disponible';
+      situationLabel = 'Stationné';
+      situationBadge = 'badge-disponible';
+      situationColor = '#0284c7';
+      counts.disponible++;
+    }
+
+    items.push({
+      deviceId: did,
+      truckName: t.truckName || did,
+      immatriculation: t.immatriculation || '',
+      chassisNumber: t.chassisNumber || '',
+      carteNaftal: t.carteNaftal || '',
+      driver: assignedDriver ? {
+        id: assignedDriver.driverId || assignedDriver._id,
+        name: assignedDriver.name,
+        phone: assignedDriver.phone || '',
+        licenseNumber: assignedDriver.licenseNumber || '',
+        licenseExpiry: assignedDriver.licenseExpiry || '',
+        situation: assignedDriver.situation || situation
+      } : null,
+      trailer: assignedTrailer ? {
+        id: assignedTrailer.trailerId || assignedTrailer._id,
+        immatriculation: assignedTrailer.immatriculation || t.trailer || '',
+        type: assignedTrailer.type || t.trailerType || 'Plateau',
+        capacity: assignedTrailer.capacity || '',
+        status: assignedTrailer.status || 'attele'
+      } : (t.trailer ? { immatriculation: t.trailer, type: t.trailerType || 'Plateau', status: 'attele' } : null),
+      activeMission: activeMission ? {
+        missionId: activeMission.historyId,
+        origin: activeMission.origin,
+        originCoords: activeMission.originCoords,
+        destination: activeMission.destination,
+        destCoords: activeMission.destCoords,
+        cargo: activeMission.cargo,
+        orderRef: activeMission.orderRef,
+        startDate: activeMission.startDate,
+        status: activeMission.status
+      } : null,
+      situation,
+      situationLabel,
+      situationBadge,
+      situationColor,
+      speed,
+      lat: t.lat || 0,
+      lng: t.lng || 0,
+      locationCity: t.zone || 'En route',
+      lastUpdate: t.lastUpdate || 0,
+      odometer: t.odometer || 0,
+      fuelLiters: t.lastFuelLiters || 0,
+      fuelPercent: t.lastFuelPercent || 0,
+      hasActiveMission: !!(hasActiveZone || activeMission),
+      hasActiveRepair,
+      isMoving
+    });
+  }
+
+  const assignedDriverIds = new Set(items.filter(i => i.driver?.id).map(i => String(i.driver.id)));
+  const unassignedDrivers = drivers.filter(d => !assignedDriverIds.has(String(d.driverId)) && !assignedDriverIds.has(String(d._id)));
+
+  return {
+    success: true,
+    timestamp: new Date().toISOString(),
+    counts,
+    items,
+    driversCount: drivers.length,
+    trailersCount: trailers.length,
+    unassignedDriversCount: unassignedDrivers.length
+  };
+}
+
+// ── GET /api/fleet/availability: Full real-time availability report ──
+app.get('/api/fleet/availability', checkAccess, async (req, res) => {
+  try {
+    const data = await computeFleetAvailability();
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── DRIVERS REST API ───────────────────────────────────────────
+app.get('/api/drivers', checkAccess, async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.situation) filter.situation = req.query.situation;
+    if (req.query.search) {
+      filter.$or = [
+        { name: new RegExp(req.query.search, 'i') },
+        { phone: new RegExp(req.query.search, 'i') },
+        { licenseNumber: new RegExp(req.query.search, 'i') }
+      ];
+    }
+    const drivers = await Driver.find(filter).sort({ name: 1 }).lean();
+    res.json(fmt(drivers));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/drivers/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(id);
+    const driver = await Driver.findOne({
+      $or: [
+        ...(isObjectId ? [{ _id: id }] : []),
+        { driverId: id }
+      ]
+    }).lean();
+    if (!driver) return res.status(404).json({ error: 'Chauffeur non trouvé' });
+    res.json(fmt(driver));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/drivers', checkAccess, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.name) return res.status(400).json({ error: 'Le nom du chauffeur est requis' });
+    if (!body.driverId) {
+      body.driverId = `DRV-${Date.now().toString().slice(-6)}`;
+    }
+    body.statusUpdatedAt = new Date();
+    const existing = await Driver.findOne({
+      $or: [
+        { driverId: body.driverId },
+        { name: body.name }
+      ]
+    });
+    let doc;
+    if (existing) {
+      doc = await Driver.findByIdAndUpdate(existing._id, { $set: body }, { new: true });
+    } else {
+      doc = await Driver.create(body);
+    }
+    res.json({ success: true, driver: fmt(doc.toObject ? doc.toObject() : doc) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/drivers/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(id);
+    const update = req.body || {};
+    update.statusUpdatedAt = new Date();
+    const doc = await Driver.findOneAndUpdate(
+      { $or: [...(isObjectId ? [{ _id: id }] : []), { driverId: id }] },
+      { $set: update },
+      { new: true }
+    );
+    if (!doc) return res.status(404).json({ error: 'Chauffeur non trouvé' });
+    res.json({ success: true, driver: fmt(doc.toObject ? doc.toObject() : doc) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/drivers/:id/situation', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { situation, notes } = req.body || {};
+    if (!situation) return res.status(400).json({ error: 'Situation requise' });
+    const isObjectId = mongoose.isValidObjectId(id);
+    const doc = await Driver.findOneAndUpdate(
+      { $or: [...(isObjectId ? [{ _id: id }] : []), { driverId: id }] },
+      { $set: { situation, statusUpdatedAt: new Date(), ...(notes ? { notes } : {}) } },
+      { new: true }
+    );
+    if (!doc) return res.status(404).json({ error: 'Chauffeur non trouvé' });
+    res.json({ success: true, driver: fmt(doc.toObject ? doc.toObject() : doc) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/drivers/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(id);
+    const doc = await Driver.findOneAndDelete({
+      $or: [...(isObjectId ? [{ _id: id }] : []), { driverId: id }]
+    });
+    if (doc && doc.assignedTruckDeviceId) {
+      await Truck.findOneAndUpdate(
+        { deviceId: doc.assignedTruckDeviceId },
+        { $unset: { driverId: 1, driverName: 1, driverPhone: 1 } }
+      ).catch(() => {});
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── TRAILERS REST API ──────────────────────────────────────────
+app.get('/api/trailers', checkAccess, async (req, res) => {
+  try {
+    const trailers = await Trailer.find({}).sort({ immatriculation: 1 }).lean();
+    res.json(fmt(trailers));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trailers', checkAccess, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.immatriculation) return res.status(400).json({ error: 'Immatriculation requise' });
+    if (!body.trailerId) {
+      body.trailerId = body.immatriculation.replace(/\s+/g, '-').toUpperCase();
+    }
+    const existing = await Trailer.findOne({
+      $or: [{ trailerId: body.trailerId }, { immatriculation: body.immatriculation }]
+    });
+    let doc;
+    if (existing) {
+      doc = await Trailer.findByIdAndUpdate(existing._id, { $set: body }, { new: true });
+    } else {
+      doc = await Trailer.create(body);
+    }
+    res.json({ success: true, trailer: fmt(doc.toObject ? doc.toObject() : doc) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/trailers/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(id);
+    const doc = await Trailer.findOneAndDelete({
+      $or: [...(isObjectId ? [{ _id: id }] : []), { trailerId: id }]
+    });
+    if (doc && doc.attachedTruckDeviceId) {
+      await Truck.findOneAndUpdate(
+        { deviceId: doc.attachedTruckDeviceId },
+        { $unset: { trailer: 1, trailerType: 1 } }
+      ).catch(() => {});
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── ATOMIC FLEET ASSIGNMENT API ────────────────────────────────
+app.post('/api/fleet/assign', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, truckName, driverId, driverName, driverPhone, trailerId, trailerImmatriculation, trailerType } = req.body || {};
+    if (!deviceId && !truckName) return res.status(400).json({ error: 'deviceId ou truckName requis' });
+    
+    const truckFilter = deviceId ? { deviceId: String(deviceId) } : { truckName: String(truckName) };
+    const truckUpdate = {};
+    if (driverId !== undefined) truckUpdate.driverId = driverId;
+    if (driverName !== undefined) truckUpdate.driverName = driverName;
+    if (driverPhone !== undefined) truckUpdate.driverPhone = driverPhone;
+    if (trailerImmatriculation !== undefined) truckUpdate.trailer = trailerImmatriculation;
+    else if (trailerId !== undefined) truckUpdate.trailer = trailerId;
+    if (trailerType !== undefined) truckUpdate.trailerType = trailerType;
+
+    const truck = await Truck.findOneAndUpdate(truckFilter, { $set: truckUpdate }, { new: true, upsert: true });
+
+    // Link Driver
+    let driverDoc = null;
+    if (driverId || driverName) {
+      const drvFilter = driverId ? { $or: [{ driverId }, ...(mongoose.isValidObjectId(driverId) ? [{ _id: driverId }] : [])] } : { name: driverName };
+      // Clear previous truck assigned to this driver
+      driverDoc = await Driver.findOneAndUpdate(
+        drvFilter,
+        { 
+          $set: { 
+            assignedTruckDeviceId: truck.deviceId, 
+            assignedTruckName: truck.truckName,
+            assignedTrailer: truck.trailer || '',
+            ...(driverPhone ? { phone: driverPhone } : {})
+          } 
+        },
+        { new: true }
+      );
+    }
+
+    // Link Trailer
+    let trailerDoc = null;
+    const trailerKey = trailerImmatriculation || trailerId;
+    if (trailerKey) {
+      trailerDoc = await Trailer.findOneAndUpdate(
+        { $or: [{ trailerId: trailerKey }, { immatriculation: trailerKey }] },
+        { 
+          $set: { 
+            attachedTruckDeviceId: truck.deviceId, 
+            attachedTruckName: truck.truckName,
+            status: 'attele',
+            lastAttachedDriverName: driverDoc?.name || driverName || '',
+            ...(trailerType ? { type: trailerType } : {})
+          } 
+        },
+        { new: true }
+      );
+    }
+
+    // 📜 Log assignment event to immutable history ledger
+    const histEntry = {
+      historyId: `HIST-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random()*1000)}`,
+      timestamp: new Date(),
+      startDate: new Date(),
+      eventType: 'assignment',
+      truckDeviceId: truck.deviceId,
+      truckName: truck.truckName,
+      truckPlate: truck.immatriculation || '',
+      driverId: driverDoc?.driverId || driverId || '',
+      driverName: driverDoc?.name || driverName || '',
+      driverPhone: driverDoc?.phone || driverPhone || '',
+      trailerId: trailerDoc?.trailerId || trailerId || '',
+      trailerPlate: trailerDoc?.immatriculation || trailerImmatriculation || '',
+      trailerType: trailerDoc?.type || trailerType || '',
+      notes: req.body?.notes || `Affectation: ${driverDoc?.name || 'Chauffeur'} ↔ ${truck.truckName || truck.deviceId}`,
+      status: 'active'
+    };
+    await FleetAssignmentHistory.create(histEntry).catch(() => {});
+
+    res.json({
+      success: true,
+      truck: fmt([truck])[0],
+      driver: driverDoc ? fmt(driverDoc.toObject ? driverDoc.toObject() : driverDoc) : null,
+      trailer: trailerDoc ? fmt(trailerDoc.toObject ? trailerDoc.toObject() : trailerDoc) : null,
+      historyId: histEntry.historyId
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/fleet/unassign', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, unassignDriver, unassignTrailer } = req.body || {};
+    if (!deviceId) return res.status(400).json({ error: 'deviceId requis' });
+    
+    const unset = {};
+    if (unassignDriver) {
+      unset.driverId = 1; unset.driverName = 1; unset.driverPhone = 1;
+      await Driver.updateMany({ assignedTruckDeviceId: String(deviceId) }, { $unset: { assignedTruckDeviceId: 1, assignedTruckName: 1, assignedTrailer: 1 } });
+    }
+    if (unassignTrailer) {
+      unset.trailer = 1; unset.trailerType = 1;
+      await Trailer.updateMany({ attachedTruckDeviceId: String(deviceId) }, { $unset: { attachedTruckDeviceId: 1, attachedTruckName: 1 }, $set: { status: 'disponible' } });
+    }
+
+    const truck = await Truck.findOneAndUpdate({ deviceId: String(deviceId) }, { $unset: unset }, { new: true });
+
+    // 📜 Log unassign event to history ledger
+    await FleetAssignmentHistory.create({
+      historyId: `HIST-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random()*1000)}`,
+      timestamp: new Date(),
+      startDate: new Date(),
+      endDate: new Date(),
+      eventType: 'unassign',
+      truckDeviceId: String(deviceId),
+      truckName: truck?.truckName || '',
+      notes: `Détachement ${unassignDriver ? 'Chauffeur' : ''} ${unassignTrailer ? 'Remorque' : ''}`.trim(),
+      status: 'completed'
+    }).catch(() => {});
+
+    res.json({ success: true, truck: truck ? fmt([truck])[0] : null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/fleet/hubs: Algerian Logistics Hubs Directory ────
+app.get('/api/fleet/hubs', checkAccess, (req, res) => {
+  res.json({ success: true, hubs: ALGERIA_LOGISTICS_HUBS });
+});
+
+// ── POST /api/fleet/missions: Dispatch / Plan Mission with Destination & Route ────
+app.post('/api/fleet/missions', checkAccess, async (req, res) => {
+  try {
+    const {
+      driverId, driverName, truckDeviceId, truckName, trailerId, trailerPlate, trailerType,
+      origin, destination, cargo, orderRef, notes, departureDate, originCoords, destCoords
+    } = req.body || {};
+
+    if (!driverId && !driverName && !truckDeviceId && !truckName) {
+      return res.status(400).json({ error: 'Chauffeur ou Camion requis pour la mission' });
+    }
+    if (!origin || !destination) {
+      return res.status(400).json({ error: 'Origine et Destination requises' });
+    }
+
+    const resolveCoords = (placeName, explicit) => {
+      if (explicit && typeof explicit.lat === 'number' && typeof explicit.lng === 'number') return explicit;
+      if (!placeName) return { lat: 36.75, lng: 3.05 };
+      const q = String(placeName).toLowerCase().trim();
+      const match = ALGERIA_LOGISTICS_HUBS.find(h => 
+        q.includes(h.name.toLowerCase()) || q.includes(h.wilaya.toLowerCase()) || h.name.toLowerCase().includes(q)
+      );
+      if (match) return { lat: match.lat, lng: match.lng };
+      return { lat: 36.75, lng: 3.05 };
+    };
+
+    const finalOriginCoords = resolveCoords(origin, originCoords);
+    const finalDestCoords = resolveCoords(destination, destCoords);
+
+    let truckDoc = null;
+    if (truckDeviceId || truckName) {
+      truckDoc = await Truck.findOne({ $or: [{ deviceId: truckDeviceId }, { truckName }] });
+    }
+
+    let driverDoc = null;
+    if (driverId || driverName) {
+      driverDoc = await Driver.findOne({
+        $or: [
+          ...(driverId ? [{ driverId }, ...(mongoose.isValidObjectId(driverId) ? [{ _id: driverId }] : [])] : []),
+          ...(driverName ? [{ name: driverName }] : [])
+        ]
+      });
+    }
+
+    const tDeviceId = truckDoc?.deviceId || truckDeviceId || driverDoc?.assignedTruckDeviceId || '';
+    const tName = truckDoc?.truckName || truckName || driverDoc?.assignedTruckName || '';
+    const dId = driverDoc?.driverId || driverId || '';
+    const dName = driverDoc?.name || driverName || '';
+    const dPhone = driverDoc?.phone || '';
+    const trPlate = trailerPlate || truckDoc?.trailer || driverDoc?.assignedTrailer || '';
+
+    // Close any previous active mission for this driver or truck
+    await FleetAssignmentHistory.updateMany(
+      {
+        status: 'active',
+        eventType: 'mission_start',
+        $or: [
+          ...(dId ? [{ driverId: dId }] : []),
+          ...(tDeviceId ? [{ truckDeviceId: tDeviceId }] : [])
+        ]
+      },
+      { $set: { status: 'completed', endDate: new Date() } }
+    );
+
+    const missionId = `MISS-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random()*1000)}`;
+    const historyDoc = await FleetAssignmentHistory.create({
+      historyId: missionId,
+      timestamp: new Date(),
+      startDate: departureDate ? new Date(departureDate) : new Date(),
+      eventType: 'mission_start',
+      truckDeviceId: tDeviceId,
+      truckName: tName,
+      truckPlate: truckDoc?.immatriculation || '',
+      driverId: dId,
+      driverName: dName,
+      driverPhone: dPhone,
+      trailerId: trailerId || '',
+      trailerPlate: trPlate,
+      trailerType: trailerType || truckDoc?.trailerType || 'Plateau',
+      origin,
+      originCoords: finalOriginCoords,
+      destination,
+      destCoords: finalDestCoords,
+      cargo: cargo || 'Marchandise générale',
+      orderRef: orderRef || `OM-${Date.now().toString().slice(-6)}`,
+      startOdometer: truckDoc?.odometer || 0,
+      status: 'active',
+      notes: notes || '',
+      performedBy: req.user?.username || 'Dispatch'
+    });
+
+    if (tDeviceId) {
+      await Truck.findOneAndUpdate(
+        { deviceId: tDeviceId },
+        { 
+          $set: { 
+            situation: 'mission',
+            currentOrigin: origin,
+            currentDestination: destination,
+            currentCargo: cargo || 'Marchandise générale',
+            currentMissionId: missionId
+          } 
+        }
+      );
+    }
+
+    if (dId || dName) {
+      await Driver.findOneAndUpdate(
+        { $or: [{ driverId: dId }, { name: dName }] },
+        { 
+          $set: { 
+            situation: 'mission',
+            currentOrigin: origin,
+            currentDestination: destination,
+            currentCargo: cargo || 'Marchandise générale',
+            currentMissionId: missionId,
+            statusUpdatedAt: new Date()
+          } 
+        }
+      );
+    }
+
+    res.json({ success: true, mission: fmt(historyDoc.toObject ? historyDoc.toObject() : historyDoc) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/fleet/missions/:id/complete: Complete Mission ────
+app.post('/api/fleet/missions/:id/complete', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { endOdometer, nextDriverSituation, notes } = req.body || {};
+    const hist = await FleetAssignmentHistory.findOneAndUpdate(
+      { $or: [{ historyId: id }, ...(mongoose.isValidObjectId(id) ? [{ _id: id }] : [])] },
+      { 
+        $set: { 
+          status: 'completed', 
+          endDate: new Date(),
+          ...(endOdometer ? { endOdometer: Number(endOdometer) } : {}),
+          ...(notes ? { notes } : {})
+        } 
+      },
+      { new: true }
+    );
+
+    if (!hist) return res.status(404).json({ error: 'Mission non trouvée' });
+
+    if (hist.truckDeviceId) {
+      await Truck.findOneAndUpdate(
+        { deviceId: hist.truckDeviceId },
+        { 
+          $set: { situation: 'disponible' },
+          $unset: { currentOrigin: 1, currentDestination: 1, currentCargo: 1, currentMissionId: 1 }
+        }
+      );
+    }
+
+    if (hist.driverId || hist.driverName) {
+      const newDriverSit = nextDriverSituation || 'disponible';
+      await Driver.findOneAndUpdate(
+        { $or: [{ driverId: hist.driverId }, { name: hist.driverName }] },
+        { 
+          $set: { situation: newDriverSit, statusUpdatedAt: new Date() },
+          $unset: { currentOrigin: 1, currentDestination: 1, currentCargo: 1, currentMissionId: 1 }
+        }
+      );
+    }
+
+    res.json({ success: true, mission: fmt(hist.toObject ? hist.toObject() : hist) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /api/fleet/history: Smart Timeline & History Ledger ────
+app.get('/api/fleet/history', checkAccess, async (req, res) => {
+  try {
+    const { driverId, driverName, truckDeviceId, truckName, trailerId, trailerPlate, eventType, status, limit } = req.query;
+    const filter = {};
+    if (driverId) filter.driverId = driverId;
+    if (driverName) filter.driverName = new RegExp(driverName, 'i');
+    if (truckDeviceId) filter.truckDeviceId = truckDeviceId;
+    if (truckName) filter.truckName = new RegExp(truckName, 'i');
+    if (trailerId) filter.trailerId = trailerId;
+    if (trailerPlate) filter.trailerPlate = new RegExp(trailerPlate, 'i');
+    if (eventType) filter.eventType = eventType;
+    if (status) filter.status = status;
+
+    const maxItems = Math.min(1000, parseInt(limit, 10) || 300);
+    const history = await FleetAssignmentHistory.find(filter)
+      .sort({ timestamp: -1 })
+      .limit(maxItems)
+      .lean();
+
+    res.json({ success: true, count: history.length, items: fmt(history) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/fleet/status/truck: Update Truck Operational Situation ────
+app.post('/api/fleet/status/truck', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, situation, notes } = req.body || {};
+    if (!deviceId) return res.status(400).json({ error: 'deviceId requis' });
+    if (!situation) return res.status(400).json({ error: 'situation requise' });
+
+    const truck = await Truck.findOneAndUpdate(
+      { deviceId: String(deviceId) },
+      { $set: { situation } },
+      { new: true }
+    );
+    if (!truck) return res.status(404).json({ error: 'Camion non trouvé' });
+
+    await FleetAssignmentHistory.create({
+      historyId: `STAT-${Date.now().toString(36).toUpperCase()}`,
+      timestamp: new Date(),
+      startDate: new Date(),
+      eventType: 'status_change',
+      truckDeviceId: truck.deviceId,
+      truckName: truck.truckName,
+      truckPlate: truck.immatriculation || '',
+      driverName: truck.driverName || '',
+      notes: notes || `Statut camion: ${situation}`,
+      status: 'completed'
+    }).catch(() => {});
+
+    res.json({ success: true, truck: fmt([truck])[0] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── POST /api/fleet/status/trailer: Update Trailer Operational Status ────
+app.post('/api/fleet/status/trailer', checkAccess, async (req, res) => {
+  try {
+    const { trailerId, status, notes } = req.body || {};
+    if (!trailerId) return res.status(400).json({ error: 'trailerId requis' });
+    if (!status) return res.status(400).json({ error: 'status requis' });
+
+    const isObjectId = mongoose.isValidObjectId(trailerId);
+    const trailer = await Trailer.findOneAndUpdate(
+      { $or: [...(isObjectId ? [{ _id: trailerId }] : []), { trailerId }, { immatriculation: trailerId }] },
+      { $set: { status, ...(notes ? { notes } : {}) } },
+      { new: true }
+    );
+    if (!trailer) return res.status(404).json({ error: 'Remorque non trouvée' });
+
+    res.json({ success: true, trailer: fmt(trailer.toObject ? trailer.toObject() : trailer) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // 🔧 FIX: Découchage route with pagination, truck and date filters (F28)
 app.get('/api/decouchages', checkAccess, async (req, res) => {
   try {
@@ -3905,16 +4988,21 @@ app.get('/api/decouchages', checkAccess, async (req, res) => {
 });
 
 app.get('/api/history', checkAccess, async (req, res) => {
-  const { imei, start, end } = req.query;
-  const safeStart = start.replace(' ', '%20');
-  const safeEnd = end.replace(' ', '%20');
-  const key = getNextGpsKey();
-  const url = getGpsUrl(`OBJECT_GET_MESSAGES,${imei},${safeStart},${safeEnd}`, key);
-  console.log(`📡 FETCHING HISTORY (Key ...${key.slice(-6)}):`, url);
   try {
+    const { imei, start, end } = req.query;
+    if (!imei) return res.status(400).json({ error: 'imei requis' });
+    const safeStart = encodeGpsHistoryBoundary(start);
+    const safeEnd = encodeGpsHistoryBoundary(end);
+    if (!safeStart || !safeEnd) return res.status(400).json({ error: 'Dates début/fin invalides' });
+    const key = getNextGpsKey();
+    const url = getGpsUrl(`OBJECT_GET_MESSAGES,${imei},${safeStart},${safeEnd}`, key);
+    console.log(`📡 FETCHING HISTORY (Key ...${key.slice(-6)}):`, url);
     const https = require('https');
     const agent = new https.Agent({ rejectUnauthorized: false });
-    const r = await fetch(url, { agent });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+    const r = await fetch(url, { agent, signal: controller.signal });
+    clearTimeout(timeout);
     const text = await r.text();
     try {
       const json = JSON.parse(text);
@@ -3946,7 +5034,10 @@ app.get('/api/backup/download', checkAccess, async (req, res) => {
       auditReports: await AuditReport.find(),
       itinerarySegments: await ItinerarySegment.find(),
       missedWindows: await MissedWindow.find(),
-      repairOrders: await RepairOrder.find()
+      repairOrders: await RepairOrder.find(),
+      drivers: await Driver.find(),
+      trailers: await Trailer.find(),
+      fleetHistory: await FleetAssignmentHistory.find()
     };
     res.json(dbData);
   } catch (e) { res.status(500).send(e.message); }
@@ -3957,7 +5048,7 @@ app.post('/api/backup/restore', checkAccess, async (req, res) => {
     const { version, truck_states, settings, refuels, maintenance, decouchages, transportReports } = req.body || {};
     if (!version) return res.status(400).json({ error: 'Fichier de sauvegarde invalide (version manquante).' });
 
-    const stats = { trucks: 0, refuels: 0, maintenance: 0, decouchages: 0, transportReports: 0, settings: 0 };
+    const stats = { trucks: 0, refuels: 0, maintenance: 0, decouchages: 0, transportReports: 0, settings: 0, drivers: 0, trailers: 0 };
 
     if (Array.isArray(truck_states) && truck_states.length > 0) {
       for (const t of truck_states) {
@@ -4041,6 +5132,30 @@ app.post('/api/backup/restore', checkAccess, async (req, res) => {
         if (ro.reference) {
           await RepairOrder.findOneAndUpdate({ reference: ro.reference }, ro, { upsert: true, new: true });
           stats.repairOrders = (stats.repairOrders || 0) + 1;
+        }
+      }
+    }
+    if (Array.isArray(req.body.drivers) && req.body.drivers.length > 0) {
+      for (const drv of req.body.drivers) {
+        if (drv.driverId || drv.name) {
+          await Driver.findOneAndUpdate({ $or: [{ driverId: drv.driverId }, { name: drv.name }] }, drv, { upsert: true, new: true });
+          stats.drivers++;
+        }
+      }
+    }
+    if (Array.isArray(req.body.trailers) && req.body.trailers.length > 0) {
+      for (const tr of req.body.trailers) {
+        if (tr.trailerId || tr.immatriculation) {
+          await Trailer.findOneAndUpdate({ $or: [{ trailerId: tr.trailerId }, { immatriculation: tr.immatriculation }] }, tr, { upsert: true, new: true });
+          stats.trailers++;
+        }
+      }
+    }
+    if (Array.isArray(req.body.fleetHistory) && req.body.fleetHistory.length > 0) {
+      for (const fh of req.body.fleetHistory) {
+        if (fh.historyId) {
+          await FleetAssignmentHistory.findOneAndUpdate({ historyId: fh.historyId }, fh, { upsert: true, new: true });
+          stats.fleetHistory = (stats.fleetHistory || 0) + 1;
         }
       }
     }
@@ -4774,6 +5889,7 @@ async function runScanForWindow(startMs, endMs, forceAll = false, deviceIds = nu
 
 // HTTP wrapper — kept for backward-compat with any external callers
 app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
+  if (!ENABLE_AUTO_ZONE_TRACKING) return res.json({ summary: { disabled: true } });
   try {
     const { start, end, deviceIds, forceAll } = req.body || {};
     if (!start || !end) return res.status(400).json({ error: 'start et end requis' });
@@ -4813,8 +5929,9 @@ app.post('/api/admin/emergency-close', checkAccess, async (req, res) => {
 //   3. Gap tolerance: up to 45 min gap between zone points = same visit
 //   4. Per-truck timeout: 30s max, prevents stuck scan
 //   5. Upsert-first: update existing open event before creating new one
-// ════════════════════════════════════════════════════════════════
-app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
+// Redundant duplicate scan-history route removed (handled by runScanForWindow at L4836)
+if (false) {
+app.post('/api/zone-events/scan-history-legacy', checkAccess, async (req, res) => {
   if (!ENABLE_AUTO_ZONE_TRACKING) return res.json({ summary: { disabled: true } });
   try {
     const { start, end, deviceIds, forceAll } = req.body || {};
@@ -5136,6 +6253,7 @@ app.post('/api/zone-events/scan-history', checkAccess, async (req, res) => {
     res.json({ success: true, summary });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+}
 // ============================================================
 // 📍 ZONE ENTRY/EXIT EVENT TRACKER — ALL ZONES, ALL TRUCKS
 // Records every entry/exit to MongoDB for the report & Power BI
@@ -6546,6 +7664,19 @@ app.post('/api/zone-events/gps-radar', checkAccess, async (req, res) => {
   })();
 });
 
+app.get('/api/clients', checkAccess, async (req, res) => {
+  try {
+    let clients = SYSTEM_SETTINGS.clients;
+    if (!clients || !clients.length) {
+      const doc = await Settings.findOne({ id: 'global' }).lean();
+      if (doc && doc.clients) clients = doc.clients;
+    }
+    res.json(clients || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/clients', checkAccess, async (req, res) => {
   try {
     const { name, color } = req.body;
@@ -7562,6 +8693,19 @@ itinRoute.delete('/delete-one', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// PATCH /api/itinerary/set-names — update human-readable route names
+itinRoute.patch('/set-names', async (req, res) => {
+  try {
+    const { key, nameStart, nameEnd } = req.body;
+    if (!key) return res.status(400).json({ error: 'key required' });
+    const update = {};
+    if (nameStart !== undefined) update.nameStart = nameStart;
+    if (nameEnd !== undefined) update.nameEnd = nameEnd;
+    const doc = await ItinerarySegment.findOneAndUpdate({ key }, { $set: update }, { new: true });
+    if (!doc) return res.status(404).json({ error: 'Segment not found' });
+    res.json({ ok: true, segment: doc });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // DELETE /api/itinerary/clear — wipe all (admin)
 itinRoute.delete('/clear', async (req, res) => {
   try {
@@ -7625,7 +8769,16 @@ app.delete('/api/maintenance-articles/:id', checkAccess, async (req, res) => {
 // PATCH cancel maintenance order
 app.patch('/api/maintenance/:id/cancel', checkAccess, async (req, res) => {
   try {
-    const doc = await Maintenance.findById(req.params.id);
+    const targetId = req.params.id;
+    if (!targetId || targetId === 'undefined' || targetId === 'null') {
+      return res.status(400).json({ error: 'id requis' });
+    }
+    let doc = null;
+    try {
+      doc = await Maintenance.findById(targetId);
+    } catch(castErr) {
+      return res.status(400).json({ error: 'Identifiant invalide' });
+    }
     if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
     doc.status = 'annule';
     doc.note = (doc.note || '') + '\n[ANNULÉ le ' + new Date().toLocaleString('fr-FR') + ']';
@@ -7637,7 +8790,16 @@ app.patch('/api/maintenance/:id/cancel', checkAccess, async (req, res) => {
 // PATCH complete maintenance order
 app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
   try {
-    const doc = await Maintenance.findById(req.params.id);
+    const targetId = req.params.id;
+    if (!targetId || targetId === 'undefined' || targetId === 'null') {
+      return res.status(400).json({ error: 'id requis' });
+    }
+    let doc = null;
+    try {
+      doc = await Maintenance.findById(targetId);
+    } catch(castErr) {
+      return res.status(400).json({ error: 'Identifiant invalide' });
+    }
     if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
     const { cost, technician, note, parts } = req.body;
     doc.status = 'termine';
@@ -7651,15 +8813,22 @@ app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
     // ✅ If completing a vidange record, synchronize vidangeOverrides
     let ackResult = null;
     try {
-      const isVidange = doc.type === 'Vidange' || doc.type === 'Vidange Complète';
-      if (isVidange && doc.deviceId && doc.odometer) {
-        ackResult = await acknowledgeVidange(
-          doc.deviceId,
-          doc.truckName,
-          parseInt(doc.odometer, 10),
-          doc.exitDate || doc.date,
-          doc.note
-        );
+      const isVidange = doc.type && doc.type.toLowerCase().includes('vidange');
+      if (isVidange && doc.deviceId) {
+        let odoToAck = parseInt(doc.odometer, 10) || 0;
+        if (odoToAck <= 0) {
+          const truckRec = await Truck.findOne({ deviceId: doc.deviceId }).lean();
+          if (truckRec && truckRec.odometer) odoToAck = parseInt(truckRec.odometer, 10) || 0;
+        }
+        if (odoToAck > 0) {
+          ackResult = await acknowledgeVidange(
+            doc.deviceId,
+            doc.truckName,
+            odoToAck,
+            doc.exitDate || doc.date,
+            doc.note
+          );
+        }
       }
     } catch (e) {
       console.warn('Vidange acknowledge (complete) failed:', e.message);
@@ -7667,6 +8836,8 @@ app.patch('/api/maintenance/:id/complete', checkAccess, async (req, res) => {
 
     res.json({
       success: true,
+      entry: fmt([doc])[0],
+      vidangeAcknowledged: !!ackResult,
       vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides,
       vidangeStatus: ackResult?.vidangeStatus || null
     });
@@ -8463,7 +9634,9 @@ async function runDailyBackup() {
       zoneOperations: await ZoneOperation.find(),
       maintenanceArticles: await MaintenanceArticle.find(),
       vehicleReferences: await VehicleReference.find(),
-      repairOrders: await RepairOrder.find()
+      repairOrders: await RepairOrder.find(),
+      drivers: await Driver.find(),
+      trailers: await Trailer.find()
     };
 
     // Save minified JSON (reduces file size by ~40%)

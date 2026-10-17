@@ -1321,6 +1321,7 @@
       }
       if (candidate.client) parts.push(candidate.client);
       if (candidate.driver) parts.push(`Chauffeur: ${candidate.driver}`);
+      if (candidate.trailer) parts.push(`Remorque: ${candidate.trailer}`);
       return parts.join(' • ').slice(0, 240);
     }
 
@@ -1468,7 +1469,8 @@
           const pointLoading = String(this.findImportedField(record, ['pointdechargement']) || '').trim();
           const pointUnloading = String(this.findImportedField(record, ['pointdedechargement']) || '').trim();
           const client = String(this.findImportedField(record, ['client']) || '').trim();
-          const driver = String(this.findImportedField(record, ['chauffeurs', 'chauffeur']) || '').trim();
+          const driver = String(this.findImportedField(record, ['chauffeurs', 'chauffeur', 'driver']) || '').trim();
+          const trailer = String(this.findImportedField(record, ['remorques', 'remorque', 'trailer']) || '').trim();
 
           const candidate = {
             sourceRow: index + 1,
@@ -1480,11 +1482,19 @@
             pointUnloading,
             client,
             driver,
+            trailer,
             valid: !!truckInput && !!startDate && !!endDate && endDate > startDate
           };
           candidate.issueReason = !truckInput ? 'Camion manquant' : (!startDate || !endDate ? 'Dates manquantes ou illisibles' : (endDate <= startDate ? 'DH fin avant DH départ' : ''));
 
           candidate.matchedTruck = candidate.valid ? this.matchTruckByImportName(candidate.truckInput) : null;
+          if (candidate.matchedTruck && (!candidate.driver || !candidate.trailer)) {
+            const tMeta = (window.ui && window.ui.truckDbCache || []).find(d => String(d.deviceId) === String(candidate.matchedTruck.id || candidate.matchedTruck.deviceId));
+            if (tMeta) {
+              if (!candidate.driver && tMeta.driverName) candidate.driver = tMeta.driverName;
+              if (!candidate.trailer && tMeta.trailer) candidate.trailer = tMeta.trailer;
+            }
+          }
           candidate.note = this.buildImportNote(candidate);
           candidate.fingerprint = candidate.valid && candidate.matchedTruck
             ? this.buildRowFingerprint(candidate.matchedTruck.name, candidate.startDate, candidate.endDate)

@@ -178,6 +178,8 @@ class FleetTrackerApp {
       return {
         id: deviceId,
         name: displayName,
+        lat,
+        lng,
         fuelPercentage,
         fuelLiters,
         fuelTankCapacity: fuelData.effectiveCapacity || getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity,
@@ -348,7 +350,9 @@ class FleetTrackerApp {
       truck.vidange = vidangeStatus;
       
       if (typeof this.checkMaintenanceLogic === 'function') {
-        const zoneInfo = this.checkMaintenanceLogic(truck.id, truck.name, parseFloat(truck.lat)||0, parseFloat(truck.lng)||0, odometerKm, vidangeStatus);
+        const truckLat = parseFloat(truck.coordinates?.lat ?? truck.lat ?? 0) || 0;
+        const truckLng = parseFloat(truck.coordinates?.lng ?? truck.lng ?? 0) || 0;
+        const zoneInfo = this.checkMaintenanceLogic(truck.id, truck.name, truckLat, truckLng, odometerKm, vidangeStatus);
         truck.isVidangeCandidate = zoneInfo.inZone && vidangeStatus.alert;
       }
     });

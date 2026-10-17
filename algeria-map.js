@@ -1426,7 +1426,13 @@ deselectTruck: function() {
         if (m) { const p = m.getPopup(); if (p && !p.isOpen()) m.togglePopup(); }
       }
     },
-    getCoordinates: function(t) { return t.coordinates ? [t.coordinates.lng, t.coordinates.lat] : [t.lng, t.lat]; },
+    getCoordinates: function(t) {
+        if (!t) return null;
+        const lng = parseFloat(t.coordinates?.lng ?? t.lng ?? t.longitude);
+        const lat = parseFloat(t.coordinates?.lat ?? t.lat ?? t.latitude);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat) || (lng === 0 && lat === 0)) return null;
+        return [lng, lat];
+    },
     populateTruckList: function() {
         const sel = document.getElementById('mapTruckSelect');
         if(!sel || sel.options.length>1) return;

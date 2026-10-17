@@ -1,0 +1,1959 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suivi Disponibilité & Itinéraires Chauffeurs — Douroub El Djazair</title>
+  <meta name="description" content="Tableau de bord de disponibilité temps réel de la flotte, chauffeurs, remorques, suivi des destinations, cartographie des itinéraires et historique des rotations. SPA Douroub El Djazair.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome 6 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  
+  <!-- Leaflet Map CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- ExcelJS for XLSX export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+  
+  <style>
+    :root {
+      --bg-base: #060910;
+      --bg-surface: #0f172a;
+      --bg-elevated: #1e293b;
+      --bg-hover: #27354f;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --primary: #38bdf8;
+      --primary-hover: #0ea5e9;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #8b5cf6;
+      --cyan: #06b6d4;
+      --orange: #f97316;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top Bar */
+    header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      backdrop-filter: blur(12px);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #0284c7, #38bdf8);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 18px;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.4);
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+      color: var(--text-primary);
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .live-indicator {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #10b981;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+      animation: pulse 1.8s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.6; }
+      100% { transform: scale(0.95); opacity: 1; }
+    }
+
+    .clock {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      background: var(--bg-elevated);
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .btn-excel {
+      background: #059669;
+      color: #fff;
+    }
+    .btn-excel:hover { background: #047857; }
+
+    .btn-mission {
+      background: #0284c7;
+      color: #fff;
+      box-shadow: 0 2px 10px rgba(2, 132, 199, 0.3);
+    }
+    .btn-mission:hover { background: #0369a1; }
+
+    .btn-status {
+      background: #ef4444;
+      color: #fff;
+    }
+    .btn-status:hover { background: #dc2626; }
+
+    .btn-back {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border-color: var(--border);
+    }
+    .btn-back:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-strong);
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      padding: 20px 24px;
+      max-width: 1720px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* KPI Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      transition: transform 0.2s, border-color 0.2s;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+    }
+
+    .kpi-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .kpi-value {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: -1px;
+    }
+
+    .kpi-sub {
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Navigation Tabs between Views */
+    .view-switcher-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .view-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-surface);
+      padding: 5px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .view-pill {
+      padding: 7px 16px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .view-pill:hover {
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .view-pill.active {
+      background: var(--primary);
+      color: #060910;
+      box-shadow: 0 2px 10px rgba(56, 189, 248, 0.3);
+    }
+
+    /* Filter & Controls Toolbar */
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      background: var(--bg-surface);
+      padding: 12px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+
+    .search-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-elevated);
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      flex: 1;
+      min-width: 260px;
+    }
+
+    .search-wrap input {
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--text-primary);
+      width: 100%;
+      font-size: 13px;
+    }
+
+    .filter-pills {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .pill:hover {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    .pill.active {
+      background: var(--primary);
+      color: #060910;
+      border-color: var(--primary);
+    }
+
+    /* Table Styles */
+    .table-container {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow-x: auto;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    thead th {
+      background: var(--bg-elevated);
+      padding: 12px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tbody tr:hover {
+      background: var(--bg-hover);
+    }
+
+    /* Badges & Tags */
+    .truck-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+
+    .tag-imm { background: rgba(255, 255, 255, 0.08); color: var(--text-primary); border: 1px solid var(--border); }
+    .tag-chassis { background: rgba(56, 189, 248, 0.1); color: #38bdf8; font-family: var(--font-mono); }
+    .tag-naftal { background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-family: var(--font-mono); }
+    .tag-driver { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .tag-trailer { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+
+    .situation-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      white-space: nowrap;
+    }
+
+    .badge-mission { background: rgba(16, 185, 129, 0.16); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .badge-disponible { background: rgba(2, 132, 199, 0.16); color: #38bdf8; border: 1px solid rgba(2, 132, 199, 0.4); }
+    .badge-sans-chauffeur { background: rgba(249, 115, 22, 0.16); color: #fb923c; border: 1px solid rgba(249, 115, 22, 0.4); }
+    .badge-chargement { background: rgba(234, 179, 8, 0.16); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); }
+    .badge-maintenance { background: rgba(245, 158, 11, 0.16); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-panne { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.5); }
+    .badge-repos { background: rgba(139, 92, 246, 0.16); color: #a78bfa; border: 1px solid rgba(139, 92, 246, 0.4); }
+    .badge-recup { background: rgba(6, 182, 212, 0.16); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.4); }
+    .badge-conge { background: rgba(100, 116, 139, 0.2); color: #cbd5e1; border: 1px solid rgba(100, 116, 139, 0.4); }
+    .badge-maladie { background: rgba(225, 29, 72, 0.2); color: #fb7185; border: 1px solid rgba(225, 29, 72, 0.5); }
+    .badge-formation { background: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); }
+    .badge-attente { background: rgba(217, 119, 6, 0.18); color: #f59e0b; border: 1px solid rgba(217, 119, 6, 0.4); }
+    .badge-reserve { background: rgba(113, 113, 122, 0.2); color: #a1a1aa; border: 1px solid rgba(113, 113, 122, 0.4); }
+
+    .call-link {
+      color: #38bdf8;
+      text-decoration: none;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .call-link:hover { text-decoration: underline; color: #7dd3fc; }
+
+    /* Cards View */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .dispo-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      transition: all 0.2s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .dispo-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+    }
+
+    .dispo-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .dispo-card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .info-label { color: var(--text-muted); font-size: 11px; }
+    .info-value { font-weight: 600; color: var(--text-primary); text-align: right; }
+
+    /* Map View Container */
+    #mapViewContainer {
+      display: none;
+      height: 700px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      position: relative;
+      background: #0f172a;
+    }
+
+    #leafletFleetMap {
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    .map-floating-panel {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 500;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      padding: 14px 18px;
+      width: 320px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .map-floating-panel h4 {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--primary);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .map-floating-panel select, .map-floating-panel input {
+      width: 100%;
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-bottom: 8px;
+      outline: none;
+    }
+
+    /* History View Container */
+    #historyViewContainer {
+      display: none;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+    }
+
+    .history-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .history-tab-btn {
+      padding: 6px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .history-tab-btn.active {
+      background: #0284c7;
+      color: #fff;
+      border-color: #0284c7;
+    }
+
+    .timeline-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 650px;
+      overflow-y: auto;
+      padding-right: 6px;
+    }
+
+    .timeline-item {
+      background: var(--bg-elevated);
+      border-left: 4px solid var(--primary);
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      transition: background 0.15s;
+    }
+    .timeline-item:hover { background: var(--bg-hover); }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(6px);
+      z-index: 9999;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 16px;
+      padding: 24px;
+      width: 100%;
+      max-width: 520px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+    }
+
+    .modal-title {
+      font-size: 15px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-primary);
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 18px;
+      cursor: pointer;
+    }
+    .modal-close:hover { color: var(--text-primary); }
+
+    .modal-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .form-group label {
+      font-weight: 700;
+      color: var(--text-secondary);
+      font-size: 11px;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      outline: none;
+      font-family: inherit;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      border-color: var(--primary);
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+    }
+
+    .route-progress-bar {
+      height: 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .route-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #10b981, #38bdf8);
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header>
+    <div class="brand">
+      <div class="brand-logo"><i class="fa-solid fa-truck-ramp-box"></i></div>
+      <div>
+        <div class="brand-title">Suivi Disponibilité & Trajectoires</div>
+        <div class="brand-subtitle">SPA Douroub El Djazair — Command Center Logistique</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="live-indicator">
+        <span class="pulse-dot"></span>
+        <span id="liveStatusText">TEMPS RÉEL 10s</span>
+      </div>
+      <div class="clock" id="clockDisplay">--:--:--</div>
+      <button class="btn btn-mission" onclick="openMissionModal()">
+        <i class="fa-solid fa-route"></i> Nouvelle Mission
+      </button>
+      <button class="btn btn-status" onclick="openStatusModal()">
+        <i class="fa-solid fa-triangle-exclamation"></i> Signaler Statut / Panne
+      </button>
+      <button class="btn btn-excel" onclick="exportToExcel()">
+        <i class="fa-solid fa-file-excel"></i> Export Excel
+      </button>
+      <a href="index.html" class="btn btn-back">
+        <i class="fa-solid fa-arrow-left"></i> Dashboard Principal
+      </a>
+    </div>
+  </header>
+
+  <main>
+    <!-- KPI Counters with all 11 logistics situations -->
+    <div class="kpi-grid">
+      <div class="kpi-card" style="border-left: 4px solid var(--primary);" onclick="setFilter('all')">
+        <div class="kpi-label">Total Flotte</div>
+        <div class="kpi-value" id="kpiTotal" style="color: var(--text-primary);">--</div>
+        <div class="kpi-sub"><span id="kpiDriversCount">--</span> chauffeurs · <span id="kpiTrailersCount">--</span> remorques</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #10b981;" onclick="setFilter('mission')">
+        <div class="kpi-label" style="color: #10b981;">
+          <span class="pulse-dot" style="width:6px; height:6px;"></span> En Mission
+        </div>
+        <div class="kpi-value" id="kpiMission" style="color: #10b981;">--</div>
+        <div class="kpi-sub">En route ou livraison</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #0284c7;" onclick="setFilter('disponible')">
+        <div class="kpi-label" style="color: #38bdf8;">Disponible Parc</div>
+        <div class="kpi-value" id="kpiDispo" style="color: #38bdf8;">--</div>
+        <div class="kpi-sub">Stationné & prêt</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #f97316;" onclick="setFilter('sans_chauffeur')">
+        <div class="kpi-label" style="color: #fb923c;">Sans Chauffeur</div>
+        <div class="kpi-value" id="kpiSansChauffeur" style="color: #fb923c;">--</div>
+        <div class="kpi-sub">Véhicule non affecté</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #eab308;" onclick="setFilter('chargement')">
+        <div class="kpi-label" style="color: #facc15;">En Chargement</div>
+        <div class="kpi-value" id="kpiChargement" style="color: #facc15;">--</div>
+        <div class="kpi-sub">À quai ou déchargement</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #f59e0b;" onclick="setFilter('maintenance')">
+        <div class="kpi-label" style="color: #fbbf24;">Maintenance</div>
+        <div class="kpi-value" id="kpiMaint" style="color: #fbbf24;">--</div>
+        <div class="kpi-sub">Révision ou vidange</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #ef4444;" onclick="setFilter('panne')">
+        <div class="kpi-label" style="color: #f87171;">En Panne</div>
+        <div class="kpi-value" id="kpiPanne" style="color: #f87171;">--</div>
+        <div class="kpi-sub">Immobilisé / Hors service</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #8b5cf6;" onclick="setFilter('repos')">
+        <div class="kpi-label" style="color: #a78bfa;">Découchage / Repos</div>
+        <div class="kpi-value" id="kpiRepos" style="color: #a78bfa;">--</div>
+        <div class="kpi-sub">Nuit ou coupure</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #06b6d4;" onclick="setFilter('recup')">
+        <div class="kpi-label" style="color: #22d3ee;">En Récupération</div>
+        <div class="kpi-value" id="kpiRecup" style="color: #22d3ee;">--</div>
+        <div class="kpi-sub">Repos compensateur</div>
+      </div>
+      <div class="kpi-card" style="border-left: 4px solid #64748b;" onclick="setFilter('conge')">
+        <div class="kpi-label" style="color: #94a3b8;">Congé / Maladie</div>
+        <div class="kpi-value" id="kpiConge" style="color: #cbd5e1;">--</div>
+        <div class="kpi-sub">Congé, arrêt ou formation</div>
+      </div>
+    </div>
+
+    <!-- View Switcher Bar -->
+    <div class="view-switcher-bar">
+      <div class="view-pills">
+        <button class="view-pill active" id="btnViewTable" onclick="switchMainView('table')">
+          <i class="fa-solid fa-table"></i> Vue Tableau
+        </button>
+        <button class="view-pill" id="btnViewCards" onclick="switchMainView('cards')">
+          <i class="fa-solid fa-grip"></i> Vue Cartes
+        </button>
+        <button class="view-pill" id="btnViewMap" onclick="switchMainView('map')">
+          <i class="fa-solid fa-map-location-dot"></i> Carte & Trajets
+        </button>
+        <button class="view-pill" id="btnViewHistory" onclick="switchMainView('history')">
+          <i class="fa-solid fa-clock-rotate-left"></i> Historique Rotations
+        </button>
+      </div>
+
+      <div style="font-size: 11px; color: var(--text-muted);">
+        Dernière mise à jour: <span id="lastSyncTime" style="font-family:var(--font-mono); color:var(--text-secondary);">--</span>
+      </div>
+    </div>
+
+    <!-- Filter & Search Toolbar (active on table & cards) -->
+    <div class="toolbar" id="toolbarControls">
+      <div class="search-wrap">
+        <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
+        <input type="text" id="searchInput" placeholder="Rechercher camion, chauffeur, remorque, destination, ville..." oninput="handleSearch()">
+      </div>
+      <div class="filter-pills" id="filterPills">
+        <button class="pill active" data-filter="all" onclick="setFilter('all')">Tous</button>
+        <button class="pill" data-filter="mission" onclick="setFilter('mission')"><i class="fa-solid fa-circle" style="color:#10b981; font-size:7px;"></i> En Mission</button>
+        <button class="pill" data-filter="disponible" onclick="setFilter('disponible')"><i class="fa-solid fa-circle" style="color:#38bdf8; font-size:7px;"></i> Disponible</button>
+        <button class="pill" data-filter="sans_chauffeur" onclick="setFilter('sans_chauffeur')"><i class="fa-solid fa-circle" style="color:#fb923c; font-size:7px;"></i> Sans Chauffeur</button>
+        <button class="pill" data-filter="chargement" onclick="setFilter('chargement')"><i class="fa-solid fa-circle" style="color:#facc15; font-size:7px;"></i> Chargement</button>
+        <button class="pill" data-filter="maintenance" onclick="setFilter('maintenance')"><i class="fa-solid fa-circle" style="color:#fbbf24; font-size:7px;"></i> Maintenance</button>
+        <button class="pill" data-filter="panne" onclick="setFilter('panne')"><i class="fa-solid fa-circle" style="color:#f87171; font-size:7px;"></i> En Panne</button>
+        <button class="pill" data-filter="repos" onclick="setFilter('repos')"><i class="fa-solid fa-circle" style="color:#a78bfa; font-size:7px;"></i> Découchage</button>
+        <button class="pill" data-filter="recup" onclick="setFilter('recup')"><i class="fa-solid fa-circle" style="color:#22d3ee; font-size:7px;"></i> Récupération</button>
+        <button class="pill" data-filter="conge" onclick="setFilter('conge')"><i class="fa-solid fa-circle" style="color:#94a3b8; font-size:7px;"></i> Congé</button>
+      </div>
+      <div>
+        <select id="wilayaFilter" onchange="render()" style="background:var(--bg-elevated); color:var(--text-primary); border:1px solid var(--border); padding:7px 12px; border-radius:8px; font-size:12px;">
+          <option value="all">Toutes Wilayas</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- 1. TABLE / CARDS CONTENT -->
+    <div id="contentContainer">
+      <div style="text-align:center; padding:40px; color:var(--text-muted);">
+        <i class="fa-solid fa-sync fa-spin fa-2x"></i>
+        <div style="margin-top:10px;">Chargement des données temps réel...</div>
+      </div>
+    </div>
+
+    <!-- 2. LEAFLET MAP VIEW -->
+    <div id="mapViewContainer">
+      <div class="map-floating-panel">
+        <h4><i class="fa-solid fa-map-pin"></i> Trajet Chauffeur & Camion</h4>
+        <div class="form-group">
+          <label>Sélectionner Véhicule / Chauffeur :</label>
+          <select id="mapSelectTruck" onchange="focusTruckOnMap(this.value)">
+            <option value="">-- Flotte Globale (Tous les camions) --</option>
+          </select>
+        </div>
+        <div id="mapRouteDetail" style="font-size:11px; color:var(--text-secondary); margin-top:8px;">
+          Sélectionnez un camion pour visualiser son tracé (Origine → Position GPS → Destination).
+        </div>
+      </div>
+      <div id="leafletFleetMap"></div>
+    </div>
+
+    <!-- 3. ROTATIONS & ASSIGNMENT HISTORY VIEW -->
+    <div id="historyViewContainer">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+        <div class="history-tabs">
+          <button class="history-tab-btn active" id="tabHistAll" onclick="setHistoryTab('all')">Journal Global</button>
+          <button class="history-tab-btn" id="tabHistDriver" onclick="setHistoryTab('driver')">Par Chauffeur</button>
+          <button class="history-tab-btn" id="tabHistTruck" onclick="setHistoryTab('truck')">Par Camion</button>
+          <button class="history-tab-btn" id="tabHistTrailer" onclick="setHistoryTab('trailer')">Par Remorque</button>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="histSearchInput" placeholder="Filtrer l'historique..." oninput="renderHistoryList()" style="background:var(--bg-elevated); color:var(--text-primary); border:1px solid var(--border); padding:6px 12px; border-radius:8px; font-size:12px;">
+          <button class="btn btn-excel" onclick="exportHistoryExcel()"><i class="fa-solid fa-file-excel"></i> Export Historique</button>
+        </div>
+      </div>
+
+      <div id="historySelectorWrap" style="margin-bottom:12px; display:none;">
+        <select id="historyEntitySelect" onchange="loadEntityHistory(this.value)" style="background:var(--bg-elevated); color:var(--text-primary); border:1px solid var(--border); padding:8px 12px; border-radius:8px; font-size:12px; width:100%; max-width:400px;">
+        </select>
+      </div>
+
+      <div id="historyTimelineContainer" class="timeline-list">
+        <div style="text-align:center; padding:30px; color:var(--text-muted);">Chargement de l'historique...</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL: NOUVELLE MISSION / AFFECTATION DESTINATION -->
+  <div class="modal-backdrop" id="modalMission">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-route" style="color:#0284c7;"></i> Nouvelle Mission / Affecter Destination</div>
+        <button class="modal-close" onclick="closeMissionModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Camion à affecter *</label>
+          <select id="missionTruckSelect" onchange="onMissionTruckChange(this.value)">
+            <option value="">-- Choisir un camion --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Chauffeur au volant *</label>
+          <select id="missionDriverSelect">
+            <option value="">-- Choisir un chauffeur --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Remorque attelée</label>
+          <select id="missionTrailerSelect">
+            <option value="">-- Aucune / Remorque par défaut --</option>
+          </select>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group">
+            <label>Origine (Départ) *</label>
+            <input type="text" id="missionOrigin" list="hubsList" placeholder="Ex: Rouiba (Dépôt Centrale)">
+          </div>
+          <div class="form-group">
+            <label>Destination (Arrivée) *</label>
+            <input type="text" id="missionDest" list="hubsList" placeholder="Ex: Hassi Messaoud">
+          </div>
+        </div>
+        <datalist id="hubsList"></datalist>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+          <div class="form-group">
+            <label>Nature du Fret / Marchandise</label>
+            <input type="text" id="missionCargo" placeholder="Ex: Hydrocarbures / Vrac / Citerne">
+          </div>
+          <div class="form-group">
+            <label>N° Ordre de Mission / BL</label>
+            <input type="text" id="missionOrderRef" placeholder="Ex: OM-2026-088">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Instructions de route / Notes</label>
+          <textarea id="missionNotes" rows="2" placeholder="Consignes particulières, arrêt intermédiaire..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-back" onclick="closeMissionModal()">Annuler</button>
+        <button class="btn btn-mission" onclick="submitMission()"><i class="fa-solid fa-paper-plane"></i> Lancer la Mission</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CHANGER STATUT / SIGNALER PANNE -->
+  <div class="modal-backdrop" id="modalStatus">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Signaler Statut / Panne / Maintenance</div>
+        <button class="modal-close" onclick="closeStatusModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Type d'entité</label>
+          <select id="statusEntityType" onchange="toggleStatusEntity(this.value)">
+            <option value="truck">Camion (Véhicule tracteur)</option>
+            <option value="driver">Chauffeur (Conducteur)</option>
+            <option value="trailer">Remorque</option>
+          </select>
+        </div>
+        <div class="form-group" id="statusTargetWrap">
+          <label id="statusTargetLabel">Sélectionner Camion *</label>
+          <select id="statusTargetSelect">
+            <option value="">-- Choisir --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Nouveau Statut Opérationnel *</label>
+          <select id="statusValueSelect">
+            <!-- Dynamically populated -->
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Motif / Détails / Localisation de l'incident</label>
+          <textarea id="statusNotes" rows="3" placeholder="Description de la panne, référence atelier, raison récupération..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-back" onclick="closeStatusModal()">Annuler</button>
+        <button class="btn btn-status" onclick="submitStatusChange()"><i class="fa-solid fa-check"></i> Enregistrer le Statut</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let availabilityData = { counts: {}, items: [] };
+    let driversList = [];
+    let trailersList = [];
+    let hubsList = [];
+    let currentFilter = 'all';
+    let searchQuery = '';
+    let currentMainView = 'table'; // 'table', 'cards', 'map', 'history'
+    let historyTab = 'all'; // 'all', 'driver', 'truck', 'trailer'
+    let historyEntries = [];
+    let pollInterval = null;
+
+    // Leaflet map instances
+    let leafletMap = null;
+    let mapMarkers = [];
+    let mapRoutePolyline = null;
+    let mapOriginMarker = null;
+    let mapDestMarker = null;
+
+    // Clock
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clockDisplay').textContent = now.toLocaleTimeString('fr-FR');
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Fetch availability & reference data
+    async function fetchAvailability() {
+      try {
+        const [resAvail, resDrivers, resTrailers, resHubs] = await Promise.all([
+          fetch('/api/fleet/availability'),
+          fetch('/api/drivers'),
+          fetch('/api/trailers'),
+          fetch('/api/fleet/hubs')
+        ]);
+
+        if (resAvail.ok) {
+          availabilityData = await resAvail.json();
+          document.getElementById('lastSyncTime').textContent = new Date().toLocaleTimeString('fr-FR');
+          updateKPIs();
+          populateWilayas();
+          if (currentMainView === 'table' || currentMainView === 'cards') {
+            render();
+          } else if (currentMainView === 'map' && leafletMap) {
+            updateMapMarkers();
+          }
+        }
+
+        if (resDrivers.ok) driversList = await resDrivers.json();
+        if (resTrailers.ok) trailersList = await resTrailers.json();
+        if (resHubs.ok) {
+          const hData = await resHubs.json();
+          hubsList = hData.hubs || [];
+          populateHubsDatalist();
+        }
+      } catch (err) {
+        console.warn('Erreur chargement disponibilité:', err);
+      }
+    }
+
+    // Populate Datalist for Hubs
+    function populateHubsDatalist() {
+      const dl = document.getElementById('hubsList');
+      if (!dl) return;
+      dl.innerHTML = hubsList.map(h => `<option value="${h.name}">${h.wilaya} (${h.type})</option>`).join('');
+    }
+
+    // Update KPIs
+    function updateKPIs() {
+      const c = availabilityData.counts || {};
+      document.getElementById('kpiTotal').textContent = c.total || 0;
+      document.getElementById('kpiMission').textContent = c.mission || 0;
+      document.getElementById('kpiDispo').textContent = c.disponible || 0;
+      document.getElementById('kpiSansChauffeur').textContent = c.sans_chauffeur || 0;
+      document.getElementById('kpiChargement').textContent = c.chargement || 0;
+      document.getElementById('kpiMaint').textContent = c.maintenance || 0;
+      document.getElementById('kpiPanne').textContent = c.panne || 0;
+      document.getElementById('kpiRepos').textContent = c.repos || 0;
+      document.getElementById('kpiRecup').textContent = c.recup || 0;
+      document.getElementById('kpiConge').textContent = c.conge || 0;
+      document.getElementById('kpiDriversCount').textContent = availabilityData.driversCount || driversList.length || 0;
+      document.getElementById('kpiTrailersCount').textContent = availabilityData.trailersCount || trailersList.length || 0;
+    }
+
+    // Populate Wilaya select
+    function populateWilayas() {
+      const select = document.getElementById('wilayaFilter');
+      const cur = select.value;
+      const wilayas = new Set();
+      (availabilityData.items || []).forEach(item => {
+        if (item.locationCity && item.locationCity !== 'En route') wilayas.add(item.locationCity);
+      });
+      const sorted = Array.from(wilayas).sort();
+      let html = '<option value="all">Toutes Wilayas</option>';
+      sorted.forEach(w => {
+        html += `<option value="${w}" ${w === cur ? 'selected' : ''}>${w}</option>`;
+      });
+      select.innerHTML = html;
+    }
+
+    // Filters
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('#filterPills .pill').forEach(p => {
+        p.classList.toggle('active', p.getAttribute('data-filter') === filter);
+      });
+      if (currentMainView === 'map') {
+        updateMapMarkers();
+      } else {
+        render();
+      }
+    }
+
+    function handleSearch() {
+      searchQuery = (document.getElementById('searchInput').value || '').trim().toLowerCase();
+      render();
+    }
+
+    function getFilteredItems() {
+      let items = availabilityData.items || [];
+      if (currentFilter !== 'all') {
+        items = items.filter(i => i.situation === currentFilter);
+      }
+      const wilaya = document.getElementById('wilayaFilter')?.value || 'all';
+      if (wilaya !== 'all') {
+        items = items.filter(i => (i.locationCity || '').toLowerCase().includes(wilaya.toLowerCase()));
+      }
+      if (searchQuery) {
+        items = items.filter(i => {
+          const tName = (i.truckName || '').toLowerCase();
+          const imm = (i.immatriculation || '').toLowerCase();
+          const dName = (i.driver?.name || '').toLowerCase();
+          const dPhone = (i.driver?.phone || '').toLowerCase();
+          const tr = (i.trailer?.immatriculation || '').toLowerCase();
+          const city = (i.locationCity || '').toLowerCase();
+          const dest = (i.activeMission?.destination || '').toLowerCase();
+          const orig = (i.activeMission?.origin || '').toLowerCase();
+          return tName.includes(searchQuery) || imm.includes(searchQuery) || dName.includes(searchQuery) || dPhone.includes(searchQuery) || tr.includes(searchQuery) || city.includes(searchQuery) || dest.includes(searchQuery) || orig.includes(searchQuery);
+        });
+      }
+      return items;
+    }
+
+    // Switch between Main Views
+    function switchMainView(view) {
+      currentMainView = view;
+      document.querySelectorAll('.view-pill').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.getElementById(`btnView${view.charAt(0).toUpperCase() + view.slice(1)}`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const content = document.getElementById('contentContainer');
+      const mapView = document.getElementById('mapViewContainer');
+      const histView = document.getElementById('historyViewContainer');
+      const toolbar = document.getElementById('toolbarControls');
+
+      content.style.display = 'none';
+      mapView.style.display = 'none';
+      histView.style.display = 'none';
+      toolbar.style.display = 'none';
+
+      if (view === 'table' || view === 'cards') {
+        content.style.display = 'block';
+        toolbar.style.display = 'flex';
+        render();
+      } else if (view === 'map') {
+        mapView.style.display = 'block';
+        initOrUpdateMap();
+      } else if (view === 'history') {
+        histView.style.display = 'block';
+        loadHistoryData();
+      }
+    }
+
+    // Render Table or Cards
+    function render() {
+      const container = document.getElementById('contentContainer');
+      const items = getFilteredItems();
+      if (!items.length) {
+        container.innerHTML = `
+          <div style="text-align:center; padding:50px 20px; color:var(--text-muted); background:var(--bg-surface); border-radius:14px; border:1px solid var(--border);">
+            <i class="fa-solid fa-truck-moving fa-3x" style="opacity:0.3; margin-bottom:12px;"></i>
+            <div style="font-size:14px; font-weight:700; color:var(--text-secondary);">Aucun véhicule ne correspond aux filtres</div>
+            <div style="font-size:12px; margin-top:4px;">Essayez de modifier votre recherche ou filtre de statut.</div>
+          </div>`;
+        return;
+      }
+      if (currentMainView === 'cards') renderCards(items, container);
+      else renderTable(items, container);
+    }
+
+    function renderTable(items, container) {
+      let html = `
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>Véhicule</th>
+                <th>Chauffeur Assigné</th>
+                <th>Remorque</th>
+                <th>Situation & Statut</th>
+                <th>Destination / Trajet</th>
+                <th>Position GPS</th>
+                <th>Télémétrie</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>`;
+
+      items.forEach(item => {
+        const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
+        const mission = item.activeMission;
+        html += `
+          <tr>
+            <td>
+              <div style="font-weight:800; font-size:13px; color:var(--text-primary);">${item.truckName}</div>
+              <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
+                ${item.immatriculation ? `<span class="truck-tag tag-imm">${item.immatriculation}</span>` : ''}
+                ${item.chassisNumber ? `<span class="truck-tag tag-chassis">${item.chassisNumber.slice(-8)}</span>` : ''}
+                ${item.carteNaftal ? `<span class="truck-tag tag-naftal"><i class="fa-solid fa-gas-pump"></i> ${item.carteNaftal}</span>` : ''}
+              </div>
+            </td>
+            <td>
+              ${item.driver ? `
+                <div style="font-weight:700; color:#34d399;">
+                  <span class="truck-tag tag-driver"><i class="fa-solid fa-user"></i> ${item.driver.name}</span>
+                </div>
+                ${item.driver.phone ? `
+                  <div style="font-size:11px; margin-top:3px;">
+                    <a href="tel:${item.driver.phone}" class="call-link"><i class="fa-solid fa-phone"></i> ${item.driver.phone}</a>
+                  </div>
+                ` : ''}
+              ` : '<em style="color:var(--text-muted); font-size:11px;">Non assigné</em>'}
+            </td>
+            <td>
+              ${item.trailer ? `
+                <div style="font-weight:700; color:#c084fc;">
+                  <span class="truck-tag tag-trailer"><i class="fa-solid fa-trailer"></i> ${item.trailer.immatriculation}</span>
+                </div>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${item.trailer.type || 'Plateau'}</div>
+              ` : '<em style="color:var(--text-muted); font-size:11px;">Sans remorque</em>'}
+            </td>
+            <td>
+              <span class="situation-badge ${item.situationBadge}">
+                ${item.isMoving ? '<span class="pulse-dot" style="width:6px; height:6px;"></span>' : ''}
+                ${item.situationLabel}
+              </span>
+            </td>
+            <td>
+              ${mission ? `
+                <div style="font-weight:700; color:var(--primary); font-size:11px;">
+                  <i class="fa-solid fa-location-arrow"></i> ${mission.origin} → ${mission.destination}
+                </div>
+                <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">
+                  ${mission.cargo || 'Fret'} · ${mission.orderRef || ''}
+                </div>
+              ` : '<span style="color:var(--text-muted); font-size:11px;">—</span>'}
+            </td>
+            <td>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-location-dot" style="color:var(--primary);"></i>
+                <span style="font-weight:600; color:var(--text-primary);">${item.locationCity || 'En route'}</span>
+              </div>
+            </td>
+            <td>
+              <div style="font-weight:700; color:${item.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; font-family:var(--font-mono);">
+                ${item.speed} km/h
+              </div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                ${item.fuelLiters ? `${item.fuelLiters}L (${item.fuelPercent}%)` : ''}
+                ${item.odometer ? ` · ${item.odometer.toLocaleString()} km` : ''}
+              </div>
+            </td>
+            <td>
+              <div style="display:flex; gap:6px;">
+                <button onclick="focusTruckOnMap('${item.deviceId}')" class="btn btn-back" style="padding:4px 8px; font-size:11px;" title="Tracer sur carte">
+                  <i class="fa-solid fa-route"></i>
+                </button>
+                <a href="${mapsUrl}" target="_blank" class="btn btn-back" style="padding:4px 8px; font-size:11px;" title="Google Maps Satellite">
+                  <i class="fa-solid fa-map-pin"></i>
+                </a>
+              </div>
+            </td>
+          </tr>`;
+      });
+
+      html += `</tbody></table></div>`;
+      container.innerHTML = html;
+    }
+
+    function renderCards(items, container) {
+      let html = `<div class="cards-grid">`;
+      items.forEach(item => {
+        const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
+        const mission = item.activeMission;
+        html += `
+          <div class="dispo-card" style="border-top: 3px solid ${item.situationColor};">
+            <div class="dispo-card-header">
+              <div>
+                <strong style="font-size:14px;">${item.truckName}</strong>
+                <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${item.immatriculation || 'Sans plaque'}</div>
+              </div>
+              <span class="situation-badge ${item.situationBadge}">${item.situationLabel}</span>
+            </div>
+            <div class="dispo-card-body">
+              <div class="info-row">
+                <span class="info-label"><i class="fa-solid fa-user"></i> Chauffeur</span>
+                <span class="info-value">
+                  ${item.driver ? `
+                    ${item.driver.name}
+                    ${item.driver.phone ? `<br><a href="tel:${item.driver.phone}" class="call-link"><i class="fa-solid fa-phone"></i> ${item.driver.phone}</a>` : ''}
+                  ` : '<em style="color:var(--text-muted);">Non assigné</em>'}
+                </span>
+              </div>
+              <div class="info-row">
+                <span class="info-label"><i class="fa-solid fa-trailer"></i> Remorque</span>
+                <span class="info-value">${item.trailer ? `${item.trailer.immatriculation} (${item.trailer.type || 'Plateau'})` : '<em style="color:var(--text-muted);">Aucune</em>'}</span>
+              </div>
+              ${mission ? `
+                <div class="info-row" style="background:rgba(56,189,248,0.06); padding:6px 8px; border-radius:6px; margin:4px 0;">
+                  <span class="info-label"><i class="fa-solid fa-route"></i> Trajet</span>
+                  <span class="info-value" style="color:var(--primary); font-size:11px;">${mission.origin} → ${mission.destination}</span>
+                </div>
+              ` : ''}
+              <div class="info-row">
+                <span class="info-label"><i class="fa-solid fa-location-dot"></i> Position</span>
+                <span class="info-value">${item.locationCity || 'En route'} (${item.speed} km/h)</span>
+              </div>
+              <div style="margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <button onclick="focusTruckOnMap('${item.deviceId}')" class="btn btn-back" style="justify-content:center; padding:7px; font-size:11px;">
+                  <i class="fa-solid fa-route"></i> Tracer Trajet
+                </button>
+                <a href="${mapsUrl}" target="_blank" class="btn btn-back" style="justify-content:center; padding:7px; font-size:11px;">
+                  <i class="fa-solid fa-satellite"></i> Google Maps
+                </a>
+              </div>
+            </div>
+          </div>`;
+      });
+      html += `</div>`;
+      container.innerHTML = html;
+    }
+
+    // ── LEAFLET INTERACTIVE MAP MODULE ──────────────────────────
+    function initOrUpdateMap() {
+      if (!leafletMap) {
+        leafletMap = L.map('leafletFleetMap', {
+          zoomControl: true
+        }).setView([32.5, 3.5], 6);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 18,
+          attribution: '© OpenStreetMap contributors | Douroub El Djazair FleetOS'
+        }).addTo(leafletMap);
+      }
+
+      // Populate truck select on map
+      const sel = document.getElementById('mapSelectTruck');
+      if (sel) {
+        let opt = '<option value="">-- Flotte Globale (Tous les camions) --</option>';
+        (availabilityData.items || []).forEach(t => {
+          const drv = t.driver ? ` [${t.driver.name}]` : '';
+          opt += `<option value="${t.deviceId}">${t.truckName}${drv} - ${t.situationLabel}</option>`;
+        });
+        sel.innerHTML = opt;
+      }
+
+      setTimeout(() => {
+        leafletMap.invalidateSize();
+        updateMapMarkers();
+      }, 200);
+    }
+
+    function updateMapMarkers() {
+      if (!leafletMap) return;
+
+      // Clear previous markers
+      mapMarkers.forEach(m => leafletMap.removeLayer(m));
+      mapMarkers = [];
+
+      const items = getFilteredItems();
+      const bounds = [];
+
+      items.forEach(t => {
+        if (!t.lat || !t.lng) return;
+        const pt = [t.lat, t.lng];
+        bounds.push(pt);
+
+        const color = t.situationColor || '#0284c7';
+        const customIcon = L.divIcon({
+          className: 'custom-fleet-marker',
+          html: `<div style="background:${color}; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; border:2px solid #fff; box-shadow:0 0 10px ${color}; cursor:pointer;"><i class="fa-solid fa-truck"></i></div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14]
+        });
+
+        const marker = L.marker(pt, { icon: customIcon }).addTo(leafletMap);
+        const missionInfo = t.activeMission ? `<div style="font-weight:700; color:#0284c7; margin-top:4px;">📍 ${t.activeMission.origin} → ${t.activeMission.destination}</div>` : '';
+        const popupContent = `
+          <div style="font-family:var(--font-sans); min-width:200px; color:#1e293b;">
+            <strong style="font-size:14px; color:#0f172a;">${t.truckName}</strong>
+            <div style="font-size:11px; color:#64748b;">${t.immatriculation || ''}</div>
+            <div style="margin:6px 0;"><span style="background:${color}22; color:${color}; padding:2px 8px; border-radius:12px; font-weight:700; font-size:11px;">${t.situationLabel}</span></div>
+            ${t.driver ? `<div style="font-size:12px;">👤 <b>${t.driver.name}</b> ${t.driver.phone ? `(<a href="tel:${t.driver.phone}">${t.driver.phone}</a>)` : ''}</div>` : '<div style="font-size:11px; color:#94a3b8;">Sans chauffeur</div>'}
+            ${t.trailer ? `<div style="font-size:11px; color:#7c3aed;">🚛 Remorque: ${t.trailer.immatriculation}</div>` : ''}
+            ${missionInfo}
+            <div style="font-size:11px; color:#64748b; margin-top:4px;">Vitesse: <b>${t.speed} km/h</b> · Carburant: <b>${t.fuelLiters || 0}L</b></div>
+            <div style="margin-top:8px;">
+              <button onclick="focusTruckOnMap('${t.deviceId}')" style="background:#0284c7; color:#fff; border:none; padding:4px 10px; border-radius:6px; font-size:11px; cursor:pointer;">Tracer l'itinéraire</button>
+            </div>
+          </div>`;
+        marker.bindPopup(popupContent);
+        mapMarkers.push(marker);
+      });
+
+      if (bounds.length && !mapRoutePolyline) {
+        leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+      }
+    }
+
+    function focusTruckOnMap(deviceId) {
+      if (currentMainView !== 'map') {
+        switchMainView('map');
+      }
+
+      if (!deviceId) {
+        if (mapRoutePolyline) { leafletMap.removeLayer(mapRoutePolyline); mapRoutePolyline = null; }
+        if (mapOriginMarker) { leafletMap.removeLayer(mapOriginMarker); mapOriginMarker = null; }
+        if (mapDestMarker) { leafletMap.removeLayer(mapDestMarker); mapDestMarker = null; }
+        document.getElementById('mapRouteDetail').innerHTML = 'Sélectionnez un camion pour tracer son trajet.';
+        updateMapMarkers();
+        return;
+      }
+
+      const t = (availabilityData.items || []).find(x => String(x.deviceId) === String(deviceId));
+      if (!t || !leafletMap) return;
+
+      const sel = document.getElementById('mapSelectTruck');
+      if (sel) sel.value = deviceId;
+
+      // Clean existing route
+      if (mapRoutePolyline) { leafletMap.removeLayer(mapRoutePolyline); mapRoutePolyline = null; }
+      if (mapOriginMarker) { leafletMap.removeLayer(mapOriginMarker); mapOriginMarker = null; }
+      if (mapDestMarker) { leafletMap.removeLayer(mapDestMarker); mapDestMarker = null; }
+
+      const curPos = [t.lat || 36.75, t.lng || 3.05];
+      let routePoints = [curPos];
+      let detailHtml = `<b>${t.truckName}</b> [${t.driver ? t.driver.name : 'Sans chauffeur'}]<br>Statut: <b>${t.situationLabel}</b> (${t.speed} km/h)`;
+
+      if (t.activeMission && t.activeMission.originCoords && t.activeMission.destCoords) {
+        const origPt = [t.activeMission.originCoords.lat, t.activeMission.originCoords.lng];
+        const destPt = [t.activeMission.destCoords.lat, t.activeMission.destCoords.lng];
+        routePoints = [origPt, curPos, destPt];
+
+        mapOriginMarker = L.marker(origPt, {
+          icon: L.divIcon({
+            html: `<div style="background:#10b981; color:#fff; padding:3px 8px; border-radius:12px; font-size:10px; font-weight:800; border:2px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,0.4);"><i class="fa-solid fa-flag"></i> ${t.activeMission.origin}</div>`,
+            className: 'origin-marker'
+          })
+        }).addTo(leafletMap);
+
+        mapDestMarker = L.marker(destPt, {
+          icon: L.divIcon({
+            html: `<div style="background:#ef4444; color:#fff; padding:3px 8px; border-radius:12px; font-size:10px; font-weight:800; border:2px solid #fff; box-shadow:0 2px 8px rgba(0,0,0,0.4);"><i class="fa-solid fa-flag-checkered"></i> ${t.activeMission.destination}</div>`,
+            className: 'dest-marker'
+          })
+        }).addTo(leafletMap);
+
+        mapRoutePolyline = L.polyline(routePoints, {
+          color: '#38bdf8',
+          weight: 4,
+          opacity: 0.8,
+          dashArray: '8, 8'
+        }).addTo(leafletMap);
+
+        detailHtml += `<div style="margin-top:6px; color:#38bdf8; font-weight:700;"><i class="fa-solid fa-route"></i> Trajet: ${t.activeMission.origin} → ${t.activeMission.destination}</div>`;
+        detailHtml += `<div>Marchandise: ${t.activeMission.cargo || 'Générale'} · Réf: ${t.activeMission.orderRef || ''}</div>`;
+        leafletMap.fitBounds(L.latLngBounds(routePoints), { padding: [50, 50] });
+      } else {
+        leafletMap.setView(curPos, 14);
+      }
+
+      document.getElementById('mapRouteDetail').innerHTML = detailHtml;
+    }
+
+    // ── ROTATIONS & ASSIGNMENT HISTORY MODULE ─────────────────────
+    async function loadHistoryData() {
+      try {
+        const res = await fetch('/api/fleet/history?limit=300');
+        if (res.ok) {
+          const json = await res.json();
+          historyEntries = json.items || [];
+          renderHistoryList();
+          populateHistoryEntities();
+        }
+      } catch (err) {
+        console.warn('Erreur chargement historique:', err);
+      }
+    }
+
+    function setHistoryTab(tab) {
+      historyTab = tab;
+      document.querySelectorAll('.history-tab-btn').forEach(b => b.classList.remove('active'));
+      const activeBtn = document.getElementById(`tabHist${tab.charAt(0).toUpperCase() + tab.slice(1)}`);
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const wrap = document.getElementById('historySelectorWrap');
+      if (tab === 'all') {
+        wrap.style.display = 'none';
+        renderHistoryList();
+      } else {
+        wrap.style.display = 'block';
+        populateHistoryEntities();
+      }
+    }
+
+    function populateHistoryEntities() {
+      const select = document.getElementById('historyEntitySelect');
+      if (!select) return;
+
+      if (historyTab === 'driver') {
+        select.innerHTML = '<option value="">-- Choisir un Chauffeur pour voir son historique --</option>' +
+          driversList.map(d => `<option value="${d.driverId || d._id}">${d.name} (${d.phone || 'Sans tél'})</option>`).join('');
+      } else if (historyTab === 'truck') {
+        select.innerHTML = '<option value="">-- Choisir un Camion pour voir son historique --</option>' +
+          (availabilityData.items || []).map(t => `<option value="${t.deviceId}">${t.truckName} [${t.immatriculation || 'Sans plaque'}]</option>`).join('');
+      } else if (historyTab === 'trailer') {
+        select.innerHTML = '<option value="">-- Choisir une Remorque pour voir son historique --</option>' +
+          trailersList.map(tr => `<option value="${tr.immatriculation || tr.trailerId}">${tr.immatriculation} (${tr.type || 'Plateau'})</option>`).join('');
+      }
+    }
+
+    async function loadEntityHistory(val) {
+      if (!val) { renderHistoryList(); return; }
+      let url = '/api/fleet/history?';
+      if (historyTab === 'driver') url += `driverId=${encodeURIComponent(val)}`;
+      else if (historyTab === 'truck') url += `truckDeviceId=${encodeURIComponent(val)}`;
+      else if (historyTab === 'trailer') url += `trailerPlate=${encodeURIComponent(val)}`;
+
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const json = await res.json();
+          historyEntries = json.items || [];
+          renderHistoryList();
+        }
+      } catch (err) {
+        console.warn('Erreur chargement historique entité:', err);
+      }
+    }
+
+    function renderHistoryList() {
+      const container = document.getElementById('historyTimelineContainer');
+      const q = (document.getElementById('histSearchInput')?.value || '').toLowerCase().trim();
+
+      let entries = historyEntries;
+      if (q) {
+        entries = entries.filter(e => {
+          return (e.driverName || '').toLowerCase().includes(q) ||
+                 (e.truckName || '').toLowerCase().includes(q) ||
+                 (e.trailerPlate || '').toLowerCase().includes(q) ||
+                 (e.origin || '').toLowerCase().includes(q) ||
+                 (e.destination || '').toLowerCase().includes(q) ||
+                 (e.notes || '').toLowerCase().includes(q) ||
+                 (e.eventType || '').toLowerCase().includes(q);
+        });
+      }
+
+      if (!entries.length) {
+        container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted);">Aucun enregistrement d\'historique trouvé.</div>';
+        return;
+      }
+
+      let html = '';
+      entries.forEach(e => {
+        const dateStr = new Date(e.timestamp || e.startDate).toLocaleString('fr-FR');
+        let icon = 'fa-arrow-right-arrow-left';
+        let color = '#38bdf8';
+        let label = 'Affectation';
+
+        if (e.eventType === 'mission_start') {
+          icon = 'fa-route';
+          color = '#10b981';
+          label = 'Départ Mission';
+        } else if (e.eventType === 'mission_complete') {
+          icon = 'fa-flag-checkered';
+          color = '#0284c7';
+          label = 'Fin Mission';
+        } else if (e.eventType === 'unassign') {
+          icon = 'fa-link-slash';
+          color = '#94a3b8';
+          label = 'Détachement';
+        } else if (e.eventType === 'status_change') {
+          icon = 'fa-triangle-exclamation';
+          color = '#f59e0b';
+          label = 'Changement Statut';
+        }
+
+        html += `
+          <div class="timeline-item" style="border-left-color:${color};">
+            <div>
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <span style="background:${color}22; color:${color}; padding:2px 8px; border-radius:12px; font-weight:800; font-size:10px;">
+                  <i class="fa-solid ${icon}"></i> ${label}
+                </span>
+                <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">${dateStr}</span>
+              </div>
+              <div style="font-weight:700; font-size:13px; color:var(--text-primary); margin-top:4px;">
+                ${e.driverName ? `<span style="color:#34d399;"><i class="fa-solid fa-user"></i> ${e.driverName}</span>` : ''}
+                ${e.truckName ? ` sur <span style="color:#38bdf8;"><i class="fa-solid fa-truck"></i> ${e.truckName}</span>` : ''}
+                ${e.trailerPlate ? ` avec remorque <span style="color:#c084fc;"><i class="fa-solid fa-trailer"></i> ${e.trailerPlate}</span>` : ''}
+              </div>
+              ${e.origin && e.destination ? `
+                <div style="font-size:11px; color:var(--primary); margin-top:4px;">
+                  <i class="fa-solid fa-location-arrow"></i> Itinéraire: <b>${e.origin}</b> → <b>${e.destination}</b>
+                  ${e.cargo ? ` (${e.cargo})` : ''}
+                </div>
+              ` : ''}
+              ${e.notes ? `<div style="font-size:11px; color:var(--text-secondary); margin-top:4px; font-style:italic;">"${e.notes}"</div>` : ''}
+            </div>
+            ${e.originCoords && e.destCoords ? `
+              <button onclick="plotHistoricRoute('${e.historyId}')" class="btn btn-back" style="padding:4px 8px; font-size:11px; white-space:nowrap;">
+                <i class="fa-solid fa-map"></i> Voir Trajet
+              </button>
+            ` : ''}
+          </div>`;
+      });
+
+      container.innerHTML = html;
+    }
+
+    function plotHistoricRoute(historyId) {
+      const e = historyEntries.find(x => x.historyId === historyId);
+      if (!e) return;
+      switchMainView('map');
+      setTimeout(() => {
+        if (!leafletMap) return;
+        if (mapRoutePolyline) { leafletMap.removeLayer(mapRoutePolyline); mapRoutePolyline = null; }
+        if (mapOriginMarker) { leafletMap.removeLayer(mapOriginMarker); mapOriginMarker = null; }
+        if (mapDestMarker) { leafletMap.removeLayer(mapDestMarker); mapDestMarker = null; }
+
+        const oPt = [e.originCoords.lat, e.originCoords.lng];
+        const dPt = [e.destCoords.lat, e.destCoords.lng];
+
+        mapOriginMarker = L.marker(oPt).bindPopup(`<b>Départ</b>: ${e.origin}`).addTo(leafletMap);
+        mapDestMarker = L.marker(dPt).bindPopup(`<b>Arrivée</b>: ${e.destination}`).addTo(leafletMap);
+        mapRoutePolyline = L.polyline([oPt, dPt], { color: '#8b5cf6', weight: 4, dashArray: '6, 6' }).addTo(leafletMap);
+        leafletMap.fitBounds([oPt, dPt], { padding: [50, 50] });
+
+        document.getElementById('mapRouteDetail').innerHTML = `<b>Trajet Historique</b><br>${e.driverName || 'Chauffeur'} sur ${e.truckName || ''}<br>${e.origin} → ${e.destination}`;
+      }, 300);
+    }
+
+    // ── MODAL: NOUVELLE MISSION ──────────────────────────────────
+    function openMissionModal() {
+      const tSel = document.getElementById('missionTruckSelect');
+      const dSel = document.getElementById('missionDriverSelect');
+      const trSel = document.getElementById('missionTrailerSelect');
+
+      tSel.innerHTML = '<option value="">-- Choisir un camion --</option>' +
+        (availabilityData.items || []).map(t => `<option value="${t.deviceId}">${t.truckName} (${t.immatriculation || 'Sans plaque'})</option>`).join('');
+
+      dSel.innerHTML = '<option value="">-- Choisir un chauffeur --</option>' +
+        driversList.map(d => `<option value="${d.driverId || d._id}">${d.name} (${d.phone || 'Sans tél'})</option>`).join('');
+
+      trSel.innerHTML = '<option value="">-- Aucune / Remorque par défaut --</option>' +
+        trailersList.map(tr => `<option value="${tr.immatriculation || tr.trailerId}">${tr.immatriculation} (${tr.type || 'Plateau'})</option>`).join('');
+
+      document.getElementById('modalMission').style.display = 'flex';
+    }
+
+    function closeMissionModal() {
+      document.getElementById('modalMission').style.display = 'none';
+    }
+
+    function onMissionTruckChange(deviceId) {
+      if (!deviceId) return;
+      const t = (availabilityData.items || []).find(x => String(x.deviceId) === String(deviceId));
+      if (!t) return;
+      if (t.driver?.id) {
+        document.getElementById('missionDriverSelect').value = t.driver.id;
+      }
+      if (t.trailer?.immatriculation) {
+        document.getElementById('missionTrailerSelect').value = t.trailer.immatriculation;
+      }
+    }
+
+    async function submitMission() {
+      const truckDeviceId = document.getElementById('missionTruckSelect').value;
+      const driverId = document.getElementById('missionDriverSelect').value;
+      const trailerPlate = document.getElementById('missionTrailerSelect').value;
+      const origin = document.getElementById('missionOrigin').value.trim();
+      const destination = document.getElementById('missionDest').value.trim();
+      const cargo = document.getElementById('missionCargo').value.trim();
+      const orderRef = document.getElementById('missionOrderRef').value.trim();
+      const notes = document.getElementById('missionNotes').value.trim();
+
+      if (!truckDeviceId && !driverId) {
+        alert('Sélectionnez au moins un camion ou un chauffeur.');
+        return;
+      }
+      if (!origin || !destination) {
+        alert('Veuillez renseigner l\'origine et la destination.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/fleet/missions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            truckDeviceId,
+            driverId,
+            trailerPlate,
+            origin,
+            destination,
+            cargo,
+            orderRef,
+            notes
+          })
+        });
+
+        if (res.ok) {
+          closeMissionModal();
+          await fetchAvailability();
+          alert('✅ Mission enregistrée et lancée avec succès!');
+          if (truckDeviceId) focusTruckOnMap(truckDeviceId);
+        } else {
+          const err = await res.json();
+          alert('Erreur: ' + (err.error || 'Impossible de lancer la mission'));
+        }
+      } catch (e) {
+        alert('Erreur réseau: ' + e.message);
+      }
+    }
+
+    // ── MODAL: SIGNALER STATUT / PANNE ───────────────────────────
+    function openStatusModal() {
+      toggleStatusEntity('truck');
+      document.getElementById('modalStatus').style.display = 'flex';
+    }
+
+    function closeStatusModal() {
+      document.getElementById('modalStatus').style.display = 'none';
+    }
+
+    function toggleStatusEntity(type) {
+      const targetWrap = document.getElementById('statusTargetSelect');
+      const valSelect = document.getElementById('statusValueSelect');
+      const label = document.getElementById('statusTargetLabel');
+
+      if (type === 'truck') {
+        label.textContent = 'Sélectionner Camion *';
+        targetWrap.innerHTML = (availabilityData.items || []).map(t => `<option value="${t.deviceId}">${t.truckName} [${t.immatriculation || ''}]</option>`).join('');
+        valSelect.innerHTML = `
+          <option value="panne">En Panne / Hors Service (Immobilisé)</option>
+          <option value="maintenance">En Maintenance (Atelier / Garage)</option>
+          <option value="chargement">En Chargement / Déchargement (À quai)</option>
+          <option value="attente_ordre">En Attente d'Ordre / Fret</option>
+          <option value="reserve">Véhicule de Réserve</option>
+          <option value="disponible">Disponible au Parc</option>
+        `;
+      } else if (type === 'driver') {
+        label.textContent = 'Sélectionner Chauffeur *';
+        targetWrap.innerHTML = driversList.map(d => `<option value="${d.driverId || d._id}">${d.name}</option>`).join('');
+        valSelect.innerHTML = `
+          <option value="recup">En Récupération (Repos compensateur)</option>
+          <option value="conge">En Congé Annuel</option>
+          <option value="maladie">Arrêt Maladie</option>
+          <option value="formation">En Formation / Visite Médicale</option>
+          <option value="repos">En Repos / Découchage</option>
+          <option value="disponible">Disponible / Prêt</option>
+          <option value="suspendu">Suspendu / Administratif</option>
+        `;
+      } else if (type === 'trailer') {
+        label.textContent = 'Sélectionner Remorque *';
+        targetWrap.innerHTML = trailersList.map(tr => `<option value="${tr.trailerId || tr.immatriculation}">${tr.immatriculation} (${tr.type || 'Plateau'})</option>`).join('');
+        valSelect.innerHTML = `
+          <option value="panne">En Panne (Pneu / Freins / Béquilles)</option>
+          <option value="maintenance">En Maintenance (Contrôle technique)</option>
+          <option value="chargement">À Quai / En Chargement</option>
+          <option value="disponible">Dételée au Parc (Disponible)</option>
+          <option value="reserve">En Réserve</option>
+        `;
+      }
+    }
+
+    async function submitStatusChange() {
+      const type = document.getElementById('statusEntityType').value;
+      const targetId = document.getElementById('statusTargetSelect').value;
+      const situation = document.getElementById('statusValueSelect').value;
+      const notes = document.getElementById('statusNotes').value.trim();
+
+      if (!targetId) { alert('Veuillez sélectionner une entité.'); return; }
+
+      let url = '';
+      let body = {};
+
+      if (type === 'truck') {
+        url = '/api/fleet/status/truck';
+        body = { deviceId: targetId, situation, notes };
+      } else if (type === 'driver') {
+        url = `/api/drivers/${encodeURIComponent(targetId)}/situation`;
+        body = { situation, notes };
+      } else if (type === 'trailer') {
+        url = '/api/fleet/status/trailer';
+        body = { trailerId: targetId, status: situation, notes };
+      }
+
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+          closeStatusModal();
+          await fetchAvailability();
+          alert('✅ Statut mis à jour avec succès!');
+        } else {
+          const err = await res.json();
+          alert('Erreur: ' + (err.error || 'Échec de mise à jour'));
+        }
+      } catch (e) {
+        alert('Erreur réseau: ' + e.message);
+      }
+    }
+
+    // ── EXCEL EXPORTS ────────────────────────────────────────────
+    async function exportToExcel() {
+      if (typeof ExcelJS === 'undefined') { alert('Erreur: ExcelJS non disponible.'); return; }
+      const items = getFilteredItems();
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Douroub FleetOS';
+      const sheet = workbook.addWorksheet('Disponibilité Flotte', { views: [{ showGridLines: true }] });
+
+      sheet.columns = [
+        { header: 'Camion', key: 'truck', width: 22 },
+        { header: 'Immatriculation', key: 'imm', width: 18 },
+        { header: 'Chauffeur', key: 'driver', width: 24 },
+        { header: 'Tél Chauffeur', key: 'phone', width: 18 },
+        { header: 'Remorque', key: 'trailer', width: 20 },
+        { header: 'Situation', key: 'situation', width: 24 },
+        { header: 'Trajet en cours', key: 'mission', width: 30 },
+        { header: 'Localisation', key: 'location', width: 22 },
+        { header: 'Vitesse (km/h)', key: 'speed', width: 14 },
+        { header: 'Carburant (L)', key: 'fuel', width: 16 }
+      ];
+
+      const headerRow = sheet.getRow(1);
+      headerRow.height = 28;
+      headerRow.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0284C7' } };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      items.forEach((item, index) => {
+        const m = item.activeMission;
+        const row = sheet.addRow({
+          truck: item.truckName,
+          imm: item.immatriculation || '',
+          driver: item.driver?.name || 'Non assigné',
+          phone: item.driver?.phone || '',
+          trailer: item.trailer?.immatriculation || '',
+          situation: item.situationLabel || item.situation,
+          mission: m ? `${m.origin} → ${m.destination} (${m.cargo || ''})` : '—',
+          location: item.locationCity || '',
+          speed: item.speed || 0,
+          fuel: item.fuelLiters || 0
+        });
+
+        row.height = 20;
+        row.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: index % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC' }
+        };
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Suivi_Disponibilite_Flotte_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    async function exportHistoryExcel() {
+      if (typeof ExcelJS === 'undefined') { alert('ExcelJS non disponible.'); return; }
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'Douroub FleetOS';
+      const sheet = workbook.addWorksheet('Historique Rotations', { views: [{ showGridLines: true }] });
+
+      sheet.columns = [
+        { header: 'Date & Heure', key: 'date', width: 20 },
+        { header: 'Type Événement', key: 'type', width: 18 },
+        { header: 'Chauffeur', key: 'driver', width: 22 },
+        { header: 'Camion', key: 'truck', width: 20 },
+        { header: 'Remorque', key: 'trailer', width: 18 },
+        { header: 'Origine', key: 'origin', width: 20 },
+        { header: 'Destination', key: 'dest', width: 20 },
+        { header: 'Marchandise', key: 'cargo', width: 20 },
+        { header: 'Statut', key: 'status', width: 14 },
+        { header: 'Notes / Détails', key: 'notes', width: 30 }
+      ];
+
+      const headerRow = sheet.getRow(1);
+      headerRow.height = 28;
+      headerRow.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF059669' } };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      historyEntries.forEach((e, idx) => {
+        const row = sheet.addRow({
+          date: new Date(e.timestamp || e.startDate).toLocaleString('fr-FR'),
+          type: e.eventType,
+          driver: e.driverName || '—',
+          truck: e.truckName || '—',
+          trailer: e.trailerPlate || '—',
+          origin: e.origin || '—',
+          dest: e.destination || '—',
+          cargo: e.cargo || '—',
+          status: e.status || '—',
+          notes: e.notes || ''
+        });
+        row.height = 20;
+        row.fill = {
+          type: 'pattern', pattern: 'solid',
+          fgColor: { argb: idx % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC' }
+        };
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Historique_Rotations_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Auto-polling every 10 seconds
+    fetchAvailability();
+    pollInterval = setInterval(fetchAvailability, 10000);
+  </script>
+</body>
+</html>

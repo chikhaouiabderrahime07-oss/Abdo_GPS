@@ -1105,6 +1105,11 @@ window.addEventListener('DOMContentLoaded', function(){
         if ($('f_type')) $('f_type').value = urlP.get('type');
         symptomsNotes.push('Type: ' + urlP.get('type'));
       }
+      if (urlP.get('driver')) {
+        const dPhone = urlP.get('driverPhone') || urlP.get('phone') || '';
+        symptomsNotes.push('Chauffeur: ' + urlP.get('driver') + (dPhone ? ' (' + dPhone + ')' : ''));
+      }
+      if (urlP.get('trailer')) symptomsNotes.push('Remorque: ' + urlP.get('trailer'));
       if (urlP.get('desc')) symptomsNotes.push(urlP.get('desc'));
       if (urlP.get('location')) symptomsNotes.push('Lieu: ' + urlP.get('location'));
       if (urlP.get('priority')) symptomsNotes.push('Priorité: ' + urlP.get('priority'));

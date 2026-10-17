@@ -882,17 +882,24 @@
       <div class="tab-scroll-zone tab-scroll-left" id="tabScrollLeft"><i class="fa-solid fa-chevron-left"></i></div>
 
       <!-- Fixed Home Button -->
-      <button class="tab-button btn-dashboard btn-home-fixed active" data-tab="dashboard" onclick="switchTab('dashboard')" title="Dashboard">
-          <i class="fa-solid fa-home" style="animation: pulseBlueRed 1.5s infinite;"></i>
+      <button class="tab-button btn-dashboard btn-home-fixed active" data-tab="dashboard" onclick="switchTab('dashboard')" title="Tableau de Bord Flotte">
+          <i class="fa-solid fa-gauge-high"></i> Dashboard
       </button>
 
       <!-- Scrollable tabs area -->
       <div class="tabs-scroll-area" id="tabsScrollArea">
 
+      <!-- 🚖 Disponibilité (Prominent & Real-time) -->
+      <div class="nav-group group-disponibilite">
+          <button class="tab-button" data-tab="disponibiliteSection" onclick="switchTab('disponibiliteSection')" style="background:linear-gradient(135deg, rgba(14,165,233,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(14,165,233,0.3); font-weight:700;">
+              <i class="fa-solid fa-user-check" style="color:var(--primary);"></i> Suivi Disponibilité
+          </button>
+      </div>
+
       <!-- Supervision -->
       <div class="nav-group group-supervision">
           <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')">
-              <i class="fa-solid fa-map"></i> Mapping & Zones
+              <i class="fa-solid fa-map-location-dot"></i> Supervision GPS
           </button>
       </div>
 
@@ -917,36 +924,37 @@
           <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')">
               <i class="fa-solid fa-clipboard-check"></i> Historique
           </button>
-          
       </div>
 
-      <!-- Rapport (alone) -->
+      <!-- Rapport -->
       <div class="nav-group group-reports">
           <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')">
-              <i class="fa-solid fa-file-contract"></i> Rapport
+              <i class="fa-solid fa-file-contract"></i> Rapports
           </button>
           <button class="tab-button" data-tab="transportReport" onclick="switchTab('transportReport')">
-              <i class="fa-solid fa-truck-ramp-box"></i> Rapport Transport
+              <i class="fa-solid fa-truck-ramp-box"></i> Transport
           </button>
       </div>
 
-      <!-- Alertes (Vitesse & Routes) -->
+      <!-- Alertes -->
       <div class="nav-group">
           <button class="tab-button" data-tab="alertsSection" onclick="switchTab('alertsSection')" title="Alertes Vitesse & Routes">
               <i class="fa-solid fa-triangle-exclamation" style="color: var(--danger);"></i> Alertes
           </button>
       </div>
 
-      <!-- Audit GPS -->
+      <!-- Configuration -->
       <div class="nav-group group-audit">
-          <!-- GPS Audit button removed; use direct link gps-checker.html instead -->
-          <button class="tab-button btn-settings-danger" data-tab="settings" onclick="switchTab('settings')" title="Paramètres">
-              <i class="fa-solid fa-skull-crossbones"></i> Config
+          <button class="tab-button" data-tab="settings" onclick="switchTab('settings')" title="Configuration & Paramètres">
+              <i class="fa-solid fa-sliders"></i> Configuration
           </button>
       </div>
 
-      <!-- ✅ LIVE FLEET PULSE — right side of nav -->
+      <!-- ✅ LIVE FLEET PULSE & QUICK STANDALONE LINK -->
       <div style="margin-left:auto; display:flex; align-items:center; gap:8px; padding: 0 8px;">
+          <a href="disponibilite.html" target="_blank" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700;" title="Ouvrir le suivi de disponibilité plein écran sur écran mural ou mobile">
+              <i class="fa-solid fa-tv"></i> Écran Live
+          </a>
           <div id="liveFleetPulse" style="font-size:10px; color:var(--text-muted); font-weight:600; display:flex; align-items:center; gap:5px; flex-shrink:0;">
               <span class="pulse-dot" style="width:7px; height:7px; background:var(--success); border-radius:50%; display:inline-block; animation: pulse 2s infinite;"></span>
               <span id="fleetPulseText" style="color:var(--success); letter-spacing:1px;">LIVE</span>
@@ -985,6 +993,160 @@
       <div id="errorContainer"></div>
       <div id="loadingContainer"></div>
       <div class="trucks-grid" id="trucksContainer"></div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- 🚖 SUIVI DISPONIBILITÉ (CHAUFFEURS, REMORQUES & SITUATION LIVE) -->
+    <!-- ============================================================= -->
+    <div id="disponibiliteSection" class="tab-content">
+      <div class="controls-section" style="margin-bottom: 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div>
+            <h2 style="color: var(--primary); margin:0; display:flex; align-items:center; gap:10px;">
+              <i class="fa-solid fa-user-check"></i> Suivi de la Disponibilité de la Flotte
+            </h2>
+            <p style="margin:4px 0 0 0; color:var(--text-secondary); font-size:13px;">
+              Statut opérationnel en temps réel des camions, chauffeurs assignés et remorques attelées.
+            </p>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button class="btn-primary" onclick="ui.openAddDriverModal()" style="background:linear-gradient(135deg, #0284c7, #0369a1); border:none; box-shadow:0 4px 12px rgba(2,132,199,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-user-plus"></i> + Chauffeur
+            </button>
+            <button class="btn-primary" onclick="ui.openAddTrailerModal()" style="background:linear-gradient(135deg, #7c3aed, #6d28d9); border:none; box-shadow:0 4px 12px rgba(124,58,237,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-trailer"></i> + Remorque
+            </button>
+            <button class="btn-primary" onclick="ui.openNewMissionModal()" style="background:linear-gradient(135deg, #059669, #047857); border:none; box-shadow:0 4px 12px rgba(5,150,105,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; color:#fff;">
+              <i class="fa-solid fa-route"></i> + Mission
+            </button>
+            <button class="btn-primary" onclick="ui.openAssignFleetModal()" style="background:linear-gradient(135deg, #3b82f6, #2563eb); border:none; box-shadow:0 4px 12px rgba(59,130,246,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-link"></i> Assigner
+            </button>
+            <button class="btn-primary" onclick="ui.openStatusModal()" style="background:linear-gradient(135deg, #ef4444, #dc2626); border:none; box-shadow:0 4px 12px rgba(239,68,68,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; color:#fff;">
+              <i class="fa-solid fa-triangle-exclamation"></i> Signaler Panne
+            </button>
+            <button class="btn-secondary" onclick="ui.openFleetHistoryModal()" style="border-color:var(--border-strong); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-clock-rotate-left"></i> Historique Rotations
+            </button>
+            <button class="btn-secondary" onclick="ui.exportDisponibiliteExcel()" style="border-color:var(--border-strong); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-file-excel" style="color:#10b981;"></i> Export Excel
+            </button>
+            <a href="disponibilite.html" target="_blank" class="btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px;">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> Plein Écran
+            </a>
+          </div>
+        </div>
+
+        <!-- KPI Summary Cards with all logistics possibilities -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-top:18px;">
+          <div class="stat-card" style="border-left:4px solid var(--primary); padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border);">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">Total Flotte</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiTotal" style="font-size:22px; font-weight:900; color:var(--text-primary);">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);"><i class="fa-solid fa-truck"></i> Camions</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #10b981; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('mission')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#10b981; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">
+              <span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse 2s infinite;"></span> En Mission
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiMission" style="font-size:22px; font-weight:900; color:#10b981;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">En route</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #0284c7; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('disponible')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#0284c7; letter-spacing:0.5px;">Disponible Parc</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiDispo" style="font-size:22px; font-weight:900; color:#0284c7;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">Prêt</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #f97316; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('sans_chauffeur')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#f97316; letter-spacing:0.5px;">Sans Chauffeur</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiSansChauffeur" style="font-size:22px; font-weight:900; color:#f97316;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">Non assigné</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #eab308; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('chargement')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#eab308; letter-spacing:0.5px;">En Chargement</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiChargement" style="font-size:22px; font-weight:900; color:#eab308;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">À quai</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #f59e0b; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('maintenance')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#f59e0b; letter-spacing:0.5px;">Maintenance</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiMaint" style="font-size:22px; font-weight:900; color:#f59e0b;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">Atelier</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #ef4444; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('panne')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#ef4444; letter-spacing:0.5px;">En Panne</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiPanne" style="font-size:22px; font-weight:900; color:#ef4444;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">Immobilisé</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #8b5cf6; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('repos')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#8b5cf6; letter-spacing:0.5px;">Découchage</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiRepos" style="font-size:22px; font-weight:900; color:#8b5cf6;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">Repos</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #06b6d4; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('recup')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#06b6d4; letter-spacing:0.5px;">Récupération</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiRecup" style="font-size:22px; font-weight:900; color:#06b6d4;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">Repos comp.</span>
+            </div>
+          </div>
+          <div class="stat-card" style="border-left:4px solid #64748b; padding:12px; background:var(--bg-elevated); border-radius:12px; border:1px solid var(--border); cursor:pointer;" onclick="ui.setDispoSituationFilter('conge')">
+            <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:#94a3b8; letter-spacing:0.5px;">Congé / Maladie</div>
+            <div style="display:flex; justify-content:space-between; align-items:baseline; margin-top:4px;">
+              <span id="dispoKpiConge" style="font-size:22px; font-weight:900; color:#cbd5e1;">0</span>
+              <span style="font-size:10px; color:var(--text-secondary);">Chauffeur</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter & Search Bar -->
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:16px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:280px; background:var(--bg-surface); padding:8px 14px; border-radius:10px; border:1px solid var(--border);">
+            <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted);"></i>
+            <input type="text" id="dispoSearchInput" placeholder="Rechercher camion, chauffeur, tél, remorque, ville, trajet..." style="border:none; outline:none; background:transparent; width:100%; color:var(--text-primary); font-size:13px;" oninput="ui.handleDispoFilter()">
+            <button onclick="document.getElementById('dispoSearchInput').value=''; ui.handleDispoFilter();" style="border:none; background:transparent; color:var(--text-muted); cursor:pointer; font-size:12px;">✕</button>
+          </div>
+          
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;" id="dispoFilterPills">
+            <button class="btn-filter-pill active" data-sit="all" onclick="ui.setDispoSituationFilter('all')">Tous</button>
+            <button class="btn-filter-pill" data-sit="mission" onclick="ui.setDispoSituationFilter('mission')"><i class="fa-solid fa-circle" style="color:#10b981; font-size:8px;"></i> Mission</button>
+            <button class="btn-filter-pill" data-sit="disponible" onclick="ui.setDispoSituationFilter('disponible')"><i class="fa-solid fa-circle" style="color:#0284c7; font-size:8px;"></i> Disponible</button>
+            <button class="btn-filter-pill" data-sit="sans_chauffeur" onclick="ui.setDispoSituationFilter('sans_chauffeur')"><i class="fa-solid fa-circle" style="color:#fb923c; font-size:8px;"></i> Sans Chauffeur</button>
+            <button class="btn-filter-pill" data-sit="chargement" onclick="ui.setDispoSituationFilter('chargement')"><i class="fa-solid fa-circle" style="color:#facc15; font-size:8px;"></i> Chargement</button>
+            <button class="btn-filter-pill" data-sit="maintenance" onclick="ui.setDispoSituationFilter('maintenance')"><i class="fa-solid fa-circle" style="color:#f59e0b; font-size:8px;"></i> Maintenance</button>
+            <button class="btn-filter-pill" data-sit="panne" onclick="ui.setDispoSituationFilter('panne')"><i class="fa-solid fa-circle" style="color:#f87171; font-size:8px;"></i> En Panne</button>
+            <button class="btn-filter-pill" data-sit="repos" onclick="ui.setDispoSituationFilter('repos')"><i class="fa-solid fa-circle" style="color:#8b5cf6; font-size:8px;"></i> Découchage</button>
+            <button class="btn-filter-pill" data-sit="recup" onclick="ui.setDispoSituationFilter('recup')"><i class="fa-solid fa-circle" style="color:#22d3ee; font-size:8px;"></i> Récupération</button>
+            <button class="btn-filter-pill" data-sit="conge" onclick="ui.setDispoSituationFilter('conge')"><i class="fa-solid fa-circle" style="color:#94a3b8; font-size:8px;"></i> Congé</button>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:8px;">
+            <select id="dispoWilayaFilter" onchange="ui.handleDispoFilter()" style="padding:7px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <option value="all">Toutes Wilayas</option>
+            </select>
+            <button id="dispoViewModeBtn" class="btn-secondary" onclick="ui.toggleDispoViewMode()" title="Basculer vue tableau / cartes" style="padding:7px 12px;">
+              <i class="fa-solid fa-table"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Availability Table / Cards Container -->
+      <div id="dispoTableContainer"></div>
     </div>
 
     <div id="byWilaya" class="tab-content">
@@ -1305,10 +1467,21 @@
                         <label><i class="fa-solid fa-credit-card"></i> Carte Naftal</label>
                         <input type="text" id="editCarteNaftal" placeholder="N° Carte Naftal">
                     </div>
-                    <div class="form-group" style="justify-content: flex-end;">
-                        <label>&nbsp;</label>
-                        <button class="btn-primary" onclick="ui.saveTruckMetadata()" style="background: var(--success-hover); border: none;">
-                            <i class="fa-solid fa-save"></i> Sauvegarder
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-trailer"></i> Remorque Attelée</label>
+                        <input type="text" id="editTrailer" placeholder="Plaque / N° Remorque">
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-user"></i> Chauffeur Assigné</label>
+                        <input type="text" id="editDriverName" placeholder="Nom du Chauffeur">
+                    </div>
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-phone"></i> Tél Chauffeur</label>
+                        <input type="text" id="editDriverPhone" placeholder="0555...">
+                    </div>
+                    <div class="form-group" style="justify-content: flex-end; grid-column:1 / -1; display:flex; margin-top:8px;">
+                        <button class="btn-primary" onclick="ui.saveTruckMetadata()" style="background: var(--success-hover); border: none; padding:10px 20px;">
+                            <i class="fa-solid fa-save"></i> Sauvegarder Fiche
                         </button>
                     </div>
                 </div>
@@ -1840,6 +2013,9 @@
                     <div class="form-group"><label>N° Châssis</label><input type="text" id="settingsChassisNumber" placeholder="VIN"></div>
                     <div class="form-group"><label>Immatriculation</label><input type="text" id="settingsImmatriculation" placeholder="00000-000-16"></div>
                     <div class="form-group"><label>Carte Naftal</label><input type="text" id="settingsCarteNaftal" placeholder="N° Carte"></div>
+                    <div class="form-group"><label>Remorque</label><input type="text" id="settingsTrailer" placeholder="Plaque Remorque"></div>
+                    <div class="form-group"><label>Chauffeur</label><input type="text" id="settingsDriverName" placeholder="Nom Chauffeur"></div>
+                    <div class="form-group"><label>Tél Chauffeur</label><input type="text" id="settingsDriverPhone" placeholder="0555..."></div>
                     <button class="btn-primary" onclick="ui.saveTruckMetaFromSettings()" style="background:var(--warning); border:none; height:38px;">
                         <i class="fa-solid fa-save"></i> Enregistrer
                     </button>
@@ -3719,6 +3895,374 @@ setTimeout(function() {
       <span><kbd style="border:1px solid var(--border,#e2e8f0);border-radius:4px;padding:1px 5px;background:var(--bg-elevated,#f8fafc);">/</kbd> Ouvrir</span>
       <span><kbd style="border:1px solid var(--border,#e2e8f0);border-radius:4px;padding:1px 5px;background:var(--bg-elevated,#f8fafc);">↵</kbd> Sélectionner</span>
       <span><kbd style="border:1px solid var(--border,#e2e8f0);border-radius:4px;padding:1px 5px;background:var(--bg-elevated,#f8fafc);">ESC</kbd> Fermer</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MODAL: AJOUTER / MODIFIER CHAUFFEUR ════════════════════ -->
+<div id="modalAddDriver" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:540px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+      <h3 id="modalAddDriverTitle" style="margin:0; font-size:16px; color:var(--primary, #38bdf8); display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-user-plus"></i> Nouveau Chauffeur
+      </h3>
+      <button onclick="ui.closeAddDriverModal()" style="border:none; background:transparent; color:var(--text-muted, #94a3b8); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <form id="formAddDriver" onsubmit="event.preventDefault(); ui.saveDriverFromModal();" style="padding:20px;">
+      <input type="hidden" id="driverModalId">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Nom & Prénom *</label>
+          <input type="text" id="driverModalName" required placeholder="Ex: Mohamed Belkacem" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Téléphone</label>
+          <input type="text" id="driverModalPhone" placeholder="0555 12 34 56" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">N° Permis de Conduire</label>
+          <input type="text" id="driverModalLicense" placeholder="N° Permis" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Catégorie Permis</label>
+          <select id="driverModalCategory" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+            <option value="EC">EC — Semi-remorque (Poids lourd)</option>
+            <option value="C">C — Poids Lourd rigide</option>
+            <option value="C1">C1 — Moyen tonnage</option>
+            <option value="B">B — Léger</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Expiration Permis</label>
+          <input type="date" id="driverModalExpiry" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Situation Administrative</label>
+          <select id="driverModalSituation" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+            <option value="disponible">🟢 Disponible au Parc</option>
+            <option value="mission">🚗 En Mission</option>
+            <option value="repos">🟣 En Repos / Découchage</option>
+            <option value="conge">⚪ En Congé Payé</option>
+            <option value="maladie">🟠 Arrêt Maladie</option>
+            <option value="suspendu">🔴 Suspendu</option>
+          </select>
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Notes & Observations</label>
+          <textarea id="driverModalNotes" rows="2" placeholder="Observations, antécédents, remarques..." style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);"></textarea>
+        </div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+        <button type="button" class="btn-secondary" onclick="ui.closeAddDriverModal()" style="padding:9px 16px;">Annuler</button>
+        <button type="submit" class="btn-primary" style="padding:9px 20px; background:linear-gradient(135deg, #0284c7, #0369a1); border:none;">
+          <i class="fa-solid fa-check"></i> Enregistrer
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ MODAL: AJOUTER / MODIFIER REMORQUE ════════════════════ -->
+<div id="modalAddTrailer" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:500px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+      <h3 id="modalAddTrailerTitle" style="margin:0; font-size:16px; color:#a78bfa; display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-trailer"></i> Nouvelle Remorque
+      </h3>
+      <button onclick="ui.closeAddTrailerModal()" style="border:none; background:transparent; color:var(--text-muted, #94a3b8); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <form id="formAddTrailer" onsubmit="event.preventDefault(); ui.saveTrailerFromModal();" style="padding:20px;">
+      <input type="hidden" id="trailerModalId">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Immatriculation Remorque *</label>
+          <input type="text" id="trailerModalImm" required placeholder="Ex: 01234-000-16" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Type de Remorque</label>
+          <select id="trailerModalType" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+            <option value="Plateau">Plateau</option>
+            <option value="Citerne Carburant">Citerne Carburant</option>
+            <option value="Citerne Bitume">Citerne Bitume</option>
+            <option value="Porte-engins">Porte-engins</option>
+            <option value="Benne">Benne</option>
+            <option value="Frigo">Frigo</option>
+            <option value="Bâchée">Bâchée</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Marque</label>
+          <input type="text" id="trailerModalBrand" placeholder="Randon, Schmitz, Krone..." style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Capacité / Charge Utile</label>
+          <input type="text" id="trailerModalCapacity" placeholder="Ex: 36 000 L ou 30 Tonnes" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group" style="grid-column:1 / -1;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Notes & Observations</label>
+          <textarea id="trailerModalNotes" rows="2" placeholder="État technique, révision..." style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);"></textarea>
+        </div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+        <button type="button" class="btn-secondary" onclick="ui.closeAddTrailerModal()" style="padding:9px 16px;">Annuler</button>
+        <button type="submit" class="btn-primary" style="padding:9px 20px; background:linear-gradient(135deg, #7c3aed, #6d28d9); border:none;">
+          <i class="fa-solid fa-check"></i> Enregistrer
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ MODAL: ASSIGNER CAMION / CHAUFFEUR / REMORQUE ══════════ -->
+<div id="modalAssignFleet" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:540px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+      <h3 style="margin:0; font-size:16px; color:#10b981; display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-link"></i> Assigner Camion ↔ Chauffeur ↔ Remorque
+      </h3>
+      <button onclick="ui.closeAssignFleetModal()" style="border:none; background:transparent; color:var(--text-muted, #94a3b8); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <form id="formAssignFleet" onsubmit="event.preventDefault(); ui.saveAssignFleetModal();" style="padding:20px;">
+      <div style="display:flex; flex-direction:column; gap:14px;">
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">1. Sélectionner le Camion Tracteur *</label>
+          <select id="assignModalTruck" required onchange="ui.onAssignTruckChanged()" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px; font-weight:600;"></select>
+        </div>
+
+        <div class="form-group" style="background:var(--bg-elevated); padding:12px; border-radius:10px; border:1px solid var(--border);">
+          <label style="font-size:12px; font-weight:700; color:var(--primary); margin-bottom:6px; display:block;"><i class="fa-solid fa-user"></i> 2. Chauffeur Titulaire</label>
+          <select id="assignModalDriverSelect" onchange="ui.onAssignDriverSelectChanged()" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); margin-bottom:6px;">
+            <option value="">-- Choisir dans la base chauffeurs ou saisir librement --</option>
+          </select>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <input type="text" id="assignModalDriverName" placeholder="Nom du chauffeur" style="padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            <input type="text" id="assignModalDriverPhone" placeholder="Tél chauffeur" style="padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          </div>
+        </div>
+
+        <div class="form-group" style="background:var(--bg-elevated); padding:12px; border-radius:10px; border:1px solid var(--border);">
+          <label style="font-size:12px; font-weight:700; color:#c084fc; margin-bottom:6px; display:block;"><i class="fa-solid fa-trailer"></i> 3. Remorque Attelée</label>
+          <select id="assignModalTrailerSelect" onchange="ui.onAssignTrailerSelectChanged()" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); margin-bottom:6px;">
+            <option value="">-- Choisir dans la base remorques ou saisir librement --</option>
+          </select>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <input type="text" id="assignModalTrailerImm" placeholder="Plaque Remorque (ex: 01234-000-16)" style="padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            <select id="assignModalTrailerType" style="padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <option value="Plateau">Plateau</option>
+              <option value="Citerne Carburant">Citerne Carburant</option>
+              <option value="Citerne Bitume">Citerne Bitume</option>
+              <option value="Porte-engins">Porte-engins</option>
+              <option value="Benne">Benne</option>
+              <option value="Frigo">Frigo</option>
+              <option value="Bâchée">Bâchée</option>
+              <option value="Autre">Autre</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px; flex-wrap:wrap; gap:8px;">
+        <button type="button" class="btn-secondary" onclick="ui.unassignCurrentTruckFleet()" style="border-color:#ef4444; color:#ef4444; padding:8px 12px; font-size:12px;">
+          <i class="fa-solid fa-unlink"></i> Détacher Tout
+        </button>
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn-secondary" onclick="ui.closeAssignFleetModal()" style="padding:8px 14px;">Annuler</button>
+          <button type="submit" class="btn-primary" style="padding:8px 18px; background:linear-gradient(135deg, #10b981, #059669); border:none;">
+            <i class="fa-solid fa-check"></i> Valider Assignation
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ MODAL: CHANGER SITUATION CHAUFFEUR ═════════════════════ -->
+<div id="modalDriverSituation" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:440px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+      <h3 style="margin:0; font-size:15px; color:var(--primary); display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-user-clock"></i> Modifier la Situation du Chauffeur
+      </h3>
+      <button onclick="ui.closeDriverSituationModal()" style="border:none; background:transparent; color:var(--text-muted); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <form onsubmit="event.preventDefault(); ui.saveDriverSituationFromModal();" style="padding:20px;">
+      <input type="hidden" id="sitModalDriverId">
+      <div style="margin-bottom:14px;">
+        <div style="font-size:11px; color:var(--text-muted); text-transform:uppercase; font-weight:700;">Chauffeur</div>
+        <div id="sitModalDriverName" style="font-size:16px; font-weight:800; color:var(--text-primary); margin-top:2px;">--</div>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Nouvelle Situation</label>
+        <select id="sitModalSelect" style="width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px; font-weight:600;">
+          <option value="disponible">🟢 Disponible au Parc (Prêt)</option>
+          <option value="mission">🚗 En Mission / En Route</option>
+          <option value="repos">🟣 En Repos / Découchage</option>
+          <option value="recup">🔷 En Récupération (Repos compensateur)</option>
+          <option value="conge">⚪ En Congé Annuel</option>
+          <option value="maladie">🟠 Arrêt Maladie</option>
+          <option value="formation">🟣 En Formation / Visite Médicale</option>
+          <option value="sans_camion">🟡 Sans Camion Assigné</option>
+          <option value="suspendu">🔴 Suspendu / Administratif</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Motif / Commentaire</label>
+        <textarea id="sitModalNotes" rows="2" placeholder="Détail ou motif..." style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;"></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" class="btn-secondary" onclick="ui.closeDriverSituationModal()" style="padding:8px 14px;">Annuler</button>
+        <button type="submit" class="btn-primary" style="padding:8px 18px; background:var(--primary); border:none;">
+          <i class="fa-solid fa-save"></i> Mettre à Jour
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ MODAL: NOUVELLE MISSION / AFFECTATION DESTINATION ════════ -->
+<div id="modalDispatchMission" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:540px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+      <h3 style="margin:0; font-size:15px; color:#10b981; display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-route"></i> Nouvelle Mission / Affecter Destination
+      </h3>
+      <button onclick="ui.closeNewMissionModal()" style="border:none; background:transparent; color:var(--text-muted); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <form onsubmit="event.preventDefault(); ui.saveNewMissionFromModal();" style="padding:20px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+        <div class="form-group">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Camion *</label>
+          <select id="dispatchTruckSelect" onchange="ui.onDispatchTruckChange(this.value)" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            <option value="">-- Choisir un camion --</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Chauffeur *</label>
+          <select id="dispatchDriverSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            <option value="">-- Choisir un chauffeur --</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Remorque</label>
+        <select id="dispatchTrailerSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          <option value="">-- Aucune / Remorque par défaut --</option>
+        </select>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+        <div class="form-group">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Origine (Départ) *</label>
+          <input type="text" id="dispatchOrigin" placeholder="Ex: Rouiba (Dépôt Centrale)" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+        </div>
+        <div class="form-group">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Destination (Arrivée) *</label>
+          <input type="text" id="dispatchDest" placeholder="Ex: Hassi Messaoud" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+        <div class="form-group">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Fret / Marchandise</label>
+          <input type="text" id="dispatchCargo" placeholder="Ex: Hydrocarbure 32 000 L" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+        </div>
+        <div class="form-group">
+          <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">N° BL / Ordre</label>
+          <input type="text" id="dispatchOrderRef" placeholder="Ex: OM-2026-102" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Instructions de route / Notes</label>
+        <textarea id="dispatchNotes" rows="2" placeholder="Consignes particulières..." style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;"></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" class="btn-secondary" onclick="ui.closeNewMissionModal()" style="padding:8px 14px;">Annuler</button>
+        <button type="submit" class="btn-primary" style="padding:8px 18px; background:linear-gradient(135deg, #10b981, #059669); border:none; font-weight:700;">
+          <i class="fa-solid fa-paper-plane"></i> Lancer la Mission
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ MODAL: SIGNALER PANNE / STATUT VÉHICULE ═════════════════ -->
+<div id="modalReportStatus" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:480px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+      <h3 style="margin:0; font-size:15px; color:#ef4444; display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-triangle-exclamation"></i> Signaler Statut / Panne / Maintenance
+      </h3>
+      <button onclick="ui.closeStatusModal()" style="border:none; background:transparent; color:var(--text-muted); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <form onsubmit="event.preventDefault(); ui.saveStatusFromModal();" style="padding:20px;">
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Type d'entité</label>
+        <select id="modalStatusType" onchange="ui.onModalStatusTypeChange(this.value)" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          <option value="truck">Camion (Véhicule)</option>
+          <option value="driver">Chauffeur</option>
+          <option value="trailer">Remorque</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label id="modalStatusTargetLabel" style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Sélectionner Camion *</label>
+        <select id="modalStatusTargetSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+          <option value="">-- Choisir --</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:12px;">
+        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Statut Opérationnel *</label>
+        <select id="modalStatusValueSelect" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px; font-weight:600;">
+          <option value="panne">🔴 En Panne / Immobilisé (Hors service)</option>
+          <option value="maintenance">🟠 En Maintenance (Atelier / Vidange)</option>
+          <option value="chargement">🟡 En Chargement / À quai</option>
+          <option value="attente_ordre">🟠 En Attente d'Ordre / Fret</option>
+          <option value="reserve">⚪ Véhicule de Réserve</option>
+          <option value="disponible">🟢 Disponible au Parc</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:14px;">
+        <label style="font-size:11px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Motif / Détails incident</label>
+        <textarea id="modalStatusNotes" rows="2" placeholder="Panne moteur, pneu crevé, attente bon..." style="width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;"></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" class="btn-secondary" onclick="ui.closeStatusModal()" style="padding:8px 14px;">Annuler</button>
+        <button type="submit" class="btn-primary" style="padding:8px 18px; background:linear-gradient(135deg, #ef4444, #dc2626); border:none; font-weight:700;">
+          <i class="fa-solid fa-check"></i> Enregistrer Statut
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ═══ MODAL: HISTORIQUE DES ROTATIONS & AFFECTATIONS ═══════════ -->
+<div id="modalFleetHistory" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:780px; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+      <h3 style="margin:0; font-size:15px; color:var(--primary); display:flex; align-items:center; gap:8px;">
+        <i class="fa-solid fa-clock-rotate-left"></i> Historique des Rotations & Trajets Flotte
+      </h3>
+      <button onclick="ui.closeFleetHistoryModal()" style="border:none; background:transparent; color:var(--text-muted); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div style="display:flex; gap:6px;">
+        <button class="btn-filter-pill active" id="modalHistTabAll" onclick="ui.setModalHistoryTab('all')">Journal Global</button>
+        <button class="btn-filter-pill" id="modalHistTabDriver" onclick="ui.setModalHistoryTab('driver')">Par Chauffeur</button>
+        <button class="btn-filter-pill" id="modalHistTabTruck" onclick="ui.setModalHistoryTab('truck')">Par Camion</button>
+        <button class="btn-filter-pill" id="modalHistTabTrailer" onclick="ui.setModalHistoryTab('trailer')">Par Remorque</button>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="text" id="modalHistSearchInput" placeholder="Rechercher..." oninput="ui.renderModalHistoryList()" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px; width:180px;">
+        <button class="btn-secondary" onclick="ui.exportFleetHistoryExcel()" style="padding:6px 12px; font-size:11px; font-weight:700;"><i class="fa-solid fa-file-excel" style="color:#10b981;"></i> Excel</button>
+      </div>
+    </div>
+    <div id="modalHistEntitySelectWrap" style="padding:10px 20px 0; display:none;">
+      <select id="modalHistEntitySelect" onchange="ui.onModalHistEntityChange(this.value)" style="width:100%; padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+      </select>
+    </div>
+    <div id="modalFleetHistoryTimeline" style="flex:1; overflow-y:auto; padding:16px 20px; display:flex; flex-direction:column; gap:10px;">
+      <div style="text-align:center; padding:30px; color:var(--text-muted);">Chargement de l'historique...</div>
+    </div>
+    <div style="padding:12px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end;">
+      <button class="btn-secondary" onclick="ui.closeFleetHistoryModal()" style="padding:6px 14px;">Fermer</button>
     </div>
   </div>
 </div>

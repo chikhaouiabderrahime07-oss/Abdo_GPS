@@ -13,28 +13,52 @@ window.fetch = async function(url, options) {
         urlString = url.url;
     }
 
-    // 2. Retrieve Access Code
-    const code = localStorage.getItem('fleetAccessCode');
+    // Rewrite relative /api/ and /admin/ paths when page is opened via file:// protocol
+    const isFileProto = typeof window !== 'undefined' && window.location && window.location.protocol === 'file:';
+    const baseUrl = (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG?.API?.baseUrl) ? FLEET_CONFIG.API.baseUrl : 'http://localhost:3000';
+    if (isFileProto && typeof urlString === 'string' && (urlString.startsWith('/api/') || urlString.startsWith('/admin/'))) {
+        urlString = `${baseUrl}${urlString}`;
+        if (typeof url === 'string') {
+            url = urlString;
+        }
+    }
+
+    // 2. Retrieve Access Code with full fallback chain
+    const code = localStorage.getItem('fleetAccessCode') || (window.ui && window.ui.currentCode) || (typeof FLEET_CONFIG !== 'undefined' ? FLEET_CONFIG.accessCode : '');
 
     // 3. CORS-SAFE: Inject header ONLY for OUR OWN server API
     //    Rules:
-    //    - Relative paths starting with /api/ → always ours ✅
-    //    - Absolute URLs containing /api/ → only if same origin or localhost ✅
-    //    - https://api.mapbox.com/, https://api.geoapify.com/ → NEVER inject ❌
-    const isOwnApiRequest = urlString && typeof urlString === 'string' && (
-        urlString.startsWith('/api/') ||                                            // relative path
-        urlString.startsWith('/admin/') ||                                          // relative admin
-        (urlString.includes('/api/') && (
-            urlString.startsWith(window.location.origin) ||                         // same origin
-            urlString.startsWith('http://localhost') ||                             // localhost dev
-            urlString.startsWith('http://127.0.0.1')                               // loopback dev
-        ))
+    //    - Relative paths starting with /api/ or /admin/ → always ours ✅
+    //    - Absolute URLs containing /api/ or /admin/ → ours if not external third-party ✅
+    //    - https://api.mapbox.com/, https://api.geoapify.com/, webgps.dz → NEVER inject ❌
+    const isExternal = typeof urlString === 'string' && (
+        urlString.includes('mapbox.com') ||
+        urlString.includes('geoapify.com') ||
+        urlString.includes('webgps.dz')
     );
 
-    if (isOwnApiRequest) {
+    const isOwnApiRequest = !isExternal && urlString && typeof urlString === 'string' && (
+        urlString.startsWith('/api/') ||
+        urlString.startsWith('/admin/') ||
+        urlString.includes('/api/') ||
+        urlString.includes('/admin/') ||
+        (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG?.API?.baseUrl && urlString.startsWith(FLEET_CONFIG.API.baseUrl)) ||
+        (typeof window !== 'undefined' && window.location && window.location.origin && urlString.startsWith(window.location.origin)) ||
+        urlString.startsWith('http://localhost') ||
+        urlString.startsWith('http://127.0.0.1')
+    );
+
+    if (isOwnApiRequest && code) {
         if (!options) options = {};
-        if (!options.headers) options.headers = {};
-        if (code) options.headers['x-access-code'] = code;
+        if (typeof Headers !== 'undefined' && options.headers instanceof Headers) {
+            if (!options.headers.has('x-access-code')) options.headers.set('x-access-code', code);
+        } else if (Array.isArray(options.headers)) {
+            const hasCode = options.headers.some(h => Array.isArray(h) && String(h[0]||'').toLowerCase() === 'x-access-code');
+            if (!hasCode) options.headers.push(['x-access-code', code]);
+        } else {
+            if (!options.headers) options.headers = {};
+            if (!options.headers['x-access-code']) options.headers['x-access-code'] = code;
+        }
     }
 
     // 4. Perform Request
@@ -63,6 +87,10 @@ window.fetch = async function(url, options) {
 // CUSTOM DIALOG SYSTEM — replaces browser alert/confirm/prompt
 // ═══════════════════════════════════════════════════════════════
 (function() {
+  const _nativeAlert   = typeof window !== 'undefined' && window.alert   ? window.alert.bind(window)   : null;
+  const _nativeConfirm = typeof window !== 'undefined' && window.confirm ? window.confirm.bind(window) : null;
+  const _nativePrompt  = typeof window !== 'undefined' && window.prompt  ? window.prompt.bind(window)  : null;
+
   function _rmDlg() { document.getElementById('_dlgOv')?.remove(); }
   function _base(inner) {
     const ov = document.createElement('div');
@@ -116,14 +144,29 @@ window.fetch = async function(url, options) {
     };
     document.addEventListener('keydown',kh);
   });
-  // Override native browser dialogs globally
-  window.alert   = m => ui_showAlert(String(m||''));
+  // Preserve native synchronous window.confirm so that synchronous callers are never broken
   window.confirm = m => {
-    // Async modal shown, but sync callers get false (safe default — they should use await ui_showConfirm instead)
-    ui_showConfirm(String(m||''), 'Confirmation', '❓').catch(()=>{});
-    return false;
+    if (_nativeConfirm) {
+      try { return _nativeConfirm(m); } catch (_) {}
+    }
+    return true;
   };
-  window.prompt  = (m,d) => { ui_showPrompt(String(m||''),d); return d||null; };
+  window.alert = m => {
+    if (typeof window.showToast === 'function') {
+      window.showToast(String(m||''), 'info');
+      return;
+    }
+    if (_nativeAlert) {
+      try { return _nativeAlert(m); } catch (_) {}
+    }
+    return ui_showAlert(String(m||''));
+  };
+  window.prompt = (m, d) => {
+    if (_nativePrompt) {
+      try { return _nativePrompt(m, d); } catch (_) {}
+    }
+    return d || null;
+  };
 })();
 
 // Global Network Resilience Listeners (F32)
@@ -1882,6 +1925,9 @@ renderDecouchageList() {
     const content = document.getElementById(tabName);
     if (content) content.classList.add('active');
 
+    if (tabName === 'disponibiliteSection') {
+      this.renderDisponibiliteSection();
+    }
     if (tabName === 'byWilaya') {
         // Always open in map mode
         this.setZoneGrouping('map');
@@ -2027,8 +2073,8 @@ renderDecouchageList() {
       const speedBadge = t.speed >= 1
         ? `<span style="background:#dcfce7; color:#166534; font-size:9px; padding:2px 6px; border-radius:10px; font-weight:700;">⚡ ${t.speed}km/h</span>`
         : `<span style="background:#f1f5f9; color:var(--text-muted, #64748b); font-size:9px; padding:2px 6px; border-radius:10px;">STOP</span>`;
-      const lat = t.position?.lat || t.lat || 0;
-      const lng = t.position?.lng || t.lng || 0;
+      const lat = t.coordinates?.lat || t.position?.lat || t.lat || 0;
+      const lng = t.coordinates?.lng || t.position?.lng || t.lng || 0;
       return `<div style="padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; transition:background 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.1)'" onmouseout="this.style.background='transparent'">
         <div onclick="ui.switchTab('dashboard'); ui.updateDashboard();" style="flex:1;">
           <div style="font-weight:700; color:#f8fafc; font-size:13px;">${t.name}</div>
@@ -2467,6 +2513,14 @@ renderDecouchageList() {
             ${truck.speed >= 1 ? '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.9);display:inline-block;box-shadow:0 0 6px rgba(255,255,255,0.8);"></span>' : '<span style="width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.4);display:inline-block;"></span>'}
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
+            ${(() => {
+              const db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id);
+              const isMoving = truck.speed >= 1;
+              const sit = isMoving ? 'mission' : (db?.situation || 'disponible');
+              const sitLabel = isMoving ? 'En Mission' : (sit === 'maintenance' ? 'Maintenance' : (sit === 'repos' ? 'Découchage' : 'Disponible'));
+              const sitColor = isMoving ? '#10b981' : (sit === 'maintenance' ? '#f59e0b' : (sit === 'repos' ? '#a78bfa' : '#38bdf8'));
+              return `<span style="background:rgba(0,0,0,0.3); color:${sitColor}; border:1px solid ${sitColor}60; padding:2px 8px; border-radius:12px; font-size:10px; font-weight:800; text-transform:uppercase;">${sitLabel}</span>`;
+            })()}
             <span style="background:rgba(0,0,0,0.2); color:white; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:800; white-space:nowrap;">
               ${isSpeeding ? '<i class="fa-solid fa-triangle-exclamation"></i> ' : ''}${truck.speed} km/h
             </span>
@@ -2478,7 +2532,16 @@ renderDecouchageList() {
         <!-- Card body -->
         <div style="padding:12px 14px; background:var(--bg-surface);">
           <div style="display:flex; gap:4px; margin-bottom:8px; flex-wrap:wrap; align-items:center;">
-            ${(() => { const db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id); if (!db) return ''; let tags = ''; if (db.carteNaftal) tags += `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${db.carteNaftal}</span> `; if (db.immatriculation) tags += `<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${db.immatriculation}</span> `; return tags; })()}
+            ${(() => { 
+              const db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id); 
+              if (!db) return ''; 
+              let tags = ''; 
+              if (db.carteNaftal) tags += `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${db.carteNaftal}</span> `; 
+              if (db.immatriculation) tags += `<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${db.immatriculation}</span> `; 
+              if (db.driverName) tags += `<span class="truck-meta-tag driver" title="Chauffeur: ${db.driverName}"><i class="fa-solid fa-user"></i> ${db.driverName}</span> `;
+              if (db.trailer) tags += `<span class="truck-meta-tag trailer" title="Remorque: ${db.trailer}"><i class="fa-solid fa-trailer"></i> ${db.trailer}</span> `;
+              return tags; 
+            })()}
             ${this.renderReferenceBadges ? this.renderReferenceBadges(truck.id) : ''}
             ${hasExpiringRef ? `<span class="truck-meta-tag" style="background:#f97316;color:white;"><i class="fa-solid fa-triangle-exclamation"></i> Doc Expire</span>` : ''}
           </div>
@@ -2521,7 +2584,7 @@ renderDecouchageList() {
         ` : ''}
         
           <div style="display:flex; gap:6px; border-top:1px solid var(--border-light); padding-top:10px;">
-            <button class="tc-suivre" data-lat="${truck.coordinates?.lat||0}" data-lng="${truck.coordinates?.lng||0}"
+            <button class="tc-suivre" data-lat="${truck.coordinates?.lat||0}" data-lng="${truck.coordinates?.lng||0}" data-tid="${truck.id}"
               style="flex:1; background:${cardAccentGrad}; color:white; font-size:11px; padding:8px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow:0 2px 8px ${cardAccentColor}40;">
               <i class="fa-solid fa-map-location-dot"></i> Suivre
             </button>
@@ -2543,7 +2606,7 @@ renderDecouchageList() {
       const _tvb = card.querySelector('.tcv-btn');
       if (_tvb) { (function(el){ el.onclick = function(){ ui.quickAddVidange(el.dataset.tid); }; })(_tvb); }
       const _tsv = card.querySelector('.tc-suivre');
-      if (_tsv) { (function(el){ el.onclick = function(e){ e.stopPropagation(); window.ui.viewOnMap(parseFloat(el.dataset.lat), parseFloat(el.dataset.lng)); }; })(_tsv); }
+      if (_tsv) { (function(el){ el.onclick = function(e){ e.stopPropagation(); window.ui.viewOnMap(parseFloat(el.dataset.lat), parseFloat(el.dataset.lng), el.dataset.tid); }; })(_tsv); }
       const _tdc = card.querySelector('.tc-docs');
       if (_tdc) { (function(el){ el.onclick = function(e){ e.stopPropagation(); window.ui.openRefModal(el.dataset.tid); }; })(_tdc); }
       const _tmt = card.querySelector('.tc-maint');
@@ -4067,6 +4130,9 @@ exportRefuelCSV() {
           truckName: t.name || deviceId,
           carteNaftal: db.carteNaftal || '',
           immatriculation: db.immatriculation || '',
+          driverName: db.driverName || '',
+          driverPhone: db.driverPhone || '',
+          trailer: db.trailer || '',
           currentLocation: loc,
           currentLat: co.lat,
           currentLng: co.lng,
@@ -4165,9 +4231,11 @@ exportRefuelCSV() {
               '<i class="fa-solid fa-truck" style="color:'+fc+';font-size:14px;"></i></div>' +
             '<div>' +
               '<div style="font-weight:800;color:#1e293b;font-size:13px;">'+(e.truckName||e.deviceId)+'</div>' +
-              '<div style="display:flex;gap:5px;margin-top:3px;">' +
+              '<div style="display:flex;gap:5px;margin-top:3px;flex-wrap:wrap;align-items:center;">' +
                 '<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:20px;font-weight:700;">'+(e.carteNaftal||'N/A')+'</span>' +
                 (e.immatriculation?'<span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 7px;border-radius:20px;">'+e.immatriculation+'</span>':'') +
+                (e.driverName?'<span style="font-size:10px;background:#ecfdf5;color:#059669;padding:1px 7px;border-radius:20px;font-weight:600;"><i class="fa-solid fa-user"></i> '+e.driverName+'</span>':'') +
+                (e.trailer?'<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:600;"><i class="fa-solid fa-trailer"></i> '+e.trailer+'</span>':'') +
               '</div>' +
             '</div>' +
           '</div>' +
@@ -4439,6 +4507,9 @@ exportRefuelCSV() {
               truckName: e.truckName,
               carteNaftal: e.carteNaftal,
               immatriculation: e.immatriculation,
+              driverName: e.driverName || '',
+              driverPhone: e.driverPhone || '',
+              trailer: e.trailer || '',
               currentLocation: e.currentLocation,
               currentLat: e.currentLat,
               currentLng: e.currentLng,
@@ -6974,6 +7045,235 @@ exportRefuelCSV() {
   }
 
 
+  openReportModal(imei = null, name = null) {
+    if (!imei) {
+      const trucks = (window.app && typeof window.app.getAllTrucks === 'function') ? window.app.getAllTrucks() : [];
+      if (trucks.length > 0) {
+        imei = trucks[0].id;
+        name = trucks[0].name;
+      }
+    }
+    return this.openHistoryModal(imei, name);
+  }
+
+  _addForfaitRow() {
+    const codeInput = document.getElementById('forfaitCode');
+    if (codeInput) {
+      codeInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      codeInput.focus();
+    }
+  }
+
+  openClientModal() {
+    const modal = document.getElementById('clientModal');
+    if (modal) {
+      modal.style.display = 'flex';
+      this.loadClients();
+    }
+  }
+
+  closeClientModal() {
+    const modal = document.getElementById('clientModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  cmSelectClient(index) {
+    this._cmSelectedClientIndex = index;
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const client = clients[index];
+    if (!client) return;
+
+    document.querySelectorAll('.cm-client-item').forEach((el, i) => {
+      el.style.background = (i === index) ? 'rgba(59,130,246,0.18)' : '';
+    });
+
+    const noSelection = document.getElementById('cm_noSelection');
+    const finalPanel = document.getElementById('cm_finalPanel');
+    if (noSelection) noSelection.style.display = 'none';
+    if (finalPanel) finalPanel.style.display = 'flex';
+
+    const dot = document.getElementById('cm_selectedClientDot');
+    if (dot) dot.style.background = client.color || '#3b82f6';
+
+    const nameEl = document.getElementById('cm_selectedClientName');
+    if (nameEl) nameEl.textContent = client.name || 'Client';
+
+    const countEl = document.getElementById('cm_selectedClientFcCount');
+    const fcList = client.finalClients || [];
+    if (countEl) countEl.textContent = `${fcList.length} client(s) final(s)`;
+
+    this._renderFinalClientsList(client);
+  }
+
+  _renderFinalClientsList(client) {
+    const container = document.getElementById('cm_finalClientsList');
+    if (!container) return;
+    const list = client.finalClients || [];
+    if (list.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text-muted,#888);padding:30px;font-size:12px;">Aucun client final pour ce client.</div>';
+      return;
+    }
+    container.innerHTML = list.map((fc, i) => {
+      const fcId = fc.id || fc._id || String(i);
+      const fcName = fc.name || String(fc);
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:rgba(255,255,255,0.04);border:1px solid var(--border,rgba(255,255,255,0.08));border-radius:8px;">
+        <span style="font-size:13px;color:var(--text,#fff);font-weight:600;"><i class="fa-solid fa-user-tag" style="color:#60a5fa;margin-right:8px;font-size:11px;"></i>${fcName}</span>
+        <button onclick="ui.cmDeleteFinalClient('${fcId}')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);color:#f87171;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;"><i class="fa-solid fa-trash"></i></button>
+      </div>`;
+    }).join('');
+  }
+
+  async cmAddClient() {
+    const nameInput = document.getElementById('cm_newClientName');
+    const colorInput = document.getElementById('cm_newClientColor');
+    const name = nameInput?.value?.trim();
+    const color = colorInput?.value || '#3b82f6';
+    if (!name) return alert('Veuillez saisir un nom pour le client.');
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/clients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, color })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+        const newClient = data.client || { id: String(Date.now()), name, color, finalClients: [] };
+        FLEET_CONFIG.CLIENTS.push(newClient);
+        if (typeof this.saveSettingsToCloud === 'function') await this.saveSettingsToCloud();
+        if (nameInput) nameInput.value = '';
+        this.loadClients();
+        this.cmSelectClient(FLEET_CONFIG.CLIENTS.length - 1);
+        if (window.showToast) showToast(`✅ Client "${name}" créé!`, 'success');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Erreur: ' + (err.error || res.statusText));
+      }
+    } catch(e) {
+      if (!FLEET_CONFIG.CLIENTS) FLEET_CONFIG.CLIENTS = [];
+      const newClient = { id: String(Date.now()), name, color, finalClients: [] };
+      FLEET_CONFIG.CLIENTS.push(newClient);
+      if (typeof this.saveSettingsToCloud === 'function') await this.saveSettingsToCloud();
+      if (nameInput) nameInput.value = '';
+      this.loadClients();
+      this.cmSelectClient(FLEET_CONFIG.CLIENTS.length - 1);
+      if (window.showToast) showToast(`✅ Client "${name}" créé!`, 'success');
+    }
+  }
+
+  async cmStartEditClient() {
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const idx = this._cmSelectedClientIndex ?? -1;
+    const client = clients[idx];
+    if (!client) return;
+
+    const newName = prompt('Nouveau nom du client:', client.name);
+    if (!newName || !newName.trim()) return;
+
+    const clientId = client.id || client._id;
+    try {
+      await fetch(`${FLEET_CONFIG.API.baseUrl}/api/clients/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim(), color: client.color })
+      });
+    } catch(e) {}
+
+    client.name = newName.trim();
+    if (typeof this.saveSettingsToCloud === 'function') await this.saveSettingsToCloud();
+    this.loadClients();
+    this.cmSelectClient(idx);
+    if (window.showToast) showToast('✅ Client mis à jour', 'success');
+  }
+
+  async cmDeleteClient() {
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const idx = this._cmSelectedClientIndex ?? -1;
+    const client = clients[idx];
+    if (!client) return;
+
+    if (!confirm(`Supprimer le client "${client.name}" et tous ses clients finaux ?`)) return;
+
+    const clientId = client.id || client._id;
+    try {
+      await fetch(`${FLEET_CONFIG.API.baseUrl}/api/clients/${clientId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch(e) {}
+
+    FLEET_CONFIG.CLIENTS.splice(idx, 1);
+    if (typeof this.saveSettingsToCloud === 'function') await this.saveSettingsToCloud();
+    this.loadClients();
+    const finalPanel = document.getElementById('cm_finalPanel');
+    const noSelection = document.getElementById('cm_noSelection');
+    if (finalPanel) finalPanel.style.display = 'none';
+    if (noSelection) noSelection.style.display = 'flex';
+    this._cmSelectedClientIndex = null;
+    if (window.showToast) showToast('Client supprimé', 'success');
+  }
+
+  async cmAddFinalClient() {
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const idx = this._cmSelectedClientIndex ?? -1;
+    const client = clients[idx];
+    if (!client) return alert('Sélectionnez d\'abord un client.');
+
+    const input = document.getElementById('cm_newFcName');
+    const name = input?.value?.trim();
+    if (!name) return alert('Nom du client final requis.');
+
+    const clientId = client.id || client._id;
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/clients/${clientId}/final-clients`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (!client.finalClients) client.finalClients = [];
+        client.finalClients.push(data.finalClient || { id: String(Date.now()), name });
+      } else {
+        if (!client.finalClients) client.finalClients = [];
+        client.finalClients.push({ id: String(Date.now()), name });
+      }
+    } catch(e) {
+      if (!client.finalClients) client.finalClients = [];
+      client.finalClients.push({ id: String(Date.now()), name });
+    }
+
+    if (typeof this.saveSettingsToCloud === 'function') await this.saveSettingsToCloud();
+    if (input) input.value = '';
+    this.cmSelectClient(idx);
+    this.loadClients();
+    if (window.showToast) showToast(`✅ Client final "${name}" ajouté!`, 'success');
+  }
+
+  async cmDeleteFinalClient(fcId) {
+    const clients = FLEET_CONFIG.CLIENTS || [];
+    const idx = this._cmSelectedClientIndex ?? -1;
+    const client = clients[idx];
+    if (!client) return;
+
+    if (!confirm('Supprimer ce client final ?')) return;
+
+    const clientId = client.id || client._id;
+    try {
+      await fetch(`${FLEET_CONFIG.API.baseUrl}/api/clients/${clientId}/final-clients/${fcId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch(e) {}
+
+    client.finalClients = (client.finalClients || []).filter(fc => (fc.id || fc._id) !== fcId && fc.name !== fcId);
+    if (typeof this.saveSettingsToCloud === 'function') await this.saveSettingsToCloud();
+    this.cmSelectClient(idx);
+    this.loadClients();
+    if (window.showToast) showToast('Client final supprimé', 'success');
+  }
+
   // ── FIX: was called but never defined ──────────────────────
   // Renders the cm_clientsList panel in the existing Client Management modal (index.html)
   loadClients() {
@@ -7523,9 +7823,11 @@ async runZoneHistoryScan() {
               const params = (p[6] && typeof p[6] === 'object')
                   ? p[6]
                   : ((p[7] && typeof p[7] === 'object') ? p[7] : ((p[8] && typeof p[8] === 'object') ? p[8] : {}));
+              const rawT = typeof p[0] === 'string' ? p[0].replace(' ', 'T') : p[0];
+              const tMs = new Date(rawT).getTime();
               return {
-                  time: new Date(p[0]).getTime(),
-                  dateObj: new Date(p[0]),
+                  time: tMs,
+                  dateObj: new Date(rawT),
                   lat: parseFloat(p[1]),
                   lng: parseFloat(p[2]),
                   speed: parseFloat((p[5] !== undefined ? p[5] : p[3]) || 0) || 0,
@@ -7533,9 +7835,11 @@ async runZoneHistoryScan() {
               };
           }
           const timeValue = p.time || p.timestamp || p.t;
+          const rawT = typeof timeValue === 'string' ? timeValue.replace(' ', 'T') : timeValue;
+          const tMs = new Date(rawT).getTime();
           return {
-              time: new Date(timeValue).getTime(),
-              dateObj: new Date(timeValue),
+              time: tMs,
+              dateObj: new Date(rawT),
               lat: parseFloat(p.lat),
               lng: parseFloat(p.lng),
               speed: parseFloat(p.speed || 0) || 0,
@@ -7908,7 +8212,7 @@ async runZoneHistoryScan() {
     const existingModal = document.getElementById('historyModal');
     if (existingModal) existingModal.remove();
 
-    const truckDisplayName = name || (window.app?.trucks && window.app.trucks[imei]?.name) || String(imei);
+    const truckDisplayName = name || (window.app?.trucks?.get ? window.app.trucks.get(imei)?.name : window.app?.trucks?.[imei]?.name) || String(imei);
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const toLocalDT = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -8056,8 +8360,7 @@ async runZoneHistoryScan() {
 
       const start = fmt(startVal);
       const end = fmt(endVal);
-      const truckName = name || (window.app?.trucks && window.app.trucks[imei]?.name) || String(imei);
-
+      const truckName = name || (window.app?.trucks?.get ? window.app.trucks.get(imei)?.name : window.app?.trucks?.[imei]?.name) || String(imei);
       window._histRecapMeta = {
         truckName: truckName,
         imei:      String(imei),
@@ -8091,7 +8394,10 @@ async runZoneHistoryScan() {
 
       try {
           // 2. Fetch History Data
-          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${imei}&start=${start}&end=${end}`);
+          const safeImei = encodeURIComponent(imei || '');
+          const safeStartQ = encodeURIComponent(start || '');
+          const safeEndQ = encodeURIComponent(end || '');
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/history?imei=${safeImei}&start=${safeStartQ}&end=${safeEndQ}`);
           const json = await res.json();
           let rawPoints = json.messages || json;
 
@@ -8103,7 +8409,7 @@ async runZoneHistoryScan() {
               _errToast.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="color:#f87171;"></i> Aucun historique GPS trouvé pour cette période.';
               document.body.appendChild(_errToast);
               setTimeout(() => _errToast.remove(), 4000);
-              const targetTruckName = window._histRecapMeta?.truckName || (window.app?.trucks && window.app.trucks[imei]?.name) || imei;
+              const targetTruckName = window._histRecapMeta?.truckName || (window.app?.trucks?.get ? window.app.trucks.get(imei)?.name : window.app?.trucks?.[imei]?.name) || imei;
               setTimeout(() => { this.openHistoryModal(imei, targetTruckName); }, 400);
               return;
           }
@@ -8111,16 +8417,19 @@ async runZoneHistoryScan() {
           // 3. Normalize & Sort Data
           let points = rawPoints.map(p => {
               if (Array.isArray(p)) {
+                  const tRaw = String(p[0] || '').replace(' ', 'T');
+                  const tMs = new Date(tRaw).getTime();
+                  const spd = parseFloat(p[5] !== undefined ? p[5] : (p[3] || 0)) || 0;
                   return { 
-                      time: new Date(p[0]).getTime(),
+                      time: isNaN(tMs) ? Date.now() : tMs,
                       lat: parseFloat(p[1]), 
                       lng: parseFloat(p[2]), 
-                      speed: parseInt(p[5]), 
+                      speed: Math.round(spd), 
                       params: p[6] || {} 
                   };
               }
               return p;
-          }).sort((a,b) => a.time - b.time);
+          }).sort((a,b) => (a.time || 0) - (b.time || 0));
 
           // 3.5 Exact Window Filtering (Trim the extra pre-point returned by GPS API)
           try {
@@ -9891,6 +10200,9 @@ async runZoneHistoryScan() {
     document.getElementById('settingsChassisNumber').value = db.chassisNumber || '';
     document.getElementById('settingsImmatriculation').value = db.immatriculation || '';
     document.getElementById('settingsCarteNaftal').value = db.carteNaftal || '';
+    if (document.getElementById('settingsTrailer')) document.getElementById('settingsTrailer').value = db.trailer || '';
+    if (document.getElementById('settingsDriverName')) document.getElementById('settingsDriverName').value = db.driverName || '';
+    if (document.getElementById('settingsDriverPhone')) document.getElementById('settingsDriverPhone').value = db.driverPhone || '';
   }
 
   async saveTruckMetaFromSettings() {
@@ -9901,7 +10213,10 @@ async runZoneHistoryScan() {
       deviceId,
       chassisNumber: document.getElementById('settingsChassisNumber').value.trim(),
       immatriculation: document.getElementById('settingsImmatriculation').value.trim(),
-      carteNaftal: document.getElementById('settingsCarteNaftal').value.trim()
+      carteNaftal: document.getElementById('settingsCarteNaftal').value.trim(),
+      trailer: document.getElementById('settingsTrailer') ? document.getElementById('settingsTrailer').value.trim() : '',
+      driverName: document.getElementById('settingsDriverName') ? document.getElementById('settingsDriverName').value.trim() : '',
+      driverPhone: document.getElementById('settingsDriverPhone') ? document.getElementById('settingsDriverPhone').value.trim() : ''
     };
     try {
       const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks/update-info`, {
@@ -9919,7 +10234,7 @@ async runZoneHistoryScan() {
   renderSettingsTruckMetaList() {
     const container = document.getElementById('settingsTruckMetaList');
     if (!container) return;
-    const entries = this.truckDbCache.filter(d => d.chassisNumber || d.immatriculation || d.carteNaftal);
+    const entries = this.truckDbCache.filter(d => d.chassisNumber || d.immatriculation || d.carteNaftal || d.trailer || d.driverName);
     if (entries.length === 0) {
       container.innerHTML = '<div style="text-align:center; color:var(--text-muted, #94a3b8); padding:16px; font-size:12px;">Aucune fiche véhicule renseignée. Sélectionnez un camion et remplissez les champs.</div>';
       return;
@@ -9930,6 +10245,8 @@ async runZoneHistoryScan() {
       <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Immatriculation</th>
       <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Châssis</th>
       <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Carte Naftal</th>
+      <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Remorque</th>
+      <th style="padding:10px 12px;text-align:center;color:var(--text-secondary);font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">Chauffeur</th>
     </tr></thead><tbody>`;
     entries.forEach((d, i) => {
       const bg = i % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-elevated)';
@@ -9938,6 +10255,8 @@ async runZoneHistoryScan() {
         <td style="padding:10px 12px;text-align:center;">${d.immatriculation ? `<span class="truck-meta-tag imm">${d.immatriculation}</span>` : '<em style="color:var(--text-dim);">—</em>'}</td>
         <td style="padding:10px 12px;text-align:center;">${d.chassisNumber ? `<span class="truck-meta-tag chassis">${d.chassisNumber}</span>` : '<em style="color:var(--text-dim);">—</em>'}</td>
         <td style="padding:10px 12px;text-align:center;">${d.carteNaftal ? `<span class="truck-meta-tag naftal">${d.carteNaftal}</span>` : '<em style="color:var(--text-dim);">—</em>'}</td>
+        <td style="padding:10px 12px;text-align:center;">${d.trailer ? `<span class="truck-meta-tag trailer">${d.trailer}</span>` : '<em style="color:var(--text-dim);">—</em>'}</td>
+        <td style="padding:10px 12px;text-align:center;">${d.driverName ? `<span class="truck-meta-tag driver">${d.driverName}</span> ${d.driverPhone ? `<br><small style="color:var(--text-muted);">${d.driverPhone}</small>` : ''}` : '<em style="color:var(--text-dim);">—</em>'}</td>
       </tr>`;
     });
     html += '</tbody></table>';
@@ -12048,6 +12367,8 @@ async runZoneHistoryScan() {
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-hashtag"></i> Châssis</span><span class="truck-info-value">${db.chassisNumber || '<em style="color:var(--text-muted, #94a3b8);">Non renseigné</em>'}</span></div>
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-id-badge"></i> Immatriculation</span><span class="truck-info-value">${db.immatriculation || '<em style="color:var(--text-muted, #94a3b8);">Non renseigné</em>'}</span></div>
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-credit-card"></i> Carte Naftal</span><span class="truck-info-value">${db.carteNaftal || '<em style="color:var(--text-muted, #94a3b8);">Non renseigné</em>'}</span></div>
+          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-trailer"></i> Remorque</span><span class="truck-info-value">${db.trailer ? `<span class="truck-meta-tag trailer">${db.trailer}</span>` : '<em style="color:var(--text-muted, #94a3b8);">Non assignée</em>'}</span></div>
+          <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-user"></i> Chauffeur</span><span class="truck-info-value">${db.driverName ? `<span class="truck-meta-tag driver">${db.driverName}</span> ${db.driverPhone ? '· ' + db.driverPhone : ''}` : '<em style="color:var(--text-muted, #94a3b8);">Non assigné</em>'}</span></div>
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-oil-can"></i> Vidange</span><span class="truck-info-value" style="color:${truck.vidange.alert ? '#ef4444' : '#22c55e'};">${truck.vidange.alert ? '\u26a0\ufe0f ' + truck.vidange.kmUntilNext + ' km' : '\u2705 OK (' + truck.vidange.kmUntilNext + ' km)'}</span></div>
           <div class="truck-info-row"><span class="truck-info-label"><i class="fa-solid fa-signal"></i> Vitesse</span><span class="truck-info-value">${truck.speed} km/h</span></div>
         </div>
@@ -12061,6 +12382,9 @@ async runZoneHistoryScan() {
     document.getElementById('editChassisNumber').value = db.chassisNumber || '';
     document.getElementById('editImmatriculation').value = db.immatriculation || '';
     document.getElementById('editCarteNaftal').value = db.carteNaftal || '';
+    if (document.getElementById('editTrailer')) document.getElementById('editTrailer').value = db.trailer || '';
+    if (document.getElementById('editDriverName')) document.getElementById('editDriverName').value = db.driverName || '';
+    if (document.getElementById('editDriverPhone')) document.getElementById('editDriverPhone').value = db.driverPhone || '';
   }
 
   async saveTruckMetadata() {
@@ -12071,7 +12395,10 @@ async runZoneHistoryScan() {
       truckName: truck ? truck.name : this.maintTruckSearchInput?.value || '',
       chassisNumber: document.getElementById('editChassisNumber').value.trim(),
       immatriculation: document.getElementById('editImmatriculation').value.trim(),
-      carteNaftal: document.getElementById('editCarteNaftal').value.trim()
+      carteNaftal: document.getElementById('editCarteNaftal').value.trim(),
+      trailer: document.getElementById('editTrailer') ? document.getElementById('editTrailer').value.trim() : '',
+      driverName: document.getElementById('editDriverName') ? document.getElementById('editDriverName').value.trim() : '',
+      driverPhone: document.getElementById('editDriverPhone') ? document.getElementById('editDriverPhone').value.trim() : ''
     };
     try {
       const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks/update-info`, {
@@ -12249,13 +12576,13 @@ async runZoneHistoryScan() {
           </div>
           ${order.note ? `<div style="font-size:11px; color:var(--text-muted, #64748b); margin-top:8px; font-style:italic; padding:6px; background:#f8fafc; border-radius:4px;">"${order.note}"</div>` : ''}
           <div style="display:flex; gap:6px; margin-top:10px; justify-content:flex-end;">
-            <button onclick="ui.cancelMaintenanceOrder('${order.id}')" class="btn-secondary" style="font-size:11px; padding:4px 10px; border-color:#fecaca; color:#dc2626;">
+            <button onclick="ui.cancelMaintenanceOrder('${order.id || order._id}')" class="btn-secondary" style="font-size:11px; padding:4px 10px; border-color:#fecaca; color:#dc2626;">
               <i class="fa-solid fa-ban"></i> Annuler
             </button>
-            <button onclick="ui.editMaintenance('${order.id}')" class="btn-secondary" style="font-size:11px; padding:4px 10px;">
+            <button onclick="ui.editMaintenance('${order.id || order._id}')" class="btn-secondary" style="font-size:11px; padding:4px 10px;">
               <i class="fa-solid fa-pen"></i> Modifier
             </button>
-            <button onclick="ui.closeMaintenanceOrderUI('${order.id}')" class="btn-primary" style="font-size:11px; padding:4px 10px; background:#22c55e; border:none;">
+            <button onclick="ui.closeMaintenanceOrderUI('${order.id || order._id}')" class="btn-primary" style="font-size:11px; padding:4px 10px; background:#22c55e; border:none;">
               <i class="fa-solid fa-check"></i> Terminer
             </button>
           </div>
@@ -12332,9 +12659,9 @@ async runZoneHistoryScan() {
         <div style="font-size:12px;color:#374151;margin-bottom:4px;"><i class="fa-solid fa-wrench" style="color:#f59e0b;margin-right:4px;"></i>${order.type||'Maintenance'}</div>
         <div style="font-size:11px;color:#94a3b8;"><i class="fa-solid fa-clock"></i> ${durationText} · ${start.toLocaleDateString('fr-DZ')}</div>
         <div style="display:flex;gap:6px;margin-top:10px;">
-          ${order.status !== 'termine' ? `<button class="btn-primary" style="flex:1;font-size:11px;padding:6px;background:#16a34a;border:none;" onclick="ui.closeMaintenanceOrderUI('${order._id}')"><i class="fa-solid fa-check"></i> Terminer</button>` : ''}
+          ${order.status !== 'termine' ? `<button class="btn-primary" style="flex:1;font-size:11px;padding:6px;background:#16a34a;border:none;" onclick="ui.closeMaintenanceOrderUI('${order.id || order._id}')"><i class="fa-solid fa-check"></i> Terminer</button>` : ''}
           <button class="btn-secondary" style="flex:1;font-size:11px;padding:6px;" onclick="ui.openNewMaintenanceOrder('${order.deviceId}')"><i class="fa-solid fa-plus"></i> Nouvel Ordre</button>
-          <button style="padding:6px 10px;border:1.5px solid #fee2e2;border-radius:8px;background:#fff;color:#ef4444;font-size:11px;cursor:pointer;" onclick="ui.cancelMaintenanceOrder('${order._id}')"><i class="fa-solid fa-times"></i></button>
+          <button style="padding:6px 10px;border:1.5px solid #fee2e2;border-radius:8px;background:#fff;color:#ef4444;font-size:11px;cursor:pointer;" onclick="ui.cancelMaintenanceOrder('${order.id || order._id}')"><i class="fa-solid fa-times"></i></button>
         </div>
       </div>`;
     });
@@ -12345,31 +12672,91 @@ async runZoneHistoryScan() {
   }
 
   async closeMaintenanceOrderUI(id) {
-    if (!confirm('Marquer cet ordre comme TERMINÉ ?')) return;
+    if (!id || id === 'undefined' || id === 'null') {
+      alert('Identifiant d\'ordre de maintenance invalide.');
+      return;
+    }
+    const confirmed = typeof ui_showConfirm === 'function'
+      ? await ui_showConfirm('Marquer cet ordre comme TERMINÉ ?', 'Clôturer la maintenance', '✅')
+      : confirm('Marquer cet ordre comme TERMINÉ ?');
+    if (!confirmed) return;
     try {
+      const code = localStorage.getItem('fleetAccessCode') || this.currentCode || (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.accessCode) || '';
+      const headers = { 'Content-Type': 'application/json' };
+      if (code) headers['x-access-code'] = code;
       const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/close`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ id, _id: id })
       });
       if (res.ok) {
-        alert('\u2705 Ordre clôturé !');
-        this.refreshMaintenanceFollowup();
-        this.fetchAndRenderMaintenance();
-      } else { alert('Erreur serveur.'); }
-    } catch (e) { alert('Erreur connexion.'); }
+        const resData = await res.json().catch(() => ({}));
+        if (window.showToast) {
+          showToast('Ordre clôturé avec succès ✅', 'success');
+        } else {
+          alert('✅ Ordre clôturé !');
+        }
+        if (resData && resData.vidangeOverrides) {
+          FLEET_CONFIG.VIDANGE_OVERRIDES = resData.vidangeOverrides;
+          FLEET_CONFIG.vidangeOverrides = resData.vidangeOverrides;
+        } else if (typeof this.loadSettingsFromCloud === 'function') {
+          await this.loadSettingsFromCloud();
+        }
+        if (typeof this.refreshMaintenanceFollowup === 'function') this.refreshMaintenanceFollowup();
+        if (typeof this.fetchAndRenderMaintenance === 'function') this.fetchAndRenderMaintenance();
+        const appInstance = (typeof app !== 'undefined' && app) || window.app;
+        if (appInstance && typeof appInstance.forceRecalculateVidanges === 'function') {
+          appInstance.forceRecalculateVidanges();
+        } else if (typeof forceRecalculateVidanges === 'function') {
+          forceRecalculateVidanges();
+        }
+        if (typeof this.renderTrucks === 'function') this.renderTrucks();
+        if (typeof this.renderStats === 'function') this.renderStats();
+        if (typeof this.renderVidangeSection === 'function') this.renderVidangeSection();
+      } else {
+        let errText = 'Erreur serveur.';
+        try {
+          const errData = await res.json();
+          if (errData && errData.error) errText = errData.error;
+        } catch (_) {}
+        alert(errText);
+      }
+    } catch (e) { alert('Erreur connexion: ' + e.message); }
   }
 
   async cancelMaintenanceOrder(id) {
-    if (!confirm('\u26a0\ufe0f ANNULER cet ordre de maintenance ?\n\nCette action est irréversible. L\'ordre sera marqué comme annulé.')) return;
+    if (!id || id === 'undefined' || id === 'null') {
+      alert('Identifiant d\'ordre de maintenance invalide.');
+      return;
+    }
+    const confirmed = typeof ui_showConfirm === 'function'
+      ? await ui_showConfirm('⚠️ ANNULER cet ordre de maintenance ?\n\nCette action est irréversible. L\'ordre sera marqué comme annulé.', 'Annuler maintenance', '⚠️', 'Annuler l\'ordre')
+      : confirm('⚠️ ANNULER cet ordre de maintenance ?\n\nCette action est irréversible. L\'ordre sera marqué comme annulé.');
+    if (!confirmed) return;
     try {
-      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/${id}/cancel`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }
+      const code = localStorage.getItem('fleetAccessCode') || this.currentCode || (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG.accessCode) || '';
+      const headers = { 'Content-Type': 'application/json' };
+      if (code) headers['x-access-code'] = code;
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/${encodeURIComponent(id)}/cancel`, {
+        method: 'PATCH',
+        headers
       });
       if (res.ok) {
-        alert('\u2705 Ordre annulé avec succès.');
-        this.refreshMaintenanceFollowup();
-        this.fetchAndRenderMaintenance();
-      } else { alert('Erreur serveur.'); }
+        if (window.showToast) {
+          showToast('Ordre annulé avec succès ✅', 'success');
+        } else {
+          alert('✅ Ordre annulé avec succès.');
+        }
+        if (typeof this.refreshMaintenanceFollowup === 'function') this.refreshMaintenanceFollowup();
+        if (typeof this.fetchAndRenderMaintenance === 'function') this.fetchAndRenderMaintenance();
+      } else {
+        let errText = 'Erreur serveur.';
+        try {
+          const errData = await res.json();
+          if (errData && errData.error) errText = errData.error;
+        } catch (_) {}
+        alert(errText);
+      }
     } catch (e) { alert('Erreur connexion: ' + e.message); }
   }
 
@@ -14529,9 +14916,10 @@ async runZoneHistoryScan() {
     // 2. Save the maintenance record first
     await this.saveManualMaintenance();
 
-    // 3. Open the repair order generator with all 16 parameters
+    // 3. Open the repair order generator with all 16 parameters + driver/trailer
     try {
       if (truckName && typeof window.open === 'function') {
+        const tDb = (this.truckDbCache || []).find(d => String(d.truckName || '').toLowerCase() === String(truckName).toLowerCase() || String(d.deviceId) === String(this.selectedMaintTruckId)) || {};
         const queryParams = new URLSearchParams({
           truck: truckName,
           imm: String(imm),
@@ -14549,6 +14937,9 @@ async runZoneHistoryScan() {
           parts: JSON.stringify(parts),
           status: 'en_cours'
         });
+        if (tDb.driverName) queryParams.set('driver', tDb.driverName);
+        if (tDb.driverPhone) queryParams.set('driverPhone', tDb.driverPhone);
+        if (tDb.trailer) queryParams.set('trailer', tDb.trailer);
         if (forfaitName) queryParams.set('forfaitName', forfaitName);
         const url = `ordre_reparation_v21.html?${queryParams.toString()}`;
         window.open(url, '_blank');
@@ -14558,7 +14949,10 @@ async runZoneHistoryScan() {
 
   async deleteMaintenanceEntry(id) {
     if (!id) return;
-    if (!confirm('Supprimer cet enregistrement de maintenance ? Cette action est irréversible.')) return;
+    const confirmed = typeof ui_showConfirm === 'function'
+      ? await ui_showConfirm('Supprimer cet enregistrement de maintenance ? Cette action est irréversible.', 'Supprimer maintenance', '🗑️', 'Supprimer')
+      : confirm('Supprimer cet enregistrement de maintenance ? Cette action est irréversible.');
+    if (!confirmed) return;
     try {
       const r = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/maintenance/delete`, {
         method: 'POST',
@@ -14794,6 +15188,1238 @@ _naftalSortTable(tblId, colIdx) {
       return dir === 'asc' ? va.localeCompare(vb, 'fr') : vb.localeCompare(va, 'fr');
     });
     rows.forEach(function(r) { tbody.appendChild(r); });
+  }
+
+  // =============================================================
+  // 🚖 SUIVI DISPONIBILITÉ & CHAUFFEURS / REMORQUES MANAGEMENT
+  // =============================================================
+
+  async renderDisponibiliteSection() {
+    this._dispoSituationFilter = this._dispoSituationFilter || 'all';
+    this._dispoViewMode = this._dispoViewMode || 'table';
+    this._dispoSearchQuery = this._dispoSearchQuery || '';
+    
+    // Auto-refresh interval if not set
+    if (!this._dispoPollInterval) {
+      this._dispoPollInterval = setInterval(() => {
+        const section = document.getElementById('disponibiliteSection');
+        if (section && section.classList.contains('active')) {
+          this.fetchDisponibiliteData(false);
+        }
+      }, 10000);
+    }
+
+    await this.fetchDisponibiliteData(true);
+  }
+
+  async fetchDisponibiliteData(renderLoading = true) {
+    const container = document.getElementById('dispoTableContainer');
+    if (renderLoading && container && (!this._dispoData || !this._dispoData.items)) {
+      container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);"><i class="fa-solid fa-sync fa-spin"></i> Chargement disponibilité...</div>';
+    }
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/availability`, {
+        headers: { 'x-access-code': this.currentCode }
+      });
+      if (res.ok) {
+        this._dispoData = await res.json();
+        this.updateDispoKPIs();
+        this.populateDispoWilayas();
+        this.renderDispoContent();
+      }
+    } catch (err) {
+      console.warn('Erreur chargement suivi disponibilité:', err.message);
+    }
+  }
+
+  updateDispoKPIs() {
+    const c = this._dispoData?.counts || {};
+    const elTotal = document.getElementById('dispoKpiTotal');
+    const elMission = document.getElementById('dispoKpiMission');
+    const elDispo = document.getElementById('dispoKpiDispo');
+    const elSansChauffeur = document.getElementById('dispoKpiSansChauffeur');
+    const elChargement = document.getElementById('dispoKpiChargement');
+    const elMaint = document.getElementById('dispoKpiMaint');
+    const elPanne = document.getElementById('dispoKpiPanne');
+    const elRepos = document.getElementById('dispoKpiRepos');
+    const elRecup = document.getElementById('dispoKpiRecup');
+    const elConge = document.getElementById('dispoKpiConge');
+
+    if (elTotal) elTotal.textContent = c.total || 0;
+    if (elMission) elMission.textContent = c.mission || 0;
+    if (elDispo) elDispo.textContent = c.disponible || 0;
+    if (elSansChauffeur) elSansChauffeur.textContent = c.sans_chauffeur || 0;
+    if (elChargement) elChargement.textContent = c.chargement || 0;
+    if (elMaint) elMaint.textContent = c.maintenance || 0;
+    if (elPanne) elPanne.textContent = c.panne || 0;
+    if (elRepos) elRepos.textContent = c.repos || 0;
+    if (elRecup) elRecup.textContent = c.recup || 0;
+    if (elConge) elConge.textContent = c.conge || 0;
+  }
+
+  populateDispoWilayas() {
+    const select = document.getElementById('dispoWilayaFilter');
+    if (!select) return;
+    const cur = select.value;
+    const wilayas = new Set();
+    (this._dispoData?.items || []).forEach(item => {
+      if (item.locationCity && item.locationCity !== 'En route') wilayas.add(item.locationCity);
+    });
+    const sorted = Array.from(wilayas).sort();
+    let html = '<option value="all">Toutes Wilayas</option>';
+    sorted.forEach(w => {
+      html += `<option value="${w}" ${w === cur ? 'selected' : ''}>${w}</option>`;
+    });
+    select.innerHTML = html;
+  }
+
+  handleDispoFilter() {
+    const input = document.getElementById('dispoSearchInput');
+    this._dispoSearchQuery = (input ? input.value : '').trim().toLowerCase();
+    this.renderDispoContent();
+  }
+
+  setDispoSituationFilter(sit) {
+    this._dispoSituationFilter = sit;
+    document.querySelectorAll('#dispoFilterPills .btn-filter-pill').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-sit') === sit);
+    });
+    this.renderDispoContent();
+  }
+
+  toggleDispoViewMode() {
+    this._dispoViewMode = this._dispoViewMode === 'table' ? 'cards' : 'table';
+    const btn = document.getElementById('dispoViewModeBtn');
+    if (btn) btn.innerHTML = this._dispoViewMode === 'table' ? '<i class="fa-solid fa-table"></i>' : '<i class="fa-solid fa-grip"></i>';
+    this.renderDispoContent();
+  }
+
+  getFilteredDispoItems() {
+    let list = this._dispoData?.items || [];
+    if (this._dispoSituationFilter && this._dispoSituationFilter !== 'all') {
+      list = list.filter(item => item.situation === this._dispoSituationFilter);
+    }
+    const wilaya = document.getElementById('dispoWilayaFilter')?.value || 'all';
+    if (wilaya !== 'all') {
+      list = list.filter(item => (item.locationCity || '').includes(wilaya));
+    }
+    if (this._dispoSearchQuery) {
+      list = list.filter(item => {
+        const tName = (item.truckName || '').toLowerCase();
+        const tImm = (item.immatriculation || '').toLowerCase();
+        const dName = (item.driver?.name || '').toLowerCase();
+        const dPhone = (item.driver?.phone || '').toLowerCase();
+        const trImm = (item.trailer?.immatriculation || '').toLowerCase();
+        const loc = (item.locationCity || '').toLowerCase();
+        const mOrig = (item.activeMission?.origin || '').toLowerCase();
+        const mDest = (item.activeMission?.destination || '').toLowerCase();
+        const mCargo = (item.activeMission?.cargo || '').toLowerCase();
+        return tName.includes(this._dispoSearchQuery) || tImm.includes(this._dispoSearchQuery) ||
+               dName.includes(this._dispoSearchQuery) || dPhone.includes(this._dispoSearchQuery) ||
+               trImm.includes(this._dispoSearchQuery) || loc.includes(this._dispoSearchQuery) ||
+               mOrig.includes(this._dispoSearchQuery) || mDest.includes(this._dispoSearchQuery) ||
+               mCargo.includes(this._dispoSearchQuery);
+      });
+    }
+    return list;
+  }
+
+  renderDispoContent() {
+    const container = document.getElementById('dispoTableContainer');
+    if (!container) return;
+    const items = this.getFilteredDispoItems();
+
+    if (items.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center; padding:50px 20px; background:var(--bg-surface); border:1px solid var(--border); border-radius:14px; color:var(--text-muted);">
+          <i class="fa-solid fa-truck-ramp-box" style="font-size:36px; opacity:0.3; margin-bottom:12px; display:block;"></i>
+          <div style="font-size:14px; font-weight:700; color:var(--text-secondary);">Aucun véhicule correspondant aux filtres</div>
+          <div style="font-size:12px; margin-top:4px;">Modifiez votre recherche ou réinitialisez les filtres.</div>
+        </div>`;
+      return;
+    }
+
+    if (this._dispoViewMode === 'table') {
+      this.renderDispoTable(items, container);
+    } else {
+      this.renderDispoCards(items, container);
+    }
+  }
+
+  renderDispoTable(items, container) {
+    let html = `
+      <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
+        <table class="dispo-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead>
+            <tr style="background:var(--bg-elevated); border-bottom:2px solid var(--border);">
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Camion</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Chauffeur</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Remorque</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Situation & Trajet</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Localisation Live</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Télématique</th>
+              <th style="padding:14px 16px; text-align:center; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+    items.forEach(item => {
+      const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
+      const mission = item.activeMission;
+      html += `
+        <tr style="border-bottom:1px solid var(--border); transition:background 0.15s;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background=''">
+          <td style="padding:12px 16px;">
+            <strong style="color:var(--text-primary); font-size:13px;">${item.truckName}</strong>
+            <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
+              ${item.immatriculation ? `<span class="truck-meta-tag imm">${item.immatriculation}</span>` : ''}
+              ${item.carteNaftal ? `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${item.carteNaftal}</span>` : ''}
+            </div>
+          </td>
+          <td style="padding:12px 16px;">
+            ${item.driver ? `
+              <div style="font-weight:700; color:var(--primary); font-size:13px; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${item.driver.name.replace(/'/g, "\\'")}', '${item.driver.situation}')">
+                <i class="fa-solid fa-user"></i> ${item.driver.name}
+              </div>
+              ${item.driver.phone ? `
+                <a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:11px; text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-top:2px;" title="Appeler">
+                  <i class="fa-solid fa-phone"></i> ${item.driver.phone}
+                </a>
+              ` : '<span style="color:var(--text-muted); font-size:11px;">Sans tél</span>'}
+            ` : '<button class="btn-secondary" onclick="ui.openAssignFleetModal(\''+item.deviceId+'\')" style="padding:3px 8px; font-size:11px;"><i class="fa-solid fa-plus"></i> Assigner</button>'}
+          </td>
+          <td style="padding:12px 16px;">
+            ${item.trailer ? `
+              <div><span class="truck-meta-tag trailer"><i class="fa-solid fa-trailer"></i> ${item.trailer.immatriculation}</span></div>
+              <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${item.trailer.type || 'Plateau'}</div>
+            ` : '<span style="color:var(--text-muted); font-size:11px;">—</span>'}
+          </td>
+          <td style="padding:12px 16px;">
+            <span class="situation-badge ${item.situationBadge}">
+              ${item.isMoving ? '<span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse 2s infinite;"></span>' : ''}
+              ${item.situationLabel}
+            </span>
+            ${mission ? `
+              <div style="font-weight:700; color:var(--primary); font-size:11px; margin-top:4px;">
+                <i class="fa-solid fa-location-arrow"></i> ${mission.origin} → ${mission.destination}
+              </div>
+              <div style="font-size:10px; color:var(--text-muted); margin-top:1px;">
+                ${mission.cargo || 'Fret'} ${mission.orderRef ? `· ${mission.orderRef}` : ''}
+              </div>
+            ` : ''}
+          </td>
+          <td style="padding:12px 16px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-location-dot" style="color:var(--primary);"></i>
+              <span style="font-weight:600; color:var(--text-primary);">${item.locationCity || 'En route'}</span>
+            </div>
+          </td>
+          <td style="padding:12px 16px;">
+            <div style="font-weight:700; color:${item.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; font-family:var(--font-mono);">
+              ${item.speed} km/h
+            </div>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+              ${item.fuelLiters ? `${item.fuelLiters}L (${item.fuelPercent}%)` : ''}
+              ${item.odometer ? ` · ${item.odometer.toLocaleString()} km` : ''}
+            </div>
+          </td>
+          <td style="padding:12px 16px; text-align:center;">
+            <div style="display:flex; justify-content:center; gap:5px; flex-wrap:wrap;">
+              ${mission ? `
+                <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${item.truckName.replace(/'/g, "\\'")}')" title="Terminer et clôturer la mission" style="padding:5px 8px; font-size:11px; color:#10b981; border-color:rgba(16,185,129,0.3);">
+                  <i class="fa-solid fa-flag-checkered"></i>
+                </button>
+              ` : `
+                <button class="btn-secondary" onclick="ui.openNewMissionModal('${item.deviceId}')" title="Affecter / Lancer une mission" style="padding:5px 8px; font-size:11px; color:#38bdf8; border-color:rgba(56,189,248,0.3);">
+                  <i class="fa-solid fa-route"></i>
+                </button>
+              `}
+              <button class="btn-secondary" onclick="ui.openStatusModal('truck', '${item.deviceId}')" title="Signaler statut / panne" style="padding:5px 8px; font-size:11px; color:#ef4444; border-color:rgba(239,68,68,0.3);">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+              </button>
+              <button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" title="Modifier assignation" style="padding:5px 8px; font-size:11px;">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
+              <a href="${mapsUrl}" target="_blank" class="btn-secondary" title="Voir satellite Google Maps" style="padding:5px 8px; font-size:11px; text-decoration:none;">
+                <i class="fa-solid fa-map-location-dot"></i>
+              </a>
+            </div>
+          </td>
+        </tr>`;
+    });
+
+    html += `</tbody></table></div>`;
+    container.innerHTML = html;
+  }
+
+  renderDispoCards(items, container) {
+    let html = `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;">`;
+    items.forEach(item => {
+      const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
+      const mission = item.activeMission;
+      html += `
+        <div style="background:var(--bg-surface); border:1px solid var(--border); border-top:3px solid ${item.situationColor}; border-radius:14px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.2);">
+          <div style="padding:12px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <strong style="font-size:14px; color:var(--text-primary);">${item.truckName}</strong>
+              <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${item.immatriculation || 'Sans plaque'}</div>
+            </div>
+            <span class="situation-badge ${item.situationBadge}">${item.situationLabel}</span>
+          </div>
+          <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-user"></i> Chauffeur</span>
+              <span style="font-weight:700; color:var(--text-primary); text-align:right;">
+                ${item.driver ? `${item.driver.name} ${item.driver.phone ? `<br><a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:11px;"><i class="fa-solid fa-phone"></i> ${item.driver.phone}</a>` : ''}` : '<em style="color:var(--text-muted);">Non assigné</em>'}
+              </span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-trailer"></i> Remorque</span>
+              <span style="font-weight:700; color:#c084fc;">
+                ${item.trailer ? `${item.trailer.immatriculation} (${item.trailer.type || 'Plateau'})` : '<em style="color:var(--text-muted);">Aucune</em>'}
+              </span>
+            </div>
+            ${mission ? `
+              <div style="background:rgba(56,189,248,0.08); padding:8px 10px; border-radius:8px; border:1px solid rgba(56,189,248,0.2);">
+                <div style="font-size:10px; text-transform:uppercase; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-route"></i> Trajet en cours</div>
+                <div style="font-weight:700; color:var(--primary); font-size:12px; margin-top:2px;">${mission.origin} → ${mission.destination}</div>
+                <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${mission.cargo || 'Fret'} ${mission.orderRef ? `· BL: ${mission.orderRef}` : ''}</div>
+              </div>
+            ` : ''}
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-location-dot"></i> Localisation</span>
+              <span style="font-weight:700; color:var(--text-primary);">${item.locationCity || 'En route'}</span>
+            </div>
+            <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px;">
+              <span style="color:var(--text-muted); font-weight:600;"><i class="fa-solid fa-gauge"></i> Vitesse & Carburant</span>
+              <span style="font-weight:700; color:var(--text-primary); font-family:var(--font-mono);">${item.speed} km/h · ${item.fuelLiters || 0}L</span>
+            </div>
+            <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+              ${mission ? `
+                <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${item.truckName.replace(/'/g, "\\'")}')" style="flex:1; justify-content:center; padding:7px 10px; font-size:11px; color:#10b981; border-color:rgba(16,185,129,0.3);">
+                  <i class="fa-solid fa-flag-checkered"></i> Terminer
+                </button>
+              ` : `
+                <button class="btn-secondary" onclick="ui.openNewMissionModal('${item.deviceId}')" style="flex:1; justify-content:center; padding:7px 10px; font-size:11px; color:#38bdf8; border-color:rgba(56,189,248,0.3);">
+                  <i class="fa-solid fa-route"></i> Mission
+                </button>
+              `}
+              <button class="btn-secondary" onclick="ui.openStatusModal('truck', '${item.deviceId}')" style="padding:7px 10px; font-size:11px; color:#ef4444; border-color:rgba(239,68,68,0.3);" title="Signaler statut / panne">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+              </button>
+              <button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:7px 10px; font-size:11px;" title="Assigner">
+                <i class="fa-solid fa-link"></i>
+              </button>
+              <a href="${mapsUrl}" target="_blank" class="btn-secondary" style="padding:7px 10px; font-size:11px; text-decoration:none;" title="GPS">
+                <i class="fa-solid fa-map-location-dot"></i>
+              </a>
+            </div>
+          </div>
+        </div>`;
+    });
+    html += `</div>`;
+    container.innerHTML = html;
+  }
+
+  // ── MODALS: DRIVER CRUD ───────────────────────────────────────
+  async openAddDriverModal(driverId = null) {
+    const modal = document.getElementById('modalAddDriver');
+    if (!modal) return;
+    document.getElementById('driverModalId').value = driverId || '';
+    document.getElementById('driverModalName').value = '';
+    document.getElementById('driverModalPhone').value = '';
+    document.getElementById('driverModalLicense').value = '';
+    document.getElementById('driverModalCategory').value = 'EC';
+    document.getElementById('driverModalExpiry').value = '';
+    document.getElementById('driverModalSituation').value = 'disponible';
+    document.getElementById('driverModalNotes').value = '';
+
+    const titleEl = document.getElementById('modalAddDriverTitle');
+    if (titleEl) titleEl.innerHTML = driverId ? '<i class="fa-solid fa-user-pen"></i> Modifier Chauffeur' : '<i class="fa-solid fa-user-plus"></i> Nouveau Chauffeur';
+
+    if (driverId) {
+      try {
+        const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/drivers/${driverId}`, { headers: { 'x-access-code': this.currentCode } });
+        if (res.ok) {
+          const d = await res.json();
+          document.getElementById('driverModalName').value = d.name || '';
+          document.getElementById('driverModalPhone').value = d.phone || '';
+          document.getElementById('driverModalLicense').value = d.licenseNumber || '';
+          document.getElementById('driverModalCategory').value = d.licenseCategory || 'EC';
+          document.getElementById('driverModalExpiry').value = d.licenseExpiry || '';
+          document.getElementById('driverModalSituation').value = d.situation || 'disponible';
+          document.getElementById('driverModalNotes').value = d.notes || '';
+        }
+      } catch(_) {}
+    }
+    modal.style.display = 'flex';
+  }
+
+  closeAddDriverModal() {
+    const modal = document.getElementById('modalAddDriver');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async saveDriverFromModal() {
+    const id = document.getElementById('driverModalId')?.value;
+    const name = document.getElementById('driverModalName')?.value.trim();
+    if (!name) { alert('Le nom du chauffeur est requis.'); return; }
+
+    const payload = {
+      name,
+      phone: document.getElementById('driverModalPhone')?.value.trim(),
+      licenseNumber: document.getElementById('driverModalLicense')?.value.trim(),
+      licenseCategory: document.getElementById('driverModalCategory')?.value,
+      licenseExpiry: document.getElementById('driverModalExpiry')?.value,
+      situation: document.getElementById('driverModalSituation')?.value,
+      notes: document.getElementById('driverModalNotes')?.value.trim()
+    };
+
+    try {
+      const url = id ? `${FLEET_CONFIG.API.baseUrl}/api/drivers/${id}` : `${FLEET_CONFIG.API.baseUrl}/api/drivers`;
+      const method = id ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        this.closeAddDriverModal();
+        if (typeof showToast === 'function') showToast('Chauffeur enregistré avec succès !', 'success');
+        await this.fetchDisponibiliteData(false);
+      } else {
+        alert('Erreur lors de l\'enregistrement du chauffeur.');
+      }
+    } catch (e) {
+      alert('Erreur réseau.');
+    }
+  }
+
+  // ── MODALS: TRAILER CRUD ──────────────────────────────────────
+  openAddTrailerModal() {
+    const modal = document.getElementById('modalAddTrailer');
+    if (!modal) return;
+    document.getElementById('trailerModalId').value = '';
+    document.getElementById('trailerModalImm').value = '';
+    document.getElementById('trailerModalType').value = 'Plateau';
+    document.getElementById('trailerModalBrand').value = '';
+    document.getElementById('trailerModalCapacity').value = '';
+    document.getElementById('trailerModalNotes').value = '';
+    modal.style.display = 'flex';
+  }
+
+  closeAddTrailerModal() {
+    const modal = document.getElementById('modalAddTrailer');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async saveTrailerFromModal() {
+    const imm = document.getElementById('trailerModalImm')?.value.trim();
+    if (!imm) { alert('L\'immatriculation de la remorque est requise.'); return; }
+
+    const payload = {
+      immatriculation: imm,
+      type: document.getElementById('trailerModalType')?.value,
+      brand: document.getElementById('trailerModalBrand')?.value.trim(),
+      capacity: document.getElementById('trailerModalCapacity')?.value.trim(),
+      notes: document.getElementById('trailerModalNotes')?.value.trim()
+    };
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trailers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        this.closeAddTrailerModal();
+        if (typeof showToast === 'function') showToast('Remorque enregistrée avec succès !', 'success');
+        await this.fetchDisponibiliteData(false);
+      } else {
+        alert('Erreur lors de l\'enregistrement de la remorque.');
+      }
+    } catch (e) {
+      alert('Erreur réseau.');
+    }
+  }
+
+  // ── MODALS: FLEET ATOMIC ASSIGNMENT ───────────────────────────
+  async openAssignFleetModal(truckDeviceId = null) {
+    const modal = document.getElementById('modalAssignFleet');
+    if (!modal) return;
+
+    // Populate truck select
+    const truckSelect = document.getElementById('assignModalTruck');
+    if (truckSelect) {
+      truckSelect.innerHTML = '<option value="">-- Choisir un camion tracteur --</option>';
+      const trucks = app.getAllTrucks();
+      trucks.forEach(t => {
+        const db = this.truckDbCache.find(d => d.deviceId === t.id) || {};
+        const label = `${t.name} (${db.immatriculation || t.id})`;
+        const selected = (truckDeviceId && t.id === truckDeviceId) ? 'selected' : '';
+        truckSelect.innerHTML += `<option value="${t.id}" ${selected}>${label}</option>`;
+      });
+    }
+
+    // Populate driver select from registered drivers
+    const driverSelect = document.getElementById('assignModalDriverSelect');
+    if (driverSelect) {
+      driverSelect.innerHTML = '<option value="">-- Choisir dans la base ou saisir manuellement --</option>';
+      try {
+        const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/drivers`, { headers: { 'x-access-code': this.currentCode } });
+        if (res.ok) {
+          const list = await res.json();
+          this._cachedDriversList = list;
+          list.forEach(d => {
+            driverSelect.innerHTML += `<option value="${d.driverId || d._id}" data-name="${d.name}" data-phone="${d.phone || ''}">${d.name} (${d.phone || 'Sans tél'})</option>`;
+          });
+        }
+      } catch(_) {}
+    }
+
+    // Populate trailer select from registered trailers
+    const trailerSelect = document.getElementById('assignModalTrailerSelect');
+    if (trailerSelect) {
+      trailerSelect.innerHTML = '<option value="">-- Choisir dans la base ou saisir manuellement --</option>';
+      try {
+        const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trailers`, { headers: { 'x-access-code': this.currentCode } });
+        if (res.ok) {
+          const list = await res.json();
+          this._cachedTrailersList = list;
+          list.forEach(tr => {
+            trailerSelect.innerHTML += `<option value="${tr.immatriculation}" data-type="${tr.type || 'Plateau'}">${tr.immatriculation} (${tr.type || 'Plateau'})</option>`;
+          });
+        }
+      } catch(_) {}
+    }
+
+    modal.style.display = 'flex';
+    this.onAssignTruckChanged();
+  }
+
+  closeAssignFleetModal() {
+    const modal = document.getElementById('modalAssignFleet');
+    if (modal) modal.style.display = 'none';
+  }
+
+  onAssignTruckChanged() {
+    const truckSelect = document.getElementById('assignModalTruck');
+    const did = truckSelect?.value;
+    if (!did) return;
+
+    const db = (this.truckDbCache || []).find(d => d.deviceId === did) || {};
+    document.getElementById('assignModalDriverName').value = db.driverName || '';
+    document.getElementById('assignModalDriverPhone').value = db.driverPhone || '';
+    document.getElementById('assignModalTrailerImm').value = db.trailer || '';
+    if (document.getElementById('assignModalTrailerType') && db.trailerType) {
+      document.getElementById('assignModalTrailerType').value = db.trailerType;
+    }
+  }
+
+  onAssignDriverSelectChanged() {
+    const sel = document.getElementById('assignModalDriverSelect');
+    const opt = sel?.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    document.getElementById('assignModalDriverName').value = opt.getAttribute('data-name') || '';
+    document.getElementById('assignModalDriverPhone').value = opt.getAttribute('data-phone') || '';
+  }
+
+  onAssignTrailerSelectChanged() {
+    const sel = document.getElementById('assignModalTrailerSelect');
+    const opt = sel?.options[sel.selectedIndex];
+    if (!opt || !opt.value) return;
+    document.getElementById('assignModalTrailerImm').value = opt.value;
+    const type = opt.getAttribute('data-type');
+    if (type && document.getElementById('assignModalTrailerType')) {
+      document.getElementById('assignModalTrailerType').value = type;
+    }
+  }
+
+  async saveAssignFleetModal() {
+    const truckSelect = document.getElementById('assignModalTruck');
+    const deviceId = truckSelect?.value;
+    if (!deviceId) { alert('Veuillez sélectionner un camion tracteur.'); return; }
+
+    const truck = app.trucks.get(deviceId);
+    const driverSelect = document.getElementById('assignModalDriverSelect');
+    const driverId = driverSelect?.value || '';
+    const driverName = document.getElementById('assignModalDriverName')?.value.trim();
+    const driverPhone = document.getElementById('assignModalDriverPhone')?.value.trim();
+    const trailerImm = document.getElementById('assignModalTrailerImm')?.value.trim();
+    const trailerType = document.getElementById('assignModalTrailerType')?.value;
+
+    const payload = {
+      deviceId,
+      truckName: truck ? truck.name : '',
+      driverId: driverId || undefined,
+      driverName,
+      driverPhone,
+      trailerImmatriculation: trailerImm,
+      trailerType
+    };
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        this.closeAssignFleetModal();
+        if (typeof showToast === 'function') showToast('Assignation enregistrée avec succès !', 'success');
+        await this.loadTruckDbCache();
+        await this.fetchDisponibiliteData(false);
+        this.renderTrucks();
+      } else {
+        alert('Erreur serveur lors de l\'assignation.');
+      }
+    } catch (e) {
+      alert('Erreur réseau.');
+    }
+  }
+
+  async unassignCurrentTruckFleet() {
+    const truckSelect = document.getElementById('assignModalTruck');
+    const deviceId = truckSelect?.value;
+    if (!deviceId) { alert('Sélectionnez un camion.'); return; }
+    if (!confirm('Détacher le chauffeur et la remorque de ce camion ?')) return;
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/unassign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify({ deviceId, unassignDriver: true, unassignTrailer: true })
+      });
+      if (res.ok) {
+        this.closeAssignFleetModal();
+        if (typeof showToast === 'function') showToast('Véhicule détaché avec succès !', 'success');
+        await this.loadTruckDbCache();
+        await this.fetchDisponibiliteData(false);
+        this.renderTrucks();
+      }
+    } catch (e) {
+      alert('Erreur réseau.');
+    }
+  }
+
+  // ── MODAL: DRIVER SITUATION CHANGER ───────────────────────────
+  openDriverSituationModal(driverId, driverName, currentSit) {
+    const modal = document.getElementById('modalDriverSituation');
+    if (!modal) return;
+    document.getElementById('sitModalDriverId').value = driverId;
+    document.getElementById('sitModalDriverName').textContent = driverName || 'Chauffeur';
+    if (document.getElementById('sitModalSelect') && currentSit) {
+      document.getElementById('sitModalSelect').value = currentSit;
+    }
+    document.getElementById('sitModalNotes').value = '';
+    modal.style.display = 'flex';
+  }
+
+  closeDriverSituationModal() {
+    const modal = document.getElementById('modalDriverSituation');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async saveDriverSituationFromModal() {
+    const id = document.getElementById('sitModalDriverId')?.value;
+    const situation = document.getElementById('sitModalSelect')?.value;
+    const notes = document.getElementById('sitModalNotes')?.value.trim();
+    if (!id || !situation) return;
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/drivers/${id}/situation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify({ situation, notes })
+      });
+      if (res.ok) {
+        this.closeDriverSituationModal();
+        if (typeof showToast === 'function') showToast('Situation mise à jour !', 'success');
+        await this.fetchDisponibiliteData(false);
+      } else {
+        alert('Erreur mise à jour situation.');
+      }
+    } catch (e) {
+      alert('Erreur réseau.');
+    }
+  }
+
+  // ── NATIVE EXCEL EXPORT (.XLSX) ──────────────────────────────
+  async exportDisponibiliteExcel() {
+    const items = this.getFilteredDispoItems();
+    if (!items.length) {
+      alert('Aucune donnée à exporter.');
+      return;
+    }
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      const headers = [
+        'Camion',
+        'Immatriculation',
+        'Carte Naftal',
+        'Chauffeur',
+        'Tél Chauffeur',
+        'Remorque Attelée',
+        'Type Remorque',
+        'Situation',
+        'Trajet en cours',
+        'Fret / Marchandise',
+        'N° BL / Ordre',
+        'Localisation',
+        'Vitesse (km/h)',
+        'Odomètre (km)',
+        'Carburant (L)'
+      ];
+      const rows = items.map(i => [
+        i.truckName || i.deviceId,
+        i.immatriculation || '',
+        i.carteNaftal || '',
+        i.driver ? i.driver.name : 'Non assigné',
+        i.driver ? (i.driver.phone || '') : '',
+        i.trailer ? i.trailer.immatriculation : '',
+        i.trailer ? (i.trailer.type || '') : '',
+        i.situationLabel || i.situation,
+        i.activeMission ? `${i.activeMission.origin} → ${i.activeMission.destination}` : '',
+        i.activeMission ? (i.activeMission.cargo || '') : '',
+        i.activeMission ? (i.activeMission.orderRef || '') : '',
+        i.locationCity || '',
+        i.speed || 0,
+        i.odometer || 0,
+        i.fuelLiters || 0
+      ]);
+      await window.ExcelExportEngine.exportTableToXlsx({
+        filename: `Suivi_Disponibilite_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: 'Disponibilité Flotte',
+        title: 'DOULOUB EL DJAZAIR — SUIVI DISPONIBILITÉ FLOTTE & CHAUFFEURS',
+        subtitle: `Rapport généré le ${new Date().toLocaleString('fr-FR')} | Filtre: ${this._dispoSituationFilter || 'Tous'}`,
+        headers,
+        rows
+      });
+    } else {
+      alert('Moteur Excel en cours de chargement...');
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════
+  // 🚀 MISSION DISPATCH & DESTINATION FOLLOW-UP CONTROLLER
+  // ═════════════════════════════════════════════════════════════
+
+  async openNewMissionModal(truckDeviceId = null) {
+    const modal = document.getElementById('modalDispatchMission');
+    if (!modal) return;
+
+    // Populate trucks
+    const truckSelect = document.getElementById('dispatchTruckSelect');
+    if (truckSelect) {
+      truckSelect.innerHTML = '<option value="">-- Choisir un camion --</option>';
+      const items = this._dispoData?.items || [];
+      items.forEach(t => {
+        const isSel = (truckDeviceId && String(t.deviceId) === String(truckDeviceId)) ? 'selected' : '';
+        truckSelect.innerHTML += `<option value="${t.deviceId}" ${isSel}>${t.truckName} (${t.immatriculation || 'Sans plaque'})</option>`;
+      });
+    }
+
+    // Populate drivers
+    const driverSelect = document.getElementById('dispatchDriverSelect');
+    if (driverSelect) {
+      driverSelect.innerHTML = '<option value="">-- Choisir un chauffeur --</option>';
+      try {
+        const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/drivers`, { headers: { 'x-access-code': this.currentCode } });
+        if (res.ok) {
+          const list = await res.json();
+          this._cachedDriversList = list;
+          list.forEach(d => {
+            driverSelect.innerHTML += `<option value="${d.driverId || d._id}">${d.name} (${d.phone || 'Sans tél'})</option>`;
+          });
+        }
+      } catch (_) {}
+    }
+
+    // Populate trailers
+    const trailerSelect = document.getElementById('dispatchTrailerSelect');
+    if (trailerSelect) {
+      trailerSelect.innerHTML = '<option value="">-- Aucune / Remorque par défaut --</option>';
+      try {
+        const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trailers`, { headers: { 'x-access-code': this.currentCode } });
+        if (res.ok) {
+          const list = await res.json();
+          this._cachedTrailersList = list;
+          list.forEach(tr => {
+            trailerSelect.innerHTML += `<option value="${tr.immatriculation}">${tr.immatriculation} (${tr.type || 'Plateau'})</option>`;
+          });
+        }
+      } catch (_) {}
+    }
+
+    // Reset input fields
+    const elOrig = document.getElementById('dispatchOrigin');
+    const elDest = document.getElementById('dispatchDest');
+    const elCargo = document.getElementById('dispatchCargo');
+    const elRef = document.getElementById('dispatchOrderRef');
+    const elNotes = document.getElementById('dispatchNotes');
+    if (elOrig) elOrig.value = '';
+    if (elDest) elDest.value = '';
+    if (elCargo) elCargo.value = '';
+    if (elRef) elRef.value = '';
+    if (elNotes) elNotes.value = '';
+
+    if (truckDeviceId) {
+      this.onDispatchTruckChange(truckDeviceId);
+    }
+
+    modal.style.display = 'flex';
+  }
+
+  closeNewMissionModal() {
+    const modal = document.getElementById('modalDispatchMission');
+    if (modal) modal.style.display = 'none';
+  }
+
+  onDispatchTruckChange(truckDeviceId) {
+    if (!truckDeviceId) return;
+    const item = (this._dispoData?.items || []).find(t => String(t.deviceId) === String(truckDeviceId));
+    if (!item) return;
+
+    if (item.driver && item.driver.id) {
+      const dSel = document.getElementById('dispatchDriverSelect');
+      if (dSel) dSel.value = item.driver.id;
+    }
+    if (item.trailer && item.trailer.immatriculation) {
+      const trSel = document.getElementById('dispatchTrailerSelect');
+      if (trSel) trSel.value = item.trailer.immatriculation;
+    }
+  }
+
+  async saveNewMissionFromModal() {
+    const truckDeviceId = document.getElementById('dispatchTruckSelect')?.value;
+    const driverId = document.getElementById('dispatchDriverSelect')?.value;
+    const trailerPlate = document.getElementById('dispatchTrailerSelect')?.value;
+    const origin = document.getElementById('dispatchOrigin')?.value.trim();
+    const destination = document.getElementById('dispatchDest')?.value.trim();
+    const cargo = document.getElementById('dispatchCargo')?.value.trim();
+    const orderRef = document.getElementById('dispatchOrderRef')?.value.trim();
+    const notes = document.getElementById('dispatchNotes')?.value.trim();
+
+    if (!truckDeviceId && !driverId) {
+      alert('Veuillez sélectionner au moins un camion ou un chauffeur.');
+      return;
+    }
+    if (!origin || !destination) {
+      alert('Veuillez renseigner le lieu de départ (Origine) et la destination.');
+      return;
+    }
+
+    const payload = {
+      truckDeviceId,
+      driverId,
+      trailerPlate,
+      origin,
+      destination,
+      cargo,
+      orderRef,
+      notes
+    };
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/missions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) {
+        this.closeNewMissionModal();
+        if (typeof showToast === 'function') showToast('Mission lancée et tracée avec succès !', 'success');
+        await this.fetchDisponibiliteData(false);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Erreur: ' + (err.error || 'Impossible de lancer la mission.'));
+      }
+    } catch (e) {
+      alert('Erreur réseau: ' + e.message);
+    }
+  }
+
+  async completeFleetMission(historyId, truckName = '') {
+    const promptMsg = truckName ? `Confirmer l'arrivée et la clôture de la mission pour ${truckName} ?` : "Confirmer l'arrivée et la clôture de la mission ?";
+    if (!confirm(promptMsg)) return;
+
+    try {
+      const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/missions/${encodeURIComponent(historyId)}/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify({})
+      });
+      if (res.ok) {
+        if (typeof showToast === 'function') showToast('Mission clôturée avec succès ! Véhicule et chauffeur libérés.', 'success');
+        await this.fetchDisponibiliteData(false);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Erreur: ' + (err.error || 'Impossible de clôturer la mission.'));
+      }
+    } catch (e) {
+      alert('Erreur réseau: ' + e.message);
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════
+  // ⚠️ STATUS / PANNE / MAINTENANCE MODAL CONTROLLER
+  // ═════════════════════════════════════════════════════════════
+
+  async openStatusModal(type = 'truck', targetId = null) {
+    const modal = document.getElementById('modalReportStatus');
+    if (!modal) return;
+    const typeSelect = document.getElementById('modalStatusType');
+    if (typeSelect) typeSelect.value = type;
+
+    await this.onModalStatusTypeChange(type, targetId);
+    modal.style.display = 'flex';
+  }
+
+  closeStatusModal() {
+    const modal = document.getElementById('modalReportStatus');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async onModalStatusTypeChange(type, preselectId = null) {
+    const targetLabel = document.getElementById('modalStatusTargetLabel');
+    const targetSelect = document.getElementById('modalStatusTargetSelect');
+    const valSelect = document.getElementById('modalStatusValueSelect');
+    if (!targetSelect || !valSelect) return;
+
+    if (type === 'truck') {
+      if (targetLabel) targetLabel.textContent = 'Sélectionner Camion *';
+      const items = this._dispoData?.items || [];
+      targetSelect.innerHTML = '<option value="">-- Choisir un camion --</option>' +
+        items.map(t => `<option value="${t.deviceId}" ${(preselectId && String(t.deviceId) === String(preselectId)) ? 'selected' : ''}>${t.truckName} [${t.immatriculation || 'Sans plaque'}]</option>`).join('');
+
+      valSelect.innerHTML = `
+        <option value="panne">🔴 En Panne / Immobilisé (Hors service)</option>
+        <option value="maintenance">🟠 En Maintenance (Atelier / Garage)</option>
+        <option value="chargement">🟡 En Chargement / Déchargement (À quai)</option>
+        <option value="attente_ordre">🟠 En Attente d'Ordre / Fret</option>
+        <option value="reserve">⚪ Véhicule de Réserve</option>
+        <option value="disponible">🟢 Disponible au Parc</option>
+      `;
+    } else if (type === 'driver') {
+      if (targetLabel) targetLabel.textContent = 'Sélectionner Chauffeur *';
+      if (!this._cachedDriversList) {
+        try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/drivers`, { headers: { 'x-access-code': this.currentCode } });
+          if (res.ok) this._cachedDriversList = await res.json();
+        } catch (_) {}
+      }
+      targetSelect.innerHTML = '<option value="">-- Choisir un chauffeur --</option>' +
+        (this._cachedDriversList || []).map(d => `<option value="${d.driverId || d._id}" ${(preselectId && String(d.driverId || d._id) === String(preselectId)) ? 'selected' : ''}>${d.name} (${d.phone || 'Sans tél'})</option>`).join('');
+
+      valSelect.innerHTML = `
+        <option value="recup">🔷 En Récupération (Repos compensateur)</option>
+        <option value="repos">🟣 En Repos / Découchage</option>
+        <option value="conge">⚪ En Congé Annuel</option>
+        <option value="maladie">🟠 Arrêt Maladie</option>
+        <option value="formation">🟣 En Formation / Visite Médicale</option>
+        <option value="disponible">🟢 Disponible / Prêt</option>
+        <option value="suspendu">🔴 Suspendu / Administratif</option>
+      `;
+    } else if (type === 'trailer') {
+      if (targetLabel) targetLabel.textContent = 'Sélectionner Remorque *';
+      if (!this._cachedTrailersList) {
+        try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trailers`, { headers: { 'x-access-code': this.currentCode } });
+          if (res.ok) this._cachedTrailersList = await res.json();
+        } catch (_) {}
+      }
+      targetSelect.innerHTML = '<option value="">-- Choisir une remorque --</option>' +
+        (this._cachedTrailersList || []).map(tr => `<option value="${tr.trailerId || tr.immatriculation}" ${(preselectId && (String(tr.trailerId) === String(preselectId) || tr.immatriculation === preselectId)) ? 'selected' : ''}>${tr.immatriculation} (${tr.type || 'Plateau'})</option>`).join('');
+
+      valSelect.innerHTML = `
+        <option value="panne">🔴 En Panne (Pneu / Freins / Béquilles)</option>
+        <option value="maintenance">🟠 En Maintenance (Contrôle technique)</option>
+        <option value="chargement">🟡 À Quai / En Chargement</option>
+        <option value="disponible">🟢 Dételée au Parc (Disponible)</option>
+        <option value="reserve">⚪ En Réserve</option>
+      `;
+    }
+  }
+
+  async saveStatusFromModal() {
+    const type = document.getElementById('modalStatusType')?.value;
+    const targetId = document.getElementById('modalStatusTargetSelect')?.value;
+    const situation = document.getElementById('modalStatusValueSelect')?.value;
+    const notes = document.getElementById('modalStatusNotes')?.value.trim();
+
+    if (!targetId) {
+      alert('Veuillez sélectionner une entité.');
+      return;
+    }
+
+    let url = '';
+    let body = {};
+
+    if (type === 'truck') {
+      url = `${FLEET_CONFIG.API.baseUrl}/api/fleet/status/truck`;
+      body = { deviceId: targetId, situation, notes };
+    } else if (type === 'driver') {
+      url = `${FLEET_CONFIG.API.baseUrl}/api/drivers/${encodeURIComponent(targetId)}/situation`;
+      body = { situation, notes };
+    } else if (type === 'trailer') {
+      url = `${FLEET_CONFIG.API.baseUrl}/api/fleet/status/trailer`;
+      body = { trailerId: targetId, status: situation, notes };
+    }
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-access-code': this.currentCode },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) {
+        this.closeStatusModal();
+        if (typeof showToast === 'function') showToast('Statut mis à jour avec succès !', 'success');
+        await this.fetchDisponibiliteData(false);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert('Erreur: ' + (err.error || 'Échec de mise à jour du statut.'));
+      }
+    } catch (e) {
+      alert('Erreur réseau: ' + e.message);
+    }
+  }
+
+  // ═════════════════════════════════════════════════════════════
+  // 📜 FLEET ROTATION & ASSIGNMENT HISTORY TIMELINE CONTROLLER
+  // ═════════════════════════════════════════════════════════════
+
+  async openFleetHistoryModal(filter = {}) {
+    const modal = document.getElementById('modalFleetHistory');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    this._modalHistTab = filter.tab || 'all';
+    await this.setModalHistoryTab(this._modalHistTab);
+  }
+
+  closeFleetHistoryModal() {
+    const modal = document.getElementById('modalFleetHistory');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async setModalHistoryTab(tab) {
+    this._modalHistTab = tab;
+    ['all', 'driver', 'truck', 'trailer'].forEach(t => {
+      const btn = document.getElementById('modalHistTab' + t.charAt(0).toUpperCase() + t.slice(1));
+      if (btn) btn.classList.toggle('active', t === tab);
+    });
+
+    const wrap = document.getElementById('modalHistEntitySelectWrap');
+    if (tab === 'all') {
+      if (wrap) wrap.style.display = 'none';
+      await this.loadModalHistoryData();
+    } else {
+      if (wrap) wrap.style.display = 'block';
+      await this.populateModalHistEntities(tab);
+    }
+  }
+
+  async populateModalHistEntities(tab) {
+    const select = document.getElementById('modalHistEntitySelect');
+    if (!select) return;
+
+    if (tab === 'driver') {
+      if (!this._cachedDriversList) {
+        try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/drivers`, { headers: { 'x-access-code': this.currentCode } });
+          if (res.ok) this._cachedDriversList = await res.json();
+        } catch (_) {}
+      }
+      select.innerHTML = '<option value="">-- Tous les chauffeurs (ou sélectionner un chauffeur) --</option>' +
+        (this._cachedDriversList || []).map(d => `<option value="${d.driverId || d._id}">${d.name} (${d.phone || 'Sans tél'})</option>`).join('');
+    } else if (tab === 'truck') {
+      const items = this._dispoData?.items || [];
+      select.innerHTML = '<option value="">-- Tous les camions (ou sélectionner un camion) --</option>' +
+        items.map(t => `<option value="${t.deviceId}">${t.truckName} [${t.immatriculation || 'Sans plaque'}]</option>`).join('');
+    } else if (tab === 'trailer') {
+      if (!this._cachedTrailersList) {
+        try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trailers`, { headers: { 'x-access-code': this.currentCode } });
+          if (res.ok) this._cachedTrailersList = await res.json();
+        } catch (_) {}
+      }
+      select.innerHTML = '<option value="">-- Toutes les remorques (ou sélectionner une remorque) --</option>' +
+        (this._cachedTrailersList || []).map(tr => `<option value="${tr.immatriculation || tr.trailerId}">${tr.immatriculation} (${tr.type || 'Plateau'})</option>`).join('');
+    }
+
+    await this.loadModalHistoryData();
+  }
+
+  async onModalHistEntityChange(val) {
+    if (!val) {
+      await this.loadModalHistoryData();
+      return;
+    }
+    const filter = {};
+    if (this._modalHistTab === 'driver') filter.driverId = val;
+    else if (this._modalHistTab === 'truck') filter.truckDeviceId = val;
+    else if (this._modalHistTab === 'trailer') filter.trailerPlate = val;
+    await this.loadModalHistoryData(filter);
+  }
+
+  async loadModalHistoryData(filter = {}) {
+    const container = document.getElementById('modalFleetHistoryTimeline');
+    if (container) {
+      container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-sync fa-spin"></i> Chargement de l\'historique...</div>';
+    }
+
+    let url = `${FLEET_CONFIG.API.baseUrl}/api/fleet/history?limit=300`;
+    if (filter.driverId) url += `&driverId=${encodeURIComponent(filter.driverId)}`;
+    if (filter.truckDeviceId) url += `&truckDeviceId=${encodeURIComponent(filter.truckDeviceId)}`;
+    if (filter.trailerPlate) url += `&trailerPlate=${encodeURIComponent(filter.trailerPlate)}`;
+
+    try {
+      const res = await fetch(url, { headers: { 'x-access-code': this.currentCode } });
+      if (res.ok) {
+        const json = await res.json();
+        this._fleetHistoryList = json.items || [];
+        this.renderModalHistoryList();
+      } else {
+        if (container) container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted);">Erreur de chargement.</div>';
+      }
+    } catch (e) {
+      if (container) container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted);">Erreur réseau.</div>';
+    }
+  }
+
+  renderModalHistoryList() {
+    const container = document.getElementById('modalFleetHistoryTimeline');
+    if (!container) return;
+    const q = (document.getElementById('modalHistSearchInput')?.value || '').toLowerCase().trim();
+
+    let entries = this._fleetHistoryList || [];
+    if (q) {
+      entries = entries.filter(e => {
+        return (e.driverName || '').toLowerCase().includes(q) ||
+               (e.truckName || '').toLowerCase().includes(q) ||
+               (e.trailerPlate || '').toLowerCase().includes(q) ||
+               (e.origin || '').toLowerCase().includes(q) ||
+               (e.destination || '').toLowerCase().includes(q) ||
+               (e.notes || '').toLowerCase().includes(q) ||
+               (e.eventType || '').toLowerCase().includes(q);
+      });
+    }
+
+    if (!entries.length) {
+      container.innerHTML = '<div style="text-align:center; padding:30px; color:var(--text-muted);">Aucun enregistrement d\'historique trouvé.</div>';
+      return;
+    }
+
+    let html = '';
+    entries.forEach(e => {
+      const dateStr = new Date(e.timestamp || e.startDate).toLocaleString('fr-FR');
+      let icon = 'fa-arrow-right-arrow-left';
+      let color = '#38bdf8';
+      let label = 'Affectation';
+
+      if (e.eventType === 'mission_start') {
+        icon = 'fa-route';
+        color = '#10b981';
+        label = 'Départ Mission';
+      } else if (e.eventType === 'mission_complete') {
+        icon = 'fa-flag-checkered';
+        color = '#0284c7';
+        label = 'Fin Mission';
+      } else if (e.eventType === 'unassign') {
+        icon = 'fa-link-slash';
+        color = '#94a3b8';
+        label = 'Détachement';
+      } else if (e.eventType === 'status_change') {
+        icon = 'fa-triangle-exclamation';
+        color = '#f59e0b';
+        label = 'Changement Statut';
+      }
+
+      html += `
+        <div style="background:var(--bg-surface); border:1px solid var(--border); border-left:4px solid ${color}; padding:12px 16px; border-radius:10px; display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+              <span style="background:${color}22; color:${color}; padding:2px 8px; border-radius:12px; font-weight:800; font-size:10px;">
+                <i class="fa-solid ${icon}"></i> ${label}
+              </span>
+              <span style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">${dateStr}</span>
+            </div>
+            <div style="font-weight:700; font-size:13px; color:var(--text-primary); margin-top:4px;">
+              ${e.driverName ? `<span style="color:#34d399;"><i class="fa-solid fa-user"></i> ${e.driverName}</span>` : ''}
+              ${e.truckName ? ` sur <span style="color:#38bdf8;"><i class="fa-solid fa-truck"></i> ${e.truckName}</span>` : ''}
+              ${e.trailerPlate ? ` avec remorque <span style="color:#c084fc;"><i class="fa-solid fa-trailer"></i> ${e.trailerPlate}</span>` : ''}
+            </div>
+            ${e.origin && e.destination ? `
+              <div style="font-size:11px; color:var(--primary); margin-top:4px;">
+                <i class="fa-solid fa-location-arrow"></i> Itinéraire: <b>${e.origin}</b> → <b>${e.destination}</b>
+                ${e.cargo ? ` (${e.cargo})` : ''}
+                ${e.orderRef ? ` · BL: ${e.orderRef}` : ''}
+              </div>
+            ` : ''}
+            ${e.notes ? `<div style="font-size:11px; color:var(--text-secondary); margin-top:4px; font-style:italic;">"${e.notes}"</div>` : ''}
+          </div>
+          <div style="text-align:right; font-size:11px; color:var(--text-muted);">
+            <span class="situation-badge ${e.status === 'en_cours' ? 'badge-mission' : 'badge-disponible'}" style="font-size:10px; padding:2px 8px;">
+              ${e.status === 'en_cours' ? 'En cours' : 'Archivé'}
+            </span>
+          </div>
+        </div>`;
+    });
+
+    container.innerHTML = html;
+  }
+
+  async exportFleetHistoryExcel() {
+    const entries = this._fleetHistoryList || [];
+    if (!entries.length) {
+      alert('Aucune donnée d\'historique à exporter.');
+      return;
+    }
+    if (window.ExcelExportEngine && typeof window.ExcelExportEngine.exportTableToXlsx === 'function') {
+      const headers = [
+        'Date/Heure',
+        'Type d\'événement',
+        'Statut',
+        'Camion',
+        'Immatriculation',
+        'Chauffeur',
+        'Tél Chauffeur',
+        'Remorque',
+        'Origine',
+        'Destination',
+        'Marchandise / Fret',
+        'N° BL / Ordre',
+        'Odomètre Début',
+        'Odomètre Fin',
+        'Notes'
+      ];
+      const rows = entries.map(e => [
+        new Date(e.timestamp || e.startDate).toLocaleString('fr-FR'),
+        e.eventType || '',
+        e.status || '',
+        e.truckName || e.truckDeviceId || '',
+        e.truckPlate || '',
+        e.driverName || '',
+        e.driverPhone || '',
+        e.trailerPlate || '',
+        e.origin || '',
+        e.destination || '',
+        e.cargo || '',
+        e.orderRef || '',
+        e.startOdometer || 0,
+        e.endOdometer || 0,
+        e.notes || ''
+      ]);
+      await window.ExcelExportEngine.exportTableToXlsx({
+        filename: `Historique_Rotations_Flotte_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: 'Historique Rotations',
+        title: 'DOULOUB EL DJAZAIR — HISTORIQUE DES ROTATIONS ET TRAJETS',
+        subtitle: `Généré le ${new Date().toLocaleString('fr-FR')} | Filtre: ${this._modalHistTab || 'Tous'}`,
+        headers,
+        rows
+      });
+    } else {
+      alert('Moteur Excel en cours de chargement...');
+    }
   }
 }
 
