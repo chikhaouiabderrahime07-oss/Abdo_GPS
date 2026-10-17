@@ -15587,6 +15587,7 @@ _naftalSortTable(tblId, colIdx) {
         this.closeAddDriverModal();
         if (typeof showToast === 'function') showToast('Chauffeur enregistré avec succès !', 'success');
         await this.fetchDisponibiliteData(false);
+        if (typeof loadDriverDb === 'function') loadDriverDb();
       } else {
         alert('Erreur lors de l\'enregistrement du chauffeur.');
       }
@@ -15635,6 +15636,7 @@ _naftalSortTable(tblId, colIdx) {
         this.closeAddTrailerModal();
         if (typeof showToast === 'function') showToast('Remorque enregistrée avec succès !', 'success');
         await this.fetchDisponibiliteData(false);
+        if (typeof loadTrailerDb === 'function') loadTrailerDb();
       } else {
         alert('Erreur lors de l\'enregistrement de la remorque.');
       }

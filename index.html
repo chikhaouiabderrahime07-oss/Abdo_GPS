@@ -41,7 +41,126 @@
     --color-success:   #4ade80;
     --color-danger:    #f87171;
     --font-weight-semibold: 600;
+    --bg-card:         var(--bg-surface);
   }
+
+    /* ═══ FLEET MODAL SYSTEM — Works in both dark & light themes ═══ */
+    .fleet-modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 99999;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    .fleet-modal-box {
+      background: var(--bg-surface); color: var(--text-primary);
+      border-radius: 18px; border: 1px solid var(--border);
+      width: 100%; box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+      overflow: hidden; max-height: 90vh; display: flex; flex-direction: column;
+    }
+    .fleet-modal-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--bg-elevated);
+    }
+    .fleet-modal-header h3 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+    .fleet-modal-header .modal-close {
+      border: none; background: transparent; color: var(--text-muted);
+      font-size: 22px; cursor: pointer; padding: 4px 8px; border-radius: 8px;
+      transition: all 0.2s;
+    }
+    .fleet-modal-header .modal-close:hover { background: var(--bg-hover); color: var(--danger); }
+    .fleet-modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+    .fleet-modal-body .form-group { margin-bottom: 14px; }
+    .fleet-modal-body label { font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px; display: block; text-transform: uppercase; letter-spacing: 0.3px; }
+    .fleet-modal-body input, .fleet-modal-body select, .fleet-modal-body textarea {
+      width: 100%; padding: 10px 12px; border-radius: 8px; font-size: 13px;
+      border: 1.5px solid var(--border); background: var(--bg-elevated);
+      color: var(--text-primary); font-family: inherit; transition: all 0.2s;
+    }
+    .fleet-modal-body input:focus, .fleet-modal-body select:focus, .fleet-modal-body textarea:focus {
+      border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-glow);
+      outline: none;
+    }
+    .fleet-modal-body .modal-section {
+      background: var(--bg-elevated); padding: 14px; border-radius: 12px;
+      border: 1px solid var(--border); margin-bottom: 14px;
+    }
+    .fleet-modal-body .modal-section-title {
+      font-size: 12px; font-weight: 800; margin-bottom: 10px; display: flex;
+      align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .fleet-modal-footer {
+      padding: 14px 20px; border-top: 1px solid var(--border);
+      display: flex; justify-content: flex-end; gap: 8px; background: var(--bg-elevated);
+    }
+
+    /* ═══ FIX EXISTING INLINE-STYLED MODALS ═══ */
+    /* Target all fleet modals by ID — ensure inputs use elevated bg for contrast */
+    #modalAssignFleet select, #modalAssignFleet input,
+    #modalAddDriver select, #modalAddDriver input, #modalAddDriver textarea,
+    #modalAddTrailer select, #modalAddTrailer input, #modalAddTrailer textarea,
+    #modalDriverSituation select, #modalDriverSituation input, #modalDriverSituation textarea,
+    #modalDispatchMission select, #modalDispatchMission input, #modalDispatchMission textarea,
+    #modalReportStatus select, #modalReportStatus input, #modalReportStatus textarea {
+      background: var(--bg-elevated) !important;
+      color: var(--text-primary) !important;
+      border-color: var(--border) !important;
+    }
+    #modalAssignFleet select:focus, #modalAssignFleet input:focus,
+    #modalAddDriver select:focus, #modalAddDriver input:focus,
+    #modalAddTrailer select:focus, #modalAddTrailer input:focus,
+    #modalDriverSituation select:focus, #modalDriverSituation input:focus,
+    #modalDispatchMission select:focus, #modalDispatchMission input:focus,
+    #modalReportStatus select:focus, #modalReportStatus input:focus {
+      border-color: var(--primary) !important;
+      box-shadow: 0 0 0 3px var(--primary-glow) !important;
+    }
+    /* Fix select option readability in both themes */
+    #modalAssignFleet option, #modalAddDriver option, #modalAddTrailer option,
+    #modalDriverSituation option, #modalDispatchMission option, #modalReportStatus option {
+      background: var(--bg-surface); color: var(--text-primary);
+    }
+
+    /* ═══ SUIVI TRANSPORT TABLE — Clean theme-aware styling ═══ */
+    #disponibiliteSection .dispo-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    #disponibiliteSection .dispo-table th {
+      background: var(--bg-elevated); color: var(--text-secondary); font-size: 11px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 10px 12px; border-bottom: 2px solid var(--border);
+      position: sticky; top: 0; z-index: 2;
+    }
+    #disponibiliteSection .dispo-table td {
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+      font-size: 12px; color: var(--text-primary);
+    }
+    #disponibiliteSection .dispo-table tr:hover td {
+      background: var(--bg-hover);
+    }
+
+    /* ═══ SUB-TAB STYLES ═══ */
+    .dispo-sub-tab:hover {
+      color: var(--primary) !important;
+      background: rgba(56,189,248,0.06);
+    }
+    .dispo-sub-tab.active {
+      color: var(--primary) !important;
+      border-bottom-color: var(--primary) !important;
+      font-weight: 700 !important;
+    }
+    .dispo-sub-panel { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    /* Driver/Trailer edit/delete button hover */
+    .dispo-table button:hover { filter: brightness(1.2); transform: scale(1.05); }
+
+    /* ═══ ÉCRAN LIVE INTEGRATION BADGE ═══ */
+    .live-badge-inline {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(56,189,248,0.08));
+      color: var(--success); border: 1px solid rgba(16,185,129,0.25);
+      padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 700;
+      text-decoration: none; transition: all 0.2s;
+    }
+    .live-badge-inline:hover { background: rgba(16,185,129,0.2); box-shadow: 0 0 12px rgba(16,185,129,0.2); }
+
     /* Bridge: Legacy class compatibility shim */
     .controls-section { 
       background: linear-gradient(135deg, var(--bg-surface) 0%, rgba(17,24,39,0.92) 100%); 
@@ -958,11 +1077,8 @@
           </button>
       </div>
 
-      <!-- ✅ LIVE FLEET PULSE & QUICK STANDALONE LINK -->
-      <div style="margin-left:auto; display:flex; align-items:center; gap:8px; padding: 0 8px;">
-          <a href="disponibilite.html" target="_blank" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:4px 10px; border-radius:20px; font-size:11px; font-weight:700;" title="Ouvrir le suivi de disponibilité plein écran sur écran mural ou mobile">
-              <i class="fa-solid fa-tv"></i> Écran Live
-          </a>
+      <!-- LIVE PULSE indicator (compact) -->
+      <div style="margin-left:auto; display:flex; align-items:center; gap:5px; padding: 0 8px;">
           <div id="liveFleetPulse" style="font-size:10px; color:var(--text-muted); font-weight:600; display:flex; align-items:center; gap:5px; flex-shrink:0;">
               <span class="pulse-dot" style="width:7px; height:7px; background:var(--success); border-radius:50%; display:inline-block; animation: pulse 2s infinite;"></span>
               <span id="fleetPulseText" style="color:var(--success); letter-spacing:1px;">LIVE</span>
@@ -1033,14 +1149,15 @@
             <button class="btn-primary" onclick="ui.openStatusModal()" style="background:linear-gradient(135deg, #ef4444, #dc2626); border:none; box-shadow:0 4px 12px rgba(239,68,68,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; color:#fff;">
               <i class="fa-solid fa-triangle-exclamation"></i> Signaler Panne
             </button>
-            <button class="btn-secondary" onclick="ui.openFleetHistoryModal()" style="border-color:var(--border-strong); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
-              <i class="fa-solid fa-clock-rotate-left"></i> Historique Rotations
+            <button class="btn-secondary" onclick="switchDispoSubTab('history')" style="border-color:var(--border-strong); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-clock-rotate-left"></i> Historique Complet
             </button>
             <button class="btn-secondary" onclick="ui.exportDisponibiliteExcel()" style="border-color:var(--border-strong); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
               <i class="fa-solid fa-file-excel" style="color:#10b981;"></i> Export Excel
             </button>
-            <a href="disponibilite.html" target="_blank" class="btn-secondary" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px;">
-              <i class="fa-solid fa-arrow-up-right-from-square"></i> Plein Écran
+            <a href="disponibilite.html" target="_blank" class="live-badge-inline" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px; background:linear-gradient(135deg, rgba(16,185,129,0.15), rgba(56,189,248,0.15)); color:#10b981; border:1px solid rgba(16,185,129,0.4); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; transition:all 0.2s;" title="Ouvrir le suivi live plein écran (mur ou mobile)">
+              <span class="pulse-dot" style="width:7px; height:7px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse 2s infinite;"></span>
+              <i class="fa-solid fa-tv"></i> Écran Live
             </a>
           </div>
         </div>
@@ -1153,8 +1270,242 @@
         </div>
       </div>
 
-      <!-- Live Availability Table / Cards Container -->
-      <div id="dispoTableContainer"></div>
+      <!-- ═══ SUB-TAB NAVIGATION ═══ -->
+      <div style="display:flex; gap:4px; margin-bottom:16px; border-bottom:2px solid var(--border); padding-bottom:0; flex-wrap:wrap;">
+        <button class="dispo-sub-tab active" data-subtab="flotte" onclick="switchDispoSubTab('flotte')" style="padding:10px 18px; border:none; background:transparent; color:var(--primary); font-weight:700; font-size:13px; cursor:pointer; border-bottom:3px solid var(--primary); transition:all 0.2s; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-truck"></i> Flotte Live
+        </button>
+        <button class="dispo-sub-tab" data-subtab="drivers" onclick="switchDispoSubTab('drivers')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-id-card"></i> Base Chauffeurs
+        </button>
+        <button class="dispo-sub-tab" data-subtab="trailers" onclick="switchDispoSubTab('trailers')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-trailer"></i> Base Remorques
+        </button>
+        <button class="dispo-sub-tab" data-subtab="history" onclick="switchDispoSubTab('history')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-clock-rotate-left"></i> Historique Complet
+        </button>
+      </div>
+
+      <!-- ═══ SUB-TAB PANELS ═══ -->
+
+      <!-- PANEL 1: FLOTTE LIVE (existing) -->
+      <div id="dispoSubFlotte" class="dispo-sub-panel">
+        <div id="dispoTableContainer"></div>
+      </div>
+
+      <!-- PANEL 2: BASE CHAUFFEURS (CRUD Database) -->
+      <div id="dispoSubDrivers" class="dispo-sub-panel" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+          <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:250px;">
+            <div style="display:flex; align-items:center; gap:8px; flex:1; background:var(--bg-surface); padding:8px 14px; border-radius:10px; border:1px solid var(--border);">
+              <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted);"></i>
+              <input type="text" id="driverDbSearch" placeholder="Rechercher un chauffeur..." style="border:none; outline:none; background:transparent; width:100%; color:var(--text-primary); font-size:13px;" oninput="filterDriverDb()">
+            </div>
+            <select id="driverDbSitFilter" onchange="filterDriverDb()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <option value="all">Tous statuts</option>
+              <option value="disponible">Disponible</option>
+              <option value="mission">En mission</option>
+              <option value="repos">Repos / Découchage</option>
+              <option value="recup">Récupération</option>
+              <option value="conge">Congé</option>
+              <option value="maladie">Maladie</option>
+              <option value="formation">Formation</option>
+              <option value="sans_camion">Sans camion</option>
+              <option value="suspendu">Suspendu</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="ui.openAddDriverModal()" style="background:linear-gradient(135deg, #0284c7, #0369a1); color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-user-plus"></i> Ajouter Chauffeur
+            </button>
+            <button onclick="exportDriverDbExcel()" style="background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border); padding:8px 14px; border-radius:8px; font-weight:600; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-file-excel" style="color:#10b981;"></i> Export
+            </button>
+          </div>
+        </div>
+        <div id="driverDbCount" style="font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:600;"></div>
+        <div style="overflow-x:auto; border-radius:12px; border:1px solid var(--border);">
+          <table class="dispo-table" style="width:100%;">
+            <thead>
+              <tr>
+                <th style="width:40px;">#</th>
+                <th>Nom Complet</th>
+                <th>Téléphone</th>
+                <th>Permis</th>
+                <th>Catégorie</th>
+                <th>Expiration</th>
+                <th>Situation</th>
+                <th>Camion Assigné</th>
+                <th>Remorque</th>
+                <th>Notes</th>
+                <th style="width:100px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="driverDbBody">
+              <tr><td colspan="11" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PANEL 3: BASE REMORQUES (CRUD Database) -->
+      <div id="dispoSubTrailers" class="dispo-sub-panel" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+          <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:250px;">
+            <div style="display:flex; align-items:center; gap:8px; flex:1; background:var(--bg-surface); padding:8px 14px; border-radius:10px; border:1px solid var(--border);">
+              <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted);"></i>
+              <input type="text" id="trailerDbSearch" placeholder="Rechercher une remorque..." style="border:none; outline:none; background:transparent; width:100%; color:var(--text-primary); font-size:13px;" oninput="filterTrailerDb()">
+            </div>
+            <select id="trailerDbStatusFilter" onchange="filterTrailerDb()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <option value="all">Tous statuts</option>
+              <option value="disponible">Disponible</option>
+              <option value="attele">Attelée</option>
+              <option value="mission">En mission</option>
+              <option value="chargement">Chargement</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="panne">En panne</option>
+              <option value="hors_service">Hors service</option>
+              <option value="reserve">Réserve</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="ui.openAddTrailerModal()" style="background:linear-gradient(135deg, #7c3aed, #6d28d9); color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-trailer"></i> Ajouter Remorque
+            </button>
+            <button onclick="exportTrailerDbExcel()" style="background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border); padding:8px 14px; border-radius:8px; font-weight:600; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-file-excel" style="color:#10b981;"></i> Export
+            </button>
+          </div>
+        </div>
+        <div id="trailerDbCount" style="font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:600;"></div>
+        <div style="overflow-x:auto; border-radius:12px; border:1px solid var(--border);">
+          <table class="dispo-table" style="width:100%;">
+            <thead>
+              <tr>
+                <th style="width:40px;">#</th>
+                <th>Immatriculation</th>
+                <th>Type</th>
+                <th>Marque</th>
+                <th>Capacité</th>
+                <th>Statut</th>
+                <th>Camion Attelé</th>
+                <th>Dernier Chauffeur</th>
+                <th>Position</th>
+                <th>Notes</th>
+                <th style="width:100px;">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="trailerDbBody">
+              <tr><td colspan="11" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PANEL 4: HISTORIQUE COMPLET (Full History Section) -->
+      <div id="dispoSubHistory" class="dispo-sub-panel" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+          <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:1;">
+            <!-- Search -->
+            <div style="display:flex; align-items:center; gap:8px; flex:1; min-width:220px; background:var(--bg-surface); padding:8px 14px; border-radius:10px; border:1px solid var(--border);">
+              <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted);"></i>
+              <input type="text" id="historySearch" placeholder="Rechercher camion, chauffeur, remorque, trajet..." style="border:none; outline:none; background:transparent; width:100%; color:var(--text-primary); font-size:13px;" oninput="filterHistoryDb()">
+            </div>
+            <!-- Event Type filter -->
+            <select id="historyEventFilter" onchange="filterHistoryDb()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <option value="all">Tous événements</option>
+              <option value="assignment">Assignation</option>
+              <option value="swap_driver">Changement Chauffeur</option>
+              <option value="swap_truck">Changement Camion</option>
+              <option value="swap_trailer">Changement Remorque</option>
+              <option value="unassign">Dés-assignation</option>
+              <option value="mission_start">Départ Mission</option>
+              <option value="mission_complete">Mission Terminée</option>
+              <option value="status_change">Changement Statut</option>
+            </select>
+            <!-- Wilaya filter -->
+            <select id="historyWilayaFilter" onchange="filterHistoryDb()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <option value="all">Toutes Wilayas</option>
+            </select>
+            <!-- Date range -->
+            <div style="display:flex; align-items:center; gap:4px;">
+              <input type="date" id="historyDateFrom" onchange="filterHistoryDb()" style="padding:7px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <span style="color:var(--text-muted); font-size:11px;">→</span>
+              <input type="date" id="historyDateTo" onchange="filterHistoryDb()" style="padding:7px 10px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+            </div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="loadHistoryDb()" style="background:var(--bg-surface); color:var(--primary); border:1px solid var(--primary); padding:8px 14px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-rotate"></i> Actualiser
+            </button>
+            <button onclick="exportHistoryExcel()" style="background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border); padding:8px 14px; border-radius:8px; font-weight:600; font-size:12px; cursor:pointer;">
+              <i class="fa-solid fa-file-excel" style="color:#10b981;"></i> Export
+            </button>
+          </div>
+        </div>
+
+        <!-- History KPI cards -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px; margin-bottom:16px;">
+          <div class="stat-card" style="border-left:3px solid #3b82f6; padding:10px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border);">
+            <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;">Total Entrées</div>
+            <span id="histKpiTotal" style="font-size:20px; font-weight:900; color:var(--primary);">0</span>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #10b981; padding:10px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border);">
+            <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:#10b981; letter-spacing:0.5px;">Missions</div>
+            <span id="histKpiMissions" style="font-size:20px; font-weight:900; color:#10b981;">0</span>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #f59e0b; padding:10px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border);">
+            <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:#f59e0b; letter-spacing:0.5px;">Changements</div>
+            <span id="histKpiSwaps" style="font-size:20px; font-weight:900; color:#f59e0b;">0</span>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #8b5cf6; padding:10px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border);">
+            <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:#8b5cf6; letter-spacing:0.5px;">Assignations</div>
+            <span id="histKpiAssign" style="font-size:20px; font-weight:900; color:#8b5cf6;">0</span>
+          </div>
+          <div class="stat-card" style="border-left:3px solid #ef4444; padding:10px; background:var(--bg-elevated); border-radius:10px; border:1px solid var(--border);">
+            <div style="font-size:9px; text-transform:uppercase; font-weight:800; color:#ef4444; letter-spacing:0.5px;">Statut</div>
+            <span id="histKpiStatus" style="font-size:20px; font-weight:900; color:#ef4444;">0</span>
+          </div>
+        </div>
+
+        <!-- History Timeline -->
+        <div id="historyDbCount" style="font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:600;"></div>
+        <div style="overflow-x:auto; border-radius:12px; border:1px solid var(--border);">
+          <table class="dispo-table" style="width:100%;">
+            <thead>
+              <tr>
+                <th style="width:40px;">#</th>
+                <th>Date & Heure</th>
+                <th>Événement</th>
+                <th>Camion</th>
+                <th>Plaque</th>
+                <th>Chauffeur</th>
+                <th>Remorque</th>
+                <th>Origine</th>
+                <th>Destination</th>
+                <th>Cargo</th>
+                <th>Distance</th>
+                <th>Statut</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="historyDbBody">
+              <tr><td colspan="13" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div style="display:flex; justify-content:center; align-items:center; gap:10px; margin-top:12px;">
+          <button id="histPrevBtn" onclick="historyPageNav(-1)" style="padding:6px 14px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px; cursor:pointer;" disabled>
+            <i class="fa-solid fa-chevron-left"></i> Précédent
+          </button>
+          <span id="histPageInfo" style="font-size:12px; color:var(--text-muted); font-weight:600;">Page 1</span>
+          <button id="histNextBtn" onclick="historyPageNav(1)" style="padding:6px 14px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px; cursor:pointer;">
+            Suivant <i class="fa-solid fa-chevron-right"></i>
+          </button>
+        </div>
+      </div>
     </div>
 
     <div id="byWilaya" class="tab-content">
@@ -2515,6 +2866,399 @@ window.addEventListener('unhandledrejection', function(e) {
 
   <script>
     function switchTab(tab) { if(ui) ui.switchTab(tab); }
+
+    // ═══ SUB-TAB SYSTEM FOR SUIVI TRANSPORT ═══
+    const DISPO_AUTH = () => localStorage.getItem('fleetAccessCode') || 'Douroub_2025_Admin_Secure';
+    const DISPO_HEADERS = () => ({ 'Content-Type': 'application/json', 'x-access-code': DISPO_AUTH() });
+
+    let _driverDbCache = [];
+    let _trailerDbCache = [];
+    let _historyDbCache = [];
+    let _historyPage = 0;
+    const HIST_PAGE_SIZE = 50;
+
+    function switchDispoSubTab(tab) {
+      const map = { flotte: 'dispoSubFlotte', drivers: 'dispoSubDrivers', trailers: 'dispoSubTrailers', history: 'dispoSubHistory' };
+      document.querySelectorAll('.dispo-sub-panel').forEach(p => p.style.display = 'none');
+      document.querySelectorAll('.dispo-sub-tab').forEach(b => {
+        b.classList.remove('active');
+        b.style.color = 'var(--text-muted)';
+        b.style.borderBottomColor = 'transparent';
+        b.style.fontWeight = '600';
+      });
+      const panel = document.getElementById(map[tab]);
+      if (panel) panel.style.display = '';
+      const btn = document.querySelector(`.dispo-sub-tab[data-subtab="${tab}"]`);
+      if (btn) { btn.classList.add('active'); btn.style.color = 'var(--primary)'; btn.style.borderBottomColor = 'var(--primary)'; btn.style.fontWeight = '700'; }
+      // Auto-load data when switching
+      if (tab === 'drivers') loadDriverDb();
+      if (tab === 'trailers') loadTrailerDb();
+      if (tab === 'history') loadHistoryDb();
+    }
+
+    // ═══ DRIVER DATABASE ═══
+    async function loadDriverDb() {
+      try {
+        const res = await fetch(`${window.FLEET_CONFIG?.API?.baseUrl || ''}/api/drivers`, { headers: DISPO_HEADERS() });
+        const data = await res.json();
+        _driverDbCache = Array.isArray(data) ? data : (data.drivers || []);
+        renderDriverDb(_driverDbCache);
+      } catch (e) { console.error('loadDriverDb:', e); }
+    }
+
+    function filterDriverDb() {
+      const q = (document.getElementById('driverDbSearch')?.value || '').toLowerCase();
+      const sit = document.getElementById('driverDbSitFilter')?.value || 'all';
+      let list = _driverDbCache;
+      if (sit !== 'all') list = list.filter(d => d.situation === sit);
+      if (q) list = list.filter(d => 
+        (d.name || '').toLowerCase().includes(q) || 
+        (d.phone || '').toLowerCase().includes(q) ||
+        (d.licenseNumber || '').toLowerCase().includes(q) ||
+        (d.assignedTruckName || '').toLowerCase().includes(q) ||
+        (d.driverId || '').toLowerCase().includes(q)
+      );
+      renderDriverDb(list);
+    }
+
+    const DRIVER_SIT_LABELS = {
+      disponible: { label: 'Disponible', color: '#0284c7', icon: 'fa-circle-check' },
+      mission: { label: 'En Mission', color: '#10b981', icon: 'fa-truck-fast' },
+      repos: { label: 'Repos', color: '#8b5cf6', icon: 'fa-bed' },
+      recup: { label: 'Récupération', color: '#06b6d4', icon: 'fa-battery-half' },
+      conge: { label: 'Congé', color: '#94a3b8', icon: 'fa-umbrella-beach' },
+      maladie: { label: 'Maladie', color: '#f87171', icon: 'fa-stethoscope' },
+      formation: { label: 'Formation', color: '#fbbf24', icon: 'fa-graduation-cap' },
+      sans_camion: { label: 'Sans Camion', color: '#f97316', icon: 'fa-user-xmark' },
+      suspendu: { label: 'Suspendu', color: '#ef4444', icon: 'fa-ban' }
+    };
+
+    function renderDriverDb(list) {
+      const tbody = document.getElementById('driverDbBody');
+      const countEl = document.getElementById('driverDbCount');
+      if (countEl) countEl.textContent = `${list.length} chauffeur${list.length !== 1 ? 's' : ''} trouvé${list.length !== 1 ? 's' : ''}`;
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-user-slash"></i> Aucun chauffeur trouvé</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map((d, i) => {
+        const sit = DRIVER_SIT_LABELS[d.situation] || DRIVER_SIT_LABELS.disponible;
+        const expiry = d.licenseExpiry ? new Date(d.licenseExpiry).toLocaleDateString('fr-FR') : '—';
+        const isExpired = d.licenseExpiry && new Date(d.licenseExpiry) < new Date();
+        return `<tr>
+          <td style="font-weight:600; color:var(--text-muted);">${i + 1}</td>
+          <td style="font-weight:700;">${d.name || '—'}</td>
+          <td>${d.phone || '—'}</td>
+          <td>${d.licenseNumber || '—'}</td>
+          <td><span style="background:rgba(59,130,246,0.1); color:#60a5fa; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700;">${d.licenseCategory || 'EC'}</span></td>
+          <td style="${isExpired ? 'color:#ef4444; font-weight:700;' : ''}">${expiry}${isExpired ? ' ⚠️' : ''}</td>
+          <td><span style="display:inline-flex; align-items:center; gap:4px; background:rgba(${hexToRgb(sit.color)},0.12); color:${sit.color}; padding:3px 10px; border-radius:8px; font-size:11px; font-weight:700;"><i class="fa-solid ${sit.icon}" style="font-size:10px;"></i> ${sit.label}</span></td>
+          <td>${d.assignedTruckName || '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td>${d.assignedTrailer || '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${(d.notes || '').replace(/"/g, '&quot;')}">${d.notes || '—'}</td>
+          <td>
+            <div style="display:flex; gap:4px;">
+              <button onclick="editDriverFromDb('${d._id || d.driverId}')" style="background:rgba(59,130,246,0.1); color:#60a5fa; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:11px;" title="Modifier"><i class="fa-solid fa-pen"></i></button>
+              <button onclick="deleteDriverFromDb('${d._id || d.driverId}', '${(d.name || '').replace(/'/g, "\\'")}')" style="background:rgba(239,68,68,0.1); color:#f87171; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:11px;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function editDriverFromDb(id) {
+      const d = _driverDbCache.find(x => (x._id || x.driverId) === id);
+      if (!d) return;
+      // Pre-fill the existing modal
+      const setVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val || ''; };
+      setVal('driverModalId', d._id || d.driverId);
+      setVal('driverModalName', d.name);
+      setVal('driverModalPhone', d.phone);
+      setVal('driverModalLicense', d.licenseNumber);
+      setVal('driverModalCategory', d.licenseCategory || 'EC');
+      setVal('driverModalExpiry', d.licenseExpiry ? d.licenseExpiry.substring(0, 10) : '');
+      setVal('driverModalSituation', d.situation || 'disponible');
+      setVal('driverModalNotes', d.notes);
+      const title = document.getElementById('modalAddDriverTitle');
+      if (title) title.innerHTML = '<i class="fa-solid fa-user-pen"></i> Modifier Chauffeur';
+      document.getElementById('modalAddDriver').style.display = '';
+    }
+
+    async function deleteDriverFromDb(id, name) {
+      if (!confirm(`Supprimer le chauffeur "${name}" ?\nCette action est irréversible.`)) return;
+      try {
+        await fetch(`${window.FLEET_CONFIG?.API?.baseUrl || ''}/api/drivers/${id}`, { method: 'DELETE', headers: DISPO_HEADERS() });
+        window.showToast?.(`Chauffeur "${name}" supprimé`, 'success');
+        loadDriverDb();
+      } catch (e) { window.showToast?.('Erreur suppression: ' + e.message, 'error'); }
+    }
+
+    function exportDriverDbExcel() {
+      const rows = _driverDbCache.map(d => {
+        const sit = DRIVER_SIT_LABELS[d.situation] || {};
+        return [d.driverId, d.name, d.phone, d.licenseNumber, d.licenseCategory, d.licenseExpiry ? new Date(d.licenseExpiry).toLocaleDateString('fr-FR') : '', sit.label || d.situation, d.assignedTruckName, d.assignedTrailer, d.notes].join('\t');
+      });
+      const header = 'ID\tNom\tTéléphone\tN° Permis\tCatégorie\tExpiration\tSituation\tCamion\tRemorque\tNotes';
+      const blob = new Blob(['\uFEFF' + header + '\n' + rows.join('\n')], { type: 'text/tab-separated-values;charset=utf-8' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `chauffeurs_${new Date().toISOString().slice(0,10)}.xls`; a.click();
+    }
+
+    // ═══ TRAILER DATABASE ═══
+    async function loadTrailerDb() {
+      try {
+        const res = await fetch(`${window.FLEET_CONFIG?.API?.baseUrl || ''}/api/trailers`, { headers: DISPO_HEADERS() });
+        const data = await res.json();
+        _trailerDbCache = Array.isArray(data) ? data : (data.trailers || []);
+        renderTrailerDb(_trailerDbCache);
+      } catch (e) { console.error('loadTrailerDb:', e); }
+    }
+
+    function filterTrailerDb() {
+      const q = (document.getElementById('trailerDbSearch')?.value || '').toLowerCase();
+      const st = document.getElementById('trailerDbStatusFilter')?.value || 'all';
+      let list = _trailerDbCache;
+      if (st !== 'all') list = list.filter(t => t.status === st);
+      if (q) list = list.filter(t =>
+        (t.immatriculation || '').toLowerCase().includes(q) ||
+        (t.type || '').toLowerCase().includes(q) ||
+        (t.brand || '').toLowerCase().includes(q) ||
+        (t.attachedTruckName || '').toLowerCase().includes(q) ||
+        (t.lastAttachedDriverName || '').toLowerCase().includes(q)
+      );
+      renderTrailerDb(list);
+    }
+
+    const TRAILER_STATUS_LABELS = {
+      disponible: { label: 'Disponible', color: '#0284c7', icon: 'fa-circle-check' },
+      attele: { label: 'Attelée', color: '#10b981', icon: 'fa-link' },
+      mission: { label: 'En Mission', color: '#22c55e', icon: 'fa-truck-fast' },
+      chargement: { label: 'Chargement', color: '#eab308', icon: 'fa-boxes-stacked' },
+      maintenance: { label: 'Maintenance', color: '#f59e0b', icon: 'fa-wrench' },
+      panne: { label: 'En Panne', color: '#ef4444', icon: 'fa-triangle-exclamation' },
+      hors_service: { label: 'Hors Service', color: '#64748b', icon: 'fa-ban' },
+      reserve: { label: 'Réserve', color: '#8b5cf6', icon: 'fa-warehouse' }
+    };
+
+    function renderTrailerDb(list) {
+      const tbody = document.getElementById('trailerDbBody');
+      const countEl = document.getElementById('trailerDbCount');
+      if (countEl) countEl.textContent = `${list.length} remorque${list.length !== 1 ? 's' : ''} trouvée${list.length !== 1 ? 's' : ''}`;
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-trailer"></i> Aucune remorque trouvée</td></tr>';
+        return;
+      }
+      tbody.innerHTML = list.map((t, i) => {
+        const st = TRAILER_STATUS_LABELS[t.status] || TRAILER_STATUS_LABELS.disponible;
+        return `<tr>
+          <td style="font-weight:600; color:var(--text-muted);">${i + 1}</td>
+          <td style="font-weight:700;">${t.immatriculation || '—'}</td>
+          <td>${t.type || 'Plateau'}</td>
+          <td>${t.brand || '—'}</td>
+          <td>${t.capacity || '—'}</td>
+          <td><span style="display:inline-flex; align-items:center; gap:4px; background:rgba(${hexToRgb(st.color)},0.12); color:${st.color}; padding:3px 10px; border-radius:8px; font-size:11px; font-weight:700;"><i class="fa-solid ${st.icon}" style="font-size:10px;"></i> ${st.label}</span></td>
+          <td>${t.attachedTruckName || '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td>${t.lastAttachedDriverName || '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td>${t.currentLocation || '<span style="color:var(--text-muted);">—</span>'}</td>
+          <td style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${(t.notes || '').replace(/"/g, '&quot;')}">${t.notes || '—'}</td>
+          <td>
+            <div style="display:flex; gap:4px;">
+              <button onclick="editTrailerFromDb('${t._id || t.trailerId}')" style="background:rgba(124,58,237,0.1); color:#a78bfa; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:11px;" title="Modifier"><i class="fa-solid fa-pen"></i></button>
+              <button onclick="deleteTrailerFromDb('${t._id || t.trailerId}', '${(t.immatriculation || '').replace(/'/g, "\\'")}')" style="background:rgba(239,68,68,0.1); color:#f87171; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:11px;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function editTrailerFromDb(id) {
+      const t = _trailerDbCache.find(x => (x._id || x.trailerId) === id);
+      if (!t) return;
+      const setVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val || ''; };
+      setVal('trailerModalId', t._id || t.trailerId);
+      setVal('trailerModalImm', t.immatriculation);
+      setVal('trailerModalType', t.type || 'Plateau');
+      setVal('trailerModalBrand', t.brand);
+      setVal('trailerModalCapacity', t.capacity);
+      setVal('trailerModalNotes', t.notes);
+      const title = document.getElementById('modalAddTrailerTitle');
+      if (title) title.innerHTML = '<i class="fa-solid fa-pen"></i> Modifier Remorque';
+      document.getElementById('modalAddTrailer').style.display = '';
+    }
+
+    async function deleteTrailerFromDb(id, name) {
+      if (!confirm(`Supprimer la remorque "${name}" ?\nCette action est irréversible.`)) return;
+      try {
+        await fetch(`${window.FLEET_CONFIG?.API?.baseUrl || ''}/api/trailers/${id}`, { method: 'DELETE', headers: DISPO_HEADERS() });
+        window.showToast?.(`Remorque "${name}" supprimée`, 'success');
+        loadTrailerDb();
+      } catch (e) { window.showToast?.('Erreur suppression: ' + e.message, 'error'); }
+    }
+
+    function exportTrailerDbExcel() {
+      const rows = _trailerDbCache.map(t => {
+        const st = TRAILER_STATUS_LABELS[t.status] || {};
+        return [t.trailerId, t.immatriculation, t.type, t.brand, t.capacity, st.label || t.status, t.attachedTruckName, t.lastAttachedDriverName, t.currentLocation, t.notes].join('\t');
+      });
+      const header = 'ID\tImmatriculation\tType\tMarque\tCapacité\tStatut\tCamion\tDernier Chauffeur\tPosition\tNotes';
+      const blob = new Blob(['\uFEFF' + header + '\n' + rows.join('\n')], { type: 'text/tab-separated-values;charset=utf-8' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `remorques_${new Date().toISOString().slice(0,10)}.xls`; a.click();
+    }
+
+    // ═══ FULL HISTORY DATABASE ═══
+    async function loadHistoryDb() {
+      try {
+        const res = await fetch(`${window.FLEET_CONFIG?.API?.baseUrl || ''}/api/fleet/history?limit=1000`, { headers: DISPO_HEADERS() });
+        const data = await res.json();
+        _historyDbCache = data.items || [];
+        _historyPage = 0;
+        populateHistoryWilayaFilter();
+        filterHistoryDb();
+      } catch (e) { console.error('loadHistoryDb:', e); }
+    }
+
+    function populateHistoryWilayaFilter() {
+      const select = document.getElementById('historyWilayaFilter');
+      if (!select) return;
+      const wilayas = new Set();
+      _historyDbCache.forEach(h => {
+        if (h.origin) wilayas.add(h.origin.split(',').pop()?.trim() || h.origin);
+        if (h.destination) wilayas.add(h.destination.split(',').pop()?.trim() || h.destination);
+      });
+      const sorted = [...wilayas].filter(Boolean).sort();
+      select.innerHTML = '<option value="all">Toutes Wilayas</option>' + sorted.map(w => `<option value="${w}">${w}</option>`).join('');
+    }
+
+    const EVENT_TYPE_LABELS = {
+      assignment: { label: 'Assignation', color: '#3b82f6', icon: 'fa-link' },
+      swap_driver: { label: 'Chg. Chauffeur', color: '#f59e0b', icon: 'fa-user-pen' },
+      swap_truck: { label: 'Chg. Camion', color: '#8b5cf6', icon: 'fa-truck-arrow-right' },
+      swap_trailer: { label: 'Chg. Remorque', color: '#06b6d4', icon: 'fa-trailer' },
+      unassign: { label: 'Dés-assignation', color: '#94a3b8', icon: 'fa-link-slash' },
+      mission_start: { label: 'Départ Mission', color: '#10b981', icon: 'fa-flag-checkered' },
+      mission_complete: { label: 'Mission Terminée', color: '#22c55e', icon: 'fa-circle-check' },
+      status_change: { label: 'Chg. Statut', color: '#ef4444', icon: 'fa-rotate' }
+    };
+
+    const HIST_STATUS_LABELS = {
+      active: { label: 'Actif', color: '#10b981' },
+      completed: { label: 'Terminé', color: '#3b82f6' },
+      swapped: { label: 'Échangé', color: '#f59e0b' },
+      cancelled: { label: 'Annulé', color: '#ef4444' }
+    };
+
+    function filterHistoryDb() {
+      const q = (document.getElementById('historySearch')?.value || '').toLowerCase();
+      const evtFilter = document.getElementById('historyEventFilter')?.value || 'all';
+      const wilFilter = document.getElementById('historyWilayaFilter')?.value || 'all';
+      const dateFrom = document.getElementById('historyDateFrom')?.value;
+      const dateTo = document.getElementById('historyDateTo')?.value;
+
+      let list = _historyDbCache;
+      if (evtFilter !== 'all') list = list.filter(h => h.eventType === evtFilter);
+      if (wilFilter !== 'all') list = list.filter(h => 
+        (h.origin || '').includes(wilFilter) || (h.destination || '').includes(wilFilter)
+      );
+      if (dateFrom) { const d = new Date(dateFrom); list = list.filter(h => new Date(h.timestamp) >= d); }
+      if (dateTo) { const d = new Date(dateTo + 'T23:59:59'); list = list.filter(h => new Date(h.timestamp) <= d); }
+      if (q) list = list.filter(h =>
+        (h.truckName || '').toLowerCase().includes(q) ||
+        (h.truckPlate || '').toLowerCase().includes(q) ||
+        (h.driverName || '').toLowerCase().includes(q) ||
+        (h.trailerPlate || '').toLowerCase().includes(q) ||
+        (h.origin || '').toLowerCase().includes(q) ||
+        (h.destination || '').toLowerCase().includes(q) ||
+        (h.cargo || '').toLowerCase().includes(q) ||
+        (h.notes || '').toLowerCase().includes(q)
+      );
+
+      // KPIs
+      const el = id => document.getElementById(id);
+      if (el('histKpiTotal')) el('histKpiTotal').textContent = list.length;
+      if (el('histKpiMissions')) el('histKpiMissions').textContent = list.filter(h => h.eventType === 'mission_start' || h.eventType === 'mission_complete').length;
+      if (el('histKpiSwaps')) el('histKpiSwaps').textContent = list.filter(h => h.eventType?.startsWith('swap_')).length;
+      if (el('histKpiAssign')) el('histKpiAssign').textContent = list.filter(h => h.eventType === 'assignment' || h.eventType === 'unassign').length;
+      if (el('histKpiStatus')) el('histKpiStatus').textContent = list.filter(h => h.eventType === 'status_change').length;
+
+      _historyPage = 0;
+      renderHistoryDb(list);
+    }
+
+    function renderHistoryDb(list) {
+      const tbody = document.getElementById('historyDbBody');
+      const countEl = document.getElementById('historyDbCount');
+      const start = _historyPage * HIST_PAGE_SIZE;
+      const page = list.slice(start, start + HIST_PAGE_SIZE);
+      const totalPages = Math.max(1, Math.ceil(list.length / HIST_PAGE_SIZE));
+      
+      if (countEl) countEl.textContent = `${list.length} entrée${list.length !== 1 ? 's' : ''} — Page ${_historyPage + 1}/${totalPages}`;
+      
+      // Pagination controls
+      const prevBtn = document.getElementById('histPrevBtn');
+      const nextBtn = document.getElementById('histNextBtn');
+      const pageInfo = document.getElementById('histPageInfo');
+      if (prevBtn) prevBtn.disabled = _historyPage === 0;
+      if (nextBtn) nextBtn.disabled = start + HIST_PAGE_SIZE >= list.length;
+      if (pageInfo) pageInfo.textContent = `Page ${_historyPage + 1} / ${totalPages}`;
+
+      if (!page.length) {
+        tbody.innerHTML = '<tr><td colspan="13" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-clock-rotate-left"></i> Aucun historique trouvé</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = page.map((h, i) => {
+        const evt = EVENT_TYPE_LABELS[h.eventType] || { label: h.eventType, color: '#94a3b8', icon: 'fa-circle' };
+        const st = HIST_STATUS_LABELS[h.status] || { label: h.status, color: '#94a3b8' };
+        const ts = h.timestamp ? new Date(h.timestamp).toLocaleString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+        const dist = h.distanceKm ? `${Math.round(h.distanceKm)} km` : '—';
+        return `<tr>
+          <td style="font-weight:600; color:var(--text-muted);">${start + i + 1}</td>
+          <td style="white-space:nowrap; font-size:12px;">${ts}</td>
+          <td><span style="display:inline-flex; align-items:center; gap:4px; background:rgba(${hexToRgb(evt.color)},0.12); color:${evt.color}; padding:3px 10px; border-radius:8px; font-size:10px; font-weight:700; white-space:nowrap;"><i class="fa-solid ${evt.icon}" style="font-size:9px;"></i> ${evt.label}</span></td>
+          <td style="font-weight:600;">${h.truckName || '—'}</td>
+          <td style="font-size:11px;">${h.truckPlate || '—'}</td>
+          <td>${h.driverName || '—'}</td>
+          <td style="font-size:11px;">${h.trailerPlate || '—'}</td>
+          <td style="font-size:11px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${h.origin || ''}">${h.origin || '—'}</td>
+          <td style="font-size:11px; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${h.destination || ''}">${h.destination || '—'}</td>
+          <td style="font-size:11px;">${h.cargo || '—'}</td>
+          <td style="font-size:11px;">${dist}</td>
+          <td><span style="color:${st.color}; font-weight:700; font-size:11px;">${st.label}</span></td>
+          <td style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px;" title="${(h.notes || '').replace(/"/g, '&quot;')}">${h.notes || '—'}</td>
+        </tr>`;
+      }).join('');
+
+      // Store filtered list for pagination
+      tbody._filteredList = list;
+    }
+
+    function historyPageNav(dir) {
+      const tbody = document.getElementById('historyDbBody');
+      const list = tbody?._filteredList || [];
+      const totalPages = Math.max(1, Math.ceil(list.length / HIST_PAGE_SIZE));
+      _historyPage = Math.max(0, Math.min(totalPages - 1, _historyPage + dir));
+      renderHistoryDb(list);
+    }
+
+    function exportHistoryExcel() {
+      const list = document.getElementById('historyDbBody')?._filteredList || _historyDbCache;
+      const rows = list.map(h => {
+        const evt = EVENT_TYPE_LABELS[h.eventType] || {};
+        const st = HIST_STATUS_LABELS[h.status] || {};
+        const ts = h.timestamp ? new Date(h.timestamp).toLocaleString('fr-FR') : '';
+        return [ts, evt.label || h.eventType, h.truckName, h.truckPlate, h.driverName, h.trailerPlate, h.origin, h.destination, h.cargo, h.distanceKm ? Math.round(h.distanceKm) : '', st.label || h.status, h.notes].join('\t');
+      });
+      const header = 'Date\tÉvénement\tCamion\tPlaque\tChauffeur\tRemorque\tOrigine\tDestination\tCargo\tDistance (km)\tStatut\tNotes';
+      const blob = new Blob(['\uFEFF' + header + '\n' + rows.join('\n')], { type: 'text/tab-separated-values;charset=utf-8' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `historique_flotte_${new Date().toISOString().slice(0,10)}.xls`; a.click();
+    }
+
+    // Helper: hex color to RGB string for rgba()
+    function hexToRgb(hex) {
+      const r = parseInt(hex.slice(1,3), 16) || 0;
+      const g = parseInt(hex.slice(3,5), 16) || 0;
+      const b = parseInt(hex.slice(5,7), 16) || 0;
+      return `${r},${g},${b}`;
+    }
     setInterval(() => {
         const now = new Date();
         const el = document.getElementById('clockDisplay');
