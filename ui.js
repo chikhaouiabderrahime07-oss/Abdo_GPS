@@ -388,15 +388,15 @@ toggleDecouchageSubTab(view) {
       }
       .btn-vidange-done:hover { background: #14532d; }
       .pagination-controls { display: flex; justify-content: center; align-items: center; gap: 15px; margin-top: 15px; padding: 10px; }
-      .pagination-btn { background: #fff; border: 1px solid #ddd; padding: 5px 12px; border-radius: 4px; cursor: pointer; color: #555; }
-      .pagination-btn:hover { background: #f0f0f0; }
+      .pagination-btn { background: var(--bg-elevated,#fff); border: 1px solid var(--border,#ddd); padding: 5px 12px; border-radius: 4px; cursor: pointer; color: var(--text-secondary,#555); }
+      .pagination-btn:hover { background: var(--bg-surface,#f0f0f0); }
       .pagination-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-      .pagination-info { font-size: 12px; color: #666; }
-      .api-keys-box { background: #f4f6f8; border: 1px solid #c7d2dd; border-radius: 6px; padding: 10px; margin-top:10px; }
-      .api-keys-box textarea { width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; }
+      .pagination-info { font-size: 12px; color: var(--text-muted,#666); }
+      .api-keys-box { background: var(--bg-elevated,#f4f6f8); border: 1px solid var(--border,#c7d2dd); border-radius: 6px; padding: 10px; margin-top:10px; }
+      .api-keys-box textarea { width: 100%; border: 1px solid var(--border,#ddd); border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; background: var(--bg-surface,#fff); color: var(--text-primary,#1e293b); }
       /* Decouchage Badges */
-      .zone-maintenance-badge { background: #f0fdf4; border: 1px solid #bbf7d0; color: #15803d; font-size: 11px; font-weight: bold; padding: 6px 10px; border-radius: 4px; margin-top: 6px; display: flex; align-items: center; gap: 6px; }
-      .zone-vidange-badge { background: #fff7ed; border: 1px solid #fed7aa; color: #c2410c; font-size: 11px; font-weight: bold; padding: 6px 10px; border-radius: 4px; margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+      .zone-maintenance-badge { background: rgba(22,163,74,0.1); border: 1px solid rgba(22,163,74,0.3); color: #15803d; font-size: 11px; font-weight: bold; padding: 6px 10px; border-radius: 4px; margin-top: 6px; display: flex; align-items: center; gap: 6px; }
+      .zone-vidange-badge { background: rgba(194,65,12,0.1); border: 1px solid rgba(194,65,12,0.3); color: #c2410c; font-size: 11px; font-weight: bold; padding: 6px 10px; border-radius: 4px; margin-top: 6px; display: flex; align-items: center; gap: 6px; }
       @keyframes zoneIn { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
     `;
     document.head.appendChild(style);
@@ -1244,9 +1244,9 @@ renderDecouchageList() {
     // Render Table
     let tableHtml = `<div style="max-height: 350px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px;"><table style="width:100%; border-collapse:collapse; font-size:13px; background:var(--bg-surface);"><thead style="position: sticky; top: 0; background: var(--bg-elevated); z-index: 1;"><tr style="color:var(--text-primary); text-align:left; border-bottom:2px solid var(--border);"><th style="padding:12px 15px;">Camion</th><th style="padding:12px; text-align:center;">Nuits Dehors</th></tr></thead><tbody>`;
     summaryArray.forEach((item, index) => {
-        const bg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-        const countStyle = item.total > 0 ? 'color:#dc2626; font-weight:bold; background:#fef2f2; padding:2px 8px; border-radius:4px;' : 'color:var(--text-muted, #94a3b8);';
-        tableHtml += `<tr style="background:${bg}; border-bottom:1px solid #eee;"><td style="padding:10px 15px; font-weight:600; color:#334155;">${item.name}</td><td style="padding:10px; text-align:center;"><span style="${countStyle}">${item.total}</span></td></tr>`;
+        const bg = index % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-elevated)';
+        const countStyle = item.total > 0 ? 'color:#dc2626; font-weight:bold; background:rgba(239,68,68,0.1); padding:2px 8px; border-radius:4px;' : 'color:var(--text-muted, #94a3b8);';
+        tableHtml += `<tr style="background:${bg}; border-bottom:1px solid var(--border);"><td style="padding:10px 15px; font-weight:600; color:var(--text-primary);">${item.name}</td><td style="padding:10px; text-align:center;"><span style="${countStyle}">${item.total}</span></td></tr>`;
     });
     tableHtml += '</tbody></table></div>';
     if(this.decouchageRecapContainer) this.decouchageRecapContainer.innerHTML = tableHtml;
@@ -1680,7 +1680,7 @@ renderDecouchageList() {
                       ${dropdownOptions}
                    </select>
                    <button class="btn-secondary btn-xs" onclick="ui.openRuleEditor(${index})"><i class="fa-solid fa-pen"></i> Modifier</button>
-                   <button class="btn-secondary btn-xs" style="color:#d32f2f; border-color:#d32f2f; background:#fff5f5;" onclick="ui.deleteRule(${index})"><i class="fa-solid fa-trash"></i></button>
+                   <button class="btn-secondary btn-xs" style="color:#d32f2f; border-color:#d32f2f; background:rgba(211,47,47,0.08);" onclick="ui.deleteRule(${index})"><i class="fa-solid fa-trash"></i></button>
               </div>
           `;
           this.rulesListContainer.appendChild(card);
@@ -2072,7 +2072,7 @@ renderDecouchageList() {
       const db = (this.truckDbCache || []).find(d => d.deviceId === t.id) || {};
       const speedBadge = t.speed >= 1
         ? `<span style="background:#dcfce7; color:#166534; font-size:9px; padding:2px 6px; border-radius:10px; font-weight:700;">⚡ ${t.speed}km/h</span>`
-        : `<span style="background:#f1f5f9; color:var(--text-muted, #64748b); font-size:9px; padding:2px 6px; border-radius:10px;">STOP</span>`;
+        : `<span style="background:var(--bg-elevated,#f1f5f9); color:var(--text-muted, #64748b); font-size:9px; padding:2px 6px; border-radius:10px;">STOP</span>`;
       const lat = t.coordinates?.lat || t.position?.lat || t.lat || 0;
       const lng = t.coordinates?.lng || t.position?.lng || t.lng || 0;
       return `<div style="padding:8px 10px; border-radius:8px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px; transition:background 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.1)'" onmouseout="this.style.background='transparent'">
@@ -2356,9 +2356,15 @@ renderDecouchageList() {
   }
 
   renderTrucks() {
+    let trucks = app.getAllTrucks();
+
+    // ── Lag prevention: skip full DOM rebuild if data unchanged ──
+    const fingerprint = trucks.map(t => `${t.id}:${t.speed}:${t.fuelLiters}:${t.odometer}:${t.coordinates?.lat?.toFixed(3)}:${t.isGpsCut}`).join('|') + '|f:' + (this.currentFilter||'all') + '|s:' + (this.searchQuery||'') + '|sf:' + (this._dashSortField||'name') + '|sd:' + (this._dashSortDir||'asc');
+    if (this._lastRenderFingerprint === fingerprint && this.trucksContainer.children.length > 0) return;
+    this._lastRenderFingerprint = fingerprint;
+
     this.trucksContainer.innerHTML = '';
     
-    let trucks = app.getAllTrucks();
     // Ensure Naftal/DB cache is loaded for tags on cards
     if (!this.truckDbCache || this.truckDbCache.length === 0) {
       this.loadTruckDbCache().then(() => this.renderTrucks());
@@ -2420,6 +2426,7 @@ renderDecouchageList() {
       return;
     }
 
+    const _cardFragment = document.createDocumentFragment();
     trucks.forEach(truck => {
       // --- LOGIC FOR GPS CUT ---
       let isMoving = truck.speed >= 1;
@@ -2449,7 +2456,7 @@ renderDecouchageList() {
       const isVidangeOverdue = truck?.vidange?.alert && vidangeKmUntil < 0;
       const vidangeTitle = isVidangeOverdue ? 'VIDANGE EN RETARD' : 'VIDANGE REQUISE';
       const vidangeColor = isVidangeOverdue ? 'var(--danger)' : 'var(--warning)';
-      const vidangeBg = isVidangeOverdue ? '#fff5f5' : '#fff3e0';
+      const vidangeBg = isVidangeOverdue ? 'rgba(239,68,68,0.1)' : 'rgba(234,179,8,0.1)';
       const vidangeRemainingText = isVidangeOverdue
         ? `En retard de ${Math.abs(vidangeKmUntil).toLocaleString()} km`
         : `${vidangeKmUntil.toLocaleString()} km restants`;
@@ -2612,8 +2619,9 @@ renderDecouchageList() {
       const _tmt = card.querySelector('.tc-maint');
       if (_tmt) { (function(el){ el.onclick = function(e){ e.stopPropagation(); window.ui.openMaintenanceModal(el.dataset.tid); }; })(_tmt); }
 
-      this.trucksContainer.appendChild(card);
+      _cardFragment.appendChild(card);
     });
+    this.trucksContainer.appendChild(_cardFragment);
   }
 
 
@@ -3147,7 +3155,7 @@ renderDecouchageList() {
         if (this.refuelDateEnd && this.refuelDateEnd.value) params.set('end', `${this.refuelDateEnd.value} 23:59:59`);
         params.set('limit', '20000');
         const url = `${FLEET_CONFIG.API.baseUrl}/api/refuels${params.toString() ? '?' + params.toString() : ''}`;
-        const response = await fetch(url);
+        const response = await fetch(url, { headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || this.currentCode || '' } });
         if (!response.ok) {
             console.warn(`Refuels API returned ${response.status}. Displaying empty state.`);
             this.refuelHistoryContainer.innerHTML = `<div style="color:#666; padding:20px; text-align:center;">Pas de données (Serveur en veille). Réessayez plus tard.</div>`;
@@ -3176,7 +3184,7 @@ renderDecouchageList() {
   async resolveRefuelRescanTargets() {
       let trucks = [];
       try {
-          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks`);
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks`, { headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || this.currentCode || '' } });
           const data = await this.parseJsonResponseSafe(res);
           trucks = Object.entries(data || {}).map(([deviceId, truck]) => ({
               deviceId: String(deviceId),
@@ -3407,8 +3415,8 @@ renderFilteredRefuels() {
         const timeDisplay = dateObj.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
         const locBadge = log.isInternal 
-            ? `<span style="background:#dcfce7; color:#166534; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`
-            : `<span style="background:#fff7ed; color:#c2410c; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><i class="fa-solid fa-gas-pump"></i> STATION</span>`;
+            ? `<span style="background:rgba(22,163,74,0.15); color:#4ade80; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><i class="fa-solid fa-building"></i> SITE INTERNE</span>`
+            : `<span style="background:rgba(194,65,12,0.15); color:#fb923c; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:bold; display:inline-flex; align-items:center; gap:4px; white-space:nowrap;"><i class="fa-solid fa-gas-pump"></i> STATION</span>`;
 
         // Fuel bar visualization
         const fillPercent = log.truckCapacity > 0 ? Math.min(100, Math.round((log.realTotal / log.truckCapacity) * 100)) : 0;
@@ -3513,74 +3521,74 @@ exportRefuelCSV() {
     s.id = 'naftalV5CSS';
     s.textContent = `
 /* ── NAFTAL V5 LIGHT THEME ─────────────────────────────── */
-.nv5-wrap { background:#f8fafc; border-radius:12px; overflow:hidden; font-family:inherit; }
-.nv5-tabs { display:flex; gap:2px; padding:0 16px; background:#fff; border-bottom:1.5px solid #e2e8f0; }
-.nv5-tab { padding:13px 18px; border:none; background:transparent; cursor:pointer; font-size:13px; font-weight:600; color:#64748b; border-bottom:3px solid transparent; margin-bottom:-1.5px; transition:all 0.15s; white-space:nowrap; }
+.nv5-wrap { background:var(--bg-base, #0d1526); border-radius:12px; overflow:hidden; font-family:inherit; }
+.nv5-tabs { display:flex; gap:2px; padding:0 16px; background:var(--bg-surface); border-bottom:1.5px solid var(--border); }
+.nv5-tab { padding:13px 18px; border:none; background:transparent; cursor:pointer; font-size:13px; font-weight:600; color:var(--text-muted); border-bottom:3px solid transparent; margin-bottom:-1.5px; transition:all 0.15s; white-space:nowrap; }
 .nv5-tab.active { color:#0284c7; border-bottom-color:#0284c7; }
-.nv5-tab:hover:not(.active) { color:#1e293b; background:#f8fafc; }
+.nv5-tab:hover:not(.active) { color:var(--text-primary); background:var(--bg-elevated); }
 .nv5-body { padding:16px; min-height:340px; }
 .nv5-subtabs { display:flex; gap:6px; margin-bottom:16px; }
-.nv5-stab { padding:7px 16px; border-radius:20px; border:1.5px solid #e2e8f0; background:#fff; cursor:pointer; font-size:12px; font-weight:600; color:#64748b; transition:all 0.15s; }
+.nv5-stab { padding:7px 16px; border-radius:20px; border:1.5px solid var(--border); background:var(--bg-surface); cursor:pointer; font-size:12px; font-weight:600; color:var(--text-muted); transition:all 0.15s; }
 .nv5-stab.active { background:#0284c7; color:#fff; border-color:#0284c7; }
 /* Cards */
-.nv5-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); overflow:hidden; margin-bottom:14px; }
-.nv5-card-head { padding:12px 16px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.nv5-card { background:var(--bg-surface); border:1.5px solid var(--border); border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.1); overflow:hidden; margin-bottom:14px; }
+.nv5-card-head { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
 .nv5-card-body { padding:14px 16px; }
 /* Truck grid */
 .nv5-truck-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(185px,1fr)); gap:12px; }
-.nv5-truck-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:12px; cursor:pointer; overflow:hidden; transition:all 0.18s; box-shadow:0 1px 5px rgba(0,0,0,0.05); }
-.nv5-truck-card:hover { border-color:#7dd3fc; transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,0.1); }
-.nv5-truck-card.sel { border-color:#0284c7 !important; background:#f0f9ff; box-shadow:0 0 0 2px rgba(2,132,199,0.25),0 4px 16px rgba(2,132,199,0.1); }
-.nv5-truck-card.pend { border-color:#f59e0b !important; background:#fffbeb; }
+.nv5-truck-card { background:var(--bg-surface); border:1.5px solid var(--border); border-radius:12px; cursor:pointer; overflow:hidden; transition:all 0.18s; box-shadow:0 1px 5px rgba(0,0,0,0.1); }
+.nv5-truck-card:hover { border-color:#7dd3fc; transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,0,0,0.15); }
+.nv5-truck-card.sel { border-color:#0284c7 !important; background:rgba(2,132,199,0.08); box-shadow:0 0 0 2px rgba(2,132,199,0.25),0 4px 16px rgba(2,132,199,0.1); }
+.nv5-truck-card.pend { border-color:#f59e0b !important; background:rgba(245,158,11,0.06); }
 .nv5-tc-accent { height:4px; width:100%; }
 .nv5-tc-body { padding:12px 13px 11px; }
-.nv5-fuel-track { height:7px; background:#f1f5f9; border-radius:4px; overflow:hidden; flex:1; }
+.nv5-fuel-track { height:7px; background:var(--bg-elevated); border-radius:4px; overflow:hidden; flex:1; }
 .nv5-fuel-fill { height:100%; border-radius:4px; transition:width 0.4s; }
 /* Destination panel */
-.nv5-dest-panel { background:#fff; border:1.5px solid #e2e8f0; border-radius:14px; padding:18px; box-shadow:0 4px 20px rgba(0,0,0,0.08); }
-.nv5-dest-row { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:10px; margin-bottom:12px; overflow:hidden; }
-.nv5-dest-head { padding:12px 14px; border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; }
+.nv5-dest-panel { background:var(--bg-surface); border:1.5px solid var(--border); border-radius:14px; padding:18px; box-shadow:0 4px 20px rgba(0,0,0,0.12); }
+.nv5-dest-row { background:var(--bg-elevated); border:1.5px solid var(--border); border-radius:10px; margin-bottom:12px; overflow:hidden; }
+.nv5-dest-head { padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px; }
 .nv5-dest-body { padding:12px 14px; }
 .nv5-route-step { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
 .nv5-route-dot { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
-.nv5-inp { width:100%; padding:9px 12px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:12px; outline:none; transition:border-color 0.15s; box-sizing:border-box; background:#fff; color:#1e293b; }
+.nv5-inp { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:12px; outline:none; transition:border-color 0.15s; box-sizing:border-box; background:var(--bg-surface); color:var(--text-primary); }
 .nv5-inp:focus { border-color:#38bdf8; }
-.nv5-autocomplete { position:absolute; z-index:9999; background:#fff; border:1.5px solid #e2e8f0; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.12); max-height:180px; overflow-y:auto; min-width:260px; }
-.nv5-ac-item { padding:9px 12px; cursor:pointer; font-size:12px; color:#1e293b; border-bottom:1px solid #f1f5f9; transition:background 0.1s; }
-.nv5-ac-item:hover { background:#f0f9ff; }
+.nv5-autocomplete { position:absolute; z-index:9999; background:var(--bg-surface); border:1.5px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.2); max-height:180px; overflow-y:auto; min-width:260px; }
+.nv5-ac-item { padding:9px 12px; cursor:pointer; font-size:12px; color:var(--text-primary); border-bottom:1px solid var(--border); transition:background 0.1s; }
+.nv5-ac-item:hover { background:var(--bg-hover); }
 .nv5-ac-item:last-child { border-bottom:none; }
 /* KPI strip */
 .nv5-kpi { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-bottom:16px; }
 .nv5-kpi-card { border-radius:12px; padding:14px 16px; text-align:center; border:1px solid; }
 /* Table */
 .nv5-table { width:100%; border-collapse:collapse; font-size:12px; }
-.nv5-table th { padding:9px 10px; text-align:left; color:#64748b; font-weight:700; border-bottom:2px solid #e2e8f0; white-space:nowrap; }
-.nv5-table td { padding:10px 12px; border-bottom:1px solid #e2e8f0; color:#1e293b; vertical-align:middle; }
+.nv5-table th { padding:9px 10px; text-align:left; color:var(--text-muted); font-weight:700; border-bottom:2px solid var(--border); white-space:nowrap; }
+.nv5-table td { padding:10px 12px; border-bottom:1px solid var(--border); color:var(--text-primary); vertical-align:middle; }
 .nv5-table tbody tr:last-child td { border-bottom:none; }
-.nv5-table tbody tr:hover td { background:#f0f9ff !important; }
-.nv5-table tr:hover td { background:#f8fafc; }
+.nv5-table tbody tr:hover td { background:var(--bg-hover) !important; }
+.nv5-table tr:hover td { background:var(--bg-hover); }
 /* Status badges */
 .nv5-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:10px; font-weight:700; }
 /* Filter bar */
-.nv5-filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; align-items:center; padding:12px 14px; background:#fff; border-radius:10px; border:1px solid #e2e8f0; }
-.nv5-sel { padding:7px 10px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:12px; background:#fff; color:#1e293b; outline:none; }
+.nv5-filters { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px; align-items:center; padding:12px 14px; background:var(--bg-surface); border-radius:10px; border:1px solid var(--border); }
+.nv5-sel { padding:7px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:12px; background:var(--bg-surface); color:var(--text-primary); outline:none; }
 /* Timeline */
 .nv5-timeline { position:relative; padding-left:24px; }
-.nv5-timeline::before { content:''; position:absolute; left:8px; top:0; bottom:0; width:2px; background:#e2e8f0; }
+.nv5-timeline::before { content:''; position:absolute; left:8px; top:0; bottom:0; width:2px; background:var(--border); }
 .nv5-tl-item { position:relative; margin-bottom:12px; }
 .nv5-tl-dot { position:absolute; left:-24px; width:16px; height:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:8px; color:#fff; }
 /* Analyse */
 .nv5-chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
-.nv5-chart-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,0.05); }
+.nv5-chart-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,0.1); }
 /* Misc */
 .nv5-btn { padding:8px 18px; border-radius:8px; border:none; cursor:pointer; font-size:12px; font-weight:700; transition:all 0.15s; }
 .nv5-btn-primary { background:#0284c7; color:#fff; }
 .nv5-btn-primary:hover { background:#0369a1; }
 .nv5-btn-danger { background:#ef4444; color:#fff; }
 .nv5-btn-success { background:#16a34a; color:#fff; }
-.nv5-btn-ghost { background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; }
-.nv5-btn-ghost:hover { background:#e2e8f0; }
-.nv5-mod-banner { background:#fef3c7; border:1.5px solid #f59e0b; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+.nv5-btn-ghost { background:var(--bg-elevated); color:var(--text-secondary); border:1px solid var(--border); }
+.nv5-btn-ghost:hover { background:var(--bg-hover); }
+.nv5-mod-banner { background:rgba(245,158,11,0.1); border:1.5px solid #f59e0b; border-radius:10px; padding:12px 14px; margin-bottom:10px; }
     `;
     document.head.appendChild(s);
   }
@@ -3632,12 +3640,12 @@ exportRefuelCSV() {
       '<div style="max-width:340px;margin:60px auto;text-align:center;">' +
         '<div style="width:64px;height:64px;border-radius:50%;background:' + col + '1a;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;">' +
           '<i class="fa-solid ' + icons[section] + '" style="color:' + col + ';font-size:26px;"></i></div>' +
-        '<h3 style="margin:0 0 6px;color:#1e293b;font-size:18px;">Accès ' + titles[section] + '</h3>' +
-        '<p style="color:#64748b;font-size:13px;margin-bottom:20px;">Entrez votre mot de passe pour continuer</p>' +
+        '<h3 style="margin:0 0 6px;color:var(--text-primary,#1e293b);font-size:18px;">Accès ' + titles[section] + '</h3>' +
+        '<p style="color:var(--text-muted,#64748b);font-size:13px;margin-bottom:20px;">Entrez votre mot de passe pour continuer</p>' +
         '<input id="naftalPwdInp" type="password" placeholder="Mot de passe..."' +
-          ' style="width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:10px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;background:#f0f4f8;color:#1e293b;"' +
+          ' style="width:100%;padding:11px 14px;border:1.5px solid var(--border,#e2e8f0);border-radius:10px;font-size:14px;outline:none;margin-bottom:12px;box-sizing:border-box;background:var(--bg-elevated,#f0f4f8);color:var(--text-primary,#1e293b);"' +
           ' onfocus="this.style.borderColor=\'#0284c7\';this.style.boxShadow=\'0 0 0 3px rgba(2,132,199,0.15)\'"' +
-          ' onblur="this.style.borderColor=\'#e2e8f0\';this.style.boxShadow=\'none\'"' +
+          ' onblur="this.style.borderColor=\'var(--border,#e2e8f0)\';this.style.boxShadow=\'none\'"' +
           ' onkeydown="if(event.key===\'Enter\')ui.naftalVerifyPassword(\'' + section + '\')"' +
           ' autofocus>' +
         '<button onclick="ui.naftalVerifyPassword(\'' + section + '\')" style="width:100%;padding:12px;background:' + col + ';color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;">' +
@@ -3890,24 +3898,24 @@ exportRefuelCSV() {
       '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">' +
         '<div>' +
           '<h3 style="margin:0 0 3px;color:#0284c7;font-size:15px;"><i class="fa-solid fa-truck-ramp-box"></i> Sélectionner Camion(s)</h3>' +
-          '<div style="font-size:11px;color:#64748b;">' + allT2.length + ' camion(s) dans la flotte</div>' +
+          '<div style="font-size:11px;color:var(--text-muted,#64748b);">' + allT2.length + ' camion(s) dans la flotte</div>' +
         '</div>' +
         '<input id="nv5SearchInp" type="text" placeholder="🔍 Camion, carte, immat..." value="'+(this.naftalSearchQuery||'')+'" ' +
           'oninput="ui.naftalSearchQuery=this.value;clearTimeout(ui._srchT);ui._srchT=setTimeout(function(){var g=document.getElementById(\'nv5Grid\');if(g)ui._naftalRenderTruckGrid(g);},180);" ' +
-          'style="padding:9px 14px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:12px;width:220px;outline:none;background:#fff;color:#1e293b;" ' +
-          'onfocus="this.style.borderColor=\'#38bdf8\'" onblur="this.style.borderColor=\'#e2e8f0\'">' +
+          'style="padding:9px 14px;border:1.5px solid var(--border,#e2e8f0);border-radius:20px;font-size:12px;width:220px;outline:none;background:var(--bg-elevated,#fff);color:var(--text-primary,#1e293b);" ' +
+          'onfocus="this.style.borderColor=\'#38bdf8\'" onblur="this.style.borderColor=\'var(--border,#e2e8f0)\'">' +
       '</div>' +
       // Sort bar
       '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">' +
-        '<span style="font-size:11px;color:#64748b;font-weight:600;">Trier&nbsp;:</span>' +
+        '<span style="font-size:11px;color:var(--text-muted,#64748b);font-weight:600;">Trier&nbsp;:</span>' +
         '<button id="nvsort_name" onclick="ui.naftalSortField=\'name\';ui.naftalSortDir=(ui.naftalSortDir===\'asc\'?\'desc\':\'asc\');var g=document.getElementById(\'nv5Grid\');if(g)ui._naftalRenderTruckGrid(g);" ' +
-          'style="padding:4px 10px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:11px;font-weight:600;background:#fff;color:#374151;cursor:pointer;">' +
+          'style="padding:4px 10px;border:1.5px solid var(--border,#e2e8f0);border-radius:20px;font-size:11px;font-weight:600;background:var(--bg-elevated,#fff);color:var(--text-secondary,#374151);cursor:pointer;">' +
           '<i class="fa-solid fa-font"></i> Nom</button>' +
         '<button id="nvsort_fuel" onclick="ui.naftalSortField=\'fuel\';ui.naftalSortDir=(ui.naftalSortField!==\'fuel\'?\'asc\':(ui.naftalSortDir===\'asc\'?\'desc\':\'asc\'));var g=document.getElementById(\'nv5Grid\');if(g)ui._naftalRenderTruckGrid(g);" ' +
-          'style="padding:4px 10px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:11px;font-weight:600;background:#fff;color:#374151;cursor:pointer;">' +
+          'style="padding:4px 10px;border:1.5px solid var(--border,#e2e8f0);border-radius:20px;font-size:11px;font-weight:600;background:var(--bg-elevated,#fff);color:var(--text-secondary,#374151);cursor:pointer;">' +
           '<i class="fa-solid fa-percent"></i> Carburant %</button>' +
         '<button id="nvsort_liters" onclick="ui.naftalSortField=\'liters\';ui.naftalSortDir=(ui.naftalSortField!==\'liters\'?\'asc\':(ui.naftalSortDir===\'asc\'?\'desc\':\'asc\'));var g=document.getElementById(\'nv5Grid\');if(g)ui._naftalRenderTruckGrid(g);" ' +
-          'style="padding:4px 10px;border:1.5px solid #e2e8f0;border-radius:20px;font-size:11px;font-weight:600;background:#fff;color:#374151;cursor:pointer;">' +
+          'style="padding:4px 10px;border:1.5px solid var(--border,#e2e8f0);border-radius:20px;font-size:11px;font-weight:600;background:var(--bg-elevated,#fff);color:var(--text-secondary,#374151);cursor:pointer;">' +
           '<i class="fa-solid fa-gas-pump"></i> Litres</button>' +
       '</div>' +
       '<div id="nv5SelBar"></div>' +
@@ -3994,7 +4002,7 @@ exportRefuelCSV() {
           '<i class="fa-solid fa-credit-card" style="color:'+cardColor+';font-size:8px;"></i>' +
           '<span style="font-size:10px;color:'+cardColor+';font-weight:700;font-family:monospace;">'+cardText+'</span></span>';
       if (db2.immatriculation) {
-        html += '<span style="font-size:9px;color:#64748b;background:#f1f5f9;padding:2px 7px;border-radius:20px;border:1px solid #e2e8f0;">'+(db2.immatriculation)+'</span>';
+        html += '<span style="font-size:9px;color:var(--text-muted,#64748b);background:var(--bg-elevated,#f1f5f9);padding:2px 7px;border-radius:20px;border:1px solid var(--border,#e2e8f0);">'+(db2.immatriculation)+'</span>';
       }
       html += '</div>';
 
@@ -4089,18 +4097,18 @@ exportRefuelCSV() {
             var oid = 'nv5bs_' + Date.now();
             var sheet = document.createElement('div');
             sheet.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:flex-end;justify-content:center;';
-            sheet.innerHTML = '<div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:520px;box-shadow:0 -8px 40px rgba(0,0,0,0.2);">'
-              + '<div style="width:36px;height:4px;background:#e2e8f0;border-radius:2px;margin:0 auto 16px;"></div>'
+            sheet.innerHTML = '<div style="background:var(--bg-surface,#fff);border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:520px;box-shadow:0 -8px 40px rgba(0,0,0,0.2);">'
+              + '<div style="width:36px;height:4px;background:var(--border,#e2e8f0);border-radius:2px;margin:0 auto 16px;"></div>'
               + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">'
-              +   '<div style="width:40px;height:40px;border-radius:50%;background:#fef3c7;display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-solid fa-triangle-exclamation" style="color:#d97706;font-size:18px;"></i></div>'
-              +   '<div><div style="font-weight:800;font-size:15px;color:#1e293b;">'+truckName2+' est déjà en demande</div>'
-              +       '<div style="font-size:12px;color:#64748b;margin-top:2px;">'+existDecl.declarationId+' · '+declStatus+'</div></div>'
+              +   '<div style="width:40px;height:40px;border-radius:50%;background:rgba(234,179,8,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;"><i class="fa-solid fa-triangle-exclamation" style="color:#d97706;font-size:18px;"></i></div>'
+              +   '<div><div style="font-weight:800;font-size:15px;color:var(--text-primary,#1e293b);">'+truckName2+' est déjà en demande</div>'
+              +       '<div style="font-size:12px;color:var(--text-muted,#64748b);margin-top:2px;">'+existDecl.declarationId+' · '+declStatus+'</div></div>'
               + '</div>'
               + '<button id="'+oid+'_view" style="width:100%;padding:13px;background:#0284c7;color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;">'
               +   '<i class="fa-solid fa-list-check"></i> Voir dans Mes Demandes</button>'
-              + '<button id="'+oid+'_force" style="width:100%;padding:13px;background:#fff;color:#dc2626;border:2px solid #fca5a5;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;">'
+              + '<button id="'+oid+'_force" style="width:100%;padding:13px;background:var(--bg-elevated,#fff);color:#dc2626;border:2px solid #fca5a5;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:8px;">'
               +   '<i class="fa-solid fa-bolt"></i> Forcer nouvelle demande quand même</button>'
-              + '<button id="'+oid+'_cancel" style="width:100%;padding:11px;background:#f8fafc;color:#64748b;border:1.5px solid #e2e8f0;border-radius:12px;font-size:13px;font-weight:600;cursor:pointer;">'
+              + '<button id="'+oid+'_cancel" style="width:100%;padding:11px;background:var(--bg-elevated,#f8fafc);color:var(--text-muted,#64748b);border:1.5px solid var(--border,#e2e8f0);border-radius:12px;font-size:13px;font-weight:600;cursor:pointer;">'
               +   'Annuler</button>'
               + '</div>';
             document.body.appendChild(sheet);
@@ -4230,10 +4238,10 @@ exportRefuelCSV() {
             '<div style="width:36px;height:36px;border-radius:8px;background:'+fc+'22;display:flex;align-items:center;justify-content:center;">' +
               '<i class="fa-solid fa-truck" style="color:'+fc+';font-size:14px;"></i></div>' +
             '<div>' +
-              '<div style="font-weight:800;color:#1e293b;font-size:13px;">'+(e.truckName||e.deviceId)+'</div>' +
+              '<div style="font-weight:800;color:var(--text-primary,#1e293b);font-size:13px;">'+(e.truckName||e.deviceId)+'</div>' +
               '<div style="display:flex;gap:5px;margin-top:3px;flex-wrap:wrap;align-items:center;">' +
                 '<span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:20px;font-weight:700;">'+(e.carteNaftal||'N/A')+'</span>' +
-                (e.immatriculation?'<span style="font-size:10px;background:#f1f5f9;color:#64748b;padding:1px 7px;border-radius:20px;">'+e.immatriculation+'</span>':'') +
+                (e.immatriculation?'<span style="font-size:10px;background:var(--bg-elevated,#f1f5f9);color:var(--text-muted,#64748b);padding:1px 7px;border-radius:20px;">'+e.immatriculation+'</span>':'') +
                 (e.driverName?'<span style="font-size:10px;background:#ecfdf5;color:#059669;padding:1px 7px;border-radius:20px;font-weight:600;"><i class="fa-solid fa-user"></i> '+e.driverName+'</span>':'') +
                 (e.trailer?'<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:600;"><i class="fa-solid fa-trailer"></i> '+e.trailer+'</span>':'') +
               '</div>' +
@@ -4247,7 +4255,7 @@ exportRefuelCSV() {
             '</div>' +
           '</div>' +
         '</div>' +
-        '<div style="padding:0 14px 6px;background:#f8fafc;">' +
+        '<div style="padding:0 14px 6px;background:var(--bg-elevated,#f8fafc);">' +
           '<div style="font-size:11px;color:#64748b;margin:8px 0 6px;display:flex;align-items:center;gap:5px;">' +
             '<i class="fa-solid fa-location-dot" style="color:'+fc+';font-size:10px;"></i>' +
             '<span id="ndep_'+e.deviceId+'">'+(e.currentLocation||'Inconnue')+'</span>' +
@@ -15889,9 +15897,9 @@ _naftalSortTable(tblId, colIdx) {
         i.fuelLiters || 0
       ]);
       await window.ExcelExportEngine.exportTableToXlsx({
-        filename: `Suivi_Disponibilite_${new Date().toISOString().slice(0, 10)}.xlsx`,
-        sheetName: 'Disponibilité Flotte',
-        title: 'DOULOUB EL DJAZAIR — SUIVI DISPONIBILITÉ FLOTTE & CHAUFFEURS',
+        filename: `Suivi_Transport_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        sheetName: 'Suivi Transport Flotte',
+        title: 'DOULOUB EL DJAZAIR — SUIVI TRANSPORT FLOTTE & CHAUFFEURS',
         subtitle: `Rapport généré le ${new Date().toLocaleString('fr-FR')} | Filtre: ${this._dispoSituationFilter || 'Tous'}`,
         headers,
         rows

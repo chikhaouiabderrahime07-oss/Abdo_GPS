@@ -768,8 +768,8 @@
     // 1. CHECK LOCAL STORAGE ON LOAD
     const storedCode = localStorage.getItem('fleetAccessCode');
 
-    // THEME INITIALIZATION (Default: Light / White theme)
-    const savedTheme = localStorage.getItem('fleetTheme') || 'light';
+    // THEME INITIALIZATION (Default: Dark theme)
+    const savedTheme = localStorage.getItem('fleetTheme') || 'dark';
     if (savedTheme === 'light') {
         document.documentElement.setAttribute('data-theme', 'light');
     } else {
@@ -1284,6 +1284,12 @@
         <button class="dispo-sub-tab" data-subtab="history" onclick="switchDispoSubTab('history')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
           <i class="fa-solid fa-clock-rotate-left"></i> Historique Complet
         </button>
+        <button class="dispo-sub-tab" data-subtab="fiches" onclick="switchDispoSubTab('fiches')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-id-card"></i> Fiches Véhicules
+        </button>
+        <button class="dispo-sub-tab" data-subtab="analytics" onclick="switchDispoSubTab('analytics')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-chart-pie"></i> Analyse & KPIs
+        </button>
       </div>
 
       <!-- ═══ SUB-TAB PANELS ═══ -->
@@ -1504,6 +1510,138 @@
           <button id="histNextBtn" onclick="historyPageNav(1)" style="padding:6px 14px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px; cursor:pointer;">
             Suivant <i class="fa-solid fa-chevron-right"></i>
           </button>
+        </div>
+      </div>
+
+      <!-- PANEL 5: FICHES VÉHICULES (moved from Settings) -->
+      <div id="dispoSubFiches" class="dispo-sub-panel" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+          <div>
+            <h3 style="margin:0; color:var(--primary); display:flex; align-items:center; gap:8px; font-size:15px;">
+              <i class="fa-solid fa-id-card"></i> Fiches Véhicules — Immatriculation, Châssis & Naftal
+            </h3>
+            <p style="margin:4px 0 0; font-size:12px; color:var(--text-muted);">Éditez les informations de chaque camion: N° châssis, immatriculation, carte Naftal, chauffeur et remorque assignés.</p>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin-bottom:16px; background:var(--bg-elevated); padding:16px; border-radius:12px; border:1px solid var(--border);">
+          <div class="form-group" style="flex:2; min-width:180px;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-secondary); display:block; margin-bottom:4px;">Sélectionner Camion</label>
+            <select id="settingsTruckSelect" onchange="ui.loadTruckMetaInSettings()" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px;"></select>
+          </div>
+          <div class="form-group" style="min-width:120px;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-secondary); display:block; margin-bottom:4px;">N° Châssis</label>
+            <input type="text" id="settingsChassisNumber" placeholder="VIN" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px;">
+          </div>
+          <div class="form-group" style="min-width:130px;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-secondary); display:block; margin-bottom:4px;">Immatriculation</label>
+            <input type="text" id="settingsImmatriculation" placeholder="00000-000-16" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px;">
+          </div>
+          <div class="form-group" style="min-width:120px;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-secondary); display:block; margin-bottom:4px;">Carte Naftal</label>
+            <input type="text" id="settingsCarteNaftal" placeholder="N° Carte" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px;">
+          </div>
+          <div class="form-group" style="min-width:120px;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-secondary); display:block; margin-bottom:4px;">Remorque</label>
+            <input type="text" id="settingsTrailer" placeholder="Plaque Remorque" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px;">
+          </div>
+          <div class="form-group" style="min-width:130px;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-secondary); display:block; margin-bottom:4px;">Chauffeur</label>
+            <input type="text" id="settingsDriverName" placeholder="Nom Chauffeur" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px;">
+          </div>
+          <div class="form-group" style="min-width:120px;">
+            <label style="font-size:11px; font-weight:700; color:var(--text-secondary); display:block; margin-bottom:4px;">Tél Chauffeur</label>
+            <input type="text" id="settingsDriverPhone" placeholder="0555..." style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:13px;">
+          </div>
+          <button class="btn-primary" onclick="ui.saveTruckMetaFromSettings()" style="background:linear-gradient(135deg,#f59e0b,#d97706); border:none; padding:9px 18px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; color:#fff; height:40px;">
+            <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+          </button>
+        </div>
+        <div id="settingsTruckMetaList" style="max-height:500px; overflow-y:auto;"></div>
+      </div>
+
+      <!-- PANEL 6: ANALYSE & KPIs -->
+      <div id="dispoSubAnalytics" class="dispo-sub-panel" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+          <div>
+            <h3 style="margin:0; color:var(--primary); display:flex; align-items:center; gap:8px; font-size:15px;">
+              <i class="fa-solid fa-chart-pie"></i> Analyse & KPIs Transport
+            </h3>
+            <p style="margin:4px 0 0; font-size:12px; color:var(--text-muted);">Vue d'ensemble de la flotte en temps réel: état, performance et répartition.</p>
+          </div>
+          <button onclick="loadAnalyticsDb()" class="btn-primary" style="background:linear-gradient(135deg,#8b5cf6,#6366f1); border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; color:#fff;">
+            <i class="fa-solid fa-rotate"></i> Rafraîchir
+          </button>
+        </div>
+
+        <!-- KPI SUMMARY CARDS -->
+        <div id="analyticsKpiCards" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:20px;">
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid var(--border); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:var(--primary);" id="kpiTotalTrucks">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">Camions Total</div>
+          </div>
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid var(--border); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:#10b981;" id="kpiMoving">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">En Route</div>
+          </div>
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid var(--border); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:#f59e0b;" id="kpiStopped">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">À l'Arrêt</div>
+          </div>
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid var(--border); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:#ef4444;" id="kpiGpsCut">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">Coupure GPS</div>
+          </div>
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid var(--border); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:#3b82f6;" id="kpiTotalDrivers">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">Chauffeurs</div>
+          </div>
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:16px; border:1px solid var(--border); text-align:center;">
+            <div style="font-size:24px; font-weight:900; color:#8b5cf6;" id="kpiTotalTrailers">—</div>
+            <div style="font-size:11px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:4px;">Remorques</div>
+          </div>
+        </div>
+
+        <!-- CHARTS ROW -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; margin-bottom:20px;">
+          <!-- Situation Distribution -->
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border);">
+            <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-chart-bar" style="color:#8b5cf6;"></i> Répartition par Situation
+            </h4>
+            <div id="chartSituation" style="min-height:180px;"></div>
+          </div>
+          <!-- Fuel Status -->
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border);">
+            <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-gas-pump" style="color:#f59e0b;"></i> Niveau Carburant
+            </h4>
+            <div id="chartFuel" style="min-height:180px;"></div>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; margin-bottom:20px;">
+          <!-- Speed Distribution -->
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border);">
+            <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-gauge-high" style="color:#ef4444;"></i> Distribution Vitesse
+            </h4>
+            <div id="chartSpeed" style="min-height:180px;"></div>
+          </div>
+          <!-- Top Locations -->
+          <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border);">
+            <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+              <i class="fa-solid fa-location-dot" style="color:#10b981;"></i> Top Wilayas (par nombre de camions)
+            </h4>
+            <div id="chartLocations" style="min-height:180px;"></div>
+          </div>
+        </div>
+
+        <!-- DRIVER SITUATION SUMMARY -->
+        <div style="background:var(--bg-elevated); border-radius:12px; padding:20px; border:1px solid var(--border); margin-bottom:20px;">
+          <h4 style="margin:0 0 12px; font-size:13px; color:var(--text-primary); display:flex; align-items:center; gap:6px;">
+            <i class="fa-solid fa-users" style="color:#3b82f6;"></i> Résumé Chauffeurs & Remorques
+          </h4>
+          <div id="chartDriverSummary" style="min-height:100px;"></div>
         </div>
       </div>
     </div>
@@ -2357,29 +2495,17 @@
     <div class="controls-section">
       <h2 style="color: var(--text-primary);"><i class="fa-solid fa-sliders"></i> Configuration Système</h2>
 
-        <!-- ✅ NEW: Per-truck metadata editor in Settings -->
-        <div class="settings-accordion-item" style="border:1px solid #f59e0b; border-radius:6px; margin-bottom:10px; padding:10px; background:var(--warning-subtle);">
-            <div class="settings-header" style="cursor:pointer; display:flex; justify-content:space-between; font-weight:bold; color:var(--warning);">
-                <span><i class="fa-solid fa-id-card"></i> Fiches Véhicules (Imm. / Châssis / Naftal)</span>
-                <i class="fa-solid fa-chevron-down settings-arrow"></i>
-            </div>
-            <div class="settings-content" style="margin-top:10px;">
-                <div style="display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin-bottom:12px;">
-                    <div class="form-group" style="flex:2;">
-                        <label>Sélectionner Camion</label>
-                        <select id="settingsTruckSelect" onchange="ui.loadTruckMetaInSettings()"></select>
-                    </div>
-                    <div class="form-group"><label>N° Châssis</label><input type="text" id="settingsChassisNumber" placeholder="VIN"></div>
-                    <div class="form-group"><label>Immatriculation</label><input type="text" id="settingsImmatriculation" placeholder="00000-000-16"></div>
-                    <div class="form-group"><label>Carte Naftal</label><input type="text" id="settingsCarteNaftal" placeholder="N° Carte"></div>
-                    <div class="form-group"><label>Remorque</label><input type="text" id="settingsTrailer" placeholder="Plaque Remorque"></div>
-                    <div class="form-group"><label>Chauffeur</label><input type="text" id="settingsDriverName" placeholder="Nom Chauffeur"></div>
-                    <div class="form-group"><label>Tél Chauffeur</label><input type="text" id="settingsDriverPhone" placeholder="0555..."></div>
-                    <button class="btn-primary" onclick="ui.saveTruckMetaFromSettings()" style="background:var(--warning); border:none; height:38px;">
-                        <i class="fa-solid fa-save"></i> Enregistrer
-                    </button>
+        <!-- Fiches Véhicules — MOVED to Suivi Transport -->
+        <div class="settings-accordion-item" style="border:1px solid rgba(56,189,248,0.3); border-radius:10px; margin-bottom:10px; padding:14px; background:rgba(56,189,248,0.05);">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <i class="fa-solid fa-arrow-right" style="color:var(--primary); font-size:16px;"></i>
+                <div>
+                    <span style="font-weight:700; color:var(--primary);">Fiches Véhicules, Chauffeurs & Remorques</span>
+                    <p style="margin:4px 0 0; font-size:12px; color:var(--text-muted);">La gestion a été déplacée vers <strong>Suivi Transport</strong> pour un accès centralisé.</p>
                 </div>
-                <div id="settingsTruckMetaList" style="max-height:300px; overflow-y:auto;"></div>
+                <button onclick="switchTab('disponibiliteSection'); setTimeout(()=>switchDispoSubTab('fiches'),200);" style="margin-left:auto; background:linear-gradient(135deg,#0ea5e9,#3b82f6); color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; white-space:nowrap;">
+                    <i class="fa-solid fa-arrow-right"></i> Aller vers Suivi Transport
+                </button>
             </div>
         </div>
         
@@ -2878,7 +3004,7 @@ window.addEventListener('unhandledrejection', function(e) {
     const HIST_PAGE_SIZE = 50;
 
     function switchDispoSubTab(tab) {
-      const map = { flotte: 'dispoSubFlotte', drivers: 'dispoSubDrivers', trailers: 'dispoSubTrailers', history: 'dispoSubHistory' };
+      const map = { flotte: 'dispoSubFlotte', drivers: 'dispoSubDrivers', trailers: 'dispoSubTrailers', history: 'dispoSubHistory', fiches: 'dispoSubFiches', analytics: 'dispoSubAnalytics' };
       document.querySelectorAll('.dispo-sub-panel').forEach(p => p.style.display = 'none');
       document.querySelectorAll('.dispo-sub-tab').forEach(b => {
         b.classList.remove('active');
@@ -2894,6 +3020,8 @@ window.addEventListener('unhandledrejection', function(e) {
       if (tab === 'drivers') loadDriverDb();
       if (tab === 'trailers') loadTrailerDb();
       if (tab === 'history') loadHistoryDb();
+      if (tab === 'fiches' && ui && ui.populateSettingsTruckSelect) { ui.populateSettingsTruckSelect(); }
+      if (tab === 'analytics') loadAnalyticsDb();
     }
 
     // ═══ DRIVER DATABASE ═══
@@ -2981,7 +3109,7 @@ window.addEventListener('unhandledrejection', function(e) {
       setVal('driverModalNotes', d.notes);
       const title = document.getElementById('modalAddDriverTitle');
       if (title) title.innerHTML = '<i class="fa-solid fa-user-pen"></i> Modifier Chauffeur';
-      document.getElementById('modalAddDriver').style.display = '';
+      document.getElementById('modalAddDriver').style.display = 'flex';
     }
 
     async function deleteDriverFromDb(id, name) {
@@ -3082,7 +3210,7 @@ window.addEventListener('unhandledrejection', function(e) {
       setVal('trailerModalNotes', t.notes);
       const title = document.getElementById('modalAddTrailerTitle');
       if (title) title.innerHTML = '<i class="fa-solid fa-pen"></i> Modifier Remorque';
-      document.getElementById('modalAddTrailer').style.display = '';
+      document.getElementById('modalAddTrailer').style.display = 'flex';
     }
 
     async function deleteTrailerFromDb(id, name) {
@@ -3259,6 +3387,165 @@ window.addEventListener('unhandledrejection', function(e) {
       const b = parseInt(hex.slice(5,7), 16) || 0;
       return `${r},${g},${b}`;
     }
+
+    // ═══ ANALYTICS & KPIs ═══
+    async function loadAnalyticsDb() {
+      try {
+        // Gather live truck data
+        const trucks = (window.app && typeof app.getAllTrucks === 'function') ? app.getAllTrucks() : [];
+        const drivers = _driverDbCache && _driverDbCache.length ? _driverDbCache : [];
+        const trailers = _trailerDbCache && _trailerDbCache.length ? _trailerDbCache : [];
+
+        // If caches empty, fetch them
+        if (!drivers.length) {
+          try {
+            const dr = await fetch((window.FLEET_CONFIG?.API?.baseUrl || '') + '/api/drivers', { headers: DISPO_HEADERS() });
+            const dd = await dr.json();
+            _driverDbCache = Array.isArray(dd) ? dd : (dd.drivers || []);
+          } catch(e) {}
+        }
+        if (!trailers.length) {
+          try {
+            const tr = await fetch((window.FLEET_CONFIG?.API?.baseUrl || '') + '/api/trailers', { headers: DISPO_HEADERS() });
+            const td = await tr.json();
+            _trailerDbCache = Array.isArray(td) ? td : (td.trailers || []);
+          } catch(e) {}
+        }
+
+        const driversNow = _driverDbCache || [];
+        const trailersNow = _trailerDbCache || [];
+
+        // ── KPI Numbers ──
+        const moving = trucks.filter(t => t.speed >= 1).length;
+        const stopped = trucks.filter(t => t.speed < 1 && !t.isGpsCut).length;
+        const gpsCut = trucks.filter(t => t.isGpsCut).length;
+
+        const el = id => document.getElementById(id);
+        if (el('kpiTotalTrucks')) el('kpiTotalTrucks').textContent = trucks.length;
+        if (el('kpiMoving')) el('kpiMoving').textContent = moving;
+        if (el('kpiStopped')) el('kpiStopped').textContent = stopped;
+        if (el('kpiGpsCut')) el('kpiGpsCut').textContent = gpsCut;
+        if (el('kpiTotalDrivers')) el('kpiTotalDrivers').textContent = driversNow.length;
+        if (el('kpiTotalTrailers')) el('kpiTotalTrailers').textContent = trailersNow.length;
+
+        // ── Helper: render CSS bar chart ──
+        function renderBarChart(containerId, data) {
+          const container = el(containerId);
+          if (!container) return;
+          const maxVal = Math.max(...data.map(d => d.value), 1);
+          container.innerHTML = data.map(d => {
+            const pct = Math.round((d.value / maxVal) * 100);
+            return `<div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+              <span style="min-width:100px; font-size:11px; color:var(--text-secondary); font-weight:600; text-align:right;">${d.label}</span>
+              <div style="flex:1; background:var(--bg-surface); border-radius:6px; height:24px; overflow:hidden; border:1px solid var(--border);">
+                <div style="height:100%; width:${pct}%; background:${d.color}; border-radius:6px; transition:width 0.5s; display:flex; align-items:center; justify-content:flex-end; padding-right:6px;">
+                  ${pct > 15 ? `<span style="font-size:10px; color:#fff; font-weight:800;">${d.value}</span>` : ''}
+                </div>
+              </div>
+              ${pct <= 15 ? `<span style="font-size:10px; color:var(--text-muted); font-weight:700;">${d.value}</span>` : ''}
+            </div>`;
+          }).join('');
+        }
+
+        // ── Chart 1: Situation Distribution ──
+        const dbCache = ui?.truckDbCache || [];
+        const sitCounts = { disponible: 0, mission: 0, maintenance: 0, repos: 0 };
+        trucks.forEach(t => {
+          if (t.speed >= 1) { sitCounts.mission++; return; }
+          const db = dbCache.find(d => d.deviceId === t.id);
+          const sit = db?.situation || 'disponible';
+          if (sitCounts[sit] !== undefined) sitCounts[sit]++;
+          else sitCounts.disponible++;
+        });
+        renderBarChart('chartSituation', [
+          { label: 'En Mission', value: sitCounts.mission, color: '#10b981' },
+          { label: 'Disponible', value: sitCounts.disponible, color: '#3b82f6' },
+          { label: 'Maintenance', value: sitCounts.maintenance, color: '#f59e0b' },
+          { label: 'Repos/Décou.', value: sitCounts.repos, color: '#8b5cf6' }
+        ]);
+
+        // ── Chart 2: Fuel Status ──
+        let fuelCritical = 0, fuelLow = 0, fuelOk = 0, fuelFull = 0;
+        trucks.forEach(t => {
+          const pct = t.fuelPercentage || 0;
+          if (pct <= 15) fuelCritical++;
+          else if (pct <= 30) fuelLow++;
+          else if (pct <= 75) fuelOk++;
+          else fuelFull++;
+        });
+        renderBarChart('chartFuel', [
+          { label: 'Critique (≤15%)', value: fuelCritical, color: '#ef4444' },
+          { label: 'Bas (16-30%)', value: fuelLow, color: '#f59e0b' },
+          { label: 'Normal (31-75%)', value: fuelOk, color: '#10b981' },
+          { label: 'Plein (>75%)', value: fuelFull, color: '#3b82f6' }
+        ]);
+
+        // ── Chart 3: Speed Distribution ──
+        let spdStop = 0, spdSlow = 0, spdNormal = 0, spdFast = 0, spdOver = 0;
+        const speedLimit = (ui && ui.getSpeedLimit) ? ui.getSpeedLimit() : 85;
+        trucks.forEach(t => {
+          if (t.speed < 1) spdStop++;
+          else if (t.speed < 40) spdSlow++;
+          else if (t.speed < 70) spdNormal++;
+          else if (t.speed <= speedLimit) spdFast++;
+          else spdOver++;
+        });
+        renderBarChart('chartSpeed', [
+          { label: 'Arrêt (0)', value: spdStop, color: '#64748b' },
+          { label: 'Lent (<40)', value: spdSlow, color: '#38bdf8' },
+          { label: 'Normal (40-70)', value: spdNormal, color: '#10b981' },
+          { label: 'Rapide (70-' + speedLimit + ')', value: spdFast, color: '#f59e0b' },
+          { label: 'Excès (>' + speedLimit + ')', value: spdOver, color: '#ef4444' }
+        ]);
+
+        // ── Chart 4: Top Wilayas ──
+        const wilayaMap = {};
+        trucks.forEach(t => {
+          const w = t.location?.wilaya || 'Inconnue';
+          wilayaMap[w] = (wilayaMap[w] || 0) + 1;
+        });
+        const topWilayas = Object.entries(wilayaMap).sort((a,b) => b[1] - a[1]).slice(0, 8);
+        const wColors = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#ec4899','#64748b'];
+        renderBarChart('chartLocations', topWilayas.map(([label, value], i) => ({
+          label, value, color: wColors[i % wColors.length]
+        })));
+
+        // ── Chart 5: Driver & Trailer Summary ──
+        const dSummary = el('chartDriverSummary');
+        if (dSummary) {
+          const dActive = driversNow.filter(d => d.situation === 'active' || d.situation === 'en_mission').length;
+          const dRepos = driversNow.filter(d => d.situation === 'repos' || d.situation === 'conge').length;
+          const dOther = driversNow.length - dActive - dRepos;
+          const tAvail = trailersNow.filter(t => t.status === 'available' || !t.status).length;
+          const tMaint = trailersNow.filter(t => t.status === 'maintenance').length;
+          const tInUse = trailersNow.filter(t => t.status === 'in_use').length;
+
+          dSummary.innerHTML = `
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+              <div>
+                <div style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:8px;">👨‍✈️ Chauffeurs (${driversNow.length})</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <span style="background:rgba(16,185,129,0.15); color:#10b981; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:700;">✅ Actifs: ${dActive}</span>
+                  <span style="background:rgba(139,92,246,0.15); color:#8b5cf6; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:700;">😴 Repos/Congé: ${dRepos}</span>
+                  <span style="background:rgba(100,116,139,0.15); color:#94a3b8; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:700;">📋 Autre: ${dOther}</span>
+                </div>
+              </div>
+              <div>
+                <div style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:8px;">🚛 Remorques (${trailersNow.length})</div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                  <span style="background:rgba(59,130,246,0.15); color:#3b82f6; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:700;">✅ Disponible: ${tAvail}</span>
+                  <span style="background:rgba(245,158,11,0.15); color:#f59e0b; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:700;">🔧 Maintenance: ${tMaint}</span>
+                  <span style="background:rgba(16,185,129,0.15); color:#10b981; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:700;">🚚 En usage: ${tInUse}</span>
+                </div>
+              </div>
+            </div>`;
+        }
+
+      } catch (e) {
+        console.error('loadAnalyticsDb error:', e);
+      }
+    }
+
     setInterval(() => {
         const now = new Date();
         const el = document.getElementById('clockDisplay');
