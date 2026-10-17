@@ -5818,41 +5818,9 @@ app.post('/api/refuels/rebuild-bulk', checkAccess, async (req, res) => {
 
     let trucks = [];
     if (Array.isArray(deviceIds) && deviceIds.length) {
-      const stringIds = deviceIds.map((id) => String(id)).filter(Boolean);
-      let dbTrucks = [];
-      try {
-        dbTrucks = await Truck.find({ deviceId: { $in: stringIds } }, 'deviceId truckName').sort({ truckName: 1 }).lean();
-      } catch (err) {
-        console.warn('Truck.find error in rebuild-bulk:', err.message);
-      }
-      const foundMap = new Map((dbTrucks || []).map(t => [String(t.deviceId), t]));
-
-      trucks = stringIds.map(id => {
-        if (foundMap.has(id)) return foundMap.get(id);
-        let tName = id;
-        if (typeof lastValidTrucksData !== 'undefined' && lastValidTrucksData) {
-          if (Array.isArray(lastValidTrucksData)) {
-            const found = lastValidTrucksData.find(x => String(x.id || x.deviceId) === id);
-            if (found && (found.name || found.truckName)) tName = found.name || found.truckName;
-          } else if (typeof lastValidTrucksData === 'object' && lastValidTrucksData[id]) {
-            tName = lastValidTrucksData[id].name || lastValidTrucksData[id].truckName || id;
-          }
-        }
-        return { deviceId: id, truckName: tName };
-      });
+      trucks = await Truck.find({ deviceId: { $in: deviceIds.map((id) => String(id)) } }, 'deviceId truckName').sort({ truckName: 1 }).lean();
     } else {
-      try {
-        trucks = await Truck.find({}, 'deviceId truckName').sort({ truckName: 1 }).lean();
-      } catch (err) {
-        console.warn('Truck.find all error in rebuild-bulk:', err.message);
-      }
-      if (!trucks.length && typeof lastValidTrucksData !== 'undefined' && lastValidTrucksData) {
-        if (Array.isArray(lastValidTrucksData)) {
-          trucks = lastValidTrucksData.map(t => ({ deviceId: String(t.id || t.deviceId), truckName: t.name || String(t.id || t.deviceId) }));
-        } else if (typeof lastValidTrucksData === 'object') {
-          trucks = Object.entries(lastValidTrucksData).map(([id, t]) => ({ deviceId: String(t?.id || id), truckName: (t && (t.name || t.truckName)) || String(id) }));
-        }
-      }
+      trucks = await Truck.find({}, 'deviceId truckName').sort({ truckName: 1 }).lean();
     }
     if (!trucks.length) return res.status(404).json({ error: 'Aucun camion trouvé pour ce re-scan' });
 

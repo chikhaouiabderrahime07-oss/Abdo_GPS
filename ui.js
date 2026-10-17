@@ -2491,22 +2491,22 @@ renderDecouchageList() {
       const card = document.createElement('div');
       card.className = `card-premium ${isSpeeding ? 'speeding' : ''} ${truck.speed >= 1 ? 'moving' : 'stopped'} ${hasExpiringRef ? 'doc-expiring' : ''}`;
       card.style.cssText = `
-        border: 1.5px solid rgba(255, 255, 255, 0.22);
+        border: 1px solid var(--border);
         border-radius: 16px;
         overflow: hidden;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08);
-        transition: all .25s cubic-bezier(.22,1,.36,1);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        transition: all .2s cubic-bezier(.4,0,.2,1);
         background: var(--bg-surface);
       `;
       card.onmouseenter = () => {
-        card.style.transform = 'translateY(-3px) scale(1.008)';
-        card.style.boxShadow = `0 14px 36px rgba(0,0,0,0.4), 0 0 20px ${cardAccentColor}35`;
-        card.style.borderColor = `${cardAccentColor}`;
+        card.style.transform = 'translateY(-2px)';
+        card.style.boxShadow = `0 8px 28px rgba(0,0,0,0.18)`;
+        card.style.borderColor = `${cardAccentColor}60`;
       };
       card.onmouseleave = () => {
         card.style.transform = '';
-        card.style.boxShadow = '0 4px 20px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08)';
-        card.style.borderColor = 'rgba(255, 255, 255, 0.22)';
+        card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)';
+        card.style.borderColor = 'var(--border)';
       };
       const lat = truck.coordinates?.lat || 0;
       const lng = truck.coordinates?.lng || 0;
@@ -2536,7 +2536,7 @@ renderDecouchageList() {
               const sitColor = isMoving ? '#10b981' : (sit === 'maintenance' ? '#f59e0b' : (sit === 'panne' ? '#ef4444' : (sit === 'repos' ? '#a78bfa' : '#0284c7')));
               return `<span style="background:${sitColor}18; color:${sitColor}; border:1px solid ${sitColor}30; padding:2px 8px; border-radius:8px; font-size:9px; font-weight:800; text-transform:uppercase;">${sitLabel}</span>`;
             })()}
-            <span style="background:${truck.speed >= 1 ? 'rgba(16,185,129,0.12)' : 'var(--bg-elevated)'}; color:${truck.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; padding:3px 8px; border-radius:8px; font-size:11px; font-weight:800; font-family:monospace; border:1px solid ${truck.speed >= 1 ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.14)'};">
+            <span style="background:${truck.speed >= 1 ? 'rgba(16,185,129,0.12)' : 'var(--bg-elevated)'}; color:${truck.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; padding:3px 8px; border-radius:8px; font-size:11px; font-weight:800; font-family:monospace; border:1px solid ${truck.speed >= 1 ? 'rgba(16,185,129,0.2)' : 'var(--border)'};">
               ${isSpeeding ? '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;margin-right:2px;"></i>' : ''}${truck.speed} <span style="font-size:8px;">km/h</span>
             </span>
           </div>
@@ -2562,17 +2562,17 @@ renderDecouchageList() {
 
         <!-- ▸ Metrics strip -->
         <div style="padding:10px 14px; display:flex; gap:6px;">
-          <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1.2px solid rgba(255,255,255,0.15);">
+          <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1px solid var(--border);">
             <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">ODOMÈTRE</div>
             <div style="font-size:16px; font-weight:900; color:var(--text-primary); font-family:monospace; line-height:1.3;">${truck.odometer.toLocaleString()}</div>
             <div style="font-size:7px; color:var(--text-muted);">km</div>
           </div>
-          <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1.2px solid rgba(255,255,255,0.15);">
+          <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1px solid var(--border);">
             <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">CARBURANT</div>
             <div style="font-size:16px; font-weight:900; color:${truck.isCriticalFuel ? '#ef4444' : 'var(--text-primary)'}; font-family:monospace; line-height:1.3;">${truck.fuelLiters}<span style="font-size:9px;">L</span></div>
             <div style="height:3px; background:var(--bg-surface); border-radius:2px; margin-top:2px; overflow:hidden;"><div style="height:100%; width:${truck.fuelPercentage}%; background:${truck.isCriticalFuel ? '#ef4444' : truck.isLowFuel ? '#f59e0b' : '#10b981'}; border-radius:2px;"></div></div>
           </div>
-          <div style="flex:1.2; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1.2px solid rgba(255,255,255,0.15);">
+          <div style="flex:1.2; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:8px 4px; border:1px solid var(--border);">
             <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">POSITION</div>
             <div style="font-size:11px; font-weight:700; color:${truck.location.isCustom ? cardAccentColor : 'var(--text-primary)'}; margin-top:3px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${truck.location.city}</div>
             <div style="font-size:8px; color:var(--text-muted);">${truck.location.wilaya}</div>
@@ -3192,66 +3192,28 @@ renderDecouchageList() {
 
   async resolveRefuelRescanTargets() {
       let trucks = [];
-
-      // 1. Try window.app.getAllTrucks() first (instant, live)
-      if (window.app && typeof window.app.getAllTrucks === 'function') {
-          try {
-              const live = window.app.getAllTrucks();
-              if (Array.isArray(live) && live.length) {
-                  trucks = live.map((truck) => ({
-                      deviceId: String(truck.id || truck.deviceId),
-                      name: String(truck.name || truck.truckName || truck.id)
-                  }));
-              }
-          } catch (_) {}
-      }
-
-      // 2. Fallback to /api/trucks
-      if (!trucks.length) {
-          try {
-              const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks`, {
-                  headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || this.currentCode || '' }
-              });
-              const data = await this.parseJsonResponseSafe(res);
-              if (Array.isArray(data)) {
-                  trucks = data.map(t => ({
-                      deviceId: String(t.id || t.deviceId),
-                      name: String(t.name || t.truckName || t.id || t.deviceId)
-                  }));
-              } else if (data && typeof data === 'object') {
-                  trucks = Object.entries(data).map(([key, val]) => ({
-                      deviceId: String(val?.id || val?.deviceId || key),
-                      name: String(val?.name || val?.truckName || key)
-                  }));
-              }
-          } catch (error) {
-              console.warn('Could not fetch /api/trucks:', error.message);
+      try {
+          const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/trucks`, { headers: { 'x-access-code': localStorage.getItem('fleetAccessCode') || this.currentCode || '' } });
+          const data = await this.parseJsonResponseSafe(res);
+          trucks = Object.entries(data || {}).map(([deviceId, truck]) => ({
+              deviceId: String(deviceId),
+              name: String((truck && truck.name) || deviceId)
+          }));
+      } catch (error) {
+          if (window.app && typeof window.app.getAllTrucks === 'function') {
+              trucks = (window.app.getAllTrucks() || []).map((truck) => ({
+                  deviceId: String(truck.id),
+                  name: String(truck.name || truck.id)
+              }));
+          } else {
+              throw error;
           }
       }
-
-      // 3. Fallback to truckDbCache
-      if (!trucks.length && Array.isArray(this.truckDbCache) && this.truckDbCache.length) {
-          trucks = this.truckDbCache.map(t => ({
-              deviceId: String(t.deviceId),
-              name: String(t.truckName || t.name || t.deviceId)
-          }));
-      }
-
-      // 4. Fallback to dispo items
-      if (!trucks.length && this._dispoData?.items) {
-          trucks = this._dispoData.items.map(t => ({
-              deviceId: String(t.deviceId),
-              name: String(t.truckName || t.deviceId)
-          }));
-      }
-
-      // Filter out invalid deviceIds
-      trucks = trucks.filter(t => t.deviceId && t.deviceId !== 'undefined' && t.deviceId !== 'null');
 
       const search = (this.refuelTruckSearch && this.refuelTruckSearch.value || '').toLowerCase().trim();
       if (!search) return trucks;
 
-      const filtered = trucks.filter((truck) => (truck.name || '').toLowerCase().includes(search) || (truck.deviceId || '').toLowerCase().includes(search));
+      const filtered = trucks.filter((truck) => truck.name.toLowerCase().includes(search) || truck.deviceId.toLowerCase().includes(search));
       if (filtered.length) return filtered;
 
       throw new Error(`Aucun camion ne correspond à "${search}" pour le re-scan.`);
@@ -15390,16 +15352,6 @@ _naftalSortTable(tblId, colIdx) {
     this.renderDispoContent();
   }
 
-  setDispoSort(col) {
-    if (this._dispoSortCol === col) {
-      this._dispoSortDir = this._dispoSortDir === 'asc' ? 'desc' : 'asc';
-    } else {
-      this._dispoSortCol = col;
-      this._dispoSortDir = ['speed', 'fuel', 'odometer', 'lastUpdate'].includes(col) ? 'desc' : 'asc';
-    }
-    this.renderDispoContent();
-  }
-
   getFilteredDispoItems() {
     let list = this._dispoData?.items || [];
     if (this._dispoSituationFilter && this._dispoSituationFilter !== 'all') {
@@ -15427,58 +15379,6 @@ _naftalSortTable(tblId, colIdx) {
                mCargo.includes(this._dispoSearchQuery);
       });
     }
-
-    /* ── Column Sorting (Ascending / Descending) ── */
-    const sortCol = this._dispoSortCol || 'truckName';
-    const sortDir = this._dispoSortDir === 'desc' ? -1 : 1;
-    list = [...list].sort((a, b) => {
-      if (sortCol === 'truckName') {
-        const nA = (a.truckName || '').toLowerCase();
-        const nB = (b.truckName || '').toLowerCase();
-        return sortDir * nA.localeCompare(nB, 'fr', { numeric: true });
-      }
-      if (sortCol === 'driver') {
-        const dA = (a.driver?.name || '').toLowerCase();
-        const dB = (b.driver?.name || '').toLowerCase();
-        if (!dA && dB) return 1;
-        if (dA && !dB) return -1;
-        return sortDir * dA.localeCompare(dB, 'fr');
-      }
-      if (sortCol === 'trailer') {
-        const tA = (a.trailer?.immatriculation || '').toLowerCase();
-        const tB = (b.trailer?.immatriculation || '').toLowerCase();
-        if (!tA && tB) return 1;
-        if (tA && !tB) return -1;
-        return sortDir * tA.localeCompare(tB, 'fr', { numeric: true });
-      }
-      if (sortCol === 'situation') {
-        const sA = (a.situationLabel || a.situation || '').toLowerCase();
-        const sB = (b.situationLabel || b.situation || '').toLowerCase();
-        return sortDir * sA.localeCompare(sB, 'fr');
-      }
-      if (sortCol === 'location') {
-        const lA = (a.locationCity || '').toLowerCase();
-        const lB = (b.locationCity || '').toLowerCase();
-        return sortDir * lA.localeCompare(lB, 'fr');
-      }
-      if (sortCol === 'speed') {
-        const spA = Number(a.speed || 0);
-        const spB = Number(b.speed || 0);
-        return sortDir * (spA - spB);
-      }
-      if (sortCol === 'fuel') {
-        const fA = Number(a.fuelPercent || a.fuelLiters || 0);
-        const fB = Number(b.fuelPercent || b.fuelLiters || 0);
-        return sortDir * (fA - fB);
-      }
-      if (sortCol === 'odometer') {
-        const oA = Number(a.odometer || 0);
-        const oB = Number(b.odometer || 0);
-        return sortDir * (oA - oB);
-      }
-      return 0;
-    });
-
     return list;
   }
 
@@ -15505,84 +15405,53 @@ _naftalSortTable(tblId, colIdx) {
   }
 
   renderDispoTable(items, container) {
-    const sortCol = this._dispoSortCol || 'truckName';
-    const sortDir = this._dispoSortDir || 'asc';
-    const getSortIcon = (col) => {
-      if (sortCol === col) {
-        return sortDir === 'asc' 
-          ? `<i class="fa-solid fa-arrow-up-short-wide" style="color:#38bdf8; font-size:11px; margin-left:6px;"></i>` 
-          : `<i class="fa-solid fa-arrow-down-wide-short" style="color:#38bdf8; font-size:11px; margin-left:6px;"></i>`;
-      }
-      return `<i class="fa-solid fa-sort" style="color:var(--text-muted); opacity:0.35; font-size:10px; margin-left:6px;"></i>`;
-    };
-    const getThClass = (col) => sortCol === col ? 'sortable active-sort' : 'sortable';
-
     let html = `
-      <div style="background:var(--bg-surface); border:1.5px solid rgba(255,255,255,0.18); border-radius:14px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.3);">
+      <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.2);">
         <table class="dispo-table" style="width:100%; border-collapse:collapse; font-size:12px;">
           <thead>
-            <tr style="background:var(--bg-elevated); border-bottom:2px solid rgba(56,189,248,0.4);">
-              <th class="${getThClass('truckName')}" onclick="ui.setDispoSort('truckName')" title="Trier par camion" style="padding:14px 16px; text-align:left; color:${sortCol==='truckName'?'#38bdf8':'var(--text-muted)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
-                Camion ${getSortIcon('truckName')}
-              </th>
-              <th class="${getThClass('driver')}" onclick="ui.setDispoSort('driver')" title="Trier par chauffeur" style="padding:14px 16px; text-align:left; color:${sortCol==='driver'?'#38bdf8':'var(--text-muted)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
-                Chauffeur ${getSortIcon('driver')}
-              </th>
-              <th class="${getThClass('trailer')}" onclick="ui.setDispoSort('trailer')" title="Trier par remorque" style="padding:14px 16px; text-align:left; color:${sortCol==='trailer'?'#38bdf8':'var(--text-muted)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
-                Remorque ${getSortIcon('trailer')}
-              </th>
-              <th class="${getThClass('situation')}" onclick="ui.setDispoSort('situation')" title="Trier par situation opérationnelle" style="padding:14px 16px; text-align:left; color:${sortCol==='situation'?'#38bdf8':'var(--text-muted)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
-                Situation & Trajet ${getSortIcon('situation')}
-              </th>
-              <th class="${getThClass('location')}" onclick="ui.setDispoSort('location')" title="Trier par ville / wilaya" style="padding:14px 16px; text-align:left; color:${sortCol==='location'?'#38bdf8':'var(--text-muted)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
-                Localisation Live ${getSortIcon('location')}
-              </th>
-              <th class="${getThClass('speed')}" onclick="ui.setDispoSort('speed')" title="Trier par vitesse / télématique" style="padding:14px 16px; text-align:left; color:${sortCol==='speed'?'#38bdf8':'var(--text-muted)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
-                Télématique ${getSortIcon('speed')}
-              </th>
-              <th style="padding:14px 16px; text-align:center; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">
-                Actions
-              </th>
+            <tr style="background:var(--bg-elevated); border-bottom:2px solid var(--border);">
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Camion</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Chauffeur</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Remorque</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Situation & Trajet</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Localisation Live</th>
+              <th style="padding:14px 16px; text-align:left; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Télématique</th>
+              <th style="padding:14px 16px; text-align:center; color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Actions</th>
             </tr>
           </thead>
           <tbody>`;
 
-    items.forEach((item, rIdx) => {
+    items.forEach(item => {
       const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
       const mission = item.activeMission;
-      const isEven = rIdx % 2 === 1;
-      const rowBg = isEven ? 'rgba(255,255,255,0.015)' : 'transparent';
       html += `
-        <tr style="background:${rowBg}; border-bottom:1.5px solid rgba(255,255,255,0.14); transition:background 0.15s ease;" onmouseover="this.style.background='rgba(56,189,248,0.08)'" onmouseout="this.style.background='${rowBg}'">
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
-            <strong style="color:var(--text-primary); font-size:13px; font-weight:800;">${item.truckName}</strong>
+        <tr style="border-bottom:1px solid var(--border); transition:background 0.15s;" onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background=''">
+          <td style="padding:12px 16px;">
+            <strong style="color:var(--text-primary); font-size:13px;">${item.truckName}</strong>
             <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
               ${item.immatriculation ? `<span class="truck-meta-tag imm">${item.immatriculation}</span>` : ''}
               ${item.carteNaftal ? `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${item.carteNaftal}</span>` : ''}
             </div>
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px;">
             ${item.driver ? `
               <div style="font-weight:700; color:var(--primary); font-size:13px; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${item.driver.name.replace(/'/g, "\\'")}', '${item.driver.situation}')">
-                <i class="fa-solid fa-user" style="margin-right:3px;"></i> ${item.driver.name}
+                <i class="fa-solid fa-user"></i> ${item.driver.name}
               </div>
-              <div style="display:flex; align-items:center; gap:6px; margin-top:2px; flex-wrap:wrap;">
-                ${item.driver.phone ? `
-                  <a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:11px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Appeler">
-                    <i class="fa-solid fa-phone" style="font-size:9px; color:#10b981;"></i> ${item.driver.phone}
-                  </a>
-                ` : '<span style="color:var(--text-muted); font-size:11px;">Sans tél</span>'}
-                ${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:0 5px; border-radius:5px; font-size:8px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}
-              </div>
+              ${item.driver.phone ? `
+                <a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:11px; text-decoration:none; display:inline-flex; align-items:center; gap:4px; margin-top:2px;" title="Appeler">
+                  <i class="fa-solid fa-phone"></i> ${item.driver.phone}
+                </a>
+              ` : '<span style="color:var(--text-muted); font-size:11px;">Sans tél</span>'}
             ` : '<button class="btn-secondary" onclick="ui.openAssignFleetModal(\''+item.deviceId+'\')" style="padding:3px 8px; font-size:11px;"><i class="fa-solid fa-plus"></i> Assigner</button>'}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px;">
             ${item.trailer ? `
               <div><span class="truck-meta-tag trailer"><i class="fa-solid fa-trailer"></i> ${item.trailer.immatriculation}</span></div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${item.trailer.type || 'Plateau'}</div>
             ` : '<span style="color:var(--text-muted); font-size:11px;">—</span>'}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px;">
             <span class="situation-badge ${item.situationBadge}">
               ${item.isMoving ? '<span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse 2s infinite;"></span>' : ''}
               ${item.situationLabel}
@@ -15596,13 +15465,13 @@ _naftalSortTable(tblId, colIdx) {
               </div>
             ` : ''}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px;">
             <div style="display:flex; align-items:center; gap:6px;">
               <i class="fa-solid fa-location-dot" style="color:var(--primary);"></i>
               <span style="font-weight:600; color:var(--text-primary);">${item.locationCity || 'En route'}</span>
             </div>
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px;">
             <div style="font-weight:700; color:${item.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; font-family:var(--font-mono);">
               ${item.speed} km/h
             </div>
@@ -15617,11 +15486,6 @@ _naftalSortTable(tblId, colIdx) {
                 <button class="btn-secondary" onclick="ui.completeFleetMission('${mission.historyId}', '${item.truckName.replace(/'/g, "\\'")}')" title="Terminer et clôturer la mission" style="padding:5px 8px; font-size:11px; color:#10b981; border-color:rgba(16,185,129,0.3);">
                   <i class="fa-solid fa-flag-checkered"></i>
                 </button>
-                ${mission.routeGeometry ? `
-                  <button class="btn-secondary" onclick="ui.showMissionRoute('${mission.historyId}')" title="Voir itinéraire prévu" style="padding:5px 8px; font-size:11px; color:#3b82f6; border-color:rgba(59,130,246,0.3);">
-                    <i class="fa-solid fa-map"></i>
-                  </button>
-                ` : ''}
               ` : `
                 <button class="btn-secondary" onclick="ui.openNewMissionModal('${item.deviceId}')" title="Affecter / Lancer une mission" style="padding:5px 8px; font-size:11px; color:#38bdf8; border-color:rgba(56,189,248,0.3);">
                   <i class="fa-solid fa-route"></i>
@@ -15698,11 +15562,11 @@ _naftalSortTable(tblId, colIdx) {
       html += `
         <div class="ftc-card" style="
           position:relative; background:var(--bg-surface); border-radius:16px; overflow:hidden;
-          border:1.5px solid rgba(255, 255, 255, 0.22); transition:all 0.3s cubic-bezier(.22,1,.36,1);
-          box-shadow:0 4px 20px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08);
+          border:1px solid var(--border); transition:all 0.3s cubic-bezier(.22,1,.36,1);
+          box-shadow:0 2px 8px rgba(0,0,0,0.08);
           animation: cardSlideIn 0.4s cubic-bezier(.22,1,.36,1) both;
           animation-delay: ${idx * 40}ms;
-        " onmouseover="this.style.transform='translateY(-3px) scale(1.008)';this.style.boxShadow='0 14px 36px rgba(0,0,0,0.4), 0 0 20px ${ac}35';this.style.borderColor='${ac}'" onmouseout="this.style.transform='';this.style.boxShadow='0 4px 20px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.08)';this.style.borderColor='rgba(255, 255, 255, 0.22)'">
+        " onmouseover="this.style.transform='translateY(-3px) scale(1.005)';this.style.boxShadow='0 12px 32px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)'">
 
           <!-- ▸ Top Accent Bar -->
           <div style="height:4px; background:${ag};"></div>
@@ -15730,14 +15594,14 @@ _naftalSortTable(tblId, colIdx) {
                 background:${isMoving ? 'rgba(16,185,129,0.12)' : 'var(--bg-elevated)'};
                 color:${isMoving ? '#10b981' : 'var(--text-muted)'};
                 padding:3px 8px; border-radius:8px; font-size:11px; font-weight:800;
-                font-family:monospace; border:1px solid ${isMoving ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.15)'};
+                font-family:monospace; border:1px solid ${isMoving ? 'rgba(16,185,129,0.2)' : 'var(--border)'};
               ">${item.speed} <span style="font-size:8px;">km/h</span></span>
             </div>
           </div>
 
           <!-- ▸ Driver + Trailer Row -->
           <div style="padding:10px 14px; display:flex; gap:8px;">
-            <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1.2px solid rgba(255,255,255,0.16); min-width:0;">
+            <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1px solid var(--border); min-width:0;">
               <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;">
                 <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px;"><i class="fa-solid fa-user" style="margin-right:3px;"></i>CHAUFFEUR</div>
                 ${item.driver && drvSitText ? `<span style="display:inline-flex; align-items:center; gap:3px; font-size:7px; font-weight:700; color:${drvSitDot}; background:${drvSitDot}12; padding:1px 6px; border-radius:6px; border:1px solid ${drvSitDot}25;"><span style="width:5px;height:5px;border-radius:50%;background:${drvSitDot};display:inline-block;"></span>${drvSitText}</span>` : ''}
@@ -15746,7 +15610,7 @@ _naftalSortTable(tblId, colIdx) {
                 ? `<div style="font-weight:700; color:var(--primary); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\\\'")}', '${item.driver.situation}')">${item.driver.name}</div><div style="display:flex; align-items:center; gap:6px; margin-top:2px; flex-wrap:wrap;">${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:var(--text-secondary); font-size:10px; text-decoration:none; display:inline-flex; align-items:center; gap:2px;"><i class="fa-solid fa-phone" style="font-size:7px; color:#10b981;"></i>${item.driver.phone}</a>` : ''}${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:0 5px; border-radius:5px; font-size:8px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}</div>`
                 : `<button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:2px 6px; font-size:9px; width:100%;"><i class="fa-solid fa-plus"></i> Assigner</button>`}
             </div>
-            <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1.2px solid rgba(255,255,255,0.16); min-width:0;">
+            <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1px solid var(--border); min-width:0;">
               <div style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.5px; margin-bottom:3px;"><i class="fa-solid fa-trailer" style="margin-right:3px;"></i>REMORQUE</div>
               ${item.trailer
                 ? `<div style="font-weight:700; color:#a78bfa; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.trailer.immatriculation}</div><div style="font-size:10px; color:var(--text-muted); margin-top:1px;">${item.trailer.type || 'Plateau'}</div>`
@@ -15757,19 +15621,19 @@ _naftalSortTable(tblId, colIdx) {
           <!-- ▸ Metrics Strip -->
           <div style="padding:0 14px; display:flex; gap:6px; margin-bottom:10px;">
             <!-- Odomètre -->
-            <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1.2px solid rgba(255,255,255,0.16);">
+            <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1px solid var(--border);">
               <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">ODOMÈTRE</div>
               <div style="font-size:15px; font-weight:900; color:var(--text-primary); font-family:monospace; line-height:1.3;">${odoKm}</div>
               <div style="font-size:7px; color:var(--text-muted);">km</div>
             </div>
             <!-- Carburant -->
-            <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1.2px solid rgba(255,255,255,0.16);">
+            <div style="flex:1; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1px solid var(--border);">
               <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">CARBURANT</div>
               <div style="font-size:15px; font-weight:900; color:${fc}; font-family:monospace; line-height:1.3;">${fuelL}<span style="font-size:9px;">L</span></div>
               <div style="height:3px; background:var(--bg-surface); border-radius:2px; margin-top:2px; overflow:hidden;"><div style="height:100%; width:${fp}%; background:${fc}; border-radius:2px; transition:width 0.3s;"></div></div>
             </div>
             <!-- Position -->
-            <div style="flex:1.2; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1.2px solid rgba(255,255,255,0.16);">
+            <div style="flex:1.2; text-align:center; background:var(--bg-elevated); border-radius:8px; padding:6px 4px; border:1px solid var(--border);">
               <div style="font-size:7px; text-transform:uppercase; font-weight:800; color:var(--text-muted); letter-spacing:0.3px;">POSITION</div>
               <div style="font-size:11px; font-weight:700; color:var(--text-primary); margin-top:3px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${item.locationCity || 'En route'}</div>
               <a href="${mapsUrl}" target="_blank" style="font-size:8px; color:${ac}; text-decoration:none;"><i class="fa-solid fa-map-pin"></i> Maps</a>
