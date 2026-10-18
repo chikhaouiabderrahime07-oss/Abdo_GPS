@@ -2533,6 +2533,15 @@ renderDecouchageList() {
             </div>
             <div style="min-width:0; flex:1;">
               <div style="font-size:15px; font-weight:900; color:var(--text-primary); letter-spacing:-0.3px;">${truck.name}</div>
+              ${(() => {
+                const _tdb = (ui.truckDbCache || []).find(d => d.deviceId === truck.id);
+                const ph = _tdb?.driverPhone || '';
+                const dn = _tdb?.driverName || '';
+                let info = '';
+                if (dn) info += `<span style="color:#93c5fd; font-weight:700;"><i class="fa-solid fa-user" style="font-size:9px; margin-right:3px;"></i>${dn}</span>`;
+                if (ph) info += `<a href="tel:${ph}" style="color:#6ee7b7; font-weight:800; text-decoration:none; margin-left:8px;" title="Appeler ${ph}"><i class="fa-solid fa-phone" style="font-size:9px; margin-right:3px;"></i>${ph}</a>`;
+                return info ? `<div style="font-size:11px; margin-top:2px; display:flex; align-items:center; flex-wrap:wrap; gap:2px;">${info}</div>` : '';
+              })()}
               ${ruleLabel}
             </div>
           </div>
@@ -2560,8 +2569,7 @@ renderDecouchageList() {
               let tags = ''; 
               if (db.carteNaftal) tags += `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${db.carteNaftal}</span> `; 
               if (db.immatriculation) tags += `<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${db.immatriculation}</span> `; 
-              if (db.driverName) tags += `<span class="truck-meta-tag driver" title="Chauffeur: ${db.driverName}"><i class="fa-solid fa-user"></i> ${db.driverName}</span> `;
-              if (db.driverPhone) tags += `<a href="tel:${db.driverPhone}" class="truck-meta-tag phone" style="text-decoration:none; cursor:pointer;" title="Appeler ${db.driverPhone}"><i class="fa-solid fa-phone"></i> ${db.driverPhone}</a> `;
+              // Driver name & phone now shown in card header
               if (db.trailer) tags += `<span class="truck-meta-tag trailer" title="Remorque: ${db.trailer}"><i class="fa-solid fa-trailer"></i> ${db.trailer}</span> `;
               return tags; 
             })()}
@@ -2569,18 +2577,6 @@ renderDecouchageList() {
             ${hasExpiringRef ? `<span class="truck-meta-tag" style="background:#f97316;color:white;"><i class="fa-solid fa-triangle-exclamation"></i> Doc Expire</span>` : ''}
           </div>
         </div>
-
-        <!-- ▸ Driver Phone Row -->
-        ${(() => {
-          const _db = (ui.truckDbCache || []).find(d => d.deviceId === truck.id);
-          if (!_db || !_db.driverPhone) return '';
-          return `<div style="padding:4px 14px 0; display:flex; align-items:center; gap:6px;">
-            <a href="tel:${_db.driverPhone}" style="display:inline-flex; align-items:center; gap:6px; background:rgba(16,185,129,0.12); border:1.5px solid rgba(16,185,129,0.35); border-radius:8px; padding:5px 12px; text-decoration:none; transition:all 0.15s;" onmouseenter="this.style.background='rgba(16,185,129,0.25)'" onmouseleave="this.style.background='rgba(16,185,129,0.12)'">
-              <i class="fa-solid fa-phone" style="font-size:11px; color:#10b981;"></i>
-              <span style="font-size:12px; font-weight:800; color:#6ee7b7; letter-spacing:0.3px;">${_db.driverPhone}</span>
-            </a>
-          </div>`;
-        })()}
 
         <!-- ▸ Metrics strip -->
         <div style="padding:10px 14px; display:flex; gap:6px;">
@@ -15540,29 +15536,29 @@ _naftalSortTable(tblId, colIdx) {
     const getThClass = (col) => sortCol === col ? 'sortable active-sort' : 'sortable';
 
     let html = `
-      <div style="background:#0c1220; border:1.5px solid rgba(56,189,248,0.2); border-radius:12px; overflow:hidden; box-shadow:0 4px 16px rgba(0,0,0,0.25);">
+      <div style="background:var(--bg-surface); border:1.5px solid var(--border-strong); border-radius:14px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.2);">
         <table class="dispo-table" style="width:100%; border-collapse:collapse; font-size:12px;">
           <thead>
-            <tr style="background:#131c2e; border-bottom:2.5px solid #38bdf8;">
-              <th class="${getThClass('truckName')}" onclick="ui.setDispoSort('truckName')" title="Trier par camion" style="padding:14px 16px; text-align:left; color:${sortCol==='truckName'?'#7dd3fc':'#93c5fd'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
+            <tr style="background:var(--bg-elevated);">
+              <th class="${getThClass('truckName')}" onclick="ui.setDispoSort('truckName')" title="Trier par camion" style="padding:14px 16px; text-align:left; color:${sortCol==='truckName'?'var(--primary)':'var(--text-secondary)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
                 Camion ${getSortIcon('truckName')}
               </th>
-              <th class="${getThClass('driver')}" onclick="ui.setDispoSort('driver')" title="Trier par chauffeur" style="padding:14px 16px; text-align:left; color:${sortCol==='driver'?'#7dd3fc':'#93c5fd'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
+              <th class="${getThClass('driver')}" onclick="ui.setDispoSort('driver')" title="Trier par chauffeur" style="padding:14px 16px; text-align:left; color:${sortCol==='driver'?'var(--primary)':'var(--text-secondary)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
                 Chauffeur ${getSortIcon('driver')}
               </th>
-              <th class="${getThClass('trailer')}" onclick="ui.setDispoSort('trailer')" title="Trier par remorque" style="padding:14px 16px; text-align:left; color:${sortCol==='trailer'?'#7dd3fc':'#93c5fd'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
+              <th class="${getThClass('trailer')}" onclick="ui.setDispoSort('trailer')" title="Trier par remorque" style="padding:14px 16px; text-align:left; color:${sortCol==='trailer'?'var(--primary)':'var(--text-secondary)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
                 Remorque ${getSortIcon('trailer')}
               </th>
-              <th class="${getThClass('situation')}" onclick="ui.setDispoSort('situation')" title="Trier par situation opérationnelle" style="padding:14px 16px; text-align:left; color:${sortCol==='situation'?'#7dd3fc':'#93c5fd'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
+              <th class="${getThClass('situation')}" onclick="ui.setDispoSort('situation')" title="Trier par situation opérationnelle" style="padding:14px 16px; text-align:left; color:${sortCol==='situation'?'var(--primary)':'var(--text-secondary)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
                 Situation & Trajet ${getSortIcon('situation')}
               </th>
-              <th class="${getThClass('location')}" onclick="ui.setDispoSort('location')" title="Trier par ville / wilaya" style="padding:14px 16px; text-align:left; color:${sortCol==='location'?'#7dd3fc':'#93c5fd'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
+              <th class="${getThClass('location')}" onclick="ui.setDispoSort('location')" title="Trier par ville / wilaya" style="padding:14px 16px; text-align:left; color:${sortCol==='location'?'var(--primary)':'var(--text-secondary)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
                 Localisation Live ${getSortIcon('location')}
               </th>
-              <th class="${getThClass('speed')}" onclick="ui.setDispoSort('speed')" title="Trier par vitesse / télématique" style="padding:14px 16px; text-align:left; color:${sortCol==='speed'?'#7dd3fc':'#93c5fd'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
+              <th class="${getThClass('speed')}" onclick="ui.setDispoSort('speed')" title="Trier par vitesse / télématique" style="padding:14px 16px; text-align:left; color:${sortCol==='speed'?'var(--primary)':'var(--text-secondary)'}; font-size:11px; text-transform:uppercase; letter-spacing:0.6px; cursor:pointer;">
                 Télématique ${getSortIcon('speed')}
               </th>
-              <th style="padding:14px 16px; text-align:center; color:#93c5fd; font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">
+              <th style="padding:14px 16px; text-align:center; color:var(--text-secondary); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">
                 Actions
               </th>
             </tr>
@@ -15573,17 +15569,17 @@ _naftalSortTable(tblId, colIdx) {
       const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
       const mission = item.activeMission;
       const isEven = rIdx % 2 === 1;
-      const rowBg = isEven ? 'rgba(56,189,248,0.05)' : '#0c1220';
+      const rowBg = isEven ? 'var(--bg-elevated)' : 'var(--bg-surface)';
       html += `
-        <tr style="background:${rowBg}; border-bottom:1px solid var(--border); transition:background 0.15s ease;" onmouseover="this.style.background='rgba(56,189,248,0.12)'" onmouseout="this.style.background='${rowBg}'">
-          <td style="padding:12px 16px; border-right:1px solid rgba(56,189,248,0.1);">
-            <strong style="color:#f1f5f9; font-size:13px; font-weight:800;">${item.truckName}</strong>
+        <tr style="background:${rowBg}; border-bottom:1px solid var(--border); transition:background 0.15s ease;" onmouseover="this.style.background='rgba(56,189,248,0.08)'" onmouseout="this.style.background='${rowBg}'">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
+            <strong style="color:var(--text-primary); font-size:13px; font-weight:800;">${item.truckName}</strong>
             <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
               ${item.immatriculation ? `<span class="truck-meta-tag imm">${item.immatriculation}</span>` : ''}
               ${item.carteNaftal ? `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${item.carteNaftal}</span>` : ''}
             </div>
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(56,189,248,0.1);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             ${item.driver ? `
               <div style="font-weight:700; color:var(--primary); font-size:13px; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${item.driver.name.replace(/'/g, "\\'")}', '${item.driver.situation}')">
                 <i class="fa-solid fa-user" style="margin-right:3px;"></i> ${item.driver.name}
@@ -15612,13 +15608,13 @@ _naftalSortTable(tblId, colIdx) {
               </div>
             ` : '<button class="btn-secondary" onclick="ui.openAssignFleetModal(\''+item.deviceId+'\')" style="padding:3px 8px; font-size:11px;"><i class="fa-solid fa-plus"></i> Assigner</button>'}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(56,189,248,0.1);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             ${item.trailer ? `
               <div><span class="truck-meta-tag trailer"><i class="fa-solid fa-trailer"></i> ${item.trailer.immatriculation}</span></div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${item.trailer.type || 'Plateau'}</div>
             ` : '<span style="color:var(--text-muted); font-size:11px;">—</span>'}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(56,189,248,0.1);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             <span class="situation-badge ${item.situationBadge}">
               ${item.isMoving ? '<span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse 2s infinite;"></span>' : ''}
               ${item.situationLabel}
@@ -15637,13 +15633,13 @@ _naftalSortTable(tblId, colIdx) {
               </div>
             ` : ''}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(56,189,248,0.1);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             <div style="display:flex; align-items:center; gap:6px;">
               <i class="fa-solid fa-location-dot" style="color:var(--primary);"></i>
-              <span style="font-weight:700; color:#e2e8f0;">${item.locationCity || 'En route'}</span>
+              <span style="font-weight:700; color:var(--text-primary);">${item.locationCity || 'En route'}</span>
             </div>
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(56,189,248,0.1);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             <div style="font-weight:700; color:${item.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; font-family:var(--font-mono);">
               ${item.speed} km/h
             </div>
