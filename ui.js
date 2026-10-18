@@ -2543,7 +2543,7 @@ renderDecouchageList() {
               const sit = isMoving ? 'mission' : (db?.situation || 'disponible');
               const sitLabel = isMoving ? 'En Mission' : (sit === 'maintenance' ? 'Maintenance' : (sit === 'panne' ? 'En Panne' : (sit === 'repos' ? 'Découchage' : 'Disponible')));
               const sitColor = isMoving ? '#10b981' : (sit === 'maintenance' ? '#f59e0b' : (sit === 'panne' ? '#ef4444' : (sit === 'repos' ? '#a78bfa' : '#0284c7')));
-              return `<span style="background:${sitColor}18; color:${sitColor}; border:1px solid ${sitColor}30; padding:2px 8px; border-radius:8px; font-size:9px; font-weight:800; text-transform:uppercase;">${sitLabel}</span>`;
+              return `<span style="background:${sitColor}22; color:${sitColor}; border:1.5px solid ${sitColor}40; padding:2px 8px; border-radius:8px; font-size:9px; font-weight:800; text-transform:uppercase;">${sitLabel}</span>`;
             })()}
             <span style="background:${truck.speed >= 1 ? 'rgba(16,185,129,0.12)' : 'var(--bg-elevated)'}; color:${truck.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; padding:3px 8px; border-radius:8px; font-size:11px; font-weight:800; font-family:monospace; border:1px solid ${truck.speed >= 1 ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.14)'};">
               ${isSpeeding ? '<i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;margin-right:2px;"></i>' : ''}${truck.speed} <span style="font-size:8px;">km/h</span>
@@ -2561,6 +2561,7 @@ renderDecouchageList() {
               if (db.carteNaftal) tags += `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${db.carteNaftal}</span> `; 
               if (db.immatriculation) tags += `<span class="truck-meta-tag imm"><i class="fa-solid fa-id-badge"></i> ${db.immatriculation}</span> `; 
               if (db.driverName) tags += `<span class="truck-meta-tag driver" title="Chauffeur: ${db.driverName}"><i class="fa-solid fa-user"></i> ${db.driverName}</span> `;
+              if (db.driverPhone) tags += `<a href="tel:${db.driverPhone}" class="truck-meta-tag phone" style="text-decoration:none; cursor:pointer;" title="Appeler ${db.driverPhone}"><i class="fa-solid fa-phone"></i> ${db.driverPhone}</a> `;
               if (db.trailer) tags += `<span class="truck-meta-tag trailer" title="Remorque: ${db.trailer}"><i class="fa-solid fa-trailer"></i> ${db.trailer}</span> `;
               return tags; 
             })()}

@@ -328,12 +328,12 @@
     .priority-urgent { background: var(--danger); box-shadow: 0 0 6px var(--danger-glow); }
     .priority-normal { background: var(--primary); }
     .priority-bas { background: var(--text-dim); }
-    .truck-meta-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px;
-      background: var(--primary-subtle); border: 1px solid var(--border-primary); border-radius: var(--radius-xs);
-      font-size: 10px; font-weight: var(--weight-semibold); color: var(--primary); }
-    .truck-meta-tag.naftal { background: var(--info-glow); border-color: rgba(139,92,246,0.2); color: var(--info); }
-    .truck-meta-tag.chassis { background: var(--warning-subtle); border-color: rgba(245,158,11,0.2); color: var(--warning); }
-    .truck-meta-tag.imm { background: var(--success-subtle); border-color: rgba(16,185,129,0.2); color: var(--success); }
+    .truck-meta-tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px;
+      background: rgba(56,189,248,0.15); border: 1.5px solid rgba(56,189,248,0.35); border-radius: 6px;
+      font-size: 10px; font-weight: 700; color: #7dd3fc; letter-spacing: 0.2px; }
+    .truck-meta-tag.naftal { background: rgba(139,92,246,0.18); border-color: rgba(139,92,246,0.4); color: #c4b5fd; font-weight: 800; }
+    .truck-meta-tag.chassis { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.4); color: #fbbf24; font-weight: 800; }
+    .truck-meta-tag.imm { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.4); color: #34d399; font-weight: 800; }
     .maint-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .maint-form-grid .full-width { grid-column: 1 / -1; }
     .maint-search-box { position: relative; background: var(--bg-elevated); border: 2px solid var(--border-strong);
@@ -455,6 +455,9 @@
     }
     .tab-button:hover i {
       transform: none;
+    }
+    .tab-button.active i {
+      color: #10b981 !important;
     }
     /* tab-btn-highlight now inherits from .tab-button for consistency */
     .tab-btn-highlight {
