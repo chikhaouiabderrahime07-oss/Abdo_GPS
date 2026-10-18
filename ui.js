@@ -6584,7 +6584,7 @@ exportRefuelCSV() {
           <div><div style="font-weight:800;font-size:17px;color:var(--text-primary,var(--text-primary, #e2e8f0));">Sites & Clients</div>
           <div style="font-size:11px;color:var(--text-muted,#888);margin-top:2px;">${locs.length} sites \u00b7 ${clients.length} clients \u00b7 ${totalFC} clients finaux</div></div>
         </div>
-        <button onclick="document.getElementById('zoneManagementModal').remove()" style="width:34px;height:34px;border:none;background:var(--bg-elevated,rgba(255,255,255,0.06));border-radius:9px;color:var(--text-muted,#888);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='rgba(239,68,68,0.15)';this.style.color='#f87171'" onmouseout="this.style.background='var(--bg-elevated,rgba(255,255,255,0.06))';this.style.color='var(--text-muted,#888)'">&times;</button>
+        <button onclick="document.getElementById('zoneManagementModal').remove()" style="width:34px;height:34px;border:none;background:var(--bg-elevated,var(--border));border-radius:9px;color:var(--text-muted,#888);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;" onmouseover="this.style.background='rgba(239,68,68,0.15)';this.style.color='#f87171'" onmouseout="this.style.background='var(--bg-elevated,var(--border))';this.style.color='var(--text-muted,#888)'">&times;</button>
       </div>
       <div style="display:flex;padding:0 22px;border-bottom:1px solid var(--border,rgba(255,255,255,0.07));background:var(--bg-elevated,rgba(0,0,0,0.08));flex-shrink:0;overflow-x:auto;">
         ${tabBtn('zmPane_sites','fa-sitemap','Arborescence',locs.length,true)}
@@ -6883,7 +6883,7 @@ exportRefuelCSV() {
             <div style="font-size:10px;color:var(--text-muted, #64748b);margin-top:2px;">${hasGPS ? Number(loc.lat).toFixed(5)+', '+Number(loc.lng).toFixed(5) : '\u26a0\ufe0f Position GPS manquante'}</div>
           </div>
         </div>
-        <button onclick="document.getElementById('zmEditOverlay').remove()" style="background:rgba(255,255,255,0.06);border:none;border-radius:8px;width:32px;height:32px;color:var(--text-muted, #64748b);font-size:16px;cursor:pointer;">\u2715</button>
+        <button onclick="document.getElementById('zmEditOverlay').remove()" style="background:var(--border);border:none;border-radius:8px;width:32px;height:32px;color:var(--text-muted, #64748b);font-size:16px;cursor:pointer;">\u2715</button>
       </div>
       <div style="flex:1;overflow-y:auto;padding:20px;scrollbar-width:thin;">
 
@@ -8350,7 +8350,7 @@ async runZoneHistoryScan() {
               </div>
             </div>
           </div>
-          <button type="button" onclick="document.getElementById('historyModal')?.remove()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#94a3b8;width:34px;height:34px;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;" onmouseenter="this.style.background='rgba(239,68,68,0.2)';this.style.color='#f87171'" onmouseleave="this.style.background='rgba(255,255,255,0.06)';this.style.color='#94a3b8'">
+          <button type="button" onclick="document.getElementById('historyModal')?.remove()" style="background:var(--border);border:1px solid rgba(255,255,255,0.1);color:#94a3b8;width:34px;height:34px;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;" onmouseenter="this.style.background='rgba(239,68,68,0.2)';this.style.color='#f87171'" onmouseleave="this.style.background='var(--border)';this.style.color='#94a3b8'">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
@@ -8387,7 +8387,7 @@ async runZoneHistoryScan() {
 
           <!-- Action Buttons -->
           <div style="display:flex;gap:10px;">
-            <button type="button" onclick="document.getElementById('historyModal')?.remove()" style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#94a3b8;padding:12px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;">
+            <button type="button" onclick="document.getElementById('historyModal')?.remove()" style="flex:1;background:var(--border);border:1px solid rgba(255,255,255,0.12);color:#94a3b8;padding:12px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;">
               Annuler
             </button>
             <button type="button" onclick="ui.submitHistory('${imei}', '${truckDisplayName.replace(/'/g, "\\'")}')" style="flex:2;background:linear-gradient(135deg,#0284c7,#2563eb);border:none;color:#ffffff;padding:12px;border-radius:10px;font-weight:800;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 16px rgba(37,99,235,0.4);">
@@ -14512,7 +14512,7 @@ async runZoneHistoryScan() {
     d.innerHTML='<div style="text-align:center;margin-bottom:18px;"><div style="width:52px;height:52px;background:rgba(56,189,248,0.15);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 10px;font-size:24px;color:#38bdf8;"><i class="fa-solid fa-circle-check"></i></div>' +
       '<div style="font-weight:800;font-size:16px;color:var(--text-primary,var(--text-primary, #e2e8f0));margin-bottom:6px;">Confirmer la position ?</div>' +
       '<div style="font-size:12px;color:var(--text-muted,var(--text-muted, #64748b));"><span style="color:#38bdf8;font-weight:700;">'+lat.toFixed(6)+'</span>, <span style="color:#38bdf8;font-weight:700;">'+lng.toFixed(6)+'</span><br>Rayon : <span style="color:#22c55e;font-weight:700;">'+radius+' m</span></div></div>' +
-      '<div style="display:flex;gap:8px;"><button onclick="ui._cancelMapPicker(true)" style="flex:1;background:var(--bg-elevated,rgba(255,255,255,0.06));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-secondary,var(--text-muted, #94a3b8));border-radius:9px;padding:11px;font-weight:700;cursor:pointer;font-size:13px;">&#8634; R&eacute;init.</button>' +
+      '<div style="display:flex;gap:8px;"><button onclick="ui._cancelMapPicker(true)" style="flex:1;background:var(--bg-elevated,var(--border));border:1px solid var(--border,var(--border, rgba(255,255,255,0.1)));color:var(--text-secondary,var(--text-muted, #94a3b8));border-radius:9px;padding:11px;font-weight:700;cursor:pointer;font-size:13px;">&#8634; R&eacute;init.</button>' +
       '<button onclick="ui._confirmMapPick('+lat+','+lng+','+radius+')" style="flex:2;background:linear-gradient(135deg,#38bdf8,#0ea5e9);color:white;border:none;border-radius:9px;padding:11px;font-weight:800;cursor:pointer;font-size:14px;box-shadow:0 4px 14px rgba(56,189,248,0.3);"><i class="fa-solid fa-check" style="margin-right:6px;"></i>Confirmer</button></div>';
     document.body.appendChild(d);
   }
@@ -15560,17 +15560,17 @@ _naftalSortTable(tblId, colIdx) {
       const mapsUrl = `https://www.google.com/maps?q=${item.lat || 0},${item.lng || 0}&t=k&z=17`;
       const mission = item.activeMission;
       const isEven = rIdx % 2 === 1;
-      const rowBg = isEven ? 'rgba(255,255,255,0.015)' : 'transparent';
+      const rowBg = isEven ? 'rgba(56,189,248,0.03)' : 'transparent';
       html += `
         <tr style="background:${rowBg}; border-bottom:1px solid var(--border); transition:background 0.15s ease;" onmouseover="this.style.background='rgba(56,189,248,0.06)'" onmouseout="this.style.background='${rowBg}'">
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             <strong style="color:var(--text-primary); font-size:13px; font-weight:800;">${item.truckName}</strong>
             <div style="display:flex; gap:4px; margin-top:4px; flex-wrap:wrap;">
               ${item.immatriculation ? `<span class="truck-meta-tag imm">${item.immatriculation}</span>` : ''}
               ${item.carteNaftal ? `<span class="truck-meta-tag naftal"><i class="fa-solid fa-credit-card"></i> ${item.carteNaftal}</span>` : ''}
             </div>
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             ${item.driver ? `
               <div style="font-weight:700; color:var(--primary); font-size:13px; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${item.driver.name.replace(/'/g, "\\'")}', '${item.driver.situation}')">
                 <i class="fa-solid fa-user" style="margin-right:3px;"></i> ${item.driver.name}
@@ -15585,33 +15585,38 @@ _naftalSortTable(tblId, colIdx) {
               </div>
             ` : '<button class="btn-secondary" onclick="ui.openAssignFleetModal(\''+item.deviceId+'\')" style="padding:3px 8px; font-size:11px;"><i class="fa-solid fa-plus"></i> Assigner</button>'}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             ${item.trailer ? `
               <div><span class="truck-meta-tag trailer"><i class="fa-solid fa-trailer"></i> ${item.trailer.immatriculation}</span></div>
               <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${item.trailer.type || 'Plateau'}</div>
             ` : '<span style="color:var(--text-muted); font-size:11px;">—</span>'}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             <span class="situation-badge ${item.situationBadge}">
               ${item.isMoving ? '<span class="pulse-dot" style="width:6px; height:6px; background:#10b981; border-radius:50%; display:inline-block; animation:pulse 2s infinite;"></span>' : ''}
               ${item.situationLabel}
             </span>
             ${mission ? `
-              <div style="font-weight:700; color:var(--primary); font-size:11px; margin-top:4px;">
+              <div style="display:flex; align-items:center; gap:4px; margin-top:4px; flex-wrap:wrap;">
+                ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(139,92,246,0.1); color:#a78bfa; padding:1px 5px; border-radius:5px; font-size:8px; font-weight:800;">🤖 Auto</span>' : ''}
+                ${mission.clientName ? `<span style="background:rgba(16,185,129,0.08); color:#10b981; padding:1px 6px; border-radius:5px; font-size:8px; font-weight:700;">🏢 ${mission.clientName}</span>` : ''}
+                ${mission.finalClientName ? `<span style="background:rgba(139,92,246,0.08); color:#a78bfa; padding:1px 6px; border-radius:5px; font-size:8px; font-weight:700;">🤝 ${mission.finalClientName}</span>` : ''}
+              </div>
+              <div style="font-weight:700; color:var(--primary); font-size:11px; margin-top:3px;">
                 <i class="fa-solid fa-location-arrow"></i> ${mission.origin} → ${mission.destination}
               </div>
               <div style="font-size:10px; color:var(--text-muted); margin-top:1px;">
-                ${mission.cargo || 'Fret'} ${mission.orderRef ? `· ${mission.orderRef}` : ''}
+                ${mission.cargo || 'Fret'} ${mission.orderRef ? `· ${mission.orderRef}` : ''}${mission.estimatedDistanceKm ? ' · 📏 ' + mission.estimatedDistanceKm + ' km' : ''}
               </div>
             ` : ''}
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             <div style="display:flex; align-items:center; gap:6px;">
               <i class="fa-solid fa-location-dot" style="color:var(--primary);"></i>
               <span style="font-weight:600; color:var(--text-primary);">${item.locationCity || 'En route'}</span>
             </div>
           </td>
-          <td style="padding:12px 16px; border-right:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:12px 16px; border-right:1px solid var(--border);">
             <div style="font-weight:700; color:${item.speed >= 1 ? '#10b981' : 'var(--text-muted)'}; font-family:var(--font-mono);">
               ${item.speed} km/h
             </div>
@@ -16819,7 +16824,24 @@ _naftalSortTable(tblId, colIdx) {
    * Show auto-mission prompt when an auto-detected mission is created.
    * Called periodically from fetchDisponibiliteData.
    */
-  async _checkAutoMissionNotifications() {
+  loadTransportReport() {
+    // Redirect the transport report rendering to the sub-panel container
+    const srcContainer = document.getElementById('transportReportApp');
+    const destContainer = document.getElementById('transportReportAppInDispo');
+    if (srcContainer && destContainer) {
+      // Move content from old location to new
+      destContainer.innerHTML = srcContainer.innerHTML;
+      srcContainer.innerHTML = '';
+    }
+    // If we have a render function, call it targeting the new container
+    if (typeof renderTransportReport === 'function') {
+      renderTransportReport('transportReportAppInDispo');
+    } else if (typeof loadTransportReportData === 'function') {
+      loadTransportReportData();
+    }
+  }
+
+    async _checkAutoMissionNotifications() {
     try {
       const res = await fetch(`${FLEET_CONFIG.API.baseUrl}/api/fleet/auto-missions/state`, {
         headers: { 'x-access-code': this.currentCode }

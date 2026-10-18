@@ -1233,9 +1233,6 @@
           <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')" title="Rapports d'activité & exports">
               <i class="fa-solid fa-chart-simple" style="color:#818cf8;"></i> <span>Rapports</span>
           </button>
-          <button class="tab-button" data-tab="transportReport" onclick="switchTab('transportReport')" title="Rapport de rotations transport">
-              <i class="fa-solid fa-boxes-stacked" style="color:#34d399;"></i> <span>Transport</span>
-          </button>
       </div>
 
       <!-- 🚨 Alertes Sécurité -->
@@ -1506,6 +1503,10 @@
         </button>
         <button class="dispo-sub-tab" data-subtab="analytics" onclick="switchDispoSubTab('analytics')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
           <i class="fa-solid fa-chart-pie"></i> Analyse & KPIs
+        </button>
+      
+        <button class="dispo-sub-tab" data-subtab="transport" onclick="switchDispoSubTab('transport')" style="padding:10px 18px; border:none; background:transparent; color:var(--text-muted); font-weight:600; font-size:13px; cursor:pointer; border-bottom:3px solid transparent; transition:all 0.2s; display:flex; align-items:center; gap:6px;">
+          <i class="fa-solid fa-boxes-stacked"></i> Rapport Transport
         </button>
       </div>
 
@@ -1895,6 +1896,18 @@
           <div id="chartMissions" style="min-height:120px;"></div>
         </div>
       </div>
+    
+      <!-- PANEL 7: RAPPORT TRANSPORT -->
+      <div id="dispoSubTransport" class="dispo-sub-panel" style="display:none;">
+        <div class="controls-section" style="border-left: 3px solid var(--primary);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom: 10px;">
+                <h2 style="color: var(--primary); font-size: 1.1rem; text-transform:uppercase; margin:0;"><i class="fa-solid fa-truck-ramp-box"></i> Rapport Transport</h2>
+                <div style="font-size:12px; color:var(--text-muted); font-weight:700;">Import Excel principal • édition possible • export filtré</div>
+            </div>
+            <div id="transportReportAppInDispo"></div>
+        </div>
+      </div>
+
     </div>
 
     <div id="byWilaya" class="tab-content">
@@ -2431,12 +2444,12 @@
 
 
     <div id="transportReport" class="tab-content">
-      <div class="controls-section" style="border-left: 3px solid var(--primary);">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom: 10px;">
-              <h2 style="color: var(--primary); font-size: 1.1rem; text-transform:uppercase; margin:0;"><i class="fa-solid fa-truck-ramp-box"></i> Rapport Transport</h2>
-              <div style="font-size:12px; color:var(--text-muted); font-weight:700;">Section séparée • import Excel principal • édition possible • export filtré</div>
-          </div>
-          <div id="transportReportApp"></div>
+      <div style="padding:40px; text-align:center; color:var(--text-muted);">
+        <i class="fa-solid fa-arrow-right" style="font-size:24px; margin-bottom:12px; display:block; color:var(--primary);"></i>
+        <p style="font-weight:700; margin:0;">Cette section a été déplacée dans <b>Suivi Transport</b></p>
+        <button onclick="switchTab('disponibiliteSection'); setTimeout(()=>switchDispoSubTab('transport'),200);" class="btn-primary" style="margin-top:12px; padding:8px 20px; border-radius:8px; border:none; background:var(--primary); color:#fff; cursor:pointer; font-weight:700;">
+          <i class="fa-solid fa-truck-fast"></i> Aller à Suivi Transport → Rapport Transport
+        </button>
       </div>
     </div>
 
@@ -3270,7 +3283,7 @@ window.addEventListener('unhandledrejection', function(e) {
     const HIST_PAGE_SIZE = 50;
 
     function switchDispoSubTab(tab) {
-      const map = { flotte: 'dispoSubFlotte', drivers: 'dispoSubDrivers', trailers: 'dispoSubTrailers', history: 'dispoSubHistory', fiches: 'dispoSubFiches', analytics: 'dispoSubAnalytics' };
+      const map = { flotte: 'dispoSubFlotte', drivers: 'dispoSubDrivers', trailers: 'dispoSubTrailers', history: 'dispoSubHistory', fiches: 'dispoSubFiches', analytics: 'dispoSubAnalytics', transport: 'dispoSubTransport' };
       document.querySelectorAll('.dispo-sub-panel').forEach(p => p.style.display = 'none');
       document.querySelectorAll('.dispo-sub-tab').forEach(b => {
         b.classList.remove('active');
@@ -3288,6 +3301,7 @@ window.addEventListener('unhandledrejection', function(e) {
       if (tab === 'history') loadHistoryDb();
       if (tab === 'fiches' && ui && ui.populateSettingsTruckSelect) { ui.populateSettingsTruckSelect(); }
       if (tab === 'analytics') loadAnalyticsDb();
+      if (tab === 'transport' && ui && ui.loadTransportReport) { ui.loadTransportReport(); }
     }
 
     // ═══ DRIVER DATABASE ═══
@@ -4439,7 +4453,7 @@ setTimeout(function() {
       { label: 'Suivi Maintenance', icon: 'fa-clipboard-list', action: () => switchTab('maintenanceFollowup'), keywords: 'maintenance suivi ordre' },
       { label: 'Historique Maintenance', icon: 'fa-clipboard-check', action: () => switchTab('maintenanceHistory'), keywords: 'historique maintenance' },
       { label: 'Rapports', icon: 'fa-file-contract', action: () => switchTab('reports'), keywords: 'rapport export' },
-      { label: 'Rapport Transport', icon: 'fa-truck-ramp-box', action: () => switchTab('transportReport'), keywords: 'transport rapport' },
+      { label: 'Rapport Transport', icon: 'fa-truck-ramp-box', action: () => { switchTab('disponibiliteSection'); setTimeout(()=>switchDispoSubTab('transport'),200); }, keywords: 'transport rapport' },
       { label: 'Alertes', icon: 'fa-triangle-exclamation', action: () => switchTab('alertsSection'), keywords: 'alerte vitesse' },
       { label: 'Configuration', icon: 'fa-sliders', action: () => switchTab('settings'), keywords: 'config parametre settings' },
       { label: 'Notifications', icon: 'fa-bell', action: () => toggleNotificationPanel(), keywords: 'notif notification alert' },
@@ -5578,6 +5592,7 @@ setTimeout(function() {
 <!-- ═══ MODAL: NOUVELLE MISSION / AFFECTATION DESTINATION ════════ -->
 <style>
 .geo-dropdown{position:absolute;top:100%;left:0;right:0;z-index:100001;background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:0 0 10px 10px;max-height:240px;overflow-y:auto;box-shadow:0 12px 32px rgba(0,0,0,0.45);display:none;}
+.geo-dropdown:not(:empty){display:block;}
 .geo-dropdown .geo-item{padding:9px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--text-primary,#e2e8f0);transition:background 0.12s;display:flex;align-items:center;gap:8px;}
 .geo-dropdown .geo-item:hover{background:rgba(99,102,241,0.12);}
 .geo-dropdown .geo-item .geo-icon{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
