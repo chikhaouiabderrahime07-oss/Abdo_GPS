@@ -127,15 +127,15 @@
       border-spacing: 0; 
     }
     #disponibiliteSection .dispo-table th {
-      background: linear-gradient(180deg, #1e293b, #151f2e) !important;
-      color: #94a3b8; 
+      background: var(--bg-elevated) !important;
+      color: var(--text-secondary); 
       font-size: 11px;
       font-weight: 800; 
       text-transform: uppercase; 
       letter-spacing: 0.6px;
       padding: 12px 14px; 
-      border-bottom: 2px solid rgba(56, 189, 248, 0.45) !important;
-      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 2px solid var(--primary) !important;
+      border-right: 1px solid var(--border);
       position: sticky; 
       top: 0; 
       z-index: 2;
@@ -146,18 +146,18 @@
       cursor: pointer;
     }
     #disponibiliteSection .dispo-table th.sortable:hover {
-      background: linear-gradient(180deg, #26354a, #1a2638) !important;
+      background: var(--bg-hover) !important;
       color: var(--primary) !important;
     }
     #disponibiliteSection .dispo-table th.active-sort {
       color: #38bdf8 !important;
-      background: linear-gradient(180deg, rgba(56, 189, 248, 0.18), rgba(15, 23, 42, 0.95)) !important;
+      background: rgba(56, 189, 248, 0.08) !important;
       border-bottom: 2px solid #38bdf8 !important;
     }
     #disponibiliteSection .dispo-table td {
       padding: 11px 14px; 
-      border-bottom: 1.5px solid rgba(255, 255, 255, 0.16) !important; /* CRISP, HIGH-CONTRAST SEPARATION */
-      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      border-bottom: 1px solid var(--border) !important; /* CRISP, HIGH-CONTRAST SEPARATION */
+      border-right: 1px solid var(--border);
       font-size: 12px; 
       color: var(--text-primary);
       vertical-align: middle;
@@ -168,10 +168,10 @@
       border-right: none;
     }
     #disponibiliteSection .dispo-table tbody tr:nth-child(even) td {
-      background: rgba(255, 255, 255, 0.02);
+      background: var(--bg-hover);
     }
     #disponibiliteSection .dispo-table tbody tr:hover td {
-      background: rgba(56, 189, 248, 0.09) !important;
+      background: rgba(56, 189, 248, 0.08) !important;
     }
     #disponibiliteSection .dispo-table tbody tr:hover td:first-child {
       box-shadow: inset 3px 0 0 #38bdf8;
@@ -443,8 +443,8 @@
       transform: none;
     }
     .tab-button.active {
-      color: var(--primary) !important;
-      background: rgba(56, 189, 248, 0.1) !important;
+      color: #10b981 !important;
+      background: rgba(16, 185, 129, 0.12) !important;
       border: none !important;
       box-shadow: none !important;
       font-weight: 700;
@@ -456,18 +456,19 @@
     .tab-button:hover i {
       transform: none;
     }
+    /* tab-btn-highlight now inherits from .tab-button for consistency */
     .tab-btn-highlight {
-      background: rgba(16, 185, 129, 0.08) !important;
+      background: transparent !important;
       border: none !important;
-      color: #10b981 !important;
+      color: var(--text-muted) !important;
     }
     .tab-btn-highlight:hover {
-      background: rgba(16, 185, 129, 0.15) !important;
+      background: var(--bg-hover) !important;
       border: none !important;
-      color: #10b981 !important;
+      color: var(--text-primary) !important;
     }
     .tab-btn-highlight.active {
-      background: rgba(16, 185, 129, 0.15) !important;
+      background: rgba(16, 185, 129, 0.12) !important;
       border: none !important;
       color: #10b981 !important;
       box-shadow: none !important;
@@ -755,24 +756,24 @@
     .rfv2-card { animation: cardSlideIn 0.3s ease-out both; border-radius:14px; overflow:hidden; transition: transform 0.22s cubic-bezier(.4,0,.2,1), box-shadow 0.22s ease; }
     .rfv2-card:hover { transform:translateY(-3px); box-shadow:0 12px 32px rgba(0,0,0,0.2) !important; }
 
-    /* ═══ CLEAN CARD BORDERS — Flat Design ═══ */
+    /* ═══ CLEAN CARD BORDERS — Flat Design (Strong Visibility) ═══ */
     .card-premium, .ftc-card, .rfv2-card, .fleet-kpi-card {
-      border: 1px solid var(--border) !important;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+      border: 1.5px solid var(--border-strong) !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08) !important;
     }
     .card-premium:hover, .ftc-card:hover, .rfv2-card:hover, .fleet-kpi-card:hover {
-      border-color: var(--border-light) !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+      border-color: var(--primary) !important;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18) !important;
     }
     .rfv2-fuel-bar-fill { transition: width 0.6s cubic-bezier(.4,0,.2,1); }
     .rfv2-source-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:9px; font-weight:700; white-space:nowrap; }
-    .rfv2-stat { background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 10px; text-align:center; transition:transform 0.2s; }
+    .rfv2-stat { background:var(--bg-surface); border:1.5px solid var(--border-strong); border-radius:12px; padding:14px 10px; text-align:center; transition:transform 0.2s; }
     .rfv2-stat:hover { transform:translateY(-2px); }
     .rfv2-stat .val { font-size:22px; font-weight:900; line-height:1.1; font-family:var(--font-mono,monospace); }
     .rfv2-stat .lbl { font-size:10px; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.4px; margin-top:4px; }
 
     /* Settings accordion */
-    .settings-accordion-item { border: 1px solid var(--border) !important; border-radius: var(--radius-md) !important; 
+    .settings-accordion-item { border: 1.5px solid var(--border-strong) !important; border-radius: var(--radius-md) !important; 
       margin-bottom: 10px; padding: 10px; background: var(--bg-surface) !important; }
     .settings-header { color: var(--text-primary) !important; }
     .settings-content { color: var(--text-primary); }
@@ -5415,6 +5416,13 @@ setTimeout(function() {
             <option value="maladie">🟠 Arrêt Maladie</option>
             <option value="suspendu">🔴 Suspendu</option>
           </select>
+        </div>
+        <div class="form-group" style="grid-column:1 / -1; margin-top:8px; padding-top:10px; border-top:1px solid var(--border);">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">⏰ Alerte Expiration Permis (mois avant)</label>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <input type="number" id="driverModalPermitAlertMonths" min="1" max="24" value="6" style="width:80px; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); text-align:center; font-weight:700; font-size:14px;">
+            <span style="font-size:11px; color:var(--text-muted);">Signaler les chauffeurs dont le permis expire dans ce délai</span>
+          </div>
         </div>
         <div class="form-group" style="grid-column:1 / -1;">
           <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Notes & Observations</label>

@@ -2160,7 +2160,7 @@ renderDecouchageList() {
              data-type="${filterType}"
              onclick="ui.setFilter('${filterType}', '${safeLabel}')"
              style="background:var(--bg-surface); cursor:pointer; border-radius:12px;
-                    border:1px solid ${isActive ? ac : 'var(--border)'};
+                    border:1.5px solid ${isActive ? ac : 'var(--border-strong, var(--border))'};
                     box-shadow: ${isActive ? '0 0 0 2px ' + ac + '25' : '0 1px 3px rgba(0,0,0,0.06)'};
                     transition: all .2s ease; position:relative; overflow:hidden;"
              onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'; this.style.borderColor='${ac}'"
@@ -2186,7 +2186,7 @@ renderDecouchageList() {
            data-type="docs"
            onclick="ui.toggleDocPanel()"
            style="background:var(--bg-surface); cursor:pointer; border-radius:12px;
-                  border:1px solid ${this.currentFilter === 'docs' ? docColor : 'var(--border)'};
+                  border:1.5px solid ${this.currentFilter === 'docs' ? docColor : 'var(--border-strong, var(--border))'};
                   box-shadow: ${this.currentFilter === 'docs' ? '0 0 0 2px ' + docColor + '25' : '0 1px 3px rgba(0,0,0,0.06)'};
                   transition: all .2s ease; position:relative; overflow:hidden;"
            onmouseenter="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'; this.style.borderColor='${docColor}'"
@@ -2500,7 +2500,7 @@ renderDecouchageList() {
       const card = document.createElement('div');
       card.className = `card-premium ${isSpeeding ? 'speeding' : ''} ${truck.speed >= 1 ? 'moving' : 'stopped'} ${hasExpiringRef ? 'doc-expiring' : ''}`;
       card.style.cssText = `
-        border: 1px solid var(--border);
+        border: 1.5px solid var(--border-strong, var(--border));
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 1px 3px rgba(0,0,0,0.06);
@@ -2515,7 +2515,7 @@ renderDecouchageList() {
       card.onmouseleave = () => {
         card.style.transform = '';
         card.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)';
-        card.style.borderColor = 'var(--border)';
+        card.style.borderColor = 'var(--border-strong, var(--border))';
       };
       const lat = truck.coordinates?.lat || 0;
       const lng = truck.coordinates?.lng || 0;
@@ -15527,7 +15527,7 @@ _naftalSortTable(tblId, colIdx) {
     const getThClass = (col) => sortCol === col ? 'sortable active-sort' : 'sortable';
 
     let html = `
-      <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+      <div style="background:var(--bg-surface); border:1.5px solid var(--border-strong, var(--border)); border-radius:12px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
         <table class="dispo-table" style="width:100%; border-collapse:collapse; font-size:12px;">
           <thead>
             <tr style="background:var(--bg-elevated); border-bottom:2px solid var(--primary);">
@@ -15575,13 +15575,27 @@ _naftalSortTable(tblId, colIdx) {
               <div style="font-weight:700; color:var(--primary); font-size:13px; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${item.driver.name.replace(/'/g, "\\'")}', '${item.driver.situation}')">
                 <i class="fa-solid fa-user" style="margin-right:3px;"></i> ${item.driver.name}
               </div>
-              <div style="display:flex; align-items:center; gap:6px; margin-top:2px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:4px; margin-top:4px;">
                 ${item.driver.phone ? `
-                  <a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:11px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Appeler">
-                    <i class="fa-solid fa-phone" style="font-size:9px; color:#10b981;"></i> ${item.driver.phone}
+                  <a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:12px; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:5px; background:rgba(56,189,248,0.08); padding:2px 8px; border-radius:6px; border:1px solid rgba(56,189,248,0.15);" title="Appeler ${item.driver.phone}">
+                    <i class="fa-solid fa-phone" style="font-size:10px; color:#10b981;"></i> ${item.driver.phone}
                   </a>
-                ` : '<span style="color:var(--text-muted); font-size:11px;">Sans tél</span>'}
-                ${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:0 5px; border-radius:5px; font-size:8px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}
+                ` : '<span style="color:var(--text-muted); font-size:11px; font-style:italic;">Pas de tél</span>'}
+              </div>
+              <div style="display:flex; align-items:center; gap:4px; margin-top:3px; flex-wrap:wrap;">
+                ${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:1px 6px; border-radius:5px; font-size:9px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}
+                ${(() => {
+                  if (!item.driver.licenseExpiry) return '';
+                  const exp = new Date(item.driver.licenseExpiry);
+                  const now = new Date();
+                  const diffMs = exp - now;
+                  const diffDays = Math.floor(diffMs / 86400000);
+                  const alertMonths = (window.FLEET_CONFIG && FLEET_CONFIG.PERMIT_ALERT_MONTHS) || 6;
+                  const alertDays = alertMonths * 30;
+                  if (diffDays < 0) return '<span style="background:rgba(239,68,68,0.15); color:#ef4444; padding:1px 6px; border-radius:5px; font-size:9px; font-weight:800; border:1px solid rgba(239,68,68,0.3); animation:pulse 2s infinite;">⚠️ PERMIS EXPIRÉ</span>';
+                  if (diffDays <= alertDays) return `<span style="background:rgba(245,158,11,0.12); color:#f59e0b; padding:1px 6px; border-radius:5px; font-size:9px; font-weight:700; border:1px solid rgba(245,158,11,0.25);">⏰ Expire ${exp.toLocaleDateString('fr-FR')} (${diffDays}j)</span>`;
+                  return `<span style="color:var(--text-muted); font-size:9px;">📅 ${exp.toLocaleDateString('fr-FR')}</span>`;
+                })()}
               </div>
             ` : '<button class="btn-secondary" onclick="ui.openAssignFleetModal(\''+item.deviceId+'\')" style="padding:3px 8px; font-size:11px;"><i class="fa-solid fa-plus"></i> Assigner</button>'}
           </td>
@@ -15712,11 +15726,11 @@ _naftalSortTable(tblId, colIdx) {
       html += `
         <div class="ftc-card" style="
           position:relative; background:var(--bg-surface); border-radius:12px; overflow:hidden;
-          border:1px solid var(--border); transition:all 0.2s ease;
+          border:1.5px solid var(--border-strong, var(--border)); transition:all 0.2s ease;
           box-shadow:0 1px 3px rgba(0,0,0,0.06);
           animation: cardSlideIn 0.3s ease both;
           animation-delay: ${idx * 30}ms;
-        " onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)';this.style.borderColor='${ac}'" onmouseout="this.style.transform='';this.style.boxShadow='0 1px 3px rgba(0,0,0,0.06)';this.style.borderColor='var(--border)'">
+        " onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)';this.style.borderColor='${ac}'" onmouseout="this.style.transform='';this.style.boxShadow='0 1px 3px rgba(0,0,0,0.06)';this.style.borderColor='var(--border-strong, var(--border))'">
 
           <!-- ▸ Top Accent Bar -->
           <div style="height:4px; background:${ag};"></div>
@@ -15757,7 +15771,17 @@ _naftalSortTable(tblId, colIdx) {
                 ${item.driver && drvSitText ? `<span style="display:inline-flex; align-items:center; gap:3px; font-size:7px; font-weight:700; color:${drvSitDot}; background:${drvSitDot}12; padding:1px 6px; border-radius:6px; border:1px solid ${drvSitDot}25;"><span style="width:5px;height:5px;border-radius:50%;background:${drvSitDot};display:inline-block;"></span>${drvSitText}</span>` : ''}
               </div>
               ${item.driver
-                ? `<div style="font-weight:700; color:var(--primary); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\\\'")}', '${item.driver.situation}')">${item.driver.name}</div><div style="display:flex; align-items:center; gap:6px; margin-top:2px; flex-wrap:wrap;">${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:var(--text-secondary); font-size:10px; text-decoration:none; display:inline-flex; align-items:center; gap:2px;"><i class="fa-solid fa-phone" style="font-size:7px; color:#10b981;"></i>${item.driver.phone}</a>` : ''}${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:0 5px; border-radius:5px; font-size:8px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}</div>`
+                ? `<div style="font-weight:700; color:var(--primary); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer;" onclick="ui.openDriverSituationModal('${item.driver.id}', '${(item.driver.name||'').replace(/'/g, "\\\\'")}', '${item.driver.situation}')">${item.driver.name}</div><div style="display:flex; align-items:center; gap:6px; margin-top:2px; flex-wrap:wrap;">${item.driver.phone ? `<a href="tel:${item.driver.phone}" style="color:#38bdf8; font-size:11px; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:4px; background:rgba(56,189,248,0.08); padding:1px 7px; border-radius:5px; border:1px solid rgba(56,189,248,0.15);"><i class="fa-solid fa-phone" style="font-size:8px; color:#10b981;"></i>${item.driver.phone}</a>` : '<span style="color:var(--text-muted); font-size:9px; font-style:italic;">Pas de tél</span>'}${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:0 5px; border-radius:5px; font-size:8px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}${(() => {
+                  if (!item.driver.licenseExpiry) return '';
+                  const exp = new Date(item.driver.licenseExpiry);
+                  const now = new Date();
+                  const diffDays = Math.floor((exp - now) / 86400000);
+                  const alertMonths = (window.FLEET_CONFIG && FLEET_CONFIG.PERMIT_ALERT_MONTHS) || 6;
+                  const alertDays = alertMonths * 30;
+                  if (diffDays < 0) return '<span style="background:rgba(239,68,68,0.15); color:#ef4444; padding:1px 5px; border-radius:5px; font-size:8px; font-weight:800; border:1px solid rgba(239,68,68,0.3); animation:pulse 2s infinite;">⚠️ EXPIRÉ</span>';
+                  if (diffDays <= alertDays) return `<span style="background:rgba(245,158,11,0.12); color:#f59e0b; padding:1px 5px; border-radius:5px; font-size:8px; font-weight:700; border:1px solid rgba(245,158,11,0.25);">⏰ ${exp.toLocaleDateString('fr-FR')}</span>`;
+                  return `<span style="color:var(--text-muted); font-size:8px;">📅 ${exp.toLocaleDateString('fr-FR')}</span>`;
+                })()}</div>`
                 : `<button class="btn-secondary" onclick="ui.openAssignFleetModal('${item.deviceId}')" style="padding:2px 6px; font-size:9px; width:100%;"><i class="fa-solid fa-plus"></i> Assigner</button>`}
             </div>
             <div style="flex:1; background:var(--bg-elevated); border-radius:10px; padding:8px 10px; border:1.2px solid rgba(255,255,255,0.16); min-width:0;">
@@ -15850,6 +15874,8 @@ _naftalSortTable(tblId, colIdx) {
     document.getElementById('driverModalExpiry').value = '';
     document.getElementById('driverModalSituation').value = 'disponible';
     document.getElementById('driverModalNotes').value = '';
+    const permitAlertEl = document.getElementById('driverModalPermitAlertMonths');
+    if (permitAlertEl) permitAlertEl.value = (FLEET_CONFIG.PERMIT_ALERT_MONTHS || 6);
 
     const titleEl = document.getElementById('modalAddDriverTitle');
     if (titleEl) titleEl.innerHTML = driverId ? '<i class="fa-solid fa-user-pen"></i> Modifier Chauffeur' : '<i class="fa-solid fa-user-plus"></i> Nouveau Chauffeur';
@@ -15891,6 +15917,12 @@ _naftalSortTable(tblId, colIdx) {
       situation: document.getElementById('driverModalSituation')?.value,
       notes: document.getElementById('driverModalNotes')?.value.trim()
     };
+
+    // Read permit alert months setting
+    const permitAlertInput = document.getElementById('driverModalPermitAlertMonths');
+    if (permitAlertInput) {
+      FLEET_CONFIG.PERMIT_ALERT_MONTHS = parseInt(permitAlertInput.value) || 6;
+    }
 
     try {
       const url = id ? `${FLEET_CONFIG.API.baseUrl}/api/drivers/${id}` : `${FLEET_CONFIG.API.baseUrl}/api/drivers`;

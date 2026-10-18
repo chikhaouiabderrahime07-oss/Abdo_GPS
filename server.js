@@ -4681,6 +4681,7 @@ async function computeFleetAvailability() {
         phone: assignedDriver.phone || '',
         licenseNumber: assignedDriver.licenseNumber || '',
         licenseExpiry: assignedDriver.licenseExpiry || '',
+        licenseCategory: assignedDriver.licenseCategory || 'EC',
         situation: assignedDriver.situation || situation
       } : null,
       trailer: assignedTrailer ? {

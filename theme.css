@@ -616,6 +616,8 @@ img, video { max-width: 100%; height: auto; display: block; }
   scroll-behavior: smooth;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  border-bottom: 1.5px solid var(--border-strong);
+  padding-bottom: 4px;
 }
 
 .tabs-scroll-area::-webkit-scrollbar { display: none; height: 0; width: 0; }
@@ -1164,10 +1166,10 @@ button, .btn {
   background: var(--bg-surface);
   padding: 16px 14px;
   border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.05);
   cursor: pointer;
   transition: all 0.2s ease;
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border-strong, var(--border));
   display: flex;
   flex-direction: column;
   position: relative;
@@ -1179,8 +1181,8 @@ button, .btn {
 
 .stat-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  border-color: var(--border-light);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.14);
+  border-color: var(--primary);
 }
 
 .stat-card:active {
