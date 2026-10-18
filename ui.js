@@ -15356,6 +15356,12 @@ _naftalSortTable(tblId, colIdx) {
         this.updateDispoKPIs();
         this.populateDispoWilayas();
         this.renderDispoContent();
+        // Force dashboard cards to re-render with driver phone data
+        this._lastRenderFingerprint = null;
+        const activeEl = document.querySelector('.tab-content.active');
+        if (activeEl && activeEl.id === 'dashboard') {
+          this.renderTrucks();
+        }
         // Check for auto-detected missions and show prompts
         this._checkAutoMissionNotifications().catch(() => {});
       }
@@ -15610,7 +15616,7 @@ _naftalSortTable(tblId, colIdx) {
                 ` : '<span style="color:var(--text-muted); font-size:11px; font-style:italic;">Pas de tél</span>'}
               </div>
               <div style="display:flex; align-items:center; gap:4px; margin-top:3px; flex-wrap:wrap;">
-                ${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.1); color:#f59e0b; padding:1px 6px; border-radius:5px; font-size:9px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.2);">🪪 ${item.driver.licenseCategory}</span>` : ''}
+                ${item.driver.licenseCategory ? `<span style="background:rgba(245,158,11,0.15); color:#fbbf24; padding:2px 7px; border-radius:5px; font-size:9px; font-weight:800; font-family:monospace; border:1px solid rgba(245,158,11,0.35);">🪪 ${item.driver.licenseCategory}</span>` : ''}
                 ${(() => {
                   if (!item.driver.licenseExpiry) return '';
                   const exp = new Date(item.driver.licenseExpiry);
@@ -15639,9 +15645,9 @@ _naftalSortTable(tblId, colIdx) {
             </span>
             ${mission ? `
               <div style="display:flex; align-items:center; gap:4px; margin-top:4px; flex-wrap:wrap;">
-                ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(139,92,246,0.1); color:#a78bfa; padding:1px 5px; border-radius:5px; font-size:8px; font-weight:800;">🤖 Auto</span>' : ''}
-                ${mission.clientName ? `<span style="background:rgba(16,185,129,0.08); color:#10b981; padding:1px 6px; border-radius:5px; font-size:8px; font-weight:700;">🏢 ${mission.clientName}</span>` : ''}
-                ${mission.finalClientName ? `<span style="background:rgba(139,92,246,0.08); color:#a78bfa; padding:1px 6px; border-radius:5px; font-size:8px; font-weight:700;">🤝 ${mission.finalClientName}</span>` : ''}
+                ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(56,189,248,0.12); color:#7dd3fc; padding:2px 6px; border-radius:5px; font-size:9px; font-weight:800; border:1px solid rgba(56,189,248,0.25);">🤖 Auto</span>' : ''}
+                ${mission.clientName ? `<span style="background:rgba(16,185,129,0.15); color:#34d399; padding:2px 6px; border-radius:5px; font-size:9px; font-weight:800; border:1px solid rgba(16,185,129,0.3);">🏢 ${mission.clientName}</span>` : ''}
+                ${mission.finalClientName ? `<span style="background:rgba(251,146,60,0.12); color:#fb923c; padding:2px 6px; border-radius:5px; font-size:9px; font-weight:800; border:1px solid rgba(251,146,60,0.25);">🤝 ${mission.finalClientName}</span>` : ''}
               </div>
               <div style="font-weight:700; color:var(--primary); font-size:11px; margin-top:3px;">
                 <i class="fa-solid fa-location-arrow"></i> ${mission.origin} → ${mission.destination}
@@ -15805,7 +15811,7 @@ _naftalSortTable(tblId, colIdx) {
                   const diffDays = Math.floor((exp - now) / 86400000);
                   const alertMonths = (window.FLEET_CONFIG && FLEET_CONFIG.PERMIT_ALERT_MONTHS) || 6;
                   const alertDays = alertMonths * 30;
-                  if (diffDays < 0) return '<span style="background:rgba(239,68,68,0.15); color:#ef4444; padding:1px 5px; border-radius:5px; font-size:8px; font-weight:800; border:1px solid rgba(239,68,68,0.3); animation:pulse 2s infinite;">⚠️ EXPIRÉ</span>';
+                  if (diffDays < 0) return '<span style="background:rgba(239,68,68,0.2); color:#fca5a5; padding:2px 6px; border-radius:5px; font-size:9px; font-weight:800; border:1px solid rgba(239,68,68,0.4); animation:pulse 2s infinite;">⚠️ EXPIRÉ</span>';
                   if (diffDays <= alertDays) return `<span style="background:rgba(245,158,11,0.12); color:#f59e0b; padding:1px 5px; border-radius:5px; font-size:8px; font-weight:700; border:1px solid rgba(245,158,11,0.25);">⏰ ${exp.toLocaleDateString('fr-FR')}</span>`;
                   return `<span style="color:var(--text-muted); font-size:8px;">📅 ${exp.toLocaleDateString('fr-FR')}</span>`;
                 })()}</div>`
@@ -15859,9 +15865,9 @@ _naftalSortTable(tblId, colIdx) {
               <div style="flex:1; min-width:0;">
                 <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
                   <span style="font-size:8px; text-transform:uppercase; font-weight:800; color:var(--text-muted);"><i class="fa-solid fa-route" style="margin-right:2px;"></i>Mission</span>
-                  ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(139,92,246,0.12); color:#a78bfa; padding:1px 5px; border-radius:6px; font-size:7px; font-weight:800;">🤖 Auto</span>' : ''}
-                  ${mission.clientName ? `<span style="background:rgba(16,185,129,0.1); color:#10b981; padding:1px 5px; border-radius:6px; font-size:7px; font-weight:700;">🏢 ${mission.clientName}</span>` : ''}
-                  ${mission.finalClientName ? `<span style="background:rgba(139,92,246,0.1); color:#a78bfa; padding:1px 5px; border-radius:6px; font-size:7px; font-weight:700;">🤝 ${mission.finalClientName}</span>` : ''}
+                  ${(mission.missionId || mission.historyId || '').startsWith('AUTO-') ? '<span style="background:rgba(56,189,248,0.12); color:#7dd3fc; padding:2px 6px; border-radius:6px; font-size:8px; font-weight:800; border:1px solid rgba(56,189,248,0.2);">🤖 Auto</span>' : ''}
+                  ${mission.clientName ? `<span style="background:rgba(16,185,129,0.15); color:#34d399; padding:2px 6px; border-radius:6px; font-size:8px; font-weight:800; border:1px solid rgba(16,185,129,0.25);">🏢 ${mission.clientName}</span>` : ''}
+                  ${mission.finalClientName ? `<span style="background:rgba(251,146,60,0.12); color:#fb923c; padding:2px 6px; border-radius:6px; font-size:8px; font-weight:800; border:1px solid rgba(251,146,60,0.2);">🤝 ${mission.finalClientName}</span>` : ''}
                 </div>
                 <div style="font-weight:800; color:#10b981; font-size:12px; margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${mission.origin} → ${mission.destination}</div>
                 <div style="font-size:9px; color:var(--text-secondary); margin-top:1px;">${mission.cargo || 'Fret'} ${mission.orderRef ? '· BL: ' + mission.orderRef : ''}${mission.estimatedDistanceKm ? ' · 📏 ' + mission.estimatedDistanceKm + ' km' : ''}</div>
