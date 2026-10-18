@@ -120,20 +120,61 @@
       background: var(--bg-surface); color: var(--text-primary);
     }
 
-    /* ═══ SUIVI TRANSPORT TABLE — Clean theme-aware styling ═══ */
-    #disponibiliteSection .dispo-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    /* ═══ SUIVI TRANSPORT TABLE — Ultra-Crisp, High-Definition Separation ═══ */
+    #disponibiliteSection .dispo-table { 
+      width: 100%; 
+      border-collapse: separate; 
+      border-spacing: 0; 
+    }
     #disponibiliteSection .dispo-table th {
-      background: var(--bg-elevated); color: var(--text-secondary); font-size: 11px;
-      font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
-      padding: 10px 12px; border-bottom: 2px solid var(--border);
-      position: sticky; top: 0; z-index: 2;
+      background: linear-gradient(180deg, #1e293b, #151f2e) !important;
+      color: #94a3b8; 
+      font-size: 11px;
+      font-weight: 800; 
+      text-transform: uppercase; 
+      letter-spacing: 0.6px;
+      padding: 12px 14px; 
+      border-bottom: 2px solid rgba(56, 189, 248, 0.45) !important;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      position: sticky; 
+      top: 0; 
+      z-index: 2;
+      user-select: none;
+      transition: all 0.2s ease;
+    }
+    #disponibiliteSection .dispo-table th.sortable {
+      cursor: pointer;
+    }
+    #disponibiliteSection .dispo-table th.sortable:hover {
+      background: linear-gradient(180deg, #26354a, #1a2638) !important;
+      color: var(--primary) !important;
+    }
+    #disponibiliteSection .dispo-table th.active-sort {
+      color: #38bdf8 !important;
+      background: linear-gradient(180deg, rgba(56, 189, 248, 0.18), rgba(15, 23, 42, 0.95)) !important;
+      border-bottom: 2px solid #38bdf8 !important;
     }
     #disponibiliteSection .dispo-table td {
-      padding: 8px 12px; border-bottom: 1px solid var(--border);
-      font-size: 12px; color: var(--text-primary);
+      padding: 11px 14px; 
+      border-bottom: 1.5px solid rgba(255, 255, 255, 0.16) !important; /* CRISP, HIGH-CONTRAST SEPARATION */
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 12px; 
+      color: var(--text-primary);
+      vertical-align: middle;
+      transition: background 0.15s ease;
     }
-    #disponibiliteSection .dispo-table tr:hover td {
-      background: var(--bg-hover);
+    #disponibiliteSection .dispo-table th:last-child,
+    #disponibiliteSection .dispo-table td:last-child {
+      border-right: none;
+    }
+    #disponibiliteSection .dispo-table tbody tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    #disponibiliteSection .dispo-table tbody tr:hover td {
+      background: rgba(56, 189, 248, 0.09) !important;
+    }
+    #disponibiliteSection .dispo-table tbody tr:hover td:first-child {
+      box-shadow: inset 3px 0 0 #38bdf8;
     }
 
     /* ═══ SUB-TAB STYLES ═══ */
@@ -316,15 +357,126 @@
     .maint-count-badge { background: var(--warning); color: var(--text-inverse); padding: 4px 12px; border-radius: var(--radius-full);
       font-size: 12px; font-weight: var(--weight-black); min-width: 24px; text-align: center; }
 
-    /* Nav groups dark theme */
-    .nav-group { background: var(--bg-elevated) !important; border-color: var(--border) !important; }
-    .nav-group.group-supervision, .nav-group.group-fuel, .nav-group.group-maintenance, 
-    .nav-group.group-reports, .nav-group.group-audit { background: var(--bg-elevated) !important; border-color: var(--border) !important; }
+    /* ═══ CLEAN FLAT NAVIGATION — Modern SaaS Design ═══ */
+    .main-header {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 9px 20px;
+      background: var(--bg-base);
+      backdrop-filter: blur(16px) saturate(150%);
+      -webkit-backdrop-filter: blur(16px) saturate(150%);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    .tabs {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 6px 0;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      box-shadow: none;
+    }
+    .btn-home-fixed {
+      background: var(--bg-surface) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 8px !important;
+      padding: 0 14px !important;
+      height: 36px !important;
+      box-shadow: none !important;
+      color: var(--text-primary) !important;
+      font-weight: 700 !important;
+      letter-spacing: -0.2px;
+      transition: all 0.2s ease !important;
+    }
+    .btn-home-fixed:hover {
+      background: var(--bg-hover) !important;
+      border-color: var(--primary) !important;
+      color: var(--primary) !important;
+      transform: none;
+      box-shadow: none !important;
+    }
+    .btn-home-fixed.active {
+      background: var(--primary) !important;
+      border-color: var(--primary) !important;
+      color: #ffffff !important;
+      box-shadow: 0 1px 3px rgba(56, 189, 248, 0.3) !important;
+    }
+    .nav-group {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 2px;
+      border-radius: 8px;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none;
+      transition: all 0.2s ease;
+    }
+    .nav-group:hover {
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none;
+    }
+    .tab-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 12px;
+      border-radius: 7px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .tab-button:hover {
+      color: var(--text-primary);
+      background: var(--bg-hover);
+      transform: none;
+    }
+    .tab-button.active {
+      color: var(--primary) !important;
+      background: rgba(56, 189, 248, 0.1) !important;
+      border: none !important;
+      box-shadow: none !important;
+      font-weight: 700;
+    }
+    .tab-button i {
+      font-size: 13px;
+      transition: none;
+    }
+    .tab-button:hover i {
+      transform: none;
+    }
+    .tab-btn-highlight {
+      background: rgba(16, 185, 129, 0.08) !important;
+      border: none !important;
+      color: #10b981 !important;
+    }
+    .tab-btn-highlight:hover {
+      background: rgba(16, 185, 129, 0.15) !important;
+      border: none !important;
+      color: #10b981 !important;
+    }
+    .tab-btn-highlight.active {
+      background: rgba(16, 185, 129, 0.15) !important;
+      border: none !important;
+      color: #10b981 !important;
+      box-shadow: none !important;
+    }
 
     /* Dashboard search bar */
     .dashboard-search-bar { display: flex; align-items: center; gap: 16px; margin-bottom: 16px;
       background: var(--bg-surface); padding: 12px 20px; border-radius: var(--radius-xl);
-      border: 1px solid var(--border-primary); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+      border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
 
     /* Compact nav breakpoint — icon-only below 1100px */
     @media (max-width: 1100px) {
@@ -344,11 +496,11 @@
     }
 
     /* Dashboard-specific button overrides */
-    .btn-dashboard { background: linear-gradient(135deg, var(--bg-elevated), var(--bg-surface)) !important; color: var(--text-primary) !important; 
-      box-shadow: var(--shadow-md); margin-right: 10px; padding: var(--sp-2) var(--sp-4); border: 1px solid var(--border-primary) !important; font-weight: 700 !important; }
+    .btn-dashboard { background: var(--bg-surface) !important; color: var(--text-primary) !important; 
+      box-shadow: none; margin-right: 10px; padding: var(--sp-2) var(--sp-4); border: 1px solid var(--border) !important; font-weight: 700 !important; }
     .btn-dashboard i { color: var(--primary) !important; font-size: 1.1rem !important; }
-    .btn-dashboard:hover { background: linear-gradient(135deg, var(--primary-subtle), var(--bg-surface)) !important; border-color: var(--primary) !important; box-shadow: 0 4px 16px rgba(56,189,248,0.25); }
-    .btn-dashboard.active { background: linear-gradient(135deg, var(--primary), var(--primary-dark)) !important; color: #fff !important; border-color: transparent !important; box-shadow: 0 6px 24px rgba(56,189,248,0.35); outline: none; }
+    .btn-dashboard:hover { background: var(--bg-hover) !important; border-color: var(--primary) !important; box-shadow: none; }
+    .btn-dashboard.active { background: var(--primary) !important; color: #fff !important; border-color: var(--primary) !important; box-shadow: 0 1px 3px rgba(56,189,248,0.2); outline: none; }
     .btn-dashboard.active i { color: #fff !important; }
     .btn-calc.active { background: var(--warning-subtle); color: var(--warning); border-color: rgba(245,158,11,0.3) !important; }
     .btn-history.active { background: var(--danger-subtle) !important; color: var(--danger) !important; border-color: rgba(239,68,68,0.3) !important; }
@@ -602,6 +754,16 @@
     .ftc-card { animation: cardSlideIn 0.35s ease-out both; }
     .rfv2-card { animation: cardSlideIn 0.3s ease-out both; border-radius:14px; overflow:hidden; transition: transform 0.22s cubic-bezier(.4,0,.2,1), box-shadow 0.22s ease; }
     .rfv2-card:hover { transform:translateY(-3px); box-shadow:0 12px 32px rgba(0,0,0,0.2) !important; }
+
+    /* ═══ CLEAN CARD BORDERS — Flat Design ═══ */
+    .card-premium, .ftc-card, .rfv2-card, .fleet-kpi-card {
+      border: 1px solid var(--border) !important;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+    }
+    .card-premium:hover, .ftc-card:hover, .rfv2-card:hover, .fleet-kpi-card:hover {
+      border-color: var(--border-light) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
+    }
     .rfv2-fuel-bar-fill { transition: width 0.6s cubic-bezier(.4,0,.2,1); }
     .rfv2-source-badge { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:20px; font-size:9px; font-weight:700; white-space:nowrap; }
     .rfv2-stat { background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 10px; text-align:center; transition:transform 0.2s; }
@@ -1022,79 +1184,79 @@
       <div class="tab-scroll-zone tab-scroll-left" id="tabScrollLeft"><i class="fa-solid fa-chevron-left"></i></div>
 
       <!-- Fixed Home Button -->
-      <button class="tab-button btn-dashboard btn-home-fixed active" data-tab="dashboard" onclick="switchTab('dashboard')" title="Tableau de Bord Flotte">
-          <i class="fa-solid fa-gauge-high"></i> Dashboard
+      <button class="tab-button btn-dashboard btn-home-fixed active" data-tab="dashboard" onclick="switchTab('dashboard')" title="Tableau de Bord Flotte — Supervision Temps Réel">
+          <i class="fa-solid fa-gauge-simple-high"></i> <span>Dashboard</span>
       </button>
 
       <!-- Scrollable tabs area -->
       <div class="tabs-scroll-area" id="tabsScrollArea">
 
-      <!-- 🚖 Disponibilité (Prominent & Real-time) -->
+      <!-- 🚖 Suivi Transport (Star Real-time Module) -->
       <div class="nav-group group-disponibilite">
-          <button class="tab-button" data-tab="disponibiliteSection" onclick="switchTab('disponibiliteSection')" style="background:linear-gradient(135deg, rgba(14,165,233,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(14,165,233,0.3); font-weight:700;">
-              <i class="fa-solid fa-truck-moving" style="color:var(--primary);"></i> Suivi Transport
+          <button class="tab-button tab-btn-highlight" data-tab="disponibiliteSection" onclick="switchTab('disponibiliteSection')">
+              <i class="fa-solid fa-truck-fast" style="color:#10b981;"></i> <span>Suivi Transport</span>
           </button>
       </div>
 
-      <!-- Supervision -->
+      <!-- 🛰️ Supervision GPS -->
       <div class="nav-group group-supervision">
-          <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')">
-              <i class="fa-solid fa-map-location-dot"></i> Supervision GPS
+          <button class="tab-button" data-tab="byWilaya" onclick="switchTab('byWilaya')" title="Supervision cartographique live">
+              <i class="fa-solid fa-satellite-dish" style="color:#0ea5e9;"></i> <span>Supervision GPS</span>
           </button>
       </div>
 
-      <!-- Carburant -->
+      <!-- ⛽ Carburant & NAFTAL -->
       <div class="nav-group group-fuel">
-          <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')">
-              <i class="fa-solid fa-gas-pump"></i> Carburant
+          <button class="tab-button" data-tab="fuelSection" onclick="switchTab('fuelSection')" title="Gestion & suivi des niveaux de carburant">
+              <i class="fa-solid fa-gas-pump" style="color:#f59e0b;"></i> <span>Carburant</span>
           </button>
-          <button class="tab-button btn-calc" data-tab="routing" onclick="switchTab('routing')">
-              <i class="fa-solid fa-credit-card"></i> NAFTAL
+          <button class="tab-button btn-calc" data-tab="routing" onclick="switchTab('routing')" title="Cartes & Ravitaillement NAFTAL">
+              <i class="fa-solid fa-credit-card" style="color:#38bdf8;"></i> <span>NAFTAL</span>
           </button>
       </div>
 
-      <!-- Vidange & Maintenance -->
+      <!-- 🔧 Maintenance & Atelier -->
       <div class="nav-group group-maintenance">
-          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')">
-              <i class="fa-solid fa-oil-can"></i> Vidanges
+          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')" title="Planning & alertes vidanges">
+              <i class="fa-solid fa-oil-can" style="color:#fb923c;"></i> <span>Vidanges</span>
           </button>
-          <button class="tab-button" data-tab="maintenanceFollowup" onclick="switchTab('maintenanceFollowup')">
-              <i class="fa-solid fa-clipboard-list"></i> Suivi Maintenance
+          <button class="tab-button" data-tab="maintenanceFollowup" onclick="switchTab('maintenanceFollowup')" title="Ordres de réparation & maintenance atelier">
+              <i class="fa-solid fa-screwdriver-wrench" style="color:#a78bfa;"></i> <span>Suivi Maintenance</span>
           </button>
-          <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')">
-              <i class="fa-solid fa-clipboard-check"></i> Historique
+          <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')" title="Historique complet des interventions">
+              <i class="fa-solid fa-clock-rotate-left" style="color:#94a3b8;"></i> <span>Historique</span>
           </button>
       </div>
 
-      <!-- Rapport -->
+      <!-- 📊 Rapports & Logistique -->
       <div class="nav-group group-reports">
-          <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')">
-              <i class="fa-solid fa-file-contract"></i> Rapports
+          <button class="tab-button btn-admin" data-tab="reports" onclick="switchTab('reports')" title="Rapports d'activité & exports">
+              <i class="fa-solid fa-chart-simple" style="color:#818cf8;"></i> <span>Rapports</span>
           </button>
-          <button class="tab-button" data-tab="transportReport" onclick="switchTab('transportReport')">
-              <i class="fa-solid fa-truck-ramp-box"></i> Transport
-          </button>
-      </div>
-
-      <!-- Alertes -->
-      <div class="nav-group">
-          <button class="tab-button" data-tab="alertsSection" onclick="switchTab('alertsSection')" title="Alertes Vitesse & Routes">
-              <i class="fa-solid fa-triangle-exclamation" style="color: var(--danger);"></i> Alertes
+          <button class="tab-button" data-tab="transportReport" onclick="switchTab('transportReport')" title="Rapport de rotations transport">
+              <i class="fa-solid fa-boxes-stacked" style="color:#34d399;"></i> <span>Transport</span>
           </button>
       </div>
 
-      <!-- Configuration -->
+      <!-- 🚨 Alertes Sécurité -->
+      <div class="nav-group group-alerts">
+          <button class="tab-button" data-tab="alertsSection" onclick="switchTab('alertsSection')" title="Alertes Vitesse & Déviations">
+              <i class="fa-solid fa-shield-halved" style="color:#ef4444;"></i> <span>Alertes</span>
+          </button>
+      </div>
+
+      <!-- ⚙️ Paramètres & Configuration -->
       <div class="nav-group group-audit">
-          <button class="tab-button" data-tab="settings" onclick="switchTab('settings')" title="Configuration & Paramètres">
-              <i class="fa-solid fa-sliders"></i> Configuration
+          <button class="tab-button" data-tab="settings" onclick="switchTab('settings')" title="Configuration & Paramètres Système">
+              <i class="fa-solid fa-gear" style="color:#94a3b8;"></i> <span>Configuration</span>
           </button>
       </div>
 
-      <!-- LIVE PULSE indicator (compact) -->
-      <div style="margin-left:auto; display:flex; align-items:center; gap:5px; padding: 0 8px;">
-          <div id="liveFleetPulse" style="font-size:10px; color:var(--text-muted); font-weight:600; display:flex; align-items:center; gap:5px; flex-shrink:0;">
-              <span class="pulse-dot" style="width:7px; height:7px; background:var(--success); border-radius:50%; display:inline-block; animation: pulse 2s infinite;"></span>
-              <span id="fleetPulseText" style="color:var(--success); letter-spacing:1px;">LIVE</span>
+      <!-- 🟢 Telemetry LIVE PULSE indicator -->
+      <div style="margin-left:auto; display:flex; align-items:center; gap:8px; padding: 0 10px;">
+          <div id="liveFleetPulse" style="font-size:10px; color:#10b981; font-weight:800; display:flex; align-items:center; gap:6px; flex-shrink:0; background:rgba(16,185,129,0.1); padding:4px 10px; border-radius:20px; border:1px solid rgba(16,185,129,0.3);">
+              <span class="pulse-dot" style="width:7px; height:7px; background:#10b981; border-radius:50%; display:inline-block; animation: pulse 2s infinite; box-shadow:0 0 8px #10b981;"></span>
+              <span id="fleetPulseText" style="color:#10b981; letter-spacing:1px; font-family:var(--font-mono, monospace);">LIVE</span>
           </div>
       </div>
       </div><!-- end tabs-scroll-area -->
@@ -1390,14 +1552,14 @@
             <thead>
               <tr>
                 <th style="width:40px;">#</th>
-                <th>Nom Complet</th>
-                <th>Téléphone</th>
-                <th>Permis</th>
-                <th>Catégorie</th>
-                <th>Expiration</th>
-                <th>Situation</th>
-                <th>Camion Assigné</th>
-                <th>Remorque</th>
+                <th class="sortable" onclick="sortDriverDb('name')" style="cursor:pointer;" title="Trier par nom">Nom Complet <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortDriverDb('phone')" style="cursor:pointer;" title="Trier par téléphone">Téléphone <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortDriverDb('licenseNumber')" style="cursor:pointer;" title="Trier par permis">Permis <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortDriverDb('licenseCategory')" style="cursor:pointer;" title="Trier par catégorie">Catégorie <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortDriverDb('licenseExpiry')" style="cursor:pointer;" title="Trier par expiration">Expiration <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortDriverDb('situation')" style="cursor:pointer;" title="Trier par situation">Situation <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortDriverDb('assignedTruckName')" style="cursor:pointer;" title="Trier par camion">Camion Assigné <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortDriverDb('assignedTrailer')" style="cursor:pointer;" title="Trier par remorque">Remorque <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
                 <th>Notes</th>
                 <th style="width:100px;">Actions</th>
               </tr>
@@ -1444,13 +1606,13 @@
             <thead>
               <tr>
                 <th style="width:40px;">#</th>
-                <th>Immatriculation</th>
-                <th>Type</th>
-                <th>Marque</th>
-                <th>Capacité</th>
-                <th>Statut</th>
-                <th>Camion Attelé</th>
-                <th>Dernier Chauffeur</th>
+                <th class="sortable" onclick="sortTrailerDb('immatriculation')" style="cursor:pointer;" title="Trier par immatriculation">Immatriculation <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('type')" style="cursor:pointer;" title="Trier par type">Type <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('brand')" style="cursor:pointer;" title="Trier par marque">Marque <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('payloadTon')" style="cursor:pointer;" title="Trier par capacité">Capacité <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('status')" style="cursor:pointer;" title="Trier par statut">Statut <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('attachedTruckName')" style="cursor:pointer;" title="Trier par camion attelé">Camion Attelé <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('lastAttachedDriverName')" style="cursor:pointer;" title="Trier par chauffeur">Dernier Chauffeur <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
                 <th>Position</th>
                 <th>Notes</th>
                 <th style="width:100px;">Actions</th>
@@ -3138,6 +3300,17 @@ window.addEventListener('unhandledrejection', function(e) {
       } catch (e) { console.error('loadDriverDb:', e); }
     }
 
+    let _driverSortCol = 'name', _driverSortDir = 'asc';
+    function sortDriverDb(col) {
+      if (_driverSortCol === col) {
+        _driverSortDir = _driverSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _driverSortCol = col;
+        _driverSortDir = 'asc';
+      }
+      filterDriverDb();
+    }
+
     function filterDriverDb() {
       const q = (document.getElementById('driverDbSearch')?.value || '').toLowerCase();
       const sit = document.getElementById('driverDbSitFilter')?.value || 'all';
@@ -3150,6 +3323,15 @@ window.addEventListener('unhandledrejection', function(e) {
         (d.assignedTruckName || '').toLowerCase().includes(q) ||
         (d.driverId || '').toLowerCase().includes(q)
       );
+
+      /* ── Sort Driver DB ── */
+      const dir = _driverSortDir === 'desc' ? -1 : 1;
+      list = [...list].sort((a, b) => {
+        let vA = (a[_driverSortCol] || '').toString().toLowerCase();
+        let vB = (b[_driverSortCol] || '').toString().toLowerCase();
+        return dir * vA.localeCompare(vB, 'fr', { numeric: true });
+      });
+
       renderDriverDb(list);
     }
 
@@ -3245,6 +3427,17 @@ window.addEventListener('unhandledrejection', function(e) {
       } catch (e) { console.error('loadTrailerDb:', e); }
     }
 
+    let _trailerSortCol = 'immatriculation', _trailerSortDir = 'asc';
+    function sortTrailerDb(col) {
+      if (_trailerSortCol === col) {
+        _trailerSortDir = _trailerSortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _trailerSortCol = col;
+        _trailerSortDir = 'asc';
+      }
+      filterTrailerDb();
+    }
+
     function filterTrailerDb() {
       const q = (document.getElementById('trailerDbSearch')?.value || '').toLowerCase();
       const st = document.getElementById('trailerDbStatusFilter')?.value || 'all';
@@ -3257,6 +3450,15 @@ window.addEventListener('unhandledrejection', function(e) {
         (t.attachedTruckName || '').toLowerCase().includes(q) ||
         (t.lastAttachedDriverName || '').toLowerCase().includes(q)
       );
+
+      /* ── Sort Trailer DB ── */
+      const dir = _trailerSortDir === 'desc' ? -1 : 1;
+      list = [...list].sort((a, b) => {
+        let vA = (a[_trailerSortCol] || '').toString().toLowerCase();
+        let vB = (b[_trailerSortCol] || '').toString().toLowerCase();
+        return dir * vA.localeCompare(vB, 'fr', { numeric: true });
+      });
+
       renderTrailerDb(list);
     }
 
