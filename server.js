@@ -3993,8 +3993,25 @@ app.post('/api/maintenance/delete', checkAccess, async (req, res) => {
 // ✅ NEW: Get all trucks from DB with their metadata (chassis, imm, carte naftal, trailer, driver, situation)
 app.get('/api/trucks/db', checkAccess, async (req, res) => {
   try {
-    const trucks = await Truck.find({}, 'deviceId truckName chassisNumber immatriculation carteNaftal trailer trailerType driverId driverName driverPhone situation lastFuelLiters lastFuelPercent lat lng speed lastUpdate').sort({ truckName: 1 });
-    res.json(fmt(trucks));
+    const trucks = await Truck.find({}, 'deviceId truckName chassisNumber immatriculation carteNaftal trailer trailerType driverId driverName driverPhone situation lastFuelLiters lastFuelPercent lat lng speed lastUpdate').sort({ truckName: 1 }).lean();
+    // Enrich: resolve driverPhone from Driver collection if missing on Truck
+    const allDrivers = await Driver.find({}, 'driverId name phone assignedTruckDeviceId licenseExpiry licenseCategory').lean();
+    const driverByTruck = new Map();
+    allDrivers.forEach(d => {
+      if (d.assignedTruckDeviceId) driverByTruck.set(d.assignedTruckDeviceId, d);
+    });
+    const enriched = trucks.map(t => {
+      const obj = { ...t };
+      const driver = driverByTruck.get(t.deviceId);
+      if (driver) {
+        if (!obj.driverPhone && driver.phone) obj.driverPhone = driver.phone;
+        if (!obj.driverName && driver.name) obj.driverName = driver.name;
+        obj.driverLicenseExpiry = driver.licenseExpiry || '';
+        obj.driverLicenseCategory = driver.licenseCategory || '';
+      }
+      return obj;
+    });
+    res.json(fmt(enriched));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ✅ FIX: Update truck metadata — now uses upsert so it works even if truck isn't in DB yet
