@@ -2091,6 +2091,11 @@ renderDecouchageList() {
   }
 
   updateDashboard() {
+    // Ensure driver phone data is loaded for dashboard cards
+    if (!this._driverInfoByTruck || Object.keys(this._driverInfoByTruck).length === 0) {
+      this.fetchDisponibiliteData(false).catch(() => {});
+    }
+
 
     requestAnimationFrame(() => {
         const _activeEl = document.querySelector('.tab-content.active'); if(!_activeEl) return; const activeTab = _activeEl.id;
@@ -2534,9 +2539,10 @@ renderDecouchageList() {
             <div style="min-width:0; flex:1;">
               <div style="font-size:15px; font-weight:900; color:var(--text-primary); letter-spacing:-0.3px;">${truck.name}</div>
               ${(() => {
+                const _drvInfo = (ui._driverInfoByTruck || {})[truck.id] || {};
                 const _tdb = (ui.truckDbCache || []).find(d => d.deviceId === truck.id);
-                const ph = _tdb?.driverPhone || '';
-                const dn = _tdb?.driverName || '';
+                const ph = _drvInfo.phone || _tdb?.driverPhone || '';
+                const dn = _drvInfo.name || _tdb?.driverName || '';
                 let info = '';
                 if (dn) info += `<span style="color:#93c5fd; font-weight:700;"><i class="fa-solid fa-user" style="font-size:9px; margin-right:3px;"></i>${dn}</span>`;
                 if (ph) info += `<a href="tel:${ph}" style="color:#6ee7b7; font-weight:800; text-decoration:none; margin-left:8px;" title="Appeler ${ph}"><i class="fa-solid fa-phone" style="font-size:9px; margin-right:3px;"></i>${ph}</a>`;
@@ -15335,6 +15341,18 @@ _naftalSortTable(tblId, colIdx) {
       });
       if (res.ok) {
         this._dispoData = await res.json();
+        // Build driver info map for dashboard cards
+        this._driverInfoByTruck = {};
+        (this._dispoData.items || []).forEach(item => {
+          if (item.driver && item.deviceId) {
+            this._driverInfoByTruck[item.deviceId] = {
+              name: item.driver.name || '',
+              phone: item.driver.phone || '',
+              licenseCategory: item.driver.licenseCategory || '',
+              licenseExpiry: item.driver.licenseExpiry || ''
+            };
+          }
+        });
         this.updateDispoKPIs();
         this.populateDispoWilayas();
         this.renderDispoContent();
