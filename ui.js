@@ -1940,6 +1940,13 @@ renderDecouchageList() {
     }
     if (tabName === 'fuelSection') this.renderFuelSection();
     if (tabName === 'vidangeSection') this.renderVidangeSection(); 
+    if (tabName === 'atelierSection') {
+      // Atelier Biskra lives under the "Maintenance" menu button (data-tab="vidangeSection")
+      const mBtn = document.querySelector('[data-tab="vidangeSection"]');
+      if (mBtn) mBtn.classList.add('active');
+      if (window.AtelierUI) window.AtelierUI.onTabOpen();
+    }
+    if (tabName === 'vidangeSection' && window.AtelierUI) window.AtelierUI.renderSubTabs();
     if (tabName === 'maintenanceFollowup') this.refreshMaintenanceFollowup();
     if (tabName === 'maintenanceHistory') this.fetchAndRenderMaintenance(); 
     if (tabName === 'routing') { this.loadTruckDbCache().then(() => this.renderNaftalSystem()); }

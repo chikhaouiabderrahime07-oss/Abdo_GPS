@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -1221,11 +1221,8 @@
 
       <!-- 🔧 Maintenance & Atelier -->
       <div class="nav-group group-maintenance">
-          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')" title="Planning & alertes vidanges">
-              <i class="fa-solid fa-oil-can" style="color:#fb923c;"></i> <span>Vidanges</span>
-          </button>
-          <button class="tab-button" data-tab="maintenanceFollowup" onclick="switchTab('maintenanceFollowup')" title="Ordres de réparation & maintenance atelier">
-              <i class="fa-solid fa-screwdriver-wrench" style="color:#a78bfa;"></i> <span>Suivi Maintenance</span>
+          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')" title="Vidanges, garage externe &amp; atelier Biskra">
+              <i class="fa-solid fa-screwdriver-wrench" style="color:#fb923c;"></i> <span>Maintenance</span>
           </button>
           <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')" title="Historique complet des interventions">
               <i class="fa-solid fa-clock-rotate-left" style="color:#94a3b8;"></i> <span>Historique</span>
@@ -2172,13 +2169,20 @@
     </div>
 
     <div id="vidangeSection" class="tab-content">
+      <div id="maintSubTabsVidange"></div>
       <div class="controls-section">
         <h2 style="color: var(--maintenance);"><i class="fa-solid fa-oil-can"></i> État des Vidanges (Temps Réel)</h2>
         <div id="vidangeSectionContainer"></div>
       </div>
     </div>
 
-    <!-- ✅ NEW: Suivi Maintenance Follow-up Tab -->
+    <!-- 🔧 Atelier Biskra (bons de réparation) — see maintenance-atelier.js -->
+    <div id="atelierSection" class="tab-content">
+      <div id="maintSubTabsAtelier"></div>
+      <div id="atelierRoot"></div>
+    </div>
+
+    <!-- Legacy Suivi Maintenance tab (no longer in the menu; kept for old data/history) -->
     <div id="maintenanceFollowup" class="tab-content">
       <div class="controls-section" style="border-left: 3px solid var(--warning);">
         <div class="maint-section-header">
@@ -3272,6 +3276,9 @@ window.addEventListener('unhandledrejection', function(e) {
   <script src="notifications.js" defer></script>
   <script src="driver-scoring.js" defer></script>
   <script src="pdf-generator.js" defer></script>
+  <script src="maintenance-atelier.js?v=4"></script>
+    <script src="maintenance-atelier-plus.js?v=1"></script>
+<script src="atelier-export.js?v=1"></script>
 
   <script>
     function switchTab(tab) { if(ui) ui.switchTab(tab); }
@@ -4317,6 +4324,7 @@ const NOTIF_CATEGORIES = [
   { key: 'fuel_suspect', label: '⚠️ Anomalie Carburant', desc: 'Consommation suspecte' },
   { key: 'maintenance_due', label: '🔧 Maintenance', desc: 'Entretien planifié à venir' },
   { key: 'vidange_due', label: '🛢️ Vidange', desc: 'Vidange prévue ou en retard' },
+  { key: 'atelier_late', label: '🛠️ Atelier Biskra', desc: 'Bons de réparation en retard' },
   { key: 'maintenance_gps', label: '📡 Maintenance GPS', desc: 'Confirmée par passage en zone' },
   { key: 'doc_expiring', label: '📋 Documents', desc: 'Expiration de documents prochaine' },
   { key: 'geofence', label: '📍 Géofence', desc: 'Entrée/sortie de zones surveillées' },
@@ -4454,7 +4462,7 @@ setTimeout(function() {
       { label: 'Carburant', icon: 'fa-gas-pump', action: () => switchTab('fuelSection'), keywords: 'fuel gasoil carburant' },
       { label: 'Calculateur Trajet', icon: 'fa-calculator', action: () => switchTab('routing'), keywords: 'calcul trajet route' },
       { label: 'Vidanges', icon: 'fa-oil-can', action: () => switchTab('vidangeSection'), keywords: 'vidange huile oil' },
-      { label: 'Suivi Maintenance', icon: 'fa-clipboard-list', action: () => switchTab('maintenanceFollowup'), keywords: 'maintenance suivi ordre' },
+      { label: 'Atelier Biskra (bons de réparation)', icon: 'fa-screwdriver-wrench', action: () => switchTab('atelierSection'), keywords: 'maintenance atelier biskra bon reparation panne suivi ordre' },
       { label: 'Historique Maintenance', icon: 'fa-clipboard-check', action: () => switchTab('maintenanceHistory'), keywords: 'historique maintenance' },
       { label: 'Rapports', icon: 'fa-file-contract', action: () => switchTab('reports'), keywords: 'rapport export' },
       { label: 'Rapport Transport', icon: 'fa-truck-ramp-box', action: () => { switchTab('disponibiliteSection'); setTimeout(()=>switchDispoSubTab('transport'),200); }, keywords: 'transport rapport' },

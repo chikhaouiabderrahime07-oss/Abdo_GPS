@@ -877,8 +877,18 @@ async function runAutoMissionDetection(truck, dbTruck) {
       AUTO_MISSION_STATE[deviceId] = state;
       // If truck was in maintenance, revert to disponible when leaving
       if (dbTruck.situation === 'maintenance') {
-        await Truck.findOneAndUpdate({ deviceId }, { $set: { situation: 'disponible' } });
-        console.log(`✅ [AutoMission] ${truckName} left maintenance zone → situation=disponible`);
+        // Atelier Biskra: keep "maintenance" while a repair bon is still open for this truck
+        let openBon = 0;
+        try {
+          const AB = mongoose.models.AtelierBon;
+          if (AB) openBon = await AB.countDocuments({ 'vehicle.deviceId': String(deviceId), status: { $ne: 'termine' } });
+        } catch (e) { /* ignore: fall back to default behaviour */ }
+        if (openBon === 0) {
+          await Truck.findOneAndUpdate({ deviceId }, { $set: { situation: 'disponible' } });
+          console.log(`✅ [AutoMission] ${truckName} left maintenance zone → situation=disponible`);
+        } else {
+          console.log(`🔧 [AutoMission] ${truckName} left maintenance zone but ${openBon} atelier bon(s) still open → stays maintenance`);
+        }
       }
     }
 
@@ -3461,6 +3471,11 @@ const AuditSchema = new mongoose.Schema({
   parkings: Array
 });
 const AuditReport = mongoose.model('AuditReport', AuditSchema);
+
+// --- ATELIER BISKRA (Bon de réparation suivi) — see atelier-routes.js ---
+require('./atelier-routes')(app, {
+  mongoose, checkAccess, Truck, Trailer, Maintenance, ApiKey, acknowledgeVidange, POWERBI_TOKEN
+});
 
 // --- 6. API ROUTES ---
 
