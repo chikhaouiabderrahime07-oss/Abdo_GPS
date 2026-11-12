@@ -290,7 +290,24 @@ const TrailerSchema = new mongoose.Schema({
   attachedTruckName: String,
   currentLocation: String,
   lastAttachedDriverName: String,
-  notes: String
+  notes: String,
+  payloadTon: Number,
+  nbAxles: { type: Number, default: 2 },
+  yearOfManufacture: Number,
+  chassisNumber: String,
+  dimensions: { length: Number, width: Number, height: Number },
+  lastInspectionDate: Date,
+  nextInspectionDate: Date,
+  insuranceExpiry: Date,
+  tireCount: { type: Number, default: 4 },
+  lastTireChangeDate: Date,
+  totalKm: { type: Number, default: 0 },
+  purchaseDate: Date,
+  purchasePrice: Number,
+  dailyRentalCost: Number,
+  isRented: { type: Boolean, default: false },
+  ownerCompany: String,
+  documents: [{ name: String, type: { type: String, enum: ['carte_grise', 'assurance', 'visite_technique', 'autre'] }, expiryDate: Date, notes: String }]
 }, { timestamps: true });
 const Trailer = mongoose.model('Trailer', TrailerSchema);
 
@@ -1101,7 +1118,7 @@ let BOT_LAST_SUCCESS_MS = 0; // tracks last successful GPS fetch for missed-wind
 
 function getResolvedRefuelRules(overrides = {}) {
   return {
-    minRefuelLiters: 60,
+    minRefuelLiters: 50,
     stopSpeedThreshold: 4,
     minStopMinutes: 2,
     minOffMinutes: 2,
@@ -1633,8 +1650,8 @@ function calculateClusterSpreadMeters(points) {
     return maxMeters;
 }
 
-function detectRefillEventsFromSeries(points, options = {}) {
-    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 60) || 60;
+function detectRefillEventsLegacy(points, options = {}) {
+    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 50) || 50;
     const maxParsed = parseFloat(options.maxRealisticRefillLiters);
     const maxRealisticRefillLiters = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
     const stopSpeedThreshold = parseFloat(options.stopSpeedThreshold ?? 4) || 4;
@@ -1801,6 +1818,44 @@ function detectRefillEventsFromSeries(points, options = {}) {
     });
 }
 
+
+// ============================================================
+// ⛽ Refuel engine selector
+//   v4     = episode tracker (refuel-detector.js)
+//   legacy = historical stop-segment detector
+//   hybrid = union of both (DEFAULT) — v4 adds recall, legacy keeps proven hits
+// Switch with SYSTEM_SETTINGS.refuelRules.engine = 'v4' | 'legacy' | 'hybrid'
+// ============================================================
+const { detectRefillsV4 } = require('./refuel-detector');
+
+function detectRefillEventsFromSeries(points, options = {}) {
+    const cfgEngine = SYSTEM_SETTINGS && SYSTEM_SETTINGS.refuelRules && SYSTEM_SETTINGS.refuelRules.engine;
+    const engine = String(options.engine || cfgEngine || 'hybrid').toLowerCase();
+    const minL = Math.max(50, parseFloat(options.minRefuelLiters ?? 50) || 50);
+    const maxParsed = parseFloat(options.maxRealisticRefillLiters);
+    const maxL = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
+    const opts = { ...options, minRefuelLiters: minL };
+    opts.isStation = (lat, lng) => (Array.isArray(SYSTEM_SETTINGS && SYSTEM_SETTINGS.customLocations) ? SYSTEM_SETTINGS.customLocations : []).some((loc) => {
+        const llat = parseFloat(loc.lat), llng = parseFloat(loc.lng);
+        if (!Number.isFinite(llat) || !Number.isFinite(llng)) return false;
+        return calculateDistance(lat, lng, llat, llng) <= (parseFloat(loc.radius) || 100);
+    });
+
+    let v4Events = [];
+    let legacyEvents = [];
+    if (engine !== 'legacy') {
+        try { v4Events = detectRefillsV4(points, opts); } catch (e) { console.error('[Refuel v4] detector error:', e.message); }
+    }
+    if (engine === 'legacy' || engine === 'hybrid') {
+        legacyEvents = detectRefillEventsLegacy(points, opts);
+    }
+    if (!legacyEvents.length) return v4Events;
+    if (!v4Events.length) return legacyEvents;
+
+    const dedupeMs = Math.max(10 * 60 * 1000, (parseFloat(opts.dedupeMinutes) || 35) * 60 * 1000);
+    return mergeRefillEvents([...v4Events, ...legacyEvents], dedupeMs, parseFloat(opts.dedupeDistanceMeters) || 400)
+        .filter((evt) => Number.isFinite(evt.addedLiters) && evt.addedLiters >= minL && evt.addedLiters <= maxL);
+}
 
 // ============================================================
 // 🔧 Vidange helpers (server-side)
@@ -2357,7 +2412,7 @@ async function deleteLowVolumeAutoRefuelsForWindow({ deviceId, startMs, endMs, m
   const cleanup = await Refuel.deleteMany({
     deviceId: String(deviceId),
     timestamp: { $gte: new Date(startMs), $lte: new Date(endMs) },
-    addedLiters: { $lt: Math.max(60, parseFloat(minLiters) || 60) },
+    addedLiters: { $lt: Math.max(50, parseFloat(minLiters) || 50) },
     source: { $in: ['live-bot', 'live-replay', 'live-verified', 'gps-history-rebuild', 'gps-history-verified', 'gps-history-reconciled', 'gps-history-nightly', 'gps-history-recovery'] }
   });
   return cleanup.deletedCount || 0;
@@ -2566,7 +2621,7 @@ async function persistDetectedRefills(deviceId, truckName, refillEvents = [], pe
       return calculateDistance(lat, lng, parseFloat(loc.lat), parseFloat(loc.lng)) <= (parseFloat(loc.radius) || 100);
     });
 
-    if (Math.round(event.addedLiters || 0) < Math.max(60, parseFloat(rules.minRefuelLiters) || 60)) {
+    if (Math.round(event.addedLiters || 0) < Math.max(50, parseFloat(rules.minRefuelLiters) || 50)) {
       continue;
     }
 
@@ -2650,7 +2705,7 @@ async function scanRefillsFromHistoryWindow({ deviceId, truckName, start, end, p
   const effectiveCapacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
   const baseRules = getResolvedRefuelRules();
   const rules = getResolvedRefuelRules({
-    minRefuelLiters: Math.max(60, parseFloat(baseRules.minRefuelLiters) || 60),
+    minRefuelLiters: Math.max(50, parseFloat(baseRules.minRefuelLiters) || 50),
     maxRealisticRefillLiters: Math.max(Math.round((effectiveCapacity || 600) + 50), parseFloat(baseRules.maxRealisticRefillLiters) || 0)
   });
   const refillEvents = detectRefillEventsFromSeries(points.map((point) => ({
@@ -2696,7 +2751,7 @@ async function calculateTransportWindowStats({ deviceId, truckName, start, end, 
   const effectiveCapacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
   const baseRules = getResolvedRefuelRules();
   const rules = getResolvedRefuelRules({
-    minRefuelLiters: Math.max(60, parseFloat(baseRules.minRefuelLiters) || 60),
+    minRefuelLiters: Math.max(50, parseFloat(baseRules.minRefuelLiters) || 50),
     maxRealisticRefillLiters: Math.max(Math.round((effectiveCapacity || 600) + 50), parseFloat(baseRules.maxRealisticRefillLiters) || 0)
   });
   const refillEventsAll = detectRefillEventsFromSeries(windowPoints.map((point) => ({
@@ -3113,7 +3168,7 @@ async function runFleetBot() {
       continue;
     }
 
-    const MIN_REFUEL_L = Math.max(60, parseFloat(refuelRulesLocal.minRefuelLiters) || 60);
+    const MIN_REFUEL_L = Math.max(50, parseFloat(refuelRulesLocal.minRefuelLiters) || 50);
     const DEDUPE_MS = (parseFloat(refuelRulesLocal.dedupeMinutes) || 8) * 60 * 1000;
     const DEDUPE_LEVEL_TOL = parseFloat(refuelRulesLocal.dedupeLitersTolerance ?? 10) || 10;
     const BASELINE_DROP_TOL = parseFloat(refuelRulesLocal.baselineDropToleranceLiters ?? 15) || 15;
@@ -4321,7 +4376,7 @@ app.get('/api/refuels', checkAccess, async (req, res) => {
     const deduped = [];
     const TWO_HOURS_MS = 2 * 3600000;
     const rules = getResolvedRefuelRules();
-    const minRefuelLimit = parseFloat(rules.minRefuelLiters || 60) || 60;
+    const minRefuelLimit = parseFloat(rules.minRefuelLiters || 50) || 50;
     for (const refuel of data) {
       const liters = parseFloat(refuel.addedLiters) || 0;
       const isManual = refuel.source === 'manual' || refuel.isAuto === false;
@@ -4894,10 +4949,109 @@ app.delete('/api/drivers/:id', checkAccess, async (req, res) => {
 });
 
 // ── TRAILERS REST API ──────────────────────────────────────────
+app.get('/api/trailers/stats', checkAccess, async (req, res) => {
+  try {
+    const [statusAgg, typeAgg, rentalAgg, inspectionAgg] = await Promise.all([
+      Trailer.aggregate([
+        { $group: { _id: '$status', count: { $sum: 1 } } }
+      ]),
+      Trailer.aggregate([
+        { $group: { _id: '$type', count: { $sum: 1 } } }
+      ]),
+      Trailer.aggregate([
+        { $group: {
+          _id: null,
+          total: { $sum: 1 },
+          rented: { $sum: { $cond: ['$isRented', 1, 0] } },
+          owned: { $sum: { $cond: ['$isRented', 0, 1] } },
+          avgPayload: { $avg: '$payloadTon' },
+          totalKm: { $sum: '$totalKm' },
+          avgAge: { $avg: '$yearOfManufacture' }
+        }}
+      ]),
+      Trailer.countDocuments({
+        nextInspectionDate: { $lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
+      })
+    ]);
+    const byStatus = {};
+    statusAgg.forEach(s => { byStatus[s._id || 'unknown'] = s.count; });
+    const byType = {};
+    typeAgg.forEach(t => { byType[t._id || 'unknown'] = t.count; });
+    const summary = rentalAgg[0] || { total: 0, rented: 0, owned: 0, avgPayload: 0, totalKm: 0, avgAge: 0 };
+    const expiredInsurance = await Trailer.countDocuments({
+      insuranceExpiry: { $lte: new Date() }
+    });
+    res.json({
+      total: summary.total,
+      byStatus,
+      byType,
+      rented: summary.rented,
+      owned: summary.owned,
+      avgPayloadTon: Math.round((summary.avgPayload || 0) * 100) / 100,
+      totalKmAllTrailers: summary.totalKm,
+      inspectionDueSoon: inspectionAgg,
+      expiredInsurance
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trailers/bulk', checkAccess, async (req, res) => {
+  try {
+    const items = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'Un tableau de remorques est requis' });
+    }
+    const results = { created: 0, updated: 0, errors: [] };
+    for (const item of items) {
+      try {
+        if (!item.immatriculation) {
+          results.errors.push({ item, error: 'Immatriculation requise' });
+          continue;
+        }
+        if (!item.trailerId) {
+          item.trailerId = item.immatriculation.replace(/\s+/g, '-').toUpperCase();
+        }
+        const existing = await Trailer.findOne({ immatriculation: item.immatriculation });
+        if (existing) {
+          await Trailer.findByIdAndUpdate(existing._id, { $set: item });
+          results.updated++;
+        } else {
+          await Trailer.create(item);
+          results.created++;
+        }
+      } catch (err) {
+        results.errors.push({ immatriculation: item.immatriculation, error: err.message });
+      }
+    }
+    res.json({ success: true, ...results });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/trailers', checkAccess, async (req, res) => {
   try {
     const trailers = await Trailer.find({}).sort({ immatriculation: 1 }).lean();
     res.json(fmt(trailers));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trailers/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const isObjectId = mongoose.isValidObjectId(id);
+    const trailer = await Trailer.findOne({
+      $or: [...(isObjectId ? [{ _id: id }] : []), { trailerId: id }, { immatriculation: id }]
+    }).lean();
+    if (!trailer) return res.status(404).json({ error: 'Remorque non trouvée' });
+    const attachmentHistory = await FleetAssignmentHistory.find({
+      trailerPlate: trailer.immatriculation
+    }).sort({ timestamp: -1 }).limit(20).lean();
+    res.json(fmt({ ...trailer, attachmentHistory: fmt(attachmentHistory) }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -4939,6 +5093,25 @@ app.delete('/api/trailers/:id', checkAccess, async (req, res) => {
       ).catch(() => {});
     }
     res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/trailers/:id', checkAccess, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const body = req.body || {};
+    const isObjectId = mongoose.isValidObjectId(id);
+    const trailer = await Trailer.findOne({
+      $or: [...(isObjectId ? [{ _id: id }] : []), { trailerId: id }, { immatriculation: id }]
+    });
+    if (!trailer) return res.status(404).json({ error: 'Remorque non trouvée' });
+    Object.keys(body).forEach(key => {
+      if (key !== '_id') trailer[key] = body[key];
+    });
+    await trailer.save();
+    res.json({ success: true, trailer: fmt(trailer.toObject()) });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -5784,6 +5957,31 @@ app.delete('/api/audit/:id', checkAccess, async (req, res) => {
   try {
     await AuditReport.findByIdAndDelete(req.params.id);
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 🔬 Engine comparison (read-only): runs legacy vs v4 vs hybrid on a real GPS window, persists nothing.
+// GET /api/refuels/engine-compare?deviceId=...&start=ISO&end=ISO
+app.get('/api/refuels/engine-compare', checkAccess, async (req, res) => {
+  try {
+    const { deviceId, start, end } = req.query || {};
+    if (!deviceId) return res.status(400).json({ error: 'deviceId requis' });
+    const startMs = parseGpsDateTimeFlexible(String(start || ''));
+    const endMs = parseGpsDateTimeFlexible(String(end || ''));
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return res.status(400).json({ error: 'Période invalide' });
+    const config = getTruckConfig(String(deviceId));
+    const raw = await fetchGpsHistoryWindow(String(deviceId), startMs - 3600000, endMs + 3600000);
+    const points = normalizeGpsHistoryMessages(raw, String(deviceId), config).map((p) => ({
+      time: p.time, liters: p.fuelLiters, speed: p.speed, ign: p.ign, lat: p.lat, lng: p.lng
+    }));
+    const capacity = getConfiguredFuelEffectiveCapacity(config) || config.fuelTankCapacity || 600;
+    const rules = getResolvedRefuelRules({ maxRealisticRefillLiters: Math.round(capacity + 50) });
+    const inWin = (e) => e.time >= startMs && e.time <= endMs;
+    const brief = (e) => ({ at: new Date(e.time).toISOString(), added: e.addedLiters, from: e.oldLevel, to: e.newLevel, mode: e.detectionMode, confidence: e.confidence, tentative: !!e.tentative });
+    const out = {};
+    for (const engine of ['legacy', 'v4', 'hybrid']) {
+      out[engine] = detectRefillEventsFromSeries(points, { ...rules, engine }).filter(inWin).map(brief);
+    }
+    res.json({ deviceId: String(deviceId), points: points.length, minRefuelLiters: rules.minRefuelLiters, ...out });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ✅ V4.0: Refuel Verification — Confirm or reject a detected refuel

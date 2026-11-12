@@ -1284,7 +1284,7 @@ renderDecouchageList() {
     const locationSearch = (this.refuelLocationSearch?.value || '').toLowerCase().trim();
     const locationType = this.refuelLocationTypeFilter?.value || 'all';
 
-    const minRefuelExport = Math.max(60, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60));
+    const minRefuelExport = Math.max(50, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50));
 
     const processedLogs = this.allRefuelLogs.map(log => {
       const truckConfig = getTruckConfig(log.deviceId);
@@ -3438,7 +3438,7 @@ renderFilteredRefuels() {
     // 3. Apply Filters
     processedLogs = processedLogs.filter(log => {
         const logDate = new Date(log.timestamp);
-        const minRefuelDisplay = Math.max(60, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60));
+        const minRefuelDisplay = Math.max(50, parseInt((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50));
         if (Number(log.realAdded) < minRefuelDisplay) return false;
         if (startDate && logDate < startDate) return false;
         if (endDate && logDate > endDate) return false;
@@ -8129,7 +8129,7 @@ async runZoneHistoryScan() {
 	      }));
 	      const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
 	          ? detectRefillEventsFromSeries(fuelSeries, {
-	              minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
+	              minRefuelLiters: Math.max(50, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50) || 50),
 	              maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
 	              dedupeMinutes: 5,
 	              dedupeLitersTolerance: 10,
@@ -8258,7 +8258,7 @@ async runZoneHistoryScan() {
       }));
       const refillEvents = (typeof detectRefillEventsFromSeries === 'function')
           ? detectRefillEventsFromSeries(fuelSeries, {
-              minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
+              minRefuelLiters: Math.max(50, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50) || 50),
               maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
               dedupeMinutes: 5,
               dedupeLitersTolerance: 10,
@@ -8684,7 +8684,7 @@ async runZoneHistoryScan() {
           }));
           const historyRefills = (typeof detectRefillEventsFromSeries === 'function')
               ? detectRefillEventsFromSeries(fuelSeries, {
-                  minRefuelLiters: Math.max(60, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 60) || 60),
+                  minRefuelLiters: Math.max(50, parseFloat((FLEET_CONFIG.REFUEL_RULES || {}).minRefuelLiters || 50) || 50),
                   maxRealisticRefillLiters: Math.max(600, Math.round(effectiveTankCap + 50)),
                   dedupeMinutes: 35,
                   dedupeDistanceMeters: 400,
@@ -16014,16 +16014,26 @@ _naftalSortTable(tblId, colIdx) {
     }
   }
 
-  // ── MODALS: TRAILER CRUD ──────────────────────────────────────
+  // ── MODALS: TRAILER CRUD (Enhanced Remorques Module) ──────────
   openAddTrailerModal() {
     const modal = document.getElementById('modalAddTrailer');
     if (!modal) return;
-    document.getElementById('trailerModalId').value = '';
-    document.getElementById('trailerModalImm').value = '';
-    document.getElementById('trailerModalType').value = 'Plateau';
-    document.getElementById('trailerModalBrand').value = '';
-    document.getElementById('trailerModalCapacity').value = '';
-    document.getElementById('trailerModalNotes').value = '';
+    const clr = id => { const el = document.getElementById(id); if (el) el.value = ''; };
+    const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    const setC = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+    clr('trailerModalId'); clr('trailerModalImm'); clr('trailerModalChassis');
+    setV('trailerModalType', 'Plateau'); clr('trailerModalBrand');
+    clr('trailerModalPayload'); clr('trailerModalCapacity');
+    setV('trailerModalAxles', '2'); clr('trailerModalYear');
+    setV('trailerModalTires', '4'); clr('trailerModalKm');
+    clr('trailerModalDimL'); clr('trailerModalDimW'); clr('trailerModalDimH');
+    clr('trailerModalLastInspection'); clr('trailerModalNextInspection');
+    clr('trailerModalInsurance'); clr('trailerModalLastTireChange');
+    clr('trailerModalPurchaseDate'); clr('trailerModalPurchasePrice');
+    setC('trailerModalIsRented', false); clr('trailerModalDailyCost'); clr('trailerModalOwner');
+    clr('trailerModalNotes');
+    const title = document.getElementById('modalAddTrailerTitle');
+    if (title) title.innerHTML = '<i class="fa-solid fa-trailer"></i> Nouvelle Remorque';
     modal.style.display = 'flex';
   }
 
@@ -16035,13 +16045,37 @@ _naftalSortTable(tblId, colIdx) {
   async saveTrailerFromModal() {
     const imm = document.getElementById('trailerModalImm')?.value.trim();
     if (!imm) { alert('L\'immatriculation de la remorque est requise.'); return; }
+    const gv = id => (document.getElementById(id)?.value || '').trim();
+    const gn = id => { const v = parseFloat(gv(id)); return isNaN(v) ? undefined : v; };
+    const gd = id => gv(id) || undefined;
+    const gc = id => document.getElementById(id)?.checked || false;
 
     const payload = {
       immatriculation: imm,
-      type: document.getElementById('trailerModalType')?.value,
-      brand: document.getElementById('trailerModalBrand')?.value.trim(),
-      capacity: document.getElementById('trailerModalCapacity')?.value.trim(),
-      notes: document.getElementById('trailerModalNotes')?.value.trim()
+      chassisNumber: gv('trailerModalChassis') || undefined,
+      type: gv('trailerModalType') || 'Plateau',
+      brand: gv('trailerModalBrand') || undefined,
+      payloadTon: gn('trailerModalPayload'),
+      capacity: gv('trailerModalCapacity') || undefined,
+      nbAxles: gn('trailerModalAxles'),
+      yearOfManufacture: gn('trailerModalYear'),
+      tireCount: gn('trailerModalTires'),
+      totalKm: gn('trailerModalKm'),
+      dimensions: {
+        length: gn('trailerModalDimL'),
+        width: gn('trailerModalDimW'),
+        height: gn('trailerModalDimH')
+      },
+      lastInspectionDate: gd('trailerModalLastInspection'),
+      nextInspectionDate: gd('trailerModalNextInspection'),
+      insuranceExpiry: gd('trailerModalInsurance'),
+      lastTireChangeDate: gd('trailerModalLastTireChange'),
+      purchaseDate: gd('trailerModalPurchaseDate'),
+      purchasePrice: gn('trailerModalPurchasePrice'),
+      isRented: gc('trailerModalIsRented'),
+      dailyRentalCost: gn('trailerModalDailyCost'),
+      ownerCompany: gv('trailerModalOwner') || undefined,
+      notes: gv('trailerModalNotes') || undefined
     };
 
     try {

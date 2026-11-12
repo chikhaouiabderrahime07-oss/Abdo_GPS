@@ -102,7 +102,7 @@ const FLEETCONFIG = {
     //
     // -------------------------------------------------------
     REFUEL_RULES: {
-        minRefuelLiters: 60,
+        minRefuelLiters: 50,
         stopSpeedThreshold: 4,
         minStopMinutes: 2,
         requireIgnOff: false,
@@ -691,7 +691,7 @@ function calculateClusterSpreadMeters(points) {
 }
 
 function detectRefillEventsFromSeries(points, options = {}) {
-    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 60) || 60;
+    const minRefuelLiters = parseFloat(options.minRefuelLiters ?? 50) || 50;
     const maxParsed = parseFloat(options.maxRealisticRefillLiters);
     const maxRealisticRefillLiters = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : Number.POSITIVE_INFINITY;
     const stopSpeedThreshold = parseFloat(options.stopSpeedThreshold ?? 4) || 4;
