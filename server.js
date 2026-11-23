@@ -4195,6 +4195,9 @@ app.post('/api/maintenance/close', checkAccess, async (req, res) => {
     if (cost !== undefined) doc.cost = cost;
     if (technician !== undefined) doc.technician = technician;
     if (Array.isArray(parts)) doc.parts = parts;
+    // Hub: allow the closing dialog to correct km / end date
+    if (req.body.odometer !== undefined && Number(req.body.odometer) > 0) doc.odometer = Number(req.body.odometer);
+    if (req.body.exitDate) { const ed = new Date(req.body.exitDate); if (!isNaN(ed)) doc.exitDate = ed; }
     await doc.save();
 
     // ✅ If closing a vidange record, acknowledge vidange if not already acknowledged
@@ -9500,6 +9503,24 @@ app.patch('/api/maintenance/:id/cancel', checkAccess, async (req, res) => {
     doc.exitDate = new Date();
     await doc.save();
     res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// PATCH reopen a closed/cancelled maintenance order (Maintenance Hub)
+app.patch('/api/maintenance/:id/reopen', checkAccess, async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    if (!targetId || targetId === 'undefined' || targetId === 'null') {
+      return res.status(400).json({ error: 'id requis' });
+    }
+    let doc = null;
+    try { doc = await Maintenance.findById(targetId); }
+    catch (castErr) { return res.status(400).json({ error: 'Identifiant invalide' }); }
+    if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
+    doc.status = 'en_cours';
+    doc.exitDate = undefined;
+    doc.note = (doc.note || '') + '\n[RÉOUVERT le ' + new Date().toLocaleString('fr-FR') + ']';
+    await doc.save();
+    res.json({ success: true, entry: fmt([doc])[0] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // PATCH complete maintenance order

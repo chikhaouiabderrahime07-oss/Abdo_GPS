@@ -1575,11 +1575,35 @@
 
       <!-- PANEL 3: BASE REMORQUES (CRUD Database) -->
       <div id="dispoSubTrailers" class="dispo-sub-panel" style="display:none;">
+        <!-- KPI Stats Bar -->
+        <div id="trailerStatsBar" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; margin-bottom:18px;">
+          <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#7c3aed;" id="kpiTrailerTotal">—</div>
+            <div style="font-size:10px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:2px;">Total Remorques</div>
+          </div>
+          <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#10b981;" id="kpiTrailerDispo">—</div>
+            <div style="font-size:10px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:2px;">Disponibles</div>
+          </div>
+          <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#0284c7;" id="kpiTrailerAttele">—</div>
+            <div style="font-size:10px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:2px;">Attelées</div>
+          </div>
+          <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#f59e0b;" id="kpiTrailerMaint">—</div>
+            <div style="font-size:10px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:2px;">Maintenance</div>
+          </div>
+          <div style="background:var(--bg-surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; text-align:center;">
+            <div style="font-size:22px; font-weight:900; color:#ef4444;" id="kpiTrailerAlert">—</div>
+            <div style="font-size:10px; color:var(--text-muted); font-weight:700; text-transform:uppercase; margin-top:2px;"><i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i> Alertes</div>
+          </div>
+        </div>
+        <!-- Toolbar -->
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
           <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:250px;">
             <div style="display:flex; align-items:center; gap:8px; flex:1; background:var(--bg-surface); padding:8px 14px; border-radius:10px; border:1px solid var(--border);">
               <i class="fa-solid fa-magnifying-glass" style="color:var(--text-muted);"></i>
-              <input type="text" id="trailerDbSearch" placeholder="Rechercher une remorque..." style="border:none; outline:none; background:transparent; width:100%; color:var(--text-primary); font-size:13px;" oninput="filterTrailerDb()">
+              <input type="text" id="trailerDbSearch" placeholder="Rechercher par immat, type, marque, châssis, camion..." style="border:none; outline:none; background:transparent; width:100%; color:var(--text-primary); font-size:13px;" oninput="filterTrailerDb()">
             </div>
             <select id="trailerDbStatusFilter" onchange="filterTrailerDb()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
               <option value="all">Tous statuts</option>
@@ -1591,6 +1615,17 @@
               <option value="panne">En panne</option>
               <option value="hors_service">Hors service</option>
               <option value="reserve">Réserve</option>
+            </select>
+            <select id="trailerDbTypeFilter" onchange="filterTrailerDb()" style="padding:8px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary); font-size:12px;">
+              <option value="all">Tous types</option>
+              <option value="Plateau">Plateau</option>
+              <option value="Citerne Carburant">Citerne Carburant</option>
+              <option value="Citerne Bitume">Citerne Bitume</option>
+              <option value="Porte-engins">Porte-engins</option>
+              <option value="Benne">Benne</option>
+              <option value="Frigo">Frigo</option>
+              <option value="Bâchée">Bâchée</option>
+              <option value="Autre">Autre</option>
             </select>
           </div>
           <div style="display:flex; gap:8px;">
@@ -1607,23 +1642,35 @@
           <table class="dispo-table" style="width:100%;">
             <thead>
               <tr>
-                <th style="width:40px;">#</th>
+                <th style="width:36px;">#</th>
                 <th class="sortable" onclick="sortTrailerDb('immatriculation')" style="cursor:pointer;" title="Trier par immatriculation">Immatriculation <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('chassisNumber')" style="cursor:pointer;" title="Trier par châssis">N° Châssis <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
                 <th class="sortable" onclick="sortTrailerDb('type')" style="cursor:pointer;" title="Trier par type">Type <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
                 <th class="sortable" onclick="sortTrailerDb('brand')" style="cursor:pointer;" title="Trier par marque">Marque <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
-                <th class="sortable" onclick="sortTrailerDb('payloadTon')" style="cursor:pointer;" title="Trier par capacité">Capacité <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('payloadTon')" style="cursor:pointer;" title="Trier par charge utile">Charge (T) <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
+                <th class="sortable" onclick="sortTrailerDb('yearOfManufacture')" style="cursor:pointer;" title="Trier par année">Année <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
                 <th class="sortable" onclick="sortTrailerDb('status')" style="cursor:pointer;" title="Trier par statut">Statut <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
                 <th class="sortable" onclick="sortTrailerDb('attachedTruckName')" style="cursor:pointer;" title="Trier par camion attelé">Camion Attelé <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
-                <th class="sortable" onclick="sortTrailerDb('lastAttachedDriverName')" style="cursor:pointer;" title="Trier par chauffeur">Dernier Chauffeur <i class="fa-solid fa-sort" style="opacity:0.35;font-size:10px;margin-left:4px;"></i></th>
-                <th>Position</th>
-                <th>Notes</th>
-                <th style="width:100px;">Actions</th>
+                <th>Alertes</th>
+                <th style="width:110px;">Actions</th>
               </tr>
             </thead>
             <tbody id="trailerDbBody">
               <tr><td colspan="11" style="text-align:center; padding:30px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin"></i> Chargement...</td></tr>
             </tbody>
           </table>
+        </div>
+        <!-- FICHE REMORQUE DETAIL PANEL -->
+        <div id="trailerFichePanel" style="display:none; margin-top:20px; background:var(--bg-card); border:1px solid var(--border); border-radius:16px; overflow:hidden;">
+          <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated);">
+            <h3 style="margin:0; font-size:16px; color:#a78bfa; display:flex; align-items:center; gap:8px;">
+              <i class="fa-solid fa-trailer"></i> <span id="trailerFicheTitle">Fiche Remorque</span>
+            </h3>
+            <button onclick="closeTrailerFiche()" style="border:none; background:rgba(239,68,68,0.1); color:#f87171; padding:6px 14px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:700;">
+              <i class="fa-solid fa-times"></i> Fermer
+            </button>
+          </div>
+          <div id="trailerFicheBody" style="padding:20px;"></div>
         </div>
       </div>
 
@@ -3209,7 +3256,7 @@
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- ═══════════════════════════════════════════════════════ -->
 
-  <script src="config.js?v=1785178812411"></script>
+  <script src="config.js?v=1785178812412"></script>
   
   <script>
 // GLOBAL ERROR HANDLER - catches ALL unhandled errors
@@ -3276,8 +3323,9 @@ window.addEventListener('unhandledrejection', function(e) {
   <script src="notifications.js" defer></script>
   <script src="driver-scoring.js" defer></script>
   <script src="pdf-generator.js" defer></script>
-  <script src="maintenance-atelier.js?v=4"></script>
+  <script src="maintenance-atelier.js?v=5"></script>
     <script src="maintenance-atelier-plus.js?v=1"></script>
+    <script src="maintenance-hub.js?v=1"></script>
 <script src="atelier-export.js?v=1"></script>
 
   <script>
@@ -3442,14 +3490,33 @@ window.addEventListener('unhandledrejection', function(e) {
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `chauffeurs_${new Date().toISOString().slice(0,10)}.xls`; a.click();
     }
 
-    // ═══ TRAILER DATABASE ═══
+    // ═══ TRAILER DATABASE (Enhanced Remorques Module) ═══
     async function loadTrailerDb() {
       try {
         const res = await fetch(`${window.FLEET_CONFIG?.API?.baseUrl || ''}/api/trailers`, { headers: DISPO_HEADERS() });
         const data = await res.json();
         _trailerDbCache = Array.isArray(data) ? data : (data.trailers || []);
         renderTrailerDb(_trailerDbCache);
+        updateTrailerKpis(_trailerDbCache);
       } catch (e) { console.error('loadTrailerDb:', e); }
+    }
+
+    function updateTrailerKpis(list) {
+      const el = id => document.getElementById(id);
+      if (el('kpiTrailerTotal')) el('kpiTrailerTotal').textContent = list.length;
+      if (el('kpiTrailerDispo')) el('kpiTrailerDispo').textContent = list.filter(t => t.status === 'disponible').length;
+      if (el('kpiTrailerAttele')) el('kpiTrailerAttele').textContent = list.filter(t => t.status === 'attele' || t.status === 'mission').length;
+      if (el('kpiTrailerMaint')) el('kpiTrailerMaint').textContent = list.filter(t => t.status === 'maintenance' || t.status === 'panne').length;
+      // Alerts: inspections due within 30d OR insurance expiring within 30d OR panne/hors_service
+      const now = Date.now();
+      const d30 = 30 * 86400000;
+      const alerts = list.filter(t => {
+        if (t.status === 'panne' || t.status === 'hors_service') return true;
+        if (t.nextInspectionDate && new Date(t.nextInspectionDate).getTime() - now < d30) return true;
+        if (t.insuranceExpiry && new Date(t.insuranceExpiry).getTime() - now < d30) return true;
+        return false;
+      }).length;
+      if (el('kpiTrailerAlert')) el('kpiTrailerAlert').textContent = alerts;
     }
 
     let _trailerSortCol = 'immatriculation', _trailerSortDir = 'asc';
@@ -3466,17 +3533,20 @@ window.addEventListener('unhandledrejection', function(e) {
     function filterTrailerDb() {
       const q = (document.getElementById('trailerDbSearch')?.value || '').toLowerCase();
       const st = document.getElementById('trailerDbStatusFilter')?.value || 'all';
+      const tp = document.getElementById('trailerDbTypeFilter')?.value || 'all';
       let list = _trailerDbCache;
       if (st !== 'all') list = list.filter(t => t.status === st);
+      if (tp !== 'all') list = list.filter(t => (t.type || 'Plateau') === tp);
       if (q) list = list.filter(t =>
         (t.immatriculation || '').toLowerCase().includes(q) ||
+        (t.chassisNumber || '').toLowerCase().includes(q) ||
         (t.type || '').toLowerCase().includes(q) ||
         (t.brand || '').toLowerCase().includes(q) ||
         (t.attachedTruckName || '').toLowerCase().includes(q) ||
-        (t.lastAttachedDriverName || '').toLowerCase().includes(q)
+        (t.lastAttachedDriverName || '').toLowerCase().includes(q) ||
+        (t.ownerCompany || '').toLowerCase().includes(q)
       );
 
-      /* ── Sort Trailer DB ── */
       const dir = _trailerSortDir === 'desc' ? -1 : 1;
       list = [...list].sort((a, b) => {
         let vA = (a[_trailerSortCol] || '').toString().toLowerCase();
@@ -3498,6 +3568,26 @@ window.addEventListener('unhandledrejection', function(e) {
       reserve: { label: 'Réserve', color: '#8b5cf6', icon: 'fa-warehouse' }
     };
 
+    function trailerAlerts(t) {
+      const alerts = [];
+      const now = Date.now();
+      const d30 = 30 * 86400000;
+      if (t.nextInspectionDate) {
+        const diff = new Date(t.nextInspectionDate).getTime() - now;
+        if (diff < 0) alerts.push({ text: 'VT expirée', color: '#ef4444' });
+        else if (diff < d30) alerts.push({ text: 'VT < 30j', color: '#f59e0b' });
+      }
+      if (t.insuranceExpiry) {
+        const diff = new Date(t.insuranceExpiry).getTime() - now;
+        if (diff < 0) alerts.push({ text: 'Assurance expirée', color: '#ef4444' });
+        else if (diff < d30) alerts.push({ text: 'Assurance < 30j', color: '#f59e0b' });
+      }
+      if (t.status === 'panne') alerts.push({ text: 'Panne', color: '#ef4444' });
+      if (t.status === 'hors_service') alerts.push({ text: 'HS', color: '#64748b' });
+      if (t.isRented) alerts.push({ text: 'Louée', color: '#7c3aed' });
+      return alerts;
+    }
+
     function renderTrailerDb(list) {
       const tbody = document.getElementById('trailerDbBody');
       const countEl = document.getElementById('trailerDbCount');
@@ -3508,21 +3598,24 @@ window.addEventListener('unhandledrejection', function(e) {
       }
       tbody.innerHTML = list.map((t, i) => {
         const st = TRAILER_STATUS_LABELS[t.status] || TRAILER_STATUS_LABELS.disponible;
-        return `<tr>
+        const al = trailerAlerts(t);
+        const alertHtml = al.length ? al.map(a => `<span style="display:inline-block; background:rgba(${hexToRgb(a.color)},0.12); color:${a.color}; padding:2px 6px; border-radius:6px; font-size:9px; font-weight:700; margin:1px 2px;">${a.text}</span>`).join('') : '<span style="color:var(--text-muted); font-size:11px;">—</span>';
+        return `<tr style="cursor:pointer;" ondblclick="openTrailerFiche('${t._id || t.trailerId}')">
           <td style="font-weight:600; color:var(--text-muted);">${i + 1}</td>
           <td style="font-weight:700;">${t.immatriculation || '—'}</td>
-          <td>${t.type || 'Plateau'}</td>
+          <td style="font-size:11px; color:var(--text-muted);">${t.chassisNumber || '—'}</td>
+          <td><span style="background:rgba(124,58,237,0.08); color:#a78bfa; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:600;">${t.type || 'Plateau'}</span></td>
           <td>${t.brand || '—'}</td>
-          <td>${t.capacity || '—'}</td>
+          <td style="font-weight:700;">${t.payloadTon ? t.payloadTon + ' T' : (t.capacity || '—')}</td>
+          <td>${t.yearOfManufacture || '—'}</td>
           <td><span style="display:inline-flex; align-items:center; gap:4px; background:rgba(${hexToRgb(st.color)},0.12); color:${st.color}; padding:3px 10px; border-radius:8px; font-size:11px; font-weight:700;"><i class="fa-solid ${st.icon}" style="font-size:10px;"></i> ${st.label}</span></td>
           <td>${t.attachedTruckName || '<span style="color:var(--text-muted);">—</span>'}</td>
-          <td>${t.lastAttachedDriverName || '<span style="color:var(--text-muted);">—</span>'}</td>
-          <td>${t.currentLocation || '<span style="color:var(--text-muted);">—</span>'}</td>
-          <td style="max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${(t.notes || '').replace(/"/g, '&quot;')}">${t.notes || '—'}</td>
+          <td>${alertHtml}</td>
           <td>
-            <div style="display:flex; gap:4px;">
-              <button onclick="editTrailerFromDb('${t._id || t.trailerId}')" style="background:rgba(124,58,237,0.1); color:#a78bfa; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:11px;" title="Modifier"><i class="fa-solid fa-pen"></i></button>
-              <button onclick="deleteTrailerFromDb('${t._id || t.trailerId}', '${(t.immatriculation || '').replace(/'/g, "\\'")}')" style="background:rgba(239,68,68,0.1); color:#f87171; border:none; padding:5px 8px; border-radius:6px; cursor:pointer; font-size:11px;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+            <div style="display:flex; gap:3px;">
+              <button onclick="event.stopPropagation(); openTrailerFiche('${t._id || t.trailerId}')" style="background:rgba(2,132,199,0.1); color:#0284c7; border:none; padding:5px 7px; border-radius:6px; cursor:pointer; font-size:11px;" title="Voir fiche"><i class="fa-solid fa-eye"></i></button>
+              <button onclick="event.stopPropagation(); editTrailerFromDb('${t._id || t.trailerId}')" style="background:rgba(124,58,237,0.1); color:#a78bfa; border:none; padding:5px 7px; border-radius:6px; cursor:pointer; font-size:11px;" title="Modifier"><i class="fa-solid fa-pen"></i></button>
+              <button onclick="event.stopPropagation(); deleteTrailerFromDb('${t._id || t.trailerId}', '${(t.immatriculation || '').replace(/'/g, "\\'")}')" style="background:rgba(239,68,68,0.1); color:#f87171; border:none; padding:5px 7px; border-radius:6px; cursor:pointer; font-size:11px;" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
             </div>
           </td>
         </tr>`;
@@ -3533,11 +3626,31 @@ window.addEventListener('unhandledrejection', function(e) {
       const t = _trailerDbCache.find(x => (x._id || x.trailerId) === id);
       if (!t) return;
       const setVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val || ''; };
+      const setChk = (elId, val) => { const el = document.getElementById(elId); if (el) el.checked = !!val; };
+      const fmtDate = d => d ? new Date(d).toISOString().slice(0,10) : '';
       setVal('trailerModalId', t._id || t.trailerId);
       setVal('trailerModalImm', t.immatriculation);
+      setVal('trailerModalChassis', t.chassisNumber);
       setVal('trailerModalType', t.type || 'Plateau');
       setVal('trailerModalBrand', t.brand);
+      setVal('trailerModalPayload', t.payloadTon);
       setVal('trailerModalCapacity', t.capacity);
+      setVal('trailerModalAxles', t.nbAxles || 2);
+      setVal('trailerModalYear', t.yearOfManufacture);
+      setVal('trailerModalTires', t.tireCount || 4);
+      setVal('trailerModalKm', t.totalKm);
+      setVal('trailerModalDimL', t.dimensions?.length);
+      setVal('trailerModalDimW', t.dimensions?.width);
+      setVal('trailerModalDimH', t.dimensions?.height);
+      setVal('trailerModalLastInspection', fmtDate(t.lastInspectionDate));
+      setVal('trailerModalNextInspection', fmtDate(t.nextInspectionDate));
+      setVal('trailerModalInsurance', fmtDate(t.insuranceExpiry));
+      setVal('trailerModalLastTireChange', fmtDate(t.lastTireChangeDate));
+      setVal('trailerModalPurchaseDate', fmtDate(t.purchaseDate));
+      setVal('trailerModalPurchasePrice', t.purchasePrice);
+      setChk('trailerModalIsRented', t.isRented);
+      setVal('trailerModalDailyCost', t.dailyRentalCost);
+      setVal('trailerModalOwner', t.ownerCompany);
       setVal('trailerModalNotes', t.notes);
       const title = document.getElementById('modalAddTrailerTitle');
       if (title) title.innerHTML = '<i class="fa-solid fa-pen"></i> Modifier Remorque';
@@ -3556,11 +3669,143 @@ window.addEventListener('unhandledrejection', function(e) {
     function exportTrailerDbExcel() {
       const rows = _trailerDbCache.map(t => {
         const st = TRAILER_STATUS_LABELS[t.status] || {};
-        return [t.trailerId, t.immatriculation, t.type, t.brand, t.capacity, st.label || t.status, t.attachedTruckName, t.lastAttachedDriverName, t.currentLocation, t.notes].join('\t');
+        return [t.trailerId, t.immatriculation, t.chassisNumber, t.type, t.brand, t.payloadTon || t.capacity, t.yearOfManufacture, t.nbAxles, st.label || t.status, t.attachedTruckName, t.lastAttachedDriverName, t.currentLocation, t.totalKm, t.isRented ? 'Oui' : 'Non', t.ownerCompany, t.notes].join('\t');
       });
-      const header = 'ID\tImmatriculation\tType\tMarque\tCapacité\tStatut\tCamion\tDernier Chauffeur\tPosition\tNotes';
+      const header = 'ID\tImmatriculation\tChâssis\tType\tMarque\tCharge/Capacité\tAnnée\tEssieux\tStatut\tCamion\tDernier Chauffeur\tPosition\tKm Total\tLocation\tPropriétaire\tNotes';
       const blob = new Blob(['\uFEFF' + header + '\n' + rows.join('\n')], { type: 'text/tab-separated-values;charset=utf-8' });
       const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `remorques_${new Date().toISOString().slice(0,10)}.xls`; a.click();
+    }
+
+    // ═══ FICHE REMORQUE (Detail View) ═══
+    async function openTrailerFiche(id) {
+      const t = _trailerDbCache.find(x => (x._id || x.trailerId) === id);
+      if (!t) return;
+      const panel = document.getElementById('trailerFichePanel');
+      const body = document.getElementById('trailerFicheBody');
+      const titleEl = document.getElementById('trailerFicheTitle');
+      if (titleEl) titleEl.textContent = `Fiche — ${t.immatriculation}`;
+
+      const st = TRAILER_STATUS_LABELS[t.status] || TRAILER_STATUS_LABELS.disponible;
+      const fmtDate = d => d ? new Date(d).toLocaleDateString('fr-FR') : '—';
+      const al = trailerAlerts(t);
+
+      // Fetch history for this trailer
+      let historyHtml = '<div style="color:var(--text-muted); font-size:12px; padding:10px;">Chargement historique...</div>';
+      try {
+        const hRes = await fetch(`${window.FLEET_CONFIG?.API?.baseUrl || ''}/api/trailers/${id}`, { headers: DISPO_HEADERS() });
+        if (hRes.ok) {
+          const hData = await hRes.json();
+          const history = hData.attachmentHistory || hData.history || [];
+          if (history.length) {
+            historyHtml = '<table style="width:100%; font-size:11px; border-collapse:collapse;"><thead><tr style="background:var(--bg-surface);">' +
+              '<th style="padding:8px; text-align:left;">Date</th><th style="padding:8px; text-align:left;">Événement</th><th style="padding:8px; text-align:left;">Camion</th><th style="padding:8px; text-align:left;">Chauffeur</th><th style="padding:8px; text-align:left;">Trajet</th></tr></thead><tbody>' +
+              history.map(h => `<tr style="border-top:1px solid var(--border);">
+                <td style="padding:6px 8px;">${fmtDate(h.timestamp)}</td>
+                <td style="padding:6px 8px;">${h.eventType || '—'}</td>
+                <td style="padding:6px 8px;">${h.truckName || '—'}</td>
+                <td style="padding:6px 8px;">${h.driverName || '—'}</td>
+                <td style="padding:6px 8px;">${[h.origin, h.destination].filter(Boolean).join(' → ') || '—'}</td>
+              </tr>`).join('') + '</tbody></table>';
+          } else {
+            historyHtml = '<div style="color:var(--text-muted); font-size:12px; padding:10px; text-align:center;"><i class="fa-solid fa-clock-rotate-left"></i> Aucun historique trouvé</div>';
+          }
+        }
+      } catch (e) {
+        historyHtml = '<div style="color:var(--text-muted); font-size:12px; padding:10px;">Historique non disponible</div>';
+      }
+
+      body.innerHTML = `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+          <!-- Left column -->
+          <div>
+            <!-- Status & Alerts -->
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+              <span style="display:inline-flex; align-items:center; gap:5px; background:rgba(${hexToRgb(st.color)},0.15); color:${st.color}; padding:6px 14px; border-radius:10px; font-size:13px; font-weight:800;">
+                <i class="fa-solid ${st.icon}"></i> ${st.label}
+              </span>
+              ${al.map(a => `<span style="background:rgba(${hexToRgb(a.color)},0.12); color:${a.color}; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:700;"><i class="fa-solid fa-triangle-exclamation" style="font-size:9px;"></i> ${a.text}</span>`).join('')}
+            </div>
+
+            <!-- Identification -->
+            <div style="font-size:11px; font-weight:800; color:#a78bfa; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;"><i class="fa-solid fa-id-card"></i> Identification</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin-bottom:16px; font-size:12px;">
+              <div><span style="color:var(--text-muted); font-weight:600;">Immatriculation:</span></div><div style="font-weight:700;">${t.immatriculation || '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">N° Châssis:</span></div><div>${t.chassisNumber || '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Type:</span></div><div>${t.type || 'Plateau'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Marque:</span></div><div>${t.brand || '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Année:</span></div><div>${t.yearOfManufacture || '—'}</div>
+            </div>
+
+            <!-- Specs -->
+            <div style="font-size:11px; font-weight:800; color:#0284c7; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;"><i class="fa-solid fa-gear"></i> Spécifications</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin-bottom:16px; font-size:12px;">
+              <div><span style="color:var(--text-muted); font-weight:600;">Charge Utile:</span></div><div style="font-weight:700;">${t.payloadTon ? t.payloadTon + ' T' : '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Capacité:</span></div><div>${t.capacity || '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Essieux:</span></div><div>${t.nbAxles || 2}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Pneus:</span></div><div>${t.tireCount || 4}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Km Total:</span></div><div>${t.totalKm ? Number(t.totalKm).toLocaleString('fr-FR') + ' km' : '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Dimensions:</span></div><div>${t.dimensions ? `${t.dimensions.length || '?'} × ${t.dimensions.width || '?'} × ${t.dimensions.height || '?'} m` : '—'}</div>
+            </div>
+
+            <!-- Location -->
+            ${t.isRented ? `
+            <div style="font-size:11px; font-weight:800; color:#7c3aed; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;"><i class="fa-solid fa-handshake"></i> Location</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin-bottom:16px; font-size:12px;">
+              <div><span style="color:var(--text-muted); font-weight:600;">Propriétaire:</span></div><div>${t.ownerCompany || '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Coût/Jour:</span></div><div>${t.dailyRentalCost ? Number(t.dailyRentalCost).toLocaleString('fr-FR') + ' DA' : '—'}</div>
+            </div>` : ''}
+          </div>
+
+          <!-- Right column -->
+          <div>
+            <!-- Assignment -->
+            <div style="font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;"><i class="fa-solid fa-link"></i> Affectation Actuelle</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin-bottom:16px; font-size:12px;">
+              <div><span style="color:var(--text-muted); font-weight:600;">Camion:</span></div><div style="font-weight:700;">${t.attachedTruckName || '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Chauffeur:</span></div><div>${t.lastAttachedDriverName || '—'}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Position:</span></div><div>${t.currentLocation || '—'}</div>
+            </div>
+
+            <!-- Documents -->
+            <div style="font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;"><i class="fa-solid fa-calendar-check"></i> Documents & Échéances</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 16px; margin-bottom:16px; font-size:12px;">
+              <div><span style="color:var(--text-muted); font-weight:600;">Dernière VT:</span></div><div>${fmtDate(t.lastInspectionDate)}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Prochaine VT:</span></div><div style="font-weight:700; ${t.nextInspectionDate && new Date(t.nextInspectionDate) < new Date(Date.now() + 30*86400000) ? 'color:#ef4444;' : ''}">${fmtDate(t.nextInspectionDate)}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Assurance:</span></div><div style="font-weight:700; ${t.insuranceExpiry && new Date(t.insuranceExpiry) < new Date(Date.now() + 30*86400000) ? 'color:#ef4444;' : ''}">${fmtDate(t.insuranceExpiry)}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Chg. Pneus:</span></div><div>${fmtDate(t.lastTireChangeDate)}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Achat:</span></div><div>${fmtDate(t.purchaseDate)}</div>
+              <div><span style="color:var(--text-muted); font-weight:600;">Prix Achat:</span></div><div>${t.purchasePrice ? Number(t.purchasePrice).toLocaleString('fr-FR') + ' DA' : '—'}</div>
+            </div>
+
+            <!-- Notes -->
+            ${t.notes ? `<div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:8px;"><i class="fa-solid fa-sticky-note"></i> Notes</div>
+            <div style="background:var(--bg-surface); padding:10px 14px; border-radius:8px; font-size:12px; border:1px solid var(--border); margin-bottom:16px;">${t.notes}</div>` : ''}
+          </div>
+        </div>
+
+        <!-- History -->
+        <div style="margin-top:10px; border-top:1px solid var(--border); padding-top:16px;">
+          <div style="font-size:11px; font-weight:800; color:#06b6d4; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px;"><i class="fa-solid fa-clock-rotate-left"></i> Historique Affectations (20 dernières)</div>
+          <div style="border:1px solid var(--border); border-radius:10px; overflow:auto; max-height:250px;">${historyHtml}</div>
+        </div>
+
+        <!-- Action bar -->
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+          <button onclick="editTrailerFromDb('${t._id || t.trailerId}')" style="background:linear-gradient(135deg, #7c3aed, #6d28d9); color:#fff; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+            <i class="fa-solid fa-pen"></i> Modifier
+          </button>
+          <button onclick="closeTrailerFiche()" style="background:var(--bg-surface); color:var(--text-primary); border:1px solid var(--border); padding:8px 14px; border-radius:8px; font-weight:600; font-size:12px; cursor:pointer;">
+            Fermer
+          </button>
+        </div>
+      `;
+      panel.style.display = 'block';
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function closeTrailerFiche() {
+      const panel = document.getElementById('trailerFichePanel');
+      if (panel) panel.style.display = 'none';
     }
 
     // ═══ FULL HISTORY DATABASE ═══
@@ -5452,19 +5697,28 @@ setTimeout(function() {
 
 <!-- ═══ MODAL: AJOUTER / MODIFIER REMORQUE ════════════════════ -->
 <div id="modalAddTrailer" style="display:none; position:fixed; inset:0; z-index:99999; background:rgba(0,0,0,0.65); backdrop-filter:blur(4px); align-items:center; justify-content:center; padding:16px;">
-  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:500px; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden;">
-    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a);">
+  <div style="background:var(--bg-card, #1e293b); color:var(--text-primary, #fff); border-radius:16px; border:1px solid var(--border, #334155); width:100%; max-width:680px; max-height:90vh; box-shadow:0 24px 60px rgba(0,0,0,0.4); overflow:hidden; display:flex; flex-direction:column;">
+    <div style="padding:16px 20px; border-bottom:1px solid var(--border, #334155); display:flex; justify-content:space-between; align-items:center; background:var(--bg-elevated, #0f172a); flex-shrink:0;">
       <h3 id="modalAddTrailerTitle" style="margin:0; font-size:16px; color:#a78bfa; display:flex; align-items:center; gap:8px;">
         <i class="fa-solid fa-trailer"></i> Nouvelle Remorque
       </h3>
       <button onclick="ui.closeAddTrailerModal()" style="border:none; background:transparent; color:var(--text-muted, #94a3b8); font-size:20px; cursor:pointer;">&times;</button>
     </div>
-    <form id="formAddTrailer" onsubmit="event.preventDefault(); ui.saveTrailerFromModal();" style="padding:20px;">
+    <form id="formAddTrailer" onsubmit="event.preventDefault(); ui.saveTrailerFromModal();" style="padding:20px; overflow-y:auto; flex:1;">
       <input type="hidden" id="trailerModalId">
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-        <div class="form-group" style="grid-column:1 / -1;">
-          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Immatriculation Remorque *</label>
+
+      <!-- Section 1: Identification -->
+      <div style="font-size:11px; font-weight:800; color:#a78bfa; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+        <i class="fa-solid fa-id-card" style="font-size:10px;"></i> Identification
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px;">
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Immatriculation *</label>
           <input type="text" id="trailerModalImm" required placeholder="Ex: 01234-000-16" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">N° de Châssis</label>
+          <input type="text" id="trailerModalChassis" placeholder="VIN / Châssis" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
         </div>
         <div class="form-group">
           <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Type de Remorque</label>
@@ -5483,16 +5737,117 @@ setTimeout(function() {
           <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Marque</label>
           <input type="text" id="trailerModalBrand" placeholder="Randon, Schmitz, Krone..." style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
         </div>
-        <div class="form-group" style="grid-column:1 / -1;">
-          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Capacité / Charge Utile</label>
-          <input type="text" id="trailerModalCapacity" placeholder="Ex: 36 000 L ou 30 Tonnes" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+      </div>
+
+      <!-- Section 2: Specs Techniques -->
+      <div style="font-size:11px; font-weight:800; color:#0284c7; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+        <i class="fa-solid fa-gear" style="font-size:10px;"></i> Spécifications Techniques
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px;">
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Charge Utile (Tonnes)</label>
+          <input type="number" step="0.1" id="trailerModalPayload" placeholder="30" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
         </div>
-        <div class="form-group" style="grid-column:1 / -1;">
-          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Notes & Observations</label>
-          <textarea id="trailerModalNotes" rows="2" placeholder="État technique, révision..." style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);"></textarea>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Capacité (texte)</label>
+          <input type="text" id="trailerModalCapacity" placeholder="36 000 L" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Nb Essieux</label>
+          <input type="number" id="trailerModalAxles" value="2" min="1" max="6" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Année Fabrication</label>
+          <input type="number" id="trailerModalYear" placeholder="2020" min="1990" max="2030" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Nb Pneus</label>
+          <input type="number" id="trailerModalTires" value="4" min="2" max="16" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Km Total</label>
+          <input type="number" id="trailerModalKm" placeholder="0" min="0" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
         </div>
       </div>
-      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+
+      <!-- Section 3: Dimensions -->
+      <div style="font-size:11px; font-weight:800; color:#f59e0b; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+        <i class="fa-solid fa-ruler-combined" style="font-size:10px;"></i> Dimensions (mètres)
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px;">
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Longueur</label>
+          <input type="number" step="0.01" id="trailerModalDimL" placeholder="13.60" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Largeur</label>
+          <input type="number" step="0.01" id="trailerModalDimW" placeholder="2.55" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Hauteur</label>
+          <input type="number" step="0.01" id="trailerModalDimH" placeholder="3.00" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+      </div>
+
+      <!-- Section 4: Documents & Dates -->
+      <div style="font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+        <i class="fa-solid fa-calendar-check" style="font-size:10px;"></i> Documents & Échéances
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px;">
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Dernière Visite Technique</label>
+          <input type="date" id="trailerModalLastInspection" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Prochaine Visite Technique</label>
+          <input type="date" id="trailerModalNextInspection" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Expiration Assurance</label>
+          <input type="date" id="trailerModalInsurance" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Dernier Changement Pneus</label>
+          <input type="date" id="trailerModalLastTireChange" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Date d'Achat</label>
+          <input type="date" id="trailerModalPurchaseDate" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Prix d'Achat (DA)</label>
+          <input type="number" id="trailerModalPurchasePrice" placeholder="0" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+      </div>
+
+      <!-- Section 5: Location -->
+      <div style="font-size:11px; font-weight:800; color:#ef4444; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+        <i class="fa-solid fa-handshake" style="font-size:10px;"></i> Location / Propriété
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:20px;">
+        <div class="form-group" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="trailerModalIsRented" style="width:18px; height:18px; accent-color:#7c3aed;">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary);">Location</label>
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Coût Journalier (DA)</label>
+          <input type="number" id="trailerModalDailyCost" placeholder="0" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+        <div class="form-group">
+          <label style="font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:4px; display:block;">Propriétaire</label>
+          <input type="text" id="trailerModalOwner" placeholder="Nom entreprise" style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);">
+        </div>
+      </div>
+
+      <!-- Section 6: Notes -->
+      <div style="font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.8px; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+        <i class="fa-solid fa-sticky-note" style="font-size:10px;"></i> Notes & Observations
+      </div>
+      <div style="margin-bottom:12px;">
+        <textarea id="trailerModalNotes" rows="2" placeholder="État technique, révision, remarques..." style="width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--border); background:var(--bg-surface); color:var(--text-primary);"></textarea>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:16px;">
         <button type="button" class="btn-secondary" onclick="ui.closeAddTrailerModal()" style="padding:9px 16px;">Annuler</button>
         <button type="submit" class="btn-primary" style="padding:9px 20px; background:linear-gradient(135deg, #7c3aed, #6d28d9); border:none;">
           <i class="fa-solid fa-check"></i> Enregistrer

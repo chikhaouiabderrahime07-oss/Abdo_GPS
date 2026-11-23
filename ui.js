@@ -14850,6 +14850,7 @@ async runZoneHistoryScan() {
         <td style="padding:10px 14px;font-weight:700;color:var(--success);font-size:13px;white-space:nowrap;">${cost}</td>
         <td style="padding:10px 14px;">${statusBadge}</td>
         <td style="padding:10px 14px;text-align:center;white-space:nowrap;">
+          ${(status === 'en_cours' || (!['done','completed','termine','terminé','cancelled','annule','annulé'].includes(status))) ? `<button onclick="window.MaintenanceHub ? MaintenanceHub.closeDlg('${(item._id || item.id)}') : ui.closeMaintenanceOrderUI('${(item._id || item.id)}')" title="Terminer" style="padding:4px 10px;font-size:11px;border-radius:var(--radius-md);margin-right:4px;background:#16a34a;border:none;color:#fff;cursor:pointer;"><i class="fa-solid fa-check"></i></button>` : ''}
           <button onclick="ui.openEditMaintenanceModal('${(item._id || item.id)}')" class="btn-secondary" title="Modifier" style="padding:4px 10px;font-size:11px;border-radius:var(--radius-md);margin-right:4px;">
             <i class="fa-solid fa-pen-to-square"></i>
           </button>

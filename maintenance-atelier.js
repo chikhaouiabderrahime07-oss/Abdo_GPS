@@ -338,30 +338,39 @@
         (S.bons.length ? 'Aucun bon pour ce filtre.' : 'Aucun bon de réparation. Cliquez sur « Nouveau bon ».') + '</div>';
       return;
     }
-    var h = '<div style="overflow-x:auto;"><table class="at-table"><thead><tr>' +
-      '<th>Réf</th><th>Véhicule</th><th>Panne</th><th>Interventions</th><th>Intervenants</th><th>Statut</th><th>Ouvert le</th><th>Durée</th><th></th>' +
-      '</tr></thead><tbody>';
+    // Simple card board: one card per bon, sorted late first then oldest first
+    rows = rows.slice().sort(function (a, b) {
+      var la = isLate(a) ? 0 : 1, lb = isLate(b) ? 0 : 1;
+      if (la !== lb) return la - lb;
+      if ((a.status === 'termine') !== (b.status === 'termine')) return a.status === 'termine' ? 1 : -1;
+      return new Date(a.openedAt) - new Date(b.openedAt);
+    });
+    var h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;">';
     rows.forEach(function (b) {
       var v = b.vehicle || {}, k = KIND_META[v.kind] || KIND_META.camion, lines = b.lines || [];
+      var m = STATUS_META[b.status] || { color: '#94a3b8' };
       var interv = lines.map(function (l) { return l.intervention; }).filter(Boolean);
       var names = []; lines.forEach(function (l) {
         var n = l.intervenant && l.intervenant.name;
         if (n && names.indexOf(n) === -1) names.push(n);
       });
       var d = daysOpen(b), late = isLate(b);
-      h += '<tr class="' + (late ? 'late' : '') + '">' +
-        '<td><b>' + esc(b.ref) + '</b></td>' +
-        '<td><i class="fa-solid ' + k.icon + '" style="color:var(--warning);margin-right:6px;"></i><b style="cursor:pointer;text-decoration:underline dotted;" title="Historique du véhicule" onclick="AtelierUI.showHistory(\'' + esc(b._id) + '\')">' + esc(v.plate || v.name) + '</b>' +
-        '<div class="at-sub">' + esc(k.label) + (v.name && v.plate ? ' · ' + esc(v.name) : '') + '</div></td>' +
-        '<td>' + esc(b.panneType) + (b.description ? '<div class="at-sub" title="' + esc(b.description) + '">' + esc(b.description.slice(0, 50)) + (b.description.length > 50 ? '…' : '') + '</div>' : '') + '</td>' +
-        '<td>' + (interv.length ? esc(interv.slice(0, 2).join(', ')) + (interv.length > 2 ? ' <span class="at-sub">+' + (interv.length - 2) + '</span>' : '') : '<span class="at-sub">—</span>') + '</td>' +
-        '<td>' + (names.length ? esc(names.join(', ')) : '<span class="at-sub">—</span>') + '</td>' +
-        '<td>' + badge(b.status) + erpBadge(b) + '</td>' +
-        '<td style="white-space:nowrap;">' + fmtDate(b.openedAt) + '</td>' +
-        '<td class="' + (late ? 'at-late' : '') + '" style="white-space:nowrap;">' + (late ? '⚠ ' : '') + fmtDays(d) + '</td>' +
-        '<td style="white-space:nowrap;text-align:right;">' + actionButtons(b) + '</td></tr>';
+      var done = lines.filter(function (l) { return l.done; }).length;
+      h += '<div style="background:var(--bg-elevated);border:1px solid ' + (late ? 'rgba(239,68,68,.6)' : 'var(--border)') + ';border-left:4px solid ' + (late ? '#ef4444' : m.color) + ';border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">' +
+        '<div><div style="font-size:15px;font-weight:800;"><i class="fa-solid ' + k.icon + '" style="color:var(--warning);margin-right:6px;"></i>' +
+        '<span style="cursor:pointer;text-decoration:underline dotted;" title="Historique du véhicule" onclick="AtelierUI.showHistory(\'' + esc(b._id) + '\')">' + esc(v.plate || v.name) + '</span></div>' +
+        '<div class="at-sub">' + esc(b.ref) + ' · ' + esc(k.label) + (v.name && v.plate ? ' · ' + esc(v.name) : '') + '</div></div>' +
+        '<div style="text-align:right;">' + badge(b.status) + erpBadge(b) + '</div></div>' +
+        '<div style="font-size:13px;"><b>' + esc(b.panneType || 'Panne') + '</b>' +
+        (b.description ? '<div class="at-sub" title="' + esc(b.description) + '">' + esc(b.description.slice(0, 90)) + (b.description.length > 90 ? '…' : '') + '</div>' : '') + '</div>' +
+        (interv.length ? '<div class="at-sub"><i class="fa-solid fa-wrench"></i> ' + esc(interv.slice(0, 3).join(', ')) + (interv.length > 3 ? ' +' + (interv.length - 3) : '') + '</div>' : '') +
+        (names.length ? '<div class="at-sub"><i class="fa-solid fa-user-gear"></i> ' + esc(names.join(', ')) + '</div>' : '') +
+        '<div class="at-sub' + (late ? ' at-late' : '') + '"><i class="fa-solid fa-clock"></i> ' + (late ? '⚠ ' : '') + fmtDays(d) + ' · ouvert le ' + fmtDate(b.openedAt) +
+        (lines.length ? ' · ' + done + '/' + lines.length + ' tâches' : '') + '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:2px;">' + actionButtons(b) + '</div></div>';
     });
-    wrap.innerHTML = h + '</tbody></table></div>';
+    wrap.innerHTML = h + '</div>';
   }
 
   // ───────────────────────── STATUS FLOW ─────────────────────────
