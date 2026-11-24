@@ -1,44 +1,34 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * EMAIL ALERTS UI — Configuration Système → Alertes & Notifications Email
- * Manages recipients, event triggers, site filters, SMTP/API credentials,
- * live test emails, and delivery history log.
+ * EMAIL ALERTS UI v3 — Per-Recipient Event Subscriptions
+ * Sender credentials are burned server-side (zero credentials in UI/DB).
+ * Each added email chooses independently which alerts it receives.
  * ═══════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
 
   var EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  var EVENT_DEFS = [
+    { key: 'zone_maint_enter', icon: '🛠️', label: 'Entrée Atelier / Maintenance' },
+    { key: 'zone_maint_exit',  icon: '🚪', label: 'Sortie Atelier / Maintenance' },
+    { key: 'maint_auto_logged',icon: '🔧', label: 'Intervention Auto (≥ 60 min)' },
+    { key: 'speed',            icon: '🚨', label: 'Excès de Vitesse' },
+    { key: 'vidange_due',      icon: '🛢️', label: 'Échéance Vidange' },
+    { key: 'zone_other_enter', icon: '📍', label: 'Entrée Client / Base' },
+    { key: 'zone_other_exit',  icon: '🏁', label: 'Sortie Client / Base' }
+  ];
+
   var S = {
     open: true,
     loading: false,
     saving: false,
     testing: false,
-    deliveryReady: false,
-    envSmtpConfigured: false,
+    deliveryReady: true,
     zones: [],
     log: [],
     testType: 'zone_enter',
-    clearPass: false,
-    clearKey: false,
     cfg: {
       enabled: false,
-      provider: 'smtp',
-      smtp: { host: 'smtp.gmail.com', port: 587, secure: false, user: '', pass: '', fromEmail: '', fromName: 'Douroub El Djazair — Flotte GPS' },
-      apiKey: '',
-      fromEmail: '',
-      fromName: 'Douroub El Djazair — Flotte GPS',
-      hasSmtpPass: false,
-      hasApiKey: false,
       recipients: [],
-      events: {
-        zone_maint_enter: true,
-        zone_maint_exit: true,
-        maint_auto_logged: false,
-        zone_other_enter: false,
-        zone_other_exit: false,
-        speed: false,
-        vidange_due: false
-      },
-      customZoneNames: [],
       speedLimitOverride: 0,
       speedMinMinutes: 2,
       cooldownMinutes: 15
@@ -67,6 +57,24 @@
     return j;
   }
 
+  function newRecObj(email, label) {
+    return {
+      email: email,
+      label: label || '',
+      enabled: true,
+      events: {
+        zone_maint_enter: true,
+        zone_maint_exit: true,
+        maint_auto_logged: false,
+        speed: false,
+        vidange_due: false,
+        zone_other_enter: false,
+        zone_other_exit: false
+      },
+      customZoneNames: []
+    };
+  }
+
   function injectCss() {
     if ($('eaUiCss')) return;
     var st = document.createElement('style');
@@ -74,22 +82,21 @@
     st.textContent = [
       '.ea-card{border:1px solid rgba(245,158,11,.35);border-radius:14px;margin-bottom:14px;overflow:hidden;background:var(--bg-elevated,#1a2332)}',
       '.ea-head{cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:linear-gradient(90deg,rgba(245,158,11,.12) 0%,transparent 100%);gap:10px;flex-wrap:wrap}',
-      '.ea-body{padding:16px 18px;border-top:1px solid var(--border,#334155);display:flex;flex-direction:column;gap:16px}',
+      '.ea-body{padding:16px 18px;border-top:1px solid var(--border,#334155);display:flex;flex-direction:column;gap:14px}',
       '.ea-sec{background:var(--bg-surface,#0f172a);border:1px solid var(--border,#334155);border-radius:12px;padding:14px}',
       '.ea-sec h4{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:#f59e0b;display:flex;align-items:center;gap:7px}',
-      '.ea-chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}',
-      '.ea-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;background:rgba(14,165,233,.14);border:1px solid rgba(14,165,233,.35);color:var(--text-primary,#e2e8f0);font-size:12px;font-weight:600}',
-      '.ea-chip button{border:none;background:none;color:#f87171;cursor:pointer;font-size:14px;line-height:1;padding:0}',
-      '.ea-evgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:9px}',
-      '.ea-ev{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:10px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);cursor:pointer}',
-      '.ea-ev.on{border-color:rgba(245,158,11,.55);background:rgba(245,158,11,.07)}',
-      '.ea-ev input{margin-top:3px;accent-color:#f59e0b;width:16px;height:16px}',
+      '.ea-rec{background:var(--bg-elevated,#1a2332);border:1px solid var(--border,#334155);border-left:4px solid #0ea5e9;border-radius:11px;padding:11px 13px;display:flex;flex-direction:column;gap:8px}',
+      '.ea-rec.off{opacity:.55;border-left-color:#64748b}',
+      '.ea-pills{display:flex;flex-wrap:wrap;gap:6px}',
+      '.ea-pill{padding:5px 10px;border-radius:999px;border:1px solid var(--border,#334155);background:var(--bg-surface,#0f172a);color:var(--text-muted,#94a3b8);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:.12s}',
+      '.ea-pill.on{background:rgba(245,158,11,.18);border-color:#f59e0b;color:#fbbf24}',
       '.ea-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}',
       '.ea-f label{display:block;font-size:11px;font-weight:700;color:var(--text-muted,#94a3b8);margin-bottom:4px}',
-      '.ea-f input,.ea-f select{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:12px;font-family:inherit}',
-      '.ea-btn{padding:8px 15px;border-radius:9px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px}',
-      '.ea-btn.pri{background:linear-gradient(135deg,#f59e0b,#d97706);border:none;color:#111}',
+      '.ea-f input{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:12px;font-family:inherit}',
+      '.ea-btn{padding:7px 13px;border-radius:9px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px}',
+      '.ea-btn.pri{background:linear-gradient(135deg,#f59e0b,#d97706);border:none;color:#111;font-size:12px;padding:8px 16px}',
       '.ea-btn.ok{background:linear-gradient(135deg,#0ea5e9,#2563eb);border:none;color:#fff}',
+      '.ea-btn.bad{border-color:rgba(248,113,113,.4);color:#f87171}',
       '.ea-btn[disabled]{opacity:.55;cursor:wait}',
       '.ea-sub{font-size:11px;color:var(--text-muted,#94a3b8);line-height:1.45}'
     ].join('\n');
@@ -98,34 +105,24 @@
 
   async function load() {
     if (S.loading) return;
-    S.loading = true;
-    render();
+    S.loading = true; render();
     try {
       var res = await api('/api/email-alerts/config', 'GET');
-      if (res && res.config) S.cfg = Object.assign(S.cfg, res.config);
+      if (res && res.config) {
+        S.cfg = Object.assign(S.cfg, res.config);
+        S.cfg.recipients = (res.config.recipients || []).map(function (r) {
+          return typeof r === 'string' ? newRecObj(r, '') : r;
+        });
+      }
       S.deliveryReady = !!(res && res.deliveryReady);
-      S.envSmtpConfigured = !!(res && res.envSmtpConfigured);
       S.zones = (res && res.zones) || [];
       S.log = (res && res.log) || [];
-      S.clearPass = false;
-      S.clearKey = false;
-    } catch (e) {
-      console.warn('[EmailAlertsUI] load error:', e.message);
-    }
-    S.loading = false;
-    render();
+    } catch (e) { console.warn('[EmailAlertsUI] load error:', e.message); }
+    S.loading = false; render();
   }
 
   function syncDomInputs() {
     var c = S.cfg;
-    if ($('eaProv')) c.provider = $('eaProv').value;
-    if ($('eaHost')) c.smtp.host = $('eaHost').value.trim();
-    if ($('eaPort')) c.smtp.port = Number($('eaPort').value) || 587;
-    if ($('eaUser')) c.smtp.user = $('eaUser').value.trim();
-    if ($('eaPass') && $('eaPass').value) { c.smtp.pass = $('eaPass').value; S.clearPass = false; }
-    if ($('eaFromName')) { c.smtp.fromName = $('eaFromName').value.trim(); c.fromName = c.smtp.fromName; }
-    if ($('eaFromEmail')) { c.fromEmail = $('eaFromEmail').value.trim(); c.smtp.fromEmail = c.fromEmail; }
-    if ($('eaApiKey') && $('eaApiKey').value) { c.apiKey = $('eaApiKey').value.trim(); S.clearKey = false; }
     if ($('eaSpdLim')) c.speedLimitOverride = Math.max(0, Number($('eaSpdLim').value) || 0);
     if ($('eaSpdMin')) c.speedMinMinutes = Math.max(1, Number($('eaSpdMin').value) || 2);
     if ($('eaCool')) c.cooldownMinutes = Math.max(0, Number($('eaCool').value) >= 0 ? Number($('eaCool').value) : 15);
@@ -133,107 +130,120 @@
 
   function addRecipientsFromInput() {
     syncDomInputs();
-    var inp = $('eaRecInput');
+    var inp = $('eaRecInput'), lblInp = $('eaRecLabel');
     if (!inp) return;
-    var raw = inp.value || '';
-    var tokens = raw.split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+    var label = lblInp ? lblInp.value.trim() : '';
+    var tokens = (inp.value || '').split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
     if (!tokens.length) return;
     var invalid = [];
     tokens.forEach(function (em) {
       if (!EMAIL_RX.test(em)) invalid.push(em);
-      else if (S.cfg.recipients.indexOf(em) < 0) S.cfg.recipients.push(em);
+      else if (!S.cfg.recipients.some(function (r) { return r.email === em; })) {
+        S.cfg.recipients.push(newRecObj(em, tokens.length === 1 ? label : ''));
+      }
     });
     if (invalid.length) toast('Adresse(s) invalide(s) : ' + invalid.join(', '), 'warning');
     inp.value = '';
+    if (lblInp) lblInp.value = '';
     render();
   }
 
-  function removeRecipient(idx) {
+  function removeRecipient(idx) { syncDomInputs(); S.cfg.recipients.splice(idx, 1); render(); }
+  function toggleRecEnabled(idx, on) { syncDomInputs(); if (S.cfg.recipients[idx]) S.cfg.recipients[idx].enabled = !!on; render(); }
+  function toggleRecEvent(idx, key) {
     syncDomInputs();
-    S.cfg.recipients.splice(idx, 1);
+    var r = S.cfg.recipients[idx];
+    if (!r) return;
+    r.events = r.events || {};
+    r.events[key] = !r.events[key];
     render();
   }
-
-  function toggleEvent(key, checked) {
+  function setAllRecEvents(idx, on) {
     syncDomInputs();
-    S.cfg.events[key] = !!checked;
+    var r = S.cfg.recipients[idx];
+    if (!r) return;
+    r.events = r.events || {};
+    EVENT_DEFS.forEach(function (d) { r.events[d.key] = !!on; });
     render();
   }
-
-  function toggleZone(name, checked) {
+  function toggleRecZone(idx, zName, on) {
     syncDomInputs();
-    var arr = S.cfg.customZoneNames || [];
-    var idx = arr.indexOf(name);
-    if (checked && idx < 0) arr.push(name);
-    if (!checked && idx >= 0) arr.splice(idx, 1);
-    S.cfg.customZoneNames = arr;
+    var r = S.cfg.recipients[idx];
+    if (!r) return;
+    var arr = r.customZoneNames || [];
+    var pos = arr.indexOf(zName);
+    if (on && pos < 0) arr.push(zName);
+    if (!on && pos >= 0) arr.splice(pos, 1);
+    r.customZoneNames = arr;
     render();
   }
 
   async function save(silent) {
     syncDomInputs();
-    // Also grab any un-added email typed in the input box!
     if ($('eaRecInput') && $('eaRecInput').value.trim()) addRecipientsFromInput();
-    S.saving = true;
-    render();
+    S.saving = true; render();
     try {
-      var payload = JSON.parse(JSON.stringify(S.cfg));
-      if (!payload.smtp.pass && S.cfg.hasSmtpPass && !S.clearPass) payload.smtp.pass = '__KEEP__';
-      if (!payload.apiKey && S.cfg.hasApiKey && !S.clearKey) payload.apiKey = '__KEEP__';
-      payload.clearSmtpPass = S.clearPass;
-      payload.clearApiKey = S.clearKey;
-
-      var res = await api('/api/email-alerts/config', 'POST', payload);
+      var res = await api('/api/email-alerts/config', 'POST', S.cfg);
       if (res && res.config) S.cfg = Object.assign(S.cfg, res.config);
       S.deliveryReady = !!(res && res.deliveryReady);
-      S.clearPass = false;
-      S.clearKey = false;
-      if (!silent) toast('✅ Configuration des alertes Email enregistrée', 'success');
-    } catch (e) {
-      toast('Erreur sauvegarde : ' + e.message, 'error');
-    }
-    S.saving = false;
-    render();
+      if (!silent) toast('✅ Configuration Email enregistrée', 'success');
+    } catch (e) { toast('Erreur sauvegarde : ' + e.message, 'error'); }
+    S.saving = false; render();
   }
 
-  async function sendTest(overrideType) {
+  async function sendTest(overrideType, singleEmail) {
     await save(true);
-    if (!S.cfg.recipients.length) {
-      toast('Ajoutez au moins une adresse email destinataire avant de tester.', 'warning');
+    var targets = singleEmail
+      ? [singleEmail]
+      : S.cfg.recipients.filter(function (r) { return r.enabled; }).map(function (r) { return r.email; });
+    if (!targets.length) {
+      toast('Ajoutez (et activez) au moins une adresse email destinataire.', 'warning');
       return;
     }
     var evType = overrideType || S.testType;
-    S.testing = true;
-    render();
+    S.testing = true; render();
     try {
-      var res = await api('/api/email-alerts/test', 'POST', { eventType: evType, to: S.cfg.recipients });
+      var res = await api('/api/email-alerts/test', 'POST', { eventType: evType, to: targets });
       if (res && res.log) S.log = res.log;
       toast(evType === 'hello'
-        ? '✉️ "Hello test" envoyé à ' + S.cfg.recipients.join(', ')
-        : '📨 Email de test envoyé à ' + S.cfg.recipients.join(', ') + ' (camion : ' + (res.truck || '') + ')', 'success');
+        ? '✉️ "Hello test" envoyé à ' + targets.join(', ')
+        : '📨 Simulation envoyée à ' + targets.join(', ') + ' (' + (res.truck || '') + ')', 'success');
     } catch (e) {
-      toast('❌ Échec de l\'envoi test : ' + e.message, 'error');
+      toast('❌ Échec de l\'envoi : ' + e.message, 'error');
       await load();
     }
-    S.testing = false;
-    render();
+    S.testing = false; render();
   }
 
-  function presetGmail() {
-    syncDomInputs();
-    S.cfg.provider = 'smtp';
-    S.cfg.smtp.host = 'smtp.gmail.com';
-    S.cfg.smtp.port = 587;
-    S.cfg.smtp.secure = false;
-    render();
-  }
-
-  function evBox(key, icon, title, desc) {
-    var on = !!S.cfg.events[key];
-    return '<label class="ea-ev' + (on ? ' on' : '') + '">' +
-      '<input type="checkbox"' + (on ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleEvent(\'' + key + '\',this.checked)">' +
-      '<div><div style="font-size:13px;font-weight:700;color:var(--text-primary,#e2e8f0)">' + icon + ' ' + esc(title) + '</div>' +
-      '<div class="ea-sub">' + esc(desc) + '</div></div></label>';
+  function renderRecipientCard(r, idx, otherSites) {
+    var ev = r.events || {};
+    var pills = EVENT_DEFS.map(function (d) {
+      var on = !!ev[d.key];
+      return '<button type="button" class="ea-pill' + (on ? ' on' : '') + '" onclick="EmailAlertsUI.toggleRecEvent(' + idx + ',\'' + d.key + '\')">' +
+        (on ? '✓ ' : '') + d.icon + ' ' + esc(d.label) + '</button>';
+    }).join('');
+    var siteChecks = otherSites.length ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><span class="ea-sub">Sites précis :</span>' +
+      otherSites.map(function (z) {
+        var ck = (r.customZoneNames || []).indexOf(z.name) >= 0;
+        return '<label class="ea-sub" style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox"' + (ck ? ' checked' : '') +
+          ' onchange="EmailAlertsUI.toggleRecZone(' + idx + ',\'' + esc(z.name).replace(/'/g, "\\'") + '\',this.checked)"> ' + esc(z.name) + '</label>';
+      }).join('') + '</div>' : '';
+    return '<div class="ea-rec' + (r.enabled ? '' : ' off') + '">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:800;color:var(--text-primary,#e2e8f0)">' +
+          '<input type="checkbox" style="width:15px;height:15px;accent-color:#22c55e"' + (r.enabled ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleRecEnabled(' + idx + ',this.checked)">' +
+          '<i class="fa-solid fa-envelope" style="color:#38bdf8"></i> ' + esc(r.email) +
+          (r.label ? ' <span class="ea-sub" style="font-weight:600">(' + esc(r.label) + ')</span>' : '') +
+        '</label>' +
+        '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
+          '<button type="button" class="ea-btn ok" title="Envoyer Hello test uniquement à cette adresse" onclick="EmailAlertsUI.sendTest(\'hello\',\'' + esc(r.email) + '\')"><i class="fa-solid fa-paper-plane"></i> Hello test</button>' +
+          '<button type="button" class="ea-btn" onclick="EmailAlertsUI.setAllRec(' + idx + ',true)">Tout</button>' +
+          '<button type="button" class="ea-btn" onclick="EmailAlertsUI.setAllRec(' + idx + ',false)">Rien</button>' +
+          '<button type="button" class="ea-btn bad" title="Supprimer" onclick="EmailAlertsUI.removeRecipient(' + idx + ')"><i class="fa-solid fa-trash"></i></button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="ea-pills">' + pills + '</div>' + siteChecks +
+    '</div>';
   }
 
   function render() {
@@ -241,49 +251,28 @@
     if (!mount) return;
     injectCss();
     var c = S.cfg;
+    var activeCount = c.recipients.filter(function (r) { return r.enabled; }).length;
     var statusPill = !c.enabled
       ? '<span style="background:rgba(148,163,184,.18);color:#94a3b8;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;">⚪ Désactivé</span>'
-      : (S.deliveryReady && c.recipients.length
-          ? '<span style="background:rgba(34,197,94,.16);color:#4ade80;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;">🟢 Actif · ' + c.recipients.length + ' email(s)</span>'
-          : '<span style="background:rgba(245,158,11,.18);color:#fbbf24;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;">⚠️ À compléter (destinataire / serveur)</span>');
-
-    var chips = c.recipients.length
-      ? c.recipients.map(function (em, i) {
-          return '<span class="ea-chip"><i class="fa-solid fa-envelope" style="color:#38bdf8"></i> ' + esc(em) +
-            ' <button type="button" title="Retirer" onclick="EmailAlertsUI.removeRecipient(' + i + ')">&times;</button></span>';
-        }).join('')
-      : '<span class="ea-sub">Aucune adresse email ajoutée pour le moment.</span>';
+      : (activeCount > 0
+          ? '<span style="background:rgba(34,197,94,.16);color:#4ade80;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;">🟢 Actif · ' + activeCount + ' destinataire(s)</span>'
+          : '<span style="background:rgba(245,158,11,.18);color:#fbbf24;padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;">⚠️ Ajoutez au moins 1 email</span>');
 
     var maintSites = S.zones.filter(function (z) { return z.type === 'maintenance'; });
     var otherSites = S.zones.filter(function (z) { return z.type !== 'maintenance'; });
 
-    var provHtml = '';
-    if (c.provider === 'smtp') {
-      provHtml = '<div class="ea-grid" style="margin-top:10px">' +
-        '<div class="ea-f"><label>Serveur SMTP</label><input id="eaHost" value="' + esc(c.smtp.host) + '" placeholder="smtp.gmail.com"></div>' +
-        '<div class="ea-f"><label>Port SMTP</label><input id="eaPort" type="number" value="' + esc(c.smtp.port) + '"></div>' +
-        '<div class="ea-f"><label>Email expéditeur (compte SMTP)</label><input id="eaUser" value="' + esc(c.smtp.user) + '" placeholder="flotte@gmail.com"></div>' +
-        '<div class="ea-f"><label>Mot de passe d\'application ' + (c.hasSmtpPass ? '<span style="color:#4ade80">✓ enregistré</span>' : '') + '</label>' +
-          '<input id="eaPass" type="password" value="' + esc(c.smtp.pass) + '" placeholder="' + (c.hasSmtpPass ? '•••••••• (laisser vide pour garder)' : '16 caractères Gmail App Password') + '"></div>' +
-        '<div class="ea-f"><label>Nom affiché</label><input id="eaFromName" value="' + esc(c.smtp.fromName || c.fromName) + '"></div>' +
-        '</div>' +
-        '<div class="ea-sub" style="margin-top:8px">💡 <b>Astuce Gmail :</b> utilisez un <i>Mot de passe d\'application</i> (Compte Google → Sécurité → Validation en 2 étapes → Mots de passe des applications).' +
-        (S.envSmtpConfigured ? ' <span style="color:#4ade80">✓ Variables serveur SMTP_* déjà détectées en secours.</span>' : '') + '</div>';
-    } else {
-      provHtml = '<div class="ea-grid" style="margin-top:10px">' +
-        '<div class="ea-f"><label>Clé API ' + esc(c.provider.toUpperCase()) + ' ' + (c.hasApiKey ? '<span style="color:#4ade80">✓ enregistrée</span>' : '') + '</label>' +
-          '<input id="eaApiKey" type="password" value="' + esc(c.apiKey) + '" placeholder="' + (c.hasApiKey ? '•••••••• (laisser vide pour garder)' : 'Coller la clé API HTTPS...') + '"></div>' +
-        '<div class="ea-f"><label>Email expéditeur vérifié</label><input id="eaFromEmail" value="' + esc(c.fromEmail || c.smtp.user) + '" placeholder="alerte@votredomaine.com"></div>' +
-        '<div class="ea-f"><label>Nom affiché</label><input id="eaFromName" value="' + esc(c.fromName) + '"></div></div>' +
-        '<div class="ea-sub" style="margin-top:8px">💡 L\'envoi par API HTTPS (port 443) contourne tout blocage de port SMTP sur les hébergeurs cloud (Render, etc.).</div>';
-    }
+    var recsHtml = c.recipients.length
+      ? '<div style="display:flex;flex-direction:column;gap:9px;margin-top:12px">' +
+          c.recipients.map(function (r, idx) { return renderRecipientCard(r, idx, otherSites); }).join('') +
+        '</div>'
+      : '<div class="ea-sub" style="margin-top:12px;padding:14px;text-align:center;border:1px dashed var(--border,#334155);border-radius:10px">Aucune adresse email configurée. Ajoutez une adresse ci-dessus puis choisissez les alertes qu\'elle doit recevoir.</div>';
 
-    var logHtml = S.log.length ? '<div style="margin-top:10px;max-height:130px;overflow:auto;display:flex;flex-direction:column;gap:4px">' +
+    var logHtml = S.log.length ? '<div style="margin-top:8px;max-height:120px;overflow:auto;display:flex;flex-direction:column;gap:4px">' +
       S.log.slice(0, 8).map(function (l) {
         var dt = new Date(l.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-        return '<div class="ea-sub" style="display:flex;justify-content:space-between;gap:8px">' +
-          '<span>' + (l.ok ? '✅' : '❌') + ' <b>' + esc(dt) + '</b> — ' + esc(l.subject || '') + (l.error ? ' <span style="color:#f87171">(' + esc(l.error) + ')</span>' : '') + '</span>' +
-          '<span>' + esc(l.provider || '') + '</span></div>';
+        var toStr = Array.isArray(l.to) ? ' → ' + l.to.join(', ') : '';
+        return '<div class="ea-sub">' + (l.ok ? '✅' : '❌') + ' <b>' + esc(dt) + '</b> — ' + esc(l.subject || '') + esc(toStr) +
+          (l.error ? ' <span style="color:#f87171">(' + esc(l.error) + ')</span>' : '') + '</div>';
       }).join('') + '</div>' : '';
 
     mount.innerHTML = '<div class="ea-card">' +
@@ -300,59 +289,36 @@
         '</div>' +
       '</div>' +
       (S.open ? '<div class="ea-body">' +
-        '<div class="ea-sec"><h4><i class="fa-solid fa-at"></i> 1. Destinataires Email</h4>' +
+        '<div class="ea-sec"><h4><i class="fa-solid fa-users-gear"></i> 1. Destinataires &amp; Choix des Alertes par Email</h4>' +
+          '<div class="ea-sub" style="margin-bottom:8px">Chaque adresse choisit indépendamment les notifications qu\'elle reçoit. Sites maintenance détectés : ' +
+            (maintSites.length ? maintSites.map(function (z) { return '<b style="color:#fbbf24">' + esc(z.name) + '</b>'; }).join(' · ') : '<i>aucun site maintenance défini</i>') +
+          '</div>' +
           '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-            '<input id="eaRecInput" placeholder="Ajouter un ou plusieurs emails (ex: atelier@douroub.dz, direction@...)" style="flex:1;min-width:220px;padding:8px 12px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:12px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();EmailAlertsUI.addRec();}">' +
+            '<input id="eaRecInput" placeholder="Adresse email (ex: atelier@douroub.dz)" style="flex:2;min-width:200px;padding:8px 12px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:12px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();EmailAlertsUI.addRec();}">' +
+            '<input id="eaRecLabel" placeholder="Nom / Rôle optionnel (ex: Chef Atelier)" style="flex:1;min-width:150px;padding:8px 12px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:12px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();EmailAlertsUI.addRec();}">' +
             '<button type="button" class="ea-btn ok" onclick="EmailAlertsUI.addRec()"><i class="fa-solid fa-plus"></i> Ajouter</button>' +
           '</div>' +
-          '<div class="ea-chips">' + chips + '</div>' +
+          recsHtml +
         '</div>' +
-        '<div class="ea-sec"><h4><i class="fa-solid fa-bell"></i> 2. Que voulez-vous recevoir par Email ?</h4>' +
-          '<div class="ea-evgrid">' +
-            evBox('zone_maint_enter', '🛠️', 'Arrivée en Zone Maintenance / Atelier', 'Email complet (tracteur, IMM, châssis, remorque, chauffeur) dès l\'entrée au site maintenance') +
-            evBox('zone_maint_exit', '🚪', 'Sortie de Zone Maintenance / Atelier', 'Email à la sortie de l\'atelier avec la durée exacte passée sur place') +
-            evBox('maint_auto_logged', '🔧', 'Vidange / Maintenance Auto-détectée (≥ 60 min)', 'Email quand le système enregistre automatiquement une intervention') +
-            evBox('speed', '🚨', 'Excès de Vitesse', 'Email lorsqu\'un camion dépasse la vitesse limite autorisée') +
-            evBox('vidange_due', '🛢️', 'Échéance Vidange Atteinte', 'Email lorsqu\'un camion entre en alerte vidange urgente') +
-            evBox('zone_other_enter', '📍', 'Arrivée Autres Sites (Clients / Base)', 'Email à l\'arrivée sur un site client ou base Douroub') +
-            evBox('zone_other_exit', '🏁', 'Sortie Autres Sites (Clients / Base)', 'Email au départ d\'un site client ou base Douroub') +
-          '</div>' +
-          '<div class="ea-sub" style="margin-top:10px"><b>Sites Maintenance actifs automatiquement :</b> ' +
-            (maintSites.length ? maintSites.map(function (z) { return '<span style="color:#fbbf24;font-weight:700">' + esc(z.name) + '</span>'; }).join(' · ') : '<i>Aucun site de type "maintenance" défini dans Sites & Clients</i>') +
-          '</div>' +
-          (otherSites.length ? '<div style="margin-top:8px"><div class="ea-sub" style="margin-bottom:4px"><b>Surveiller aussi des sites spécifiques :</b></div><div style="display:flex;gap:10px;flex-wrap:wrap">' +
-            otherSites.map(function (z) {
-              var ck = (c.customZoneNames || []).indexOf(z.name) >= 0;
-              return '<label class="ea-sub" style="display:inline-flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox"' + (ck ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleZone(\'' + esc(z.name).replace(/'/g, "\\'") + '\',this.checked)"> ' + esc(z.name) + ' (' + esc(z.type) + ')</label>';
-            }).join('') + '</div></div>' : '') +
-          '<div class="ea-grid" style="margin-top:12px">' +
+        '<div class="ea-sec"><h4><i class="fa-solid fa-sliders"></i> 2. Seuils &amp; Anti-spam</h4>' +
+          '<div class="ea-grid">' +
             '<div class="ea-f"><label>Limite vitesse Email (0 = limite générale)</label><input id="eaSpdLim" type="number" min="0" value="' + esc(c.speedLimitOverride) + '"></div>' +
             '<div class="ea-f"><label>Durée min. excès vitesse (minutes)</label><input id="eaSpdMin" type="number" min="1" value="' + esc(c.speedMinMinutes) + '"></div>' +
-            '<div class="ea-f"><label>Anti-spam entre 2 mêmes alertes (min)</label><input id="eaCool" type="number" min="0" value="' + esc(c.cooldownMinutes) + '"></div>' +
+            '<div class="ea-f"><label>Délai anti-spam entre 2 mêmes alertes (min)</label><input id="eaCool" type="number" min="0" value="' + esc(c.cooldownMinutes) + '"></div>' +
           '</div>' +
-        '</div>' +
-        '<div class="ea-sec"><h4><i class="fa-solid fa-server"></i> 3. Serveur d\'Envoi (Gmail / SMTP ou API Cloud)</h4>' +
-          '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-            '<select id="eaProv" onchange="EmailAlertsUI.changeProv(this.value)" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-elevated,#1a2332);color:var(--text-primary,#e2e8f0);font-size:12px;font-weight:700">' +
-              '<option value="smtp"' + (c.provider === 'smtp' ? ' selected' : '') + '>Gmail / Serveur SMTP</option>' +
-              '<option value="brevo"' + (c.provider === 'brevo' ? ' selected' : '') + '>Brevo API (HTTPS — idéal sur Render)</option>' +
-              '<option value="resend"' + (c.provider === 'resend' ? ' selected' : '') + '>Resend API (HTTPS)</option>' +
-            '</select>' +
-            (c.provider === 'smtp' ? '<button type="button" class="ea-btn" onclick="EmailAlertsUI.presetGmail()"><i class="fa-brands fa-google"></i> Pré-remplir Gmail</button>' : '') +
-          '</div>' + provHtml +
         '</div>' +
         '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">' +
           '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
             '<button type="button" class="ea-btn ok"' + (S.testing ? ' disabled' : '') + ' onclick="EmailAlertsUI.sendTest(\'hello\')"><i class="fa-solid fa-paper-plane"></i> ' + (S.testing ? 'Envoi…' : 'Tester ("Hello test")') + '</button>' +
-            '<select onchange="EmailAlertsUI.setTestType(this.value)" style="padding:8px 10px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-surface,#0f172a);color:var(--text-primary,#e2e8f0);font-size:12px">' +
-              '<option value="zone_enter"' + (S.testType === 'zone_enter' ? ' selected' : '') + '>Simulation : Arrivée site maintenance</option>' +
-              '<option value="zone_exit"' + (S.testType === 'zone_exit' ? ' selected' : '') + '>Simulation : Sortie site maintenance</option>' +
-              '<option value="speed"' + (S.testType === 'speed' ? ' selected' : '') + '>Simulation : Excès de vitesse</option>' +
+            '<select onchange="EmailAlertsUI.setTestType(this.value)" style="padding:7px 10px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-surface,#0f172a);color:var(--text-primary,#e2e8f0);font-size:11px">' +
+              '<option value="zone_enter"' + (S.testType === 'zone_enter' ? ' selected' : '') + '>Simulation : Arrivée Atelier</option>' +
+              '<option value="zone_exit"' + (S.testType === 'zone_exit' ? ' selected' : '') + '>Simulation : Sortie Atelier</option>' +
+              '<option value="speed"' + (S.testType === 'speed' ? ' selected' : '') + '>Simulation : Excès vitesse</option>' +
               '<option value="vidange_due"' + (S.testType === 'vidange_due' ? ' selected' : '') + '>Simulation : Échéance vidange</option>' +
             '</select>' +
             '<button type="button" class="ea-btn"' + (S.testing ? ' disabled' : '') + ' onclick="EmailAlertsUI.sendTest()"><i class="fa-solid fa-truck-fast"></i> Tester alerte camion</button>' +
           '</div>' +
-          '<button type="button" class="ea-btn pri"' + (S.saving ? ' disabled' : '') + ' onclick="EmailAlertsUI.save()"><i class="fa-solid fa-floppy-disk"></i> ' + (S.saving ? 'Enregistrement…' : 'Enregistrer la configuration Email') + '</button>' +
+          '<button type="button" class="ea-btn pri"' + (S.saving ? ' disabled' : '') + ' onclick="EmailAlertsUI.save()"><i class="fa-solid fa-floppy-disk"></i> ' + (S.saving ? 'Enregistrement…' : 'Enregistrer') + '</button>' +
         '</div>' + logHtml +
       '</div>' : '') +
     '</div>';
@@ -362,14 +328,14 @@
     load: load,
     save: function () { return save(false); },
     sendTest: sendTest,
-    presetGmail: presetGmail,
     addRec: addRecipientsFromInput,
     removeRecipient: removeRecipient,
-    toggleEvent: toggleEvent,
-    toggleZone: toggleZone,
+    toggleRecEnabled: toggleRecEnabled,
+    toggleRecEvent: toggleRecEvent,
+    setAllRec: setAllRecEvents,
+    toggleRecZone: toggleRecZone,
     toggleOpen: function () { syncDomInputs(); S.open = !S.open; render(); },
     setEnabled: function (on) { syncDomInputs(); S.cfg.enabled = !!on; render(); },
-    changeProv: function (v) { syncDomInputs(); S.cfg.provider = v; render(); },
     setTestType: function (v) { S.testType = v; }
   };
 

@@ -9,7 +9,16 @@ let nodemailer = null;
 try { nodemailer = require('nodemailer'); } catch (e) { /* optional fallback */ }
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const KEEP_SECRET = '__KEEP__';
+
+// Server-only built-in sender credentials (never exposed to browser or stored in DB settings)
+const BUILTIN_SMTP = {
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: Number(process.env.SMTP_PORT) || 465,
+  secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : true,
+  user: process.env.SMTP_USER || 'komana.amana@gmail.com',
+  pass: (process.env.SMTP_PASS || 'ivff nnsx sgut hhlx').replace(/\s+/g, ''),
+  fromName: process.env.SMTP_FROM_NAME || 'Douroub El Djazair — Flotte GPS'
+};
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
@@ -17,33 +26,43 @@ function esc(s) {
   ));
 }
 
+function defaultEvents(base) {
+  const b = base && typeof base === 'object' ? base : {};
+  return {
+    zone_maint_enter: b.zone_maint_enter !== false,
+    zone_maint_exit: b.zone_maint_exit !== false,
+    maint_auto_logged: b.maint_auto_logged === true,
+    speed: b.speed === true,
+    vidange_due: b.vidange_due === true,
+    zone_other_enter: b.zone_other_enter === true,
+    zone_other_exit: b.zone_other_exit === true
+  };
+}
+
+function normalizeRecipient(item, fallbackEvents) {
+  if (typeof item === 'string') {
+    const email = item.trim().toLowerCase();
+    if (!EMAIL_RX.test(email)) return null;
+    return { email, label: '', enabled: true, events: defaultEvents(fallbackEvents), customZoneNames: [] };
+  }
+  if (!item || typeof item !== 'object') return null;
+  const email = String(item.email || '').trim().toLowerCase();
+  if (!EMAIL_RX.test(email)) return null;
+  return {
+    email,
+    label: String(item.label || '').trim(),
+    enabled: item.enabled !== false,
+    events: defaultEvents(item.events || fallbackEvents),
+    customZoneNames: Array.isArray(item.customZoneNames)
+      ? item.customZoneNames.map((z) => String(z || '').trim()).filter(Boolean)
+      : []
+  };
+}
+
 function defaultConfig() {
   return {
     enabled: false,
-    provider: 'smtp', // 'smtp' | 'brevo' | 'resend'
-    smtp: {
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      user: '',
-      pass: '',
-      fromEmail: '',
-      fromName: 'Douroub El Djazair — Flotte GPS'
-    },
-    apiKey: '',
-    fromEmail: '',
-    fromName: 'Douroub El Djazair — Flotte GPS',
     recipients: [],
-    events: {
-      zone_maint_enter: true,
-      zone_maint_exit: true,
-      maint_auto_logged: false,
-      zone_other_enter: false,
-      zone_other_exit: false,
-      speed: false,
-      vidange_due: false
-    },
-    customZoneNames: [], // Extra specific sites to watch regardless of type
     speedLimitOverride: 0,
     speedMinMinutes: 2,
     cooldownMinutes: 15
@@ -51,40 +70,20 @@ function defaultConfig() {
 }
 
 function normalizeConfig(raw) {
-  const d = defaultConfig();
   const c = raw && typeof raw === 'object' ? raw : {};
-  const sm = c.smtp && typeof c.smtp === 'object' ? c.smtp : {};
-  const ev = c.events && typeof c.events === 'object' ? c.events : {};
+  const legacyEvents = c.events && typeof c.events === 'object' ? c.events : null;
+  const seen = new Set();
+  const recipients = [];
+  (Array.isArray(c.recipients) ? c.recipients : []).forEach((r) => {
+    const nr = normalizeRecipient(r, legacyEvents);
+    if (nr && !seen.has(nr.email)) {
+      seen.add(nr.email);
+      recipients.push(nr);
+    }
+  });
   return {
     enabled: !!c.enabled,
-    provider: ['smtp', 'brevo', 'resend'].includes(c.provider) ? c.provider : 'smtp',
-    smtp: {
-      host: String(sm.host != null ? sm.host : d.smtp.host).trim(),
-      port: Number(sm.port) || 587,
-      secure: sm.secure === true || Number(sm.port) === 465,
-      user: String(sm.user || '').trim(),
-      pass: String(sm.pass || ''),
-      fromEmail: String(sm.fromEmail || '').trim(),
-      fromName: String(sm.fromName || d.smtp.fromName).trim()
-    },
-    apiKey: String(c.apiKey || '').trim(),
-    fromEmail: String(c.fromEmail || '').trim(),
-    fromName: String(c.fromName || d.fromName).trim(),
-    recipients: (Array.isArray(c.recipients) ? c.recipients : [])
-      .map((r) => String(r || '').trim().toLowerCase())
-      .filter((r, i, arr) => EMAIL_RX.test(r) && arr.indexOf(r) === i),
-    events: {
-      zone_maint_enter: ev.zone_maint_enter !== false,
-      zone_maint_exit: ev.zone_maint_exit !== false,
-      maint_auto_logged: ev.maint_auto_logged === true,
-      zone_other_enter: ev.zone_other_enter === true,
-      zone_other_exit: ev.zone_other_exit === true,
-      speed: ev.speed === true,
-      vidange_due: ev.vidange_due === true
-    },
-    customZoneNames: Array.isArray(c.customZoneNames)
-      ? c.customZoneNames.map((z) => String(z || '').trim()).filter(Boolean)
-      : [],
+    recipients,
     speedLimitOverride: Math.max(0, Number(c.speedLimitOverride) || 0),
     speedMinMinutes: Math.max(1, Number(c.speedMinMinutes) || 2),
     cooldownMinutes: Math.max(0, c.cooldownMinutes === 0 ? 0 : (Number(c.cooldownMinutes) || 15))
@@ -92,15 +91,7 @@ function normalizeConfig(raw) {
 }
 
 function sanitizeForClient(raw) {
-  const c = normalizeConfig(raw);
-  const hasSmtpPass = !!(c.smtp.pass || process.env.SMTP_PASS);
-  const hasApiKey = !!(c.apiKey || process.env.BREVO_API_KEY || process.env.RESEND_API_KEY);
-  const out = JSON.parse(JSON.stringify(c));
-  out.smtp.pass = '';
-  out.apiKey = '';
-  out.hasSmtpPass = hasSmtpPass;
-  out.hasApiKey = hasApiKey;
-  return out;
+  return normalizeConfig(raw);
 }
 
 function create(deps) {
@@ -119,28 +110,14 @@ function create(deps) {
   const lastSent = new Map();   // key -> timestampMs
   const historyLog = [];        // recent email send log (max 50)
   let transporter = null;
-  let transporterKey = '';
 
   function cfg() {
     const s = getSettings() || {};
     return normalizeConfig(s.emailAlerts);
   }
 
-  function resolveSmtpCreds(c) {
-    const host = c.smtp.host || process.env.SMTP_HOST || 'smtp.gmail.com';
-    const port = Number(c.smtp.port || process.env.SMTP_PORT || 587);
-    const secure = c.smtp.secure === true || process.env.SMTP_SECURE === 'true' || port === 465;
-    const user = c.smtp.user || process.env.SMTP_USER || '';
-    const pass = c.smtp.pass || process.env.SMTP_PASS || '';
-    const fromEmail = c.smtp.fromEmail || process.env.SMTP_FROM || user;
-    const fromName = c.smtp.fromName || c.fromName || 'Douroub El Djazair — Flotte GPS';
-    return { host, port, secure, user, pass, fromEmail, fromName, ready: !!(host && user && pass && nodemailer) };
-  }
-
-  function isDeliveryReady(c) {
-    if (c.provider === 'brevo') return !!(c.apiKey || process.env.BREVO_API_KEY) && !!(c.fromEmail || c.smtp.user || process.env.SMTP_FROM);
-    if (c.provider === 'resend') return !!(c.apiKey || process.env.RESEND_API_KEY);
-    return resolveSmtpCreds(c).ready;
+  function isDeliveryReady() {
+    return !!(nodemailer && BUILTIN_SMTP.host && BUILTIN_SMTP.user && BUILTIN_SMTP.pass);
   }
 
   function pushLog(item) {
@@ -148,70 +125,48 @@ function create(deps) {
     if (historyLog.length > 50) historyLog.length = 50;
   }
 
-  async function deliver(c, toList, subject, html, text) {
-    if (!toList || !toList.length) return { ok: false, error: 'Aucun destinataire configuré' };
+  function makeTransporter(port, secure) {
+    return nodemailer.createTransport({
+      host: BUILTIN_SMTP.host,
+      port,
+      secure,
+      auth: { user: BUILTIN_SMTP.user, pass: BUILTIN_SMTP.pass },
+      connectionTimeout: 12000,
+      greetingTimeout: 12000,
+      socketTimeout: 15000
+    });
+  }
+
+  async function deliver(toList, subject, html, text) {
+    const cleanTo = (Array.isArray(toList) ? toList : [])
+      .map((e) => (typeof e === 'string' ? e : (e && e.email) || '').trim().toLowerCase())
+      .filter((e, i, arr) => EMAIL_RX.test(e) && arr.indexOf(e) === i);
+    if (!cleanTo.length) return { ok: false, error: 'Aucun destinataire configuré' };
     try {
-      if (c.provider === 'brevo') {
-        const key = c.apiKey || process.env.BREVO_API_KEY || '';
-        const senderEmail = c.fromEmail || c.smtp.user || process.env.SMTP_FROM || '';
-        if (!key || !senderEmail) throw new Error('Clé API Brevo et adresse expéditeur requises');
-        const resp = await doFetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'api-key': key, 'accept': 'application/json' },
-          body: JSON.stringify({
-            sender: { name: c.fromName || 'Douroub Flotte GPS', email: senderEmail },
-            to: toList.map((email) => ({ email })),
-            subject, htmlContent: html, textContent: text
-          })
-        });
-        if (!resp.ok) { const errTxt = await resp.text(); throw new Error('Brevo HTTP ' + resp.status + ': ' + errTxt.slice(0, 180)); }
-        pushLog({ ok: true, provider: 'brevo', subject, to: toList.slice() });
+      if (deps.mockSend) {
+        await deps.mockSend({ to: cleanTo, subject, html, text });
+        pushLog({ ok: true, subject, to: cleanTo });
         return { ok: true };
       }
-
-      if (c.provider === 'resend') {
-        const key = c.apiKey || process.env.RESEND_API_KEY || '';
-        const senderEmail = c.fromEmail || process.env.SMTP_FROM || 'onboarding@resend.dev';
-        if (!key) throw new Error('Clé API Resend requise');
-        const resp = await doFetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-          body: JSON.stringify({
-            from: `${c.fromName || 'Douroub Flotte GPS'} <${senderEmail}>`,
-            to: toList, subject, html, text
-          })
-        });
-        if (!resp.ok) { const errTxt = await resp.text(); throw new Error('Resend HTTP ' + resp.status + ': ' + errTxt.slice(0, 180)); }
-        pushLog({ ok: true, provider: 'resend', subject, to: toList.slice() });
-        return { ok: true };
-      }
-
-      const sm = resolveSmtpCreds(c);
       if (!nodemailer) throw new Error('Module nodemailer non installé');
-      if (!sm.host || !sm.user || !sm.pass) throw new Error('Identifiants SMTP incomplets (adresse email + mot de passe d\'application requis)');
-      const key = `${sm.host}|${sm.port}|${sm.secure}|${sm.user}|${sm.pass}`;
-      if (!transporter || key !== transporterKey) {
-        transporter = nodemailer.createTransport({
-          host: sm.host,
-          port: sm.port,
-          secure: sm.secure,
-          auth: { user: sm.user, pass: sm.pass },
-          connectionTimeout: 12000,
-          greetingTimeout: 12000,
-          socketTimeout: 15000
-        });
-        transporterKey = key;
-      }
-      await transporter.sendMail({
-        from: `"${sm.fromName.replace(/"/g, '')}" <${sm.fromEmail}>`,
-        to: toList.join(', '),
+      if (!transporter) transporter = makeTransporter(BUILTIN_SMTP.port, BUILTIN_SMTP.secure);
+      const mailOpts = {
+        from: `"${BUILTIN_SMTP.fromName.replace(/"/g, '')}" <${BUILTIN_SMTP.user}>`,
+        to: cleanTo.join(', '),
         subject, html, text
-      });
-      pushLog({ ok: true, provider: 'smtp', subject, to: toList.slice() });
+      };
+      try {
+        await transporter.sendMail(mailOpts);
+      } catch (firstErr) {
+        // Automatic fallback to STARTTLS 587 if SSL 465 is filtered
+        transporter = makeTransporter(587, false);
+        await transporter.sendMail(mailOpts);
+      }
+      pushLog({ ok: true, subject, to: cleanTo });
       return { ok: true };
     } catch (e) {
       console.error('[EmailAlerts] Envoi échoué:', e.message);
-      pushLog({ ok: false, provider: c.provider, subject, error: e.message });
+      pushLog({ ok: false, subject, error: e.message });
       return { ok: false, error: e.message };
     }
   }
@@ -464,40 +419,51 @@ function create(deps) {
     return { subject: buildSubject(i, ev), html, text: textLines.join('\n') };
   }
 
-  async function fire(ev, ctx, c) {
-    if (!c.recipients.length) return;
+  function recipientsForEvent(c, evType, zone) {
+    const isMaint = zone && zone.type === 'maintenance';
+    const zName = zone && zone.name ? zone.name : '';
+    return c.recipients
+      .filter((r) => {
+        if (!r || !r.enabled) return false;
+        const ev = r.events || {};
+        const pickedZone = zName && Array.isArray(r.customZoneNames) && r.customZoneNames.includes(zName);
+        if (evType === 'zone_enter') {
+          if (pickedZone) return true;
+          return isMaint ? !!ev.zone_maint_enter : !!ev.zone_other_enter;
+        }
+        if (evType === 'zone_exit') {
+          if (pickedZone) return true;
+          return isMaint ? !!ev.zone_maint_exit : !!ev.zone_other_exit;
+        }
+        if (evType === 'maint_auto_logged') return !!ev.maint_auto_logged;
+        if (evType === 'speed') return !!ev.speed;
+        if (evType === 'vidange_due') return !!ev.vidange_due;
+        return false;
+      })
+      .map((r) => r.email);
+  }
+
+  async function fire(ev, ctx, toEmails) {
+    if (!toEmails || !toEmails.length) return;
     try {
       const profile = await gatherTruckFullProfile(ctx);
       const { subject, html, text } = buildEmailContent(profile, ev);
-      await deliver(c, c.recipients, subject, html, text);
+      await deliver(toEmails, subject, html, text);
     } catch (e) {
       console.error('[EmailAlerts] fire error:', e.message);
       pushLog({ ok: false, subject: ev.type, error: e.message });
     }
   }
 
-  function shouldNotifyZone(zone, direction, c) {
-    const isMaint = zone.type === 'maintenance';
-    const isCustomPicked = c.customZoneNames.includes(zone.name);
-    if (direction === 'enter') {
-      if (isMaint && c.events.zone_maint_enter) return true;
-      if (!isMaint && c.events.zone_other_enter) return true;
-      if (isCustomPicked && (c.events.zone_maint_enter || c.events.zone_other_enter)) return true;
-      return false;
-    }
-    if (isMaint && c.events.zone_maint_exit) return true;
-    if (!isMaint && c.events.zone_other_exit) return true;
-    if (isCustomPicked && (c.events.zone_maint_exit || c.events.zone_other_exit)) return true;
-    return false;
-  }
-
   function notifyMaintAutoLogged(info) {
     try {
       const c = cfg();
-      if (!c.enabled || !c.events.maint_auto_logged || !c.recipients.length) return;
+      if (!c.enabled) return;
+      const targets = recipientsForEvent(c, 'maint_auto_logged', { name: info.zoneName, type: 'maintenance' });
+      if (!targets.length) return;
       const key = `maint_auto|${info.deviceId}|${info.zoneName}`;
       if (!cooled(key, Math.max(60, c.cooldownMinutes))) return;
-      fire({ type: 'maint_auto_logged', at: Date.now(), zoneName: info.zoneName, zoneType: 'maintenance', maintType: info.maintType }, info, c);
+      fire({ type: 'maint_auto_logged', at: Date.now(), zoneName: info.zoneName, zoneType: 'maintenance', maintType: info.maintType }, info, targets);
     } catch (e) { console.warn('[EmailAlerts] notifyMaintAutoLogged:', e.message); }
   }
 
@@ -518,11 +484,14 @@ function create(deps) {
       ctx.vidange = vid;
       const prevVidAlert = vidState.get(id);
       if (vid) vidState.set(id, !!vid.alert);
-      if (c.enabled && c.events.vidange_due && vid && vid.alert && prevVidAlert === false && cooled(`vid|${id}`, 24 * 60)) {
-        fire({ type: 'vidange_due', at: now, vidange: vid }, ctx, c);
+      if (c.enabled && vid && vid.alert && prevVidAlert === false) {
+        const vidTargets = recipientsForEvent(c, 'vidange_due', null);
+        if (vidTargets.length && cooled(`vid|${id}`, 24 * 60)) {
+          fire({ type: 'vidange_due', at: now, vidange: vid }, ctx, vidTargets);
+        }
       }
 
-      // Seed & check zone entry / exit (always maintain state even if disabled so enabling doesn't spam parked trucks)
+      // Seed & check zone entry / exit
       if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
         let st = zoneState.get(id);
         const isFirstObservation = !st;
@@ -537,14 +506,20 @@ function create(deps) {
             const seededEntry = (isFirstObservation && ctx.dbTruck && ctx.dbTruck.zone === z.name && ctx.dbTruck.entryTime)
               ? Number(ctx.dbTruck.entryTime) : now;
             st.inside.set(z.name, seededEntry);
-            if (!isFirstObservation && c.enabled && shouldNotifyZone(z, 'enter', c) && cooled(`in|${id}|${z.name}`, c.cooldownMinutes)) {
-              fire({ type: 'zone_enter', at: now, entryAt: now, zoneName: z.name, zoneType: z.type || '' }, ctx, c);
+            if (!isFirstObservation && c.enabled) {
+              const inTargets = recipientsForEvent(c, 'zone_enter', z);
+              if (inTargets.length && cooled(`in|${id}|${z.name}`, c.cooldownMinutes)) {
+                fire({ type: 'zone_enter', at: now, entryAt: now, zoneName: z.name, zoneType: z.type || '' }, ctx, inTargets);
+              }
             }
           } else if (wasInside && dist > r * 1.15) {
             const entryAt = st.inside.get(z.name);
             st.inside.delete(z.name);
-            if (c.enabled && shouldNotifyZone(z, 'exit', c) && cooled(`out|${id}|${z.name}`, c.cooldownMinutes)) {
-              fire({ type: 'zone_exit', at: now, entryAt, stayMs: Math.max(60000, now - entryAt), zoneName: z.name, zoneType: z.type || '' }, ctx, c);
+            if (c.enabled) {
+              const outTargets = recipientsForEvent(c, 'zone_exit', z);
+              if (outTargets.length && cooled(`out|${id}|${z.name}`, c.cooldownMinutes)) {
+                fire({ type: 'zone_exit', at: now, entryAt, stayMs: Math.max(60000, now - entryAt), zoneName: z.name, zoneType: z.type || '' }, ctx, outTargets);
+              }
             }
           }
         }
@@ -561,8 +536,9 @@ function create(deps) {
           if (sp > ss.max) ss.max = sp;
           if (!ss.sent && (now - ss.startMs) >= c.speedMinMinutes * 60000) {
             ss.sent = true;
-            if (c.events.speed && cooled(`speed|${id}`, c.cooldownMinutes)) {
-              fire({ type: 'speed', at: now, maxSpeed: ss.max, limit, durMs: now - ss.startMs }, ctx, c);
+            const spdTargets = recipientsForEvent(c, 'speed', null);
+            if (spdTargets.length && cooled(`speed|${id}`, c.cooldownMinutes)) {
+              fire({ type: 'speed', at: now, maxSpeed: ss.max, limit, durMs: now - ss.startMs }, ctx, spdTargets);
             }
           }
         }
@@ -573,7 +549,6 @@ function create(deps) {
   function registerRoutes(app, checkAccess) {
     app.get('/api/email-alerts/config', checkAccess, (req, res) => {
       const s = getSettings() || {};
-      const c = cfg();
       const zones = (s.customLocations || []).map((z) => ({
         name: z.name,
         type: z.type || 'other',
@@ -582,9 +557,7 @@ function create(deps) {
       }));
       res.json({
         config: sanitizeForClient(s.emailAlerts),
-        deliveryReady: isDeliveryReady(c),
-        nodemailerInstalled: !!nodemailer,
-        envSmtpConfigured: !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS),
+        deliveryReady: isDeliveryReady(),
         zones,
         log: historyLog
       });
@@ -593,27 +566,13 @@ function create(deps) {
     app.post('/api/email-alerts/config', checkAccess, async (req, res) => {
       try {
         const s = getSettings();
-        const prev = normalizeConfig(s.emailAlerts);
-        const incoming = req.body || {};
-        const next = normalizeConfig(incoming);
-
-        // Preserve existing stored secrets if client left secret input blank or sent KEEP_SECRET
-        const rawPass = incoming.smtp && incoming.smtp.pass;
-        if (!rawPass || rawPass === KEEP_SECRET) {
-          next.smtp.pass = incoming.clearSmtpPass ? '' : prev.smtp.pass;
-        }
-        if (!incoming.apiKey || incoming.apiKey === KEEP_SECRET) {
-          next.apiKey = incoming.clearApiKey ? '' : prev.apiKey;
-        }
-
+        const next = normalizeConfig(req.body || {});
         s.emailAlerts = next;
-        transporter = null;
-        transporterKey = '';
         if (saveSettings) await saveSettings();
         res.json({
           success: true,
           config: sanitizeForClient(s.emailAlerts),
-          deliveryReady: isDeliveryReady(next)
+          deliveryReady: isDeliveryReady()
         });
       } catch (e) { res.status(500).json({ error: e.message }); }
     });
@@ -622,14 +581,16 @@ function create(deps) {
       try {
         const body = req.body || {};
         const c = cfg();
-        const to = (Array.isArray(body.to) && body.to.length ? body.to : c.recipients)
-          .map((r) => String(r || '').trim().toLowerCase())
-          .filter((r) => EMAIL_RX.test(r));
-        if (!to.length) return res.status(400).json({ error: 'Ajoutez au moins une adresse email destinataire valide.' });
+        const rawTo = Array.isArray(body.to) && body.to.length
+          ? body.to
+          : c.recipients.filter((r) => r.enabled).map((r) => r.email);
+        const to = rawTo
+          .map((r) => String(typeof r === 'string' ? r : (r && r.email) || '').trim().toLowerCase())
+          .filter((r, i, arr) => EMAIL_RX.test(r) && arr.indexOf(r) === i);
+        if (!to.length) return res.status(400).json({ error: 'Ajoutez au moins une adresse email destinataire active.' });
 
         if (!body.eventType || body.eventType === 'hello') {
           const result = await deliver(
-            c,
             to,
             'Hello test',
             '<div style="font-family:\'Segoe UI\',Arial,sans-serif;padding:18px;font-size:15px;color:#0f172a;">Hello test</div>',
@@ -666,7 +627,7 @@ function create(deps) {
 
         const profile = await gatherTruckFullProfile(ctx);
         const { subject, html, text } = buildEmailContent(profile, ev);
-        const result = await deliver(c, to, '[TEST] ' + subject, html, text);
+        const result = await deliver(to, '[TEST] ' + subject, html, text);
         if (!result.ok) return res.status(500).json({ error: result.error || 'Échec de l\'envoi' });
         res.json({ success: true, to, truck: profile.name, subject: '[TEST] ' + subject, log: historyLog });
       } catch (e) { res.status(500).json({ error: e.message }); }

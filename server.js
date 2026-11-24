@@ -1926,12 +1926,13 @@ async function acknowledgeVidange(deviceId, truckName, odometerKm, date = null, 
         }
         liveOdo = Math.round(liveOdo > 0 ? liveOdo : odo);
 
+        const ruleCfg = getTruckConfig(id);
         const truckCfg = (SYSTEM_SETTINGS.truckConfigs && SYSTEM_SETTINGS.truckConfigs[id]) || {};
         const cfg = {
-            vidangeStartKm: truckCfg.vidangeStartKm || SYSTEM_SETTINGS.vidangeStartKm || 5000,
-            vidangeRotationKm: truckCfg.vidangeRotationKm || SYSTEM_SETTINGS.vidangeRotationKm || 25000,
-            vidangeAlertKm: truckCfg.vidangeAlertKm || SYSTEM_SETTINGS.vidangeAlertKm || 500,
-            vidangeMilestones: truckCfg.vidangeMilestones || SYSTEM_SETTINGS.vidangeMilestones
+            vidangeStartKm: truckCfg.vidangeStartKm ?? ruleCfg.vidangeStartKm ?? SYSTEM_SETTINGS.vidangeStartKm ?? 5000,
+            vidangeRotationKm: truckCfg.vidangeRotationKm ?? ruleCfg.vidangeRotationKm ?? SYSTEM_SETTINGS.vidangeRotationKm ?? 25000,
+            vidangeAlertKm: truckCfg.vidangeAlertKm ?? ruleCfg.vidangeAlertKm ?? SYSTEM_SETTINGS.vidangeAlertKm ?? 500,
+            vidangeMilestones: truckCfg.vidangeMilestones ?? ruleCfg.vidangeMilestones ?? SYSTEM_SETTINGS.vidangeMilestones
         };
 
         const vidangeStatus = calculateVidangeStatus(liveOdo, cfg, odo);
@@ -2960,8 +2961,8 @@ async function runVidangeDetection(truck, dbTruck, config) {
       });
       console.log(`📍 ${truckName} entered zone: ${currentZone.name}`);
     } else if (!dbTruck.hasLogged && dbTruck.entryTime && (now - dbTruck.entryTime) >= minDurationMs) {
-      // DURATION MET: Stayed long enough → determine maintenance type
-      let maintenanceType = 'Maintenance Générale';
+      // DURATION MET: Stayed long enough → in vidange period = Vidange, otherwise 95% = Plaquettes de Frein
+      let maintenanceType = 'Plaquettes de Frein';
       if (vidangeStatus.alert) {
         maintenanceType = 'Vidange';
       }
@@ -3588,7 +3589,10 @@ const emailAlerts = require('./email-alerts').create({
 emailAlerts.registerRoutes(app, checkAccess);
 
 // --- DEMANDE DE SERVICE (.docx generator — exact 1-page template) ---
-require('./demande-service-docx').registerRoutes(app, { checkAccess, Maintenance, Truck });
+require('./demande-service-docx').registerRoutes(app, {
+  checkAccess, Maintenance, Truck, getTruckConfig, calculateVidangeStatus,
+  getSettings: () => SYSTEM_SETTINGS
+});
 
 // --- 6. API ROUTES ---
 
@@ -9768,12 +9772,14 @@ app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
       let liveOdo = Math.round(parseFloat(gps.odometer || 0));
       if (!liveOdo && gps.params?.io192) liveOdo = Math.round(parseInt(gps.params.io192) / 1000);
 
-      // Truck vidange configuration
+      // Truck vidange configuration (General Rule + Fleet Rules)
+      const ruleCfg = getTruckConfig(tid);
       const truckCfg = (settings.truckConfigs && settings.truckConfigs[tid]) || {};
       const cfg = {
-        vidangeStartKm: truckCfg.vidangeStartKm || settings.vidangeStartKm || 5000,
-        vidangeRotationKm: truckCfg.vidangeRotationKm || settings.vidangeRotationKm || 25000,
-        vidangeAlertKm: truckCfg.vidangeAlertKm || settings.vidangeAlertKm || 500
+        vidangeStartKm: truckCfg.vidangeStartKm ?? ruleCfg.vidangeStartKm ?? settings.vidangeStartKm ?? 5000,
+        vidangeRotationKm: truckCfg.vidangeRotationKm ?? ruleCfg.vidangeRotationKm ?? settings.vidangeRotationKm ?? 25000,
+        vidangeAlertKm: truckCfg.vidangeAlertKm ?? ruleCfg.vidangeAlertKm ?? settings.vidangeAlertKm ?? 500,
+        vidangeMilestones: truckCfg.vidangeMilestones ?? ruleCfg.vidangeMilestones ?? settings.vidangeMilestones
       };
 
       // Last recorded vidange
@@ -9792,8 +9798,8 @@ app.post('/api/maintenance/rescan-vidange', checkAccess, async (req, res) => {
       // Duration in minutes
       const durMins = visit.durationMinutes || (visit.exitTime ? Math.round((visit.exitTime - visit.entryTime) / 60000) : 0);
 
-      // Logic: Was Vidange due or alerted? -> Vidange, otherwise Maintenance Générale
-      let detectedType = 'Maintenance Générale';
+      // Logic: In vidange period -> Vidange; otherwise 95% -> Plaquettes de Frein
+      let detectedType = 'Plaquettes de Frein';
       if (vidangeStatus.alert || vidangeStatus.isOverdue) {
         detectedType = 'Vidange';
       }
