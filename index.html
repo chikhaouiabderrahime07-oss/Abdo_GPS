@@ -1224,7 +1224,7 @@
           <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')" title="Vidanges, garage externe &amp; atelier Biskra">
               <i class="fa-solid fa-screwdriver-wrench" style="color:#fb923c;"></i> <span>Maintenance</span>
           </button>
-          <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('maintenanceHistory')" title="Historique complet des interventions">
+          <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('vidangeSection');if(window.MaintenanceHub)MaintenanceHub.go('history')" title="Journal complet des vidanges et interventions">
               <i class="fa-solid fa-clock-rotate-left" style="color:#94a3b8;"></i> <span>Historique</span>
           </button>
       </div>
@@ -2842,7 +2842,9 @@
                 </button>
             </div>
         </div>
-        
+
+        <!-- ✉️ ALERTES & NOTIFICATIONS PAR EMAIL — see email-alerts-ui.js -->
+        <div id="emailAlertsSettingsMount"></div>
 
         <!-- Connexion & API Keys -->
         <div class="settings-accordion-item" style="border:1px solid var(--border); border-radius:6px; margin-bottom:10px; padding:10px;">
@@ -3325,7 +3327,8 @@ window.addEventListener('unhandledrejection', function(e) {
   <script src="pdf-generator.js" defer></script>
   <script src="maintenance-atelier.js?v=5"></script>
     <script src="maintenance-atelier-plus.js?v=1"></script>
-    <script src="maintenance-hub.js?v=1"></script>
+    <script src="maintenance-hub.js?v=3"></script>
+    <script src="email-alerts-ui.js?v=2"></script>
 <script src="atelier-export.js?v=1"></script>
 
   <script>

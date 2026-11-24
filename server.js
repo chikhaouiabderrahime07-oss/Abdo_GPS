@@ -1952,6 +1952,37 @@ async function acknowledgeVidange(deviceId, truckName, odometerKm, date = null, 
     }
 }
 
+// If a Vidange entry that is the CURRENT rotation anchor gets cancelled / reclassified,
+// fall back to the previous valid vidange (or drop the anchor). Never touches manual anchors
+// that came from somewhere else (anchor km must equal the entry km).
+async function revertVidangeAnchorIfSource(deviceId, entryKm, entryId) {
+  try {
+    const id = String(deviceId || '');
+    if (!id) return;
+    const ovr = SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[id];
+    if (!ovr) return;
+    if (Math.round(Number(ovr.lastVidangeKm) || 0) !== Math.round(Number(entryKm) || 0)) return;
+    const prev = await Maintenance.findOne({
+      _id: { $ne: entryId },
+      deviceId: id,
+      type: /vidange/i,
+      status: { $nin: ['annule', 'annulé'] },
+      odometer: { $gt: 0 }
+    }).sort({ odometer: -1 });
+    if (prev) {
+      SYSTEM_SETTINGS.vidangeOverrides[id] = {
+        lastVidangeKm: Math.round(prev.odometer),
+        odometerAtConfirm: Math.round(prev.odometer),
+        confirmedAt: prev.date ? new Date(prev.date).toISOString() : new Date().toISOString(),
+        truckName: prev.truckName || ovr.truckName || ''
+      };
+    } else {
+      delete SYSTEM_SETTINGS.vidangeOverrides[id];
+    }
+    SYSTEM_SETTINGS.VIDANGE_OVERRIDES = SYSTEM_SETTINGS.vidangeOverrides;
+    await saveSettings();
+  } catch (e) { console.warn('revertVidangeAnchorIfSource failed:', e.message); }
+}
 
 const fmt = (list) => {
   if (!list) return list;
@@ -2960,9 +2991,16 @@ async function runVidangeDetection(truck, dbTruck, config) {
           await acknowledgeVidange(deviceId, truckName, odometerKm, createdLog.date);
         }
 
-	        // Save logId so we can close the session when the truck leaves
-	        await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true, logId: createdLog._id.toString() });
+        // Save logId so we can close the session when the truck leaves
+        await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true, logId: createdLog._id.toString() });
         console.log(`🔧 AUTO ${maintenanceType}: ${truckName} at ${currentZone.name} (${durationMins}min, ${odometerKm}km)`);
+        if (typeof emailAlerts !== 'undefined' && emailAlerts.notifyMaintAutoLogged) {
+          emailAlerts.notifyMaintAutoLogged({
+            deviceId, truckName, truck, dbTruck,
+            zoneName: currentZone.name, maintType: maintenanceType,
+            lat: parseFloat(truck.lat), lng: parseFloat(truck.lng), speed: parseFloat(truck.speed) || 0
+          });
+        }
       } else {
         // Mark as logged to stop repeat checks
 	        await Truck.findOneAndUpdate({ deviceId }, { hasLogged: true, logId: null });
@@ -3444,8 +3482,15 @@ async function runFleetBot() {
       engineState: nextEngineState
     };
 
-    // Run vidange/maintenance zone detection
+    // Run vidange/maintenance zone detection + non-blocking email alerts
     const freshDbTruck = { ...dbTruck.toObject(), ...payload };
+    try {
+      emailAlerts.onTick({
+        deviceId, truckName, truck, dbTruck: freshDbTruck, config, speed, speedLimit,
+        lat: finalLat, lng: finalLng, fuelPercent: fuelData.percent, fuelLiters: currentLiters
+      });
+    } catch (mailErr) { console.warn('[EmailAlerts] hook failed:', mailErr.message); }
+
     await runVidangeDetection(truck, freshDbTruck, config);
 
     // ZONE ENTRY/EXIT tracking — ONLY if system is initialized
@@ -3531,6 +3576,19 @@ const AuditReport = mongoose.model('AuditReport', AuditSchema);
 require('./atelier-routes')(app, {
   mongoose, checkAccess, Truck, Trailer, Maintenance, ApiKey, acknowledgeVidange, POWERBI_TOKEN
 });
+
+// --- E-MAIL ALERTS (zone entry/exit, speeding, vidange due) — see email-alerts.js ---
+const emailAlerts = require('./email-alerts').create({
+  Truck, Trailer, Driver,
+  getSettings: () => SYSTEM_SETTINGS,
+  saveSettings,
+  calculateDistance, calculateVidangeStatus, resolveZoneClientContext, resolveLocationName,
+  httpFetch: fetch
+});
+emailAlerts.registerRoutes(app, checkAccess);
+
+// --- DEMANDE DE SERVICE (.docx generator — exact 1-page template) ---
+require('./demande-service-docx').registerRoutes(app, { checkAccess, Maintenance, Truck });
 
 // --- 6. API ROUTES ---
 
@@ -3832,13 +3890,19 @@ app.get('/api/speeding/history', checkAccess, async (req, res) => {
 app.get('/api/settings', checkAccess, (req, res) => {
   if (!SYSTEM_SETTINGS.vidangeOverrides) SYSTEM_SETTINGS.vidangeOverrides = {};
   SYSTEM_SETTINGS.VIDANGE_OVERRIDES = SYSTEM_SETTINGS.vidangeOverrides;
-  res.json(SYSTEM_SETTINGS);
+  const safeCopy = { ...SYSTEM_SETTINGS };
+  if (safeCopy.emailAlerts) safeCopy.emailAlerts = emailAlerts.sanitizeForClient(safeCopy.emailAlerts);
+  res.json(safeCopy);
 });
 app.post('/api/settings', checkAccess, async (req, res) => {
   if (req.body.VIDANGE_OVERRIDES && !req.body.vidangeOverrides) {
     req.body.vidangeOverrides = req.body.VIDANGE_OVERRIDES;
   }
-  SYSTEM_SETTINGS = { ...SYSTEM_SETTINGS, ...req.body };
+  const prevEmailAlerts = SYSTEM_SETTINGS.emailAlerts;
+  const bodyCopy = { ...req.body };
+  delete bodyCopy.emailAlerts; // Managed safely via /api/email-alerts/config so secrets are never overwritten
+  SYSTEM_SETTINGS = { ...SYSTEM_SETTINGS, ...bodyCopy };
+  if (prevEmailAlerts) SYSTEM_SETTINGS.emailAlerts = prevEmailAlerts;
   if (SYSTEM_SETTINGS.vidangeOverrides) {
     SYSTEM_SETTINGS.VIDANGE_OVERRIDES = SYSTEM_SETTINGS.vidangeOverrides;
   }
@@ -3963,9 +4027,11 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     if (!doc) return res.status(404).json({ error: "Introuvable" });
 
     const prevType = doc.type;
+    const prevOdo = Number(doc.odometer) || 0;
     doc.type = type || doc.type;
     doc.note = note !== undefined ? note : doc.note;
     doc.odometer = odometer || doc.odometer;
+    if (req.body.date) { const dt = new Date(req.body.date); if (!isNaN(dt)) doc.date = dt; }
     if (isAuto !== undefined) doc.isAuto = isAuto;
     
     // ✅ FIX: Save all enhanced fields
@@ -3987,7 +4053,11 @@ app.post('/api/maintenance/update', checkAccess, async (req, res) => {
     // ✅ If the entry is a Vidange (or updated to Vidange), synchronize vidangeOverrides
     let ackResult = null;
     try {
+      const wasVid = /vidange/i.test(prevType || '');
       const isVidange = doc.type && doc.type.toLowerCase().includes('vidange');
+      if (wasVid && !isVidange) {
+        await revertVidangeAnchorIfSource(doc.deviceId, prevOdo, doc._id);
+      }
       if (isVidange && doc.deviceId) {
         let odoToAck = parseInt(doc.odometer, 10) || 0;
         if (odoToAck <= 0) {
@@ -4191,6 +4261,7 @@ app.post('/api/maintenance/close', checkAccess, async (req, res) => {
     if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
     doc.exitDate = new Date();
     doc.status = 'termine';
+    doc.verified = true;
     if (note !== undefined) doc.note = note;
     if (cost !== undefined) doc.cost = cost;
     if (technician !== undefined) doc.technician = technician;
@@ -9498,13 +9569,63 @@ app.patch('/api/maintenance/:id/cancel', checkAccess, async (req, res) => {
       return res.status(400).json({ error: 'Identifiant invalide' });
     }
     if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
+    const wasVid = /vidange/i.test(doc.type || '') && !/^annul/i.test(doc.status || '');
     doc.status = 'annule';
     doc.note = (doc.note || '') + '\n[ANNULÉ le ' + new Date().toLocaleString('fr-FR') + ']';
     doc.exitDate = new Date();
+    doc.verified = true; // handled by a human → leaves the "À valider" queue
     await doc.save();
-    res.json({ success: true });
+    if (wasVid) await revertVidangeAnchorIfSource(doc.deviceId, doc.odometer, doc._id);
+    res.json({ success: true, vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// PATCH classify / validate an (auto-detected) maintenance entry — Maintenance Hub
+app.patch('/api/maintenance/:id/classify', checkAccess, async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    if (!targetId || targetId === 'undefined' || targetId === 'null') return res.status(400).json({ error: 'id requis' });
+    let doc = null;
+    try { doc = await Maintenance.findById(targetId); }
+    catch (castErr) { return res.status(400).json({ error: 'Identifiant invalide' }); }
+    if (!doc) return res.status(404).json({ error: 'Ordre introuvable' });
+    const b = req.body || {};
+    const prevType = doc.type || '';
+    const prevOdo = Number(doc.odometer) || 0;
+    const wasVid = /vidange/i.test(prevType);
+    const newType = (b.type && String(b.type).trim()) || prevType || 'Maintenance Générale';
+    const nowVid = /vidange/i.test(newType);
+    const km = Math.round(Number(b.odometer) || 0);
+    if (nowVid && km <= 0 && !(prevOdo > 0)) return res.status(400).json({ error: 'Kilométrage requis pour une vidange' });
+    doc.type = newType;
+    if (km > 0) doc.odometer = km;
+    if (b.date) { const dt = new Date(b.date); if (!isNaN(dt)) doc.date = dt; }
+    if (b.immatriculation !== undefined) doc.immatriculation = String(b.immatriculation).trim();
+    if (b.chassisNumber !== undefined) doc.chassisNumber = String(b.chassisNumber).trim();
+    if (b.cost !== undefined && b.cost !== '') doc.cost = Number(b.cost) || 0;
+    if (b.technician !== undefined) doc.technician = String(b.technician);
+    if (b.note !== undefined && String(b.note).trim()) doc.note = String(b.note).trim();
+    if (b.status && ['en_cours', 'termine'].includes(b.status)) {
+      doc.status = b.status;
+      if (b.status === 'termine' && !doc.exitDate) doc.exitDate = new Date();
+    }
+    doc.verified = true;
+    doc.verifiedBy = String(b.by || '');
+    doc.verifiedAt = new Date();
+    await doc.save();
+
+    let ack = null;
+    if (wasVid && !nowVid) await revertVidangeAnchorIfSource(doc.deviceId, prevOdo, doc._id);
+    if (nowVid && doc.deviceId && Number(doc.odometer) > 0 && stOk(doc.status)) {
+      const cur = Number(SYSTEM_SETTINGS.vidangeOverrides?.[String(doc.deviceId)]?.lastVidangeKm) || 0;
+      // never move the anchor backwards when validating an older entry
+      if (Number(doc.odometer) >= cur) {
+        ack = await acknowledgeVidange(doc.deviceId, doc.truckName, Number(doc.odometer), doc.exitDate || doc.date, doc.note);
+      }
+    }
+    res.json({ success: true, entry: fmt([doc])[0], vidangeAcknowledged: !!ack, vidangeOverrides: SYSTEM_SETTINGS.vidangeOverrides });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+function stOk(s) { return !/^annul/i.test(String(s || '')); }
 // PATCH reopen a closed/cancelled maintenance order (Maintenance Hub)
 app.patch('/api/maintenance/:id/reopen', checkAccess, async (req, res) => {
   try {
