@@ -211,6 +211,9 @@ class FleetTrackerApp {
     const processedTrucks = await Promise.all(truckPromises);
     processedTrucks.forEach(t => { if (t) newTrucksMap.set(t.id, t); });
     this.trucks = newTrucksMap;
+    if (typeof window !== 'undefined' && window.VidangeCenter && typeof window.VidangeCenter.onTrucksUpdated === 'function') {
+      window.VidangeCenter.onTrucksUpdated();
+    }
   }
 
   // ============================================================
@@ -414,3 +417,6 @@ class FleetTrackerApp {
 }
 
 const app = new FleetTrackerApp();
+if (typeof window !== 'undefined') {
+  window.app = app;
+}

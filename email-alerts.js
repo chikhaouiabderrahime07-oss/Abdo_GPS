@@ -72,7 +72,8 @@ function normalizeRecipient(item, fallbackEvents) {
 
 function defaultConfig() {
   return {
-    enabled: false,
+    enabled: true,
+    paused: false,
     recipients: [],
     speedLimitOverride: 0,
     speedMinMinutes: 2,
@@ -92,8 +93,12 @@ function normalizeConfig(raw) {
       recipients.push(nr);
     }
   });
+  const hasActive = recipients.some((r) => r.enabled);
+  const paused = c.paused === true;
+  const enabled = paused ? false : (c.enabled === true || hasActive);
   return {
-    enabled: !!c.enabled,
+    enabled,
+    paused,
     recipients,
     speedLimitOverride: Math.max(0, Number(c.speedLimitOverride) || 0),
     speedMinMinutes: Math.max(1, Number(c.speedMinMinutes) || 2),
@@ -132,9 +137,32 @@ function create(deps) {
     return !!(BUILTIN_BREVO.apiKey || BUILTIN_BREVO.smtpKey || (nodemailer && BUILTIN_SMTP.pass));
   }
 
+  let saveTimer = null;
+  function scheduleSettingsSave() {
+    if (!saveSettings || saveTimer) return;
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      Promise.resolve(saveSettings()).catch(() => {});
+    }, 2500);
+  }
+
+  function getLog() {
+    const s = getSettings ? (getSettings() || {}) : {};
+    if (!historyLog.length && Array.isArray(s.emailAlertsLog) && s.emailAlertsLog.length) {
+      s.emailAlertsLog.slice(0, 50).forEach((x) => historyLog.push(x));
+    }
+    return historyLog;
+  }
+
   function pushLog(item) {
+    getLog();
     historyLog.unshift(Object.assign({ at: new Date().toISOString() }, item));
     if (historyLog.length > 50) historyLog.length = 50;
+    const s = getSettings ? getSettings() : null;
+    if (s) {
+      s.emailAlertsLog = historyLog.slice(0, 30);
+      scheduleSettingsSave();
+    }
   }
 
   function ipv4Lookup(hostname, opts, cb) {
@@ -270,9 +298,18 @@ function create(deps) {
 
   function cooled(key, cooldownMin) {
     const now = Date.now();
-    const prev = lastSent.get(key) || 0;
+    const s = getSettings ? getSettings() : null;
+    const persisted = (s && s.emailAlertsCooldowns && typeof s.emailAlertsCooldowns === 'object') ? s.emailAlertsCooldowns : {};
+    const prev = Math.max(lastSent.get(key) || 0, Number(persisted[key]) || 0);
     if (cooldownMin > 0 && now - prev < cooldownMin * 60000) return false;
     lastSent.set(key, now);
+    if (s) {
+      if (!s.emailAlertsCooldowns || typeof s.emailAlertsCooldowns !== 'object') s.emailAlertsCooldowns = {};
+      s.emailAlertsCooldowns[key] = now;
+      const cutoff = now - 24 * 3600000;
+      Object.keys(s.emailAlertsCooldowns).forEach((k) => { if (s.emailAlertsCooldowns[k] < cutoff) delete s.emailAlertsCooldowns[k]; });
+      scheduleSettingsSave();
+    }
     return true;
   }
 
@@ -540,6 +577,41 @@ function create(deps) {
     } catch (e) { console.warn('[EmailAlerts] notifyMaintAutoLogged:', e.message); }
   }
 
+  function notifyZoneEntry(info) {
+    try {
+      const c = cfg();
+      if (!c.enabled) return;
+      const z = info.zone || { name: info.zoneName, type: info.zoneType || '' };
+      if (!z || !z.name) return;
+      const targets = recipientsForEvent(c, 'zone_enter', z);
+      if (!targets.length) return;
+      const id = String(info.deviceId || '');
+      let st = zoneState.get(id);
+      if (!st) { st = { inside: new Map() }; zoneState.set(id, st); }
+      st.inside.set(z.name, Number(info.entryTime) || Date.now());
+      if (!cooled(`in|${id}|${z.name}`, Math.max(5, c.cooldownMinutes))) return;
+      fire({ type: 'zone_enter', at: Date.now(), entryAt: Number(info.entryTime) || Date.now(), zoneName: z.name, zoneType: z.type || '' }, info, targets);
+    } catch (e) { console.warn('[EmailAlerts] notifyZoneEntry:', e.message); }
+  }
+
+  function notifyZoneExit(info) {
+    try {
+      const c = cfg();
+      if (!c.enabled) return;
+      const z = info.zone || { name: info.zoneName, type: info.zoneType || '' };
+      if (!z || !z.name) return;
+      const targets = recipientsForEvent(c, 'zone_exit', z);
+      if (!targets.length) return;
+      const id = String(info.deviceId || '');
+      const st = zoneState.get(id);
+      if (st) st.inside.delete(z.name);
+      if (!cooled(`out|${id}|${z.name}`, Math.max(5, c.cooldownMinutes))) return;
+      const now = Number(info.exitTime) || Date.now();
+      const entryAt = Number(info.entryTime) || (now - (Number(info.durationMs) || 60000));
+      fire({ type: 'zone_exit', at: now, entryAt, stayMs: Math.max(60000, Number(info.durationMs) || (now - entryAt)), zoneName: z.name, zoneType: z.type || '' }, info, targets);
+    } catch (e) { console.warn('[EmailAlerts] notifyZoneExit:', e.message); }
+  }
+
   function onTick(ctx) {
     try {
       const c = cfg();
@@ -564,11 +636,16 @@ function create(deps) {
         }
       }
 
-      // Seed & check zone entry / exit
+      // Seed from MongoDB (_zoneEventZone / zone) so entries during sleep/restart ARE caught!
       if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
         let st = zoneState.get(id);
         const isFirstObservation = !st;
-        if (!st) { st = { inside: new Map() }; zoneState.set(id, st); }
+        if (!st) {
+          st = { inside: new Map() };
+          const dbZ = ctx.dbTruck && (ctx.dbTruck._zoneEventZone || ctx.dbTruck.zone);
+          if (dbZ) st.inside.set(dbZ, Number(ctx.dbTruck.entryTime) || (now - 600000));
+          zoneState.set(id, st);
+        }
         const zones = (getSettings() && getSettings().customLocations) || [];
         for (const z of zones) {
           const zl = parseFloat(z.lat), zg = parseFloat(z.lng), r = Number(z.radius) || 500;
@@ -576,21 +653,19 @@ function create(deps) {
           const dist = calculateDistance(lat, lng, zl, zg);
           const wasInside = st.inside.has(z.name);
           if (!wasInside && dist <= r) {
-            const seededEntry = (isFirstObservation && ctx.dbTruck && ctx.dbTruck.zone === z.name && ctx.dbTruck.entryTime)
-              ? Number(ctx.dbTruck.entryTime) : now;
-            st.inside.set(z.name, seededEntry);
+            st.inside.set(z.name, now);
             if (!isFirstObservation && c.enabled) {
               const inTargets = recipientsForEvent(c, 'zone_enter', z);
-              if (inTargets.length && cooled(`in|${id}|${z.name}`, c.cooldownMinutes)) {
+              if (inTargets.length && cooled(`in|${id}|${z.name}`, Math.max(5, c.cooldownMinutes))) {
                 fire({ type: 'zone_enter', at: now, entryAt: now, zoneName: z.name, zoneType: z.type || '' }, ctx, inTargets);
               }
             }
-          } else if (wasInside && dist > r * 1.15) {
+          } else if (wasInside && dist > r * 1.15 && (Number(ctx.speed) || 0) >= 5) {
             const entryAt = st.inside.get(z.name);
             st.inside.delete(z.name);
             if (c.enabled) {
               const outTargets = recipientsForEvent(c, 'zone_exit', z);
-              if (outTargets.length && cooled(`out|${id}|${z.name}`, c.cooldownMinutes)) {
+              if (outTargets.length && cooled(`out|${id}|${z.name}`, Math.max(5, c.cooldownMinutes))) {
                 fire({ type: 'zone_exit', at: now, entryAt, stayMs: Math.max(60000, now - entryAt), zoneName: z.name, zoneType: z.type || '' }, ctx, outTargets);
               }
             }
@@ -598,14 +673,23 @@ function create(deps) {
         }
       }
 
-      // Speeding check
+      // Speeding check (compatible with 3-min bot cycle)
       if (!c.enabled) return;
       const limit = c.speedLimitOverride > 0 ? c.speedLimitOverride : (Number(ctx.speedLimit) || 80);
       const sp = Number(ctx.speed) || 0;
       const ss = speedState.get(id);
       if (sp > limit) {
-        if (!ss) speedState.set(id, { startMs: now, max: sp, sent: false });
-        else {
+        if (!ss) {
+          if (c.speedMinMinutes <= 1) {
+            speedState.set(id, { startMs: now, max: sp, sent: true });
+            const spdTargets = recipientsForEvent(c, 'speed', null);
+            if (spdTargets.length && cooled(`speed|${id}`, c.cooldownMinutes)) {
+              fire({ type: 'speed', at: now, maxSpeed: sp, limit, durMs: 60000 }, ctx, spdTargets);
+            }
+          } else {
+            speedState.set(id, { startMs: now, max: sp, sent: false });
+          }
+        } else {
           if (sp > ss.max) ss.max = sp;
           if (!ss.sent && (now - ss.startMs) >= c.speedMinMinutes * 60000) {
             ss.sent = true;
@@ -632,7 +716,7 @@ function create(deps) {
         config: sanitizeForClient(s.emailAlerts),
         deliveryReady: isDeliveryReady(),
         zones,
-        log: historyLog
+        log: getLog()
       });
     });
 
@@ -712,7 +796,7 @@ function create(deps) {
     });
   }
 
-  return { onTick, notifyMaintAutoLogged, registerRoutes, sanitizeForClient, buildEmailContent, gatherTruckFullProfile };
+  return { onTick, notifyMaintAutoLogged, notifyZoneEntry, notifyZoneExit, registerRoutes, sanitizeForClient, buildEmailContent, gatherTruckFullProfile };
 }
 
 module.exports = { create, sanitizeForClient, defaultConfig, normalizeConfig };

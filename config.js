@@ -181,6 +181,10 @@ const FLEETCONFIG = {
 // This alias ensures both work everywhere.
 // =====================================================
 const FLEET_CONFIG = FLEETCONFIG;
+if (typeof window !== 'undefined') {
+    window.FLEET_CONFIG = FLEET_CONFIG;
+    window.FLEETCONFIG = FLEETCONFIG;
+}
 
 
 // =====================================================
@@ -1097,6 +1101,7 @@ function calculateVidangeStatus(currentOdometer, config, lastVidangeKm = null) {
 
 if (typeof window !== 'undefined') {
     window.calculateVidangeStatus = calculateVidangeStatus;
+    window.getTruckConfig = getTruckConfig;
 }
 
 function calculateFuelNeeded(distanceKm, consumptionPer100) {

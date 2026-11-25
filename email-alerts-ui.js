@@ -155,7 +155,7 @@
         added++;
       }
     });
-    if (added > 0 && !S.cfg.enabled) S.cfg.enabled = true;
+    if (added > 0) { S.cfg.enabled = true; S.cfg.paused = false; }
     if (invalid.length) S.banner = { kind: 'err', msg: 'Adresse(s) email invalide(s) : ' + invalid.join(', ') };
     inp.value = '';
     if (lblInp) lblInp.value = '';
@@ -381,7 +381,7 @@
     setAllRec: setAllRecEvents,
     toggleRecZone: toggleRecZone,
     toggleOpen: function () { syncDomInputs(); S.open = !S.open; render(); },
-    setEnabled: function (on) { syncDomInputs(); S.cfg.enabled = !!on; render(); },
+    setEnabled: function (on) { syncDomInputs(); S.cfg.enabled = !!on; S.cfg.paused = !on; save(false); },
     setTestType: function (v) { S.testType = v; }
   };
 

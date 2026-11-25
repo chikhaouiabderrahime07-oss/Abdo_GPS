@@ -7393,6 +7393,7 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
     // ── F24 SAFE 2-HOUR RE-ENTRY HANDLING ──
     // Only resurrect oldClosed if this entry is NOT an eligible next stop of an active mission.
     // If it IS an eligible next stop, treat as a genuine distinct route stop (do NOT merge).
+    let isResurrected = false;
     if (doc && oldClosed && eligibleStopIndex === -1) {
       const timeSinceExit = now - oldClosed.exitTime;
       if (timeSinceExit < 2 * 3600000) {
@@ -7404,6 +7405,7 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
         await oldClosed.save();
         console.log(`[Resurrection] ${truckName} back in "${zone.name}" within 2h. Restored original entry (stop alignment preserved).`);
         doc = oldClosed;
+        isResurrected = true;
         // CRITICAL FIX: DO NOT return early! Proceed to stale cleanup, Power BI push & op alignment.
       }
     }
@@ -7432,6 +7434,9 @@ async function logZoneEntry(deviceId, truckName, zone, lat, lng) {
     }
 
     console.log(`📍 [ZoneEvent] ${truckName} → ENTRÉ dans "${zone.name}" (vérifié en cours...)`);
+    if (!isResurrected && typeof emailAlerts !== 'undefined' && emailAlerts.notifyZoneEntry) {
+      emailAlerts.notifyZoneEntry({ deviceId, truckName, zone, entryTime: doc.entryTime || now, lat, lng });
+    }
     pushToPowerBI(formatZoneEventForPowerBI(doc.toObject(), now)).catch(() => {});
 
     // Trigger backtrack ASYNCHRONOUSLY — don't block the bot cycle
@@ -7507,6 +7512,9 @@ async function logZoneExit(deviceId, truckName, zoneName, lat, lng) {
       exitConfirmed: false,
       lastVerifiedAt: now
     });
+    if (typeof emailAlerts !== 'undefined' && emailAlerts.notifyZoneExit) {
+      emailAlerts.notifyZoneExit({ deviceId, truckName, zone: zone || { name: zoneName }, zoneName, entryTime: entryTimeMs, exitTime: now, durationMs, lat, lng });
+    }
 
     // ── F22 ROUTE PROGRESSION LIFECYCLE ──
     try {
@@ -11620,6 +11628,13 @@ mongoose.connect(DB_URI, {
 
       app.listen(PORT, () => console.log(`🚀 Fleet Analytics Engine running on port ${PORT}`));
       runFleetBot();
+      // 🔄 Keep Render Free container awake 24/7 so runFleetBot & emailAlerts never sleep
+      const selfPingUrl = process.env.RENDER_EXTERNAL_URL || (process.env.RENDER ? 'https://dedgps.site' : '');
+      if (selfPingUrl) {
+        setInterval(() => {
+          fetch(`${selfPingUrl.replace(/\/$/, '')}/health`).catch(() => {});
+        }, 10 * 60 * 1000);
+      }
       // 🛡️ Self-healing: on every server start, scan last 3 days and recover any missed refuel data
       setTimeout(() => runStartupBackfill(3).catch(e => console.error('Startup backfill error:', e.message)), 30000);
       // ⛽ NAFTAL autonomous monitoring (runs every 10 min, no browser needed)
