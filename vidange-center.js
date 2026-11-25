@@ -8,6 +8,7 @@
 
   var S = {
     logs: [],
+    dbTrucks: [],
     loadedAt: 0,
     loading: false,
     filter: 'all',      // all | overdue | alert | upcoming | ok | nohist
@@ -19,6 +20,9 @@
   };
   var TTL = 20000;
 
+  function fc() { return (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG) || window.FLEET_CONFIG || {}; }
+  function appRef() { return (typeof app !== 'undefined' && app) || window.app || null; }
+  function uiRef() { return (typeof ui !== 'undefined' && ui) || window.ui || null; }
   function $(id) { return document.getElementById(id); }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -38,10 +42,10 @@
     return Math.max(0, Math.floor((Date.now() - x.getTime()) / 86400000));
   }
   function toast(m, t) { if (window.showToast) window.showToast(m, t || 'info'); }
-  function base() { return (window.FLEET_CONFIG && FLEET_CONFIG.API && FLEET_CONFIG.API.baseUrl) || ''; }
+  function base() { var c = fc(); return (c.API && c.API.baseUrl) || ''; }
   function code() {
-    return localStorage.getItem('fleetAccessCode') || (window.ui && ui.currentCode) ||
-      (window.FLEET_CONFIG && FLEET_CONFIG.accessCode) || '';
+    var u = uiRef(), c = fc();
+    return localStorage.getItem('fleetAccessCode') || (u && u.currentCode) || c.accessCode || 'Douroub_2025_Admin_Secure';
   }
   async function api(path, method, body) {
     var h = { 'Content-Type': 'application/json' };
@@ -52,23 +56,49 @@
     return j;
   }
 
-  function trucks() { try { return (window.app && app.getAllTrucks()) || []; } catch (_) { return []; } }
+  function dbOdo(d) {
+    var m = d && d.model ? String(d.model).toUpperCase() : '';
+    if ((m.indexOf('HOWO') >= 0 || !(d && d.params && d.params.io192)) && d && d.odometer) return Math.round(parseFloat(d.odometer) || 0);
+    if (d && d.params && d.params.io192) return Math.round((parseInt(d.params.io192, 10) || 0) / 1000);
+    return Math.round(parseFloat(d && d.odometer) || 0);
+  }
+
+  function trucks() {
+    var a = appRef();
+    var live = (a && typeof a.getAllTrucks === 'function') ? a.getAllTrucks() : [];
+    if (live && live.length > 0) return live;
+    var u = uiRef();
+    var cache = (u && Array.isArray(u.truckDbCache) && u.truckDbCache.length) ? u.truckDbCache : S.dbTrucks;
+    var seen = {};
+    return (cache || []).filter(function (d) {
+      var id = String((d && d.deviceId) || '');
+      if (!id || id === 'undefined' || id === 'null' || seen[id]) return false;
+      seen[id] = true;
+      return true;
+    }).map(function (d) {
+      var rCfg = resolveTruckRule(d.deviceId);
+      return { id: String(d.deviceId), name: rCfg.alias || d.truckName || String(d.deviceId), odometer: dbOdo(d), vidange: {} };
+    });
+  }
   function truckById(id) { return trucks().find(function (t) { return String(t.id) === String(id); }); }
   function truckMeta(devId, name) {
-    var cache = (window.ui && ui.truckDbCache) || [];
+    var u = uiRef();
+    var cache = (u && Array.isArray(u.truckDbCache) && u.truckDbCache.length) ? u.truckDbCache : S.dbTrucks;
     return cache.find(function (d) { return devId && String(d.deviceId) === String(devId); }) ||
       cache.find(function (d) { return name && String(d.truckName) === String(name) && d.immatriculation; }) || {};
   }
 
   function resolveTruckRule(devId) {
-    var g = (window.FLEET_CONFIG && FLEET_CONFIG.DEFAULT_TRUCK_CONFIG) || {};
-    var cfg = (typeof window.getTruckConfig === 'function' && devId) ? window.getTruckConfig(String(devId)) : g;
+    var root = fc(), g = root.DEFAULT_TRUCK_CONFIG || {};
+    var fn = (typeof getTruckConfig === 'function' && getTruckConfig) || window.getTruckConfig;
+    var cfg = (fn && devId) ? fn(String(devId)) : g;
     var pInt = function (v, def) { var n = parseInt(v, 10); return (Number.isFinite(n) && n >= 0) ? n : def; };
     return {
       startKm: pInt(cfg.vidangeStartKm !== undefined ? cfg.vidangeStartKm : g.vidangeStartKm, 5000),
       rotKm: Math.max(1000, pInt(cfg.vidangeRotationKm !== undefined ? cfg.vidangeRotationKm : g.vidangeRotationKm, 25000)),
       alertKm: pInt(cfg.vidangeAlertKm !== undefined ? cfg.vidangeAlertKm : g.vidangeAlertKm, 500),
       ruleName: cfg.ruleName || '',
+      alias: cfg.alias || '',
       isCustom: !!cfg.ruleName
     };
   }
@@ -84,7 +114,8 @@
       return (Number(b.odometer) - Number(a.odometer)) || (new Date(b.date || 0) - new Date(a.date || 0));
     });
 
-    var ovrMap = (window.FLEET_CONFIG && (FLEET_CONFIG.VIDANGE_OVERRIDES || FLEET_CONFIG.vidangeOverrides)) || {};
+    var root = fc();
+    var ovrMap = root.VIDANGE_OVERRIDES || root.vidangeOverrides || {};
     var ovr = ovrMap[id] || null;
     var ovrKm = ovr ? Math.round(Number(ovr.lastVidangeKm || ovr.odometerAtConfirm || ovr.skipUntilKm) || 0) : 0;
     var topLog = hist[0] || null;
@@ -109,8 +140,9 @@
     var odo = Math.round(Number(t.odometer) || 0);
     var rule = resolveTruckRule(t.id);
     var lv = resolveLastVidange(t.id);
-    var calc = typeof window.calculateVidangeStatus === 'function'
-      ? window.calculateVidangeStatus(odo, { vidangeStartKm: rule.startKm, vidangeRotationKm: rule.rotKm, vidangeAlertKm: rule.alertKm }, lv.lastKm || null)
+    var calcFn = (typeof calculateVidangeStatus === 'function' && calculateVidangeStatus) || window.calculateVidangeStatus;
+    var calc = calcFn
+      ? calcFn(odo, { vidangeStartKm: rule.startKm, vidangeRotationKm: rule.rotKm, vidangeAlertKm: rule.alertKm }, lv.lastKm || null)
       : null;
 
     var nextKm = (calc && Number.isFinite(Number(calc.nextKm)))
@@ -195,12 +227,19 @@
     S.loading = true;
     render();
     try {
-      if (window.ui && (!ui.truckDbCache || !ui.truckDbCache.length) && ui.loadTruckDbCache) {
-        await ui.loadTruckDbCache();
+      var u = uiRef();
+      if (u && !u.lastSettingsSync && typeof u.loadSettingsFromCloud === 'function') {
+        try { await u.loadSettingsFromCloud(); } catch (_) {}
+      }
+      if (u && (!u.truckDbCache || !u.truckDbCache.length) && typeof u.loadTruckDbCache === 'function') {
+        await u.loadTruckDbCache();
+      }
+      if ((!u || !u.truckDbCache || !u.truckDbCache.length) && !S.dbTrucks.length) {
+        try { var dbt = await api('/api/trucks/db'); if (Array.isArray(dbt)) S.dbTrucks = dbt; } catch (_) {}
       }
       var j = await api('/api/maintenance?limit=2000');
       S.logs = Array.isArray(j) ? j : (j.data || []);
-      if (window.ui) window.ui.allMaintenanceLogs = S.logs;
+      if (u) u.allMaintenanceLogs = S.logs;
       S.loadedAt = Date.now();
     } catch (e) { console.warn('[VidangeCenter] load error:', e.message); }
     S.loading = false;
@@ -208,10 +247,11 @@
   }
 
   async function syncAll() {
-    try { if (window.ui && ui.loadSettingsFromCloud) await ui.loadSettingsFromCloud(); } catch (_) {}
-    try { if (window.app && app.forceRecalculateVidanges) app.forceRecalculateVidanges(); } catch (_) {}
+    var u = uiRef(), a = appRef();
+    try { if (u && u.loadSettingsFromCloud) await u.loadSettingsFromCloud(); } catch (_) {}
+    try { if (a && a.forceRecalculateVidanges) a.forceRecalculateVidanges(); } catch (_) {}
     try { if (window.MaintenanceHub && MaintenanceHub.refresh) MaintenanceHub.refresh(); } catch (_) {}
-    try { if (window.ui && ui.renderStats) ui.renderStats(); } catch (_) {}
+    try { if (u && u.renderStats) u.renderStats(); } catch (_) {}
     S.loadedAt = 0; S.loading = false;
     await load(true);
   }
@@ -364,9 +404,10 @@
     injectCss();
     var all = allEntries();
     var list = filteredList(all);
-    var gCfg = (window.FLEET_CONFIG && FLEET_CONFIG.DEFAULT_TRUCK_CONFIG) || {};
+    var rootCfg = fc();
+    var gCfg = rootCfg.DEFAULT_TRUCK_CONFIG || {};
     var gStart = Number(gCfg.vidangeStartKm ?? 5000), gRot = Number(gCfg.vidangeRotationKm ?? 25000), gAlert = Number(gCfg.vidangeAlertKm ?? 500);
-    var rules = (window.FLEET_CONFIG && FLEET_CONFIG.FLEET_RULES) || [];
+    var rules = rootCfg.FLEET_RULES || [];
 
     var cOver = 0, cAlert = 0, cUp = 0, cOk = 0, cNoHist = 0;
     all.forEach(function (e) {
@@ -470,7 +511,7 @@
     var t = devId ? truckById(devId) : (list[0] || null);
     var km = t ? Math.round(Number(t.odometer) || 0) : 0;
     var today = new Date().toISOString().slice(0, 10);
-    var locs = ((window.FLEET_CONFIG && FLEET_CONFIG.CUSTOM_LOCATIONS) || []).filter(function (l) { return l.type === 'maintenance'; });
+    var locs = (fc().CUSTOM_LOCATIONS || []).filter(function (l) { return l.type === 'maintenance'; });
 
     openModal(
       '<h3 style="margin:0 0 4px;font-size:17px"><i class="fa-solid fa-oil-can" style="color:#f59e0b"></i> Enregistrer une Vidange dans l\'Historique</h3>' +
@@ -619,10 +660,18 @@
     setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 1200);
   }
 
+  function onTrucksUpdated() {
+    var sec = $('vidangePageSection');
+    if (!sec || !sec.classList.contains('active')) return;
+    if (document.activeElement && document.activeElement.id === 'vcSearch') refreshBody();
+    else render();
+  }
+
   window.VidangeCenter = {
     mount: function () { render(); load(false); },
     refresh: function () { S.loadedAt = 0; load(true); },
-    refreshLive: function () { if ($('vidangePageRoot')) render(); },
+    refreshLive: function () { onTrucksUpdated(); },
+    onTrucksUpdated: onTrucksUpdated,
     setFilter: function (f) { S.filter = f; render(); },
     setRuleFilter: function (r) { S.ruleFilter = r; refreshBody(); },
     setSort: function (s) { S.sort = s; refreshBody(); },
@@ -632,4 +681,26 @@
     openCreate: openCreate, onPickCreateTruck: onPickCreateTruck, updCreatePreview: updCreatePreview, submitCreate: submitCreate,
     openHistory: openHistory, delHist: delHist, closeDlg: closeDlg, exportCsv: exportCsv
   };
+
+  function hookUi() {
+    var u = uiRef();
+    if (!u || typeof u.switchTab !== 'function') return false;
+    if (!u.switchTab.__vcHooked) {
+      var orig = u.switchTab;
+      u.switchTab = function (tabName) {
+        var r = orig.apply(this, arguments);
+        if (tabName === 'vidangePageSection') window.VidangeCenter.mount();
+        return r;
+      };
+      u.switchTab.__vcHooked = true;
+    }
+    var sec = $('vidangePageSection');
+    if (sec && sec.classList.contains('active')) window.VidangeCenter.mount();
+    return true;
+  }
+
+  if (!hookUi()) {
+    var iv = setInterval(function () { if (hookUi()) clearInterval(iv); }, 150);
+    setTimeout(function () { clearInterval(iv); }, 15000);
+  }
 })();

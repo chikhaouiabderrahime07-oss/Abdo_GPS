@@ -648,7 +648,7 @@ initElements() {
           
           console.log("☁️ Settings synced from Cloud");
           this.loadGlobalSettingsToUI();
-          if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+          if (typeof app !== 'undefined' && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
           if (window.VidangeCenter) window.VidangeCenter.refreshLive();
           setTimeout(() => this.renderSettingsSC(), 200);
           
@@ -1800,7 +1800,7 @@ renderDecouchageList() {
       this.saveSettingsToCloud();
       this.closeRuleEditor();
       this.renderRulesList();
-      if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+      if (typeof app !== 'undefined' && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
       if (window.VidangeCenter) window.VidangeCenter.refreshLive();
       alert("\u2705 Règle enregistrée !");
       this.updateDashboard(); // Refresh dash to apply new physics
@@ -1811,7 +1811,7 @@ renderDecouchageList() {
       FLEET_CONFIG.FLEET_RULES.splice(index, 1);
       this.saveSettingsToCloud();
       this.renderRulesList();
-      if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+      if (typeof app !== 'undefined' && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
       if (window.VidangeCenter) window.VidangeCenter.refreshLive();
       this.updateDashboard();
   }
@@ -1832,7 +1832,7 @@ renderDecouchageList() {
 
       this.saveSettingsToCloud();
       this.renderRulesList();
-      if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+      if (typeof app !== 'undefined' && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
       if (window.VidangeCenter) window.VidangeCenter.refreshLive();
       this.updateDashboard(); // Re-calc with new settings
   }
@@ -1842,7 +1842,7 @@ renderDecouchageList() {
           FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds = FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds.filter(id => id.toString() !== truckId.toString());
           this.saveSettingsToCloud();
           this.renderRulesList();
-          if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+          if (typeof app !== 'undefined' && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
           if (window.VidangeCenter) window.VidangeCenter.refreshLive();
           this.updateDashboard();
       }
@@ -1909,7 +1909,7 @@ renderDecouchageList() {
     if (toleranceEl) FLEET_CONFIG.NAFTAL_MANAGEMENT.refillTolerancePercent = parseInt(toleranceEl.value) || 5;
 
     this.saveSettingsToCloud();
-    if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+    if (typeof app !== 'undefined' && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
     if (window.VidangeCenter) window.VidangeCenter.refreshLive();
     alert('\u2705 Configuration Globale sauvegardée !');
     this.updateDashboard();

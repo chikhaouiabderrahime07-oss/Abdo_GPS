@@ -1221,7 +1221,7 @@
 
       <!-- 🔧 Maintenance & Atelier -->
       <div class="nav-group group-maintenance">
-          <button class="tab-button" data-tab="vidangePageSection" onclick="switchTab('vidangePageSection')" title="Suivi &amp; planification des vidanges en temps réel">
+          <button class="tab-button" data-tab="vidangePageSection" onclick="switchTab('vidangePageSection');if(window.VidangeCenter)VidangeCenter.mount()" title="Suivi &amp; planification des vidanges en temps réel">
               <i class="fa-solid fa-oil-can" style="color:#f59e0b;"></i> <span>Vidanges</span>
           </button>
           <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')" title="Maintenance externe, validation &amp; atelier Biskra">
@@ -3266,7 +3266,7 @@
   <!-- ═══════════════════════════════════════════════════════ -->
   <!-- ═══════════════════════════════════════════════════════ -->
 
-  <script src="config.js?v=1785178812412"></script>
+  <script src="config.js?v=20261125b"></script>
   
   <script>
 // GLOBAL ERROR HANDLER - catches ALL unhandled errors
@@ -3327,17 +3327,17 @@ window.addEventListener('unhandledrejection', function(e) {
   <script src="algeria-map.js?v=13"></script> 
   <script src="geocode.js"></script>
   <script src="excel-export-engine.js"></script>
-  <script src="app.js"></script>
-  <script src="ui.js"></script>
+  <script src="app.js?v=20261125b"></script>
+  <script src="ui.js?v=20261125b"></script>
   <script src="transport-report.js"></script>
   <script src="notifications.js" defer></script>
   <script src="driver-scoring.js" defer></script>
   <script src="pdf-generator.js" defer></script>
   <script src="maintenance-atelier.js?v=5"></script>
     <script src="maintenance-atelier-plus.js?v=1"></script>
-    <script src="vidange-center.js?v=1"></script>
-    <script src="maintenance-hub.js?v=5"></script>
-    <script src="email-alerts-ui.js?v=5"></script>
+    <script src="vidange-center.js?v=2"></script>
+    <script src="maintenance-hub.js?v=6"></script>
+    <script src="email-alerts-ui.js?v=6"></script>
 <script src="atelier-export.js?v=1"></script>
 
   <script>

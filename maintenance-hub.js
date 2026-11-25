@@ -40,11 +40,12 @@
     });
   }
   function num(n) { return Number(n || 0).toLocaleString('fr-FR'); }
+  function fc() { return (typeof FLEET_CONFIG !== 'undefined' && FLEET_CONFIG) || window.FLEET_CONFIG || {}; }
+  function appRef() { return (typeof app !== 'undefined' && app) || window.app || null; }
   function toast(m, t) { if (window.showToast) window.showToast(m, t || 'info'); else console.log(m); }
-  function base() { return (window.FLEET_CONFIG && FLEET_CONFIG.API && FLEET_CONFIG.API.baseUrl) || ''; }
+  function base() { var c = fc(); return (c.API && c.API.baseUrl) || ''; }
   function code() {
-    return localStorage.getItem('fleetAccessCode') || (window.ui && ui.currentCode) ||
-      (window.FLEET_CONFIG && FLEET_CONFIG.accessCode) || '';
+    return localStorage.getItem('fleetAccessCode') || (window.ui && ui.currentCode) || fc().accessCode || 'Douroub_2025_Admin_Secure';
   }
   async function api(path, method, body) {
     var h = { 'Content-Type': 'application/json' };
@@ -75,7 +76,26 @@
     return d > 0 ? (d + 'j ' + h + 'h') : (h + 'h ' + (m ? m + 'm' : ''));
   }
   function ageDays(x) { return (new Date() - dateOf(x)) / 86400000; }
-  function trucks() { try { return (window.app && app.getAllTrucks()) || []; } catch (e) { return []; } }
+  function trucks() {
+    try {
+      var a = appRef();
+      var live = (a && typeof a.getAllTrucks === 'function') ? a.getAllTrucks() : [];
+      if (live && live.length) return live;
+      var cache = (window.ui && Array.isArray(ui.truckDbCache)) ? ui.truckDbCache : [];
+      var seen = {}, calcFn = (typeof calculateVidangeStatus === 'function' && calculateVidangeStatus) || window.calculateVidangeStatus;
+      return cache.filter(function (d) {
+        var id = String((d && d.deviceId) || '');
+        if (!id || id === 'undefined' || id === 'null' || seen[id]) return false;
+        seen[id] = true; return true;
+      }).map(function (d) {
+        var odo = Math.round(parseFloat(d.odometer) || ((d.params && d.params.io192) ? (parseInt(d.params.io192, 10) || 0) / 1000 : 0) || 0);
+        var cfg = truckCfg(d.deviceId);
+        var ovr = ((fc().vidangeOverrides || fc().VIDANGE_OVERRIDES || {})[String(d.deviceId)]) || null;
+        var vs = calcFn ? calcFn(odo, cfg, ovr && ovr.lastVidangeKm) : { alert: false, kmUntilNext: 25000, nextKm: 25000, alertKm: 500 };
+        return { id: String(d.deviceId), name: cfg.alias || d.truckName || String(d.deviceId), odometer: odo, vidange: vs };
+      });
+    } catch (e) { return []; }
+  }
   function truckById(id) { return trucks().find(function (k) { return String(k.id) === String(id); }); }
   function truckDbMeta(devId, tName) {
     var cache = (window.ui && ui.truckDbCache) || [];
@@ -84,8 +104,9 @@
   }
 
   function truckCfg(devId) {
-    if (typeof window.getTruckConfig === 'function' && devId) return window.getTruckConfig(String(devId));
-    return (window.FLEET_CONFIG && FLEET_CONFIG.DEFAULT_TRUCK_CONFIG) || {};
+    var fn = (typeof getTruckConfig === 'function' && getTruckConfig) || window.getTruckConfig;
+    if (fn && devId) return fn(String(devId));
+    return fc().DEFAULT_TRUCK_CONFIG || {};
   }
   function rotKm(devId) {
     return Number(truckCfg(devId).vidangeRotationKm) || 25000;
@@ -225,7 +246,8 @@
   async function syncAfterChange() {
     var u = window.ui;
     try { if (u && u.loadSettingsFromCloud) await u.loadSettingsFromCloud(); } catch (_) {}
-    try { if (window.app && app.forceRecalculateVidanges) app.forceRecalculateVidanges(); } catch (_) {}
+    try { var a = appRef(); if (a && a.forceRecalculateVidanges) a.forceRecalculateVidanges(); } catch (_) {}
+    try { if (window.VidangeCenter && VidangeCenter.refresh) VidangeCenter.refresh(); } catch (_) {}
     try { if (u && u.loadActiveMaintenanceOrders) await u.loadActiveMaintenanceOrders(); } catch (_) {}
     try { if (u && u.renderStats) u.renderStats(); } catch (_) {}
     S.loadedAt = 0; S.loading = false;
@@ -237,7 +259,7 @@
       return String(x.deviceId) === String(devId) && isVid(x) && stOf(x) !== 'annule' && Number(x.odometer) > 0;
     }).sort(function (a, b) { return dateOf(a) - dateOf(b); });
     var pts = ents.map(function (x) { return { km: Number(x.odometer), date: dateOf(x), cost: Number(x.cost) || 0, id: idOf(x) }; });
-    var ovr = (window.FLEET_CONFIG && (FLEET_CONFIG.vidangeOverrides || FLEET_CONFIG.VIDANGE_OVERRIDES) || {})[String(devId)];
+    var ovr = ((fc().vidangeOverrides || fc().VIDANGE_OVERRIDES || {})[String(devId)]);
     if (ovr && Number(ovr.lastVidangeKm) > 0) {
       var km = Number(ovr.lastVidangeKm);
       if (!pts.some(function (p) { return Math.abs(p.km - km) <= 50; })) {
