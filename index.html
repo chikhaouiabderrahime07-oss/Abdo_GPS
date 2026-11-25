@@ -1221,7 +1221,10 @@
 
       <!-- 🔧 Maintenance & Atelier -->
       <div class="nav-group group-maintenance">
-          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')" title="Vidanges, garage externe &amp; atelier Biskra">
+          <button class="tab-button" data-tab="vidangePageSection" onclick="switchTab('vidangePageSection')" title="Suivi &amp; planification des vidanges en temps réel">
+              <i class="fa-solid fa-oil-can" style="color:#f59e0b;"></i> <span>Vidanges</span>
+          </button>
+          <button class="tab-button" data-tab="vidangeSection" onclick="switchTab('vidangeSection')" title="Maintenance externe, validation &amp; atelier Biskra">
               <i class="fa-solid fa-screwdriver-wrench" style="color:#fb923c;"></i> <span>Maintenance</span>
           </button>
           <button class="tab-button btn-history" data-tab="maintenanceHistory" onclick="switchTab('vidangeSection');if(window.MaintenanceHub)MaintenanceHub.go('history')" title="Journal complet des vidanges et interventions">
@@ -2213,6 +2216,11 @@
         </div>
         <div id="naftalSystemContainer"></div>
       </div>
+    </div>
+
+    <!-- 🛢️ Section Vidanges dédiée (Temps Réel & Calibration Globale) — see vidange-center.js -->
+    <div id="vidangePageSection" class="tab-content">
+      <div id="vidangePageRoot"></div>
     </div>
 
     <div id="vidangeSection" class="tab-content">
@@ -3327,6 +3335,7 @@ window.addEventListener('unhandledrejection', function(e) {
   <script src="pdf-generator.js" defer></script>
   <script src="maintenance-atelier.js?v=5"></script>
     <script src="maintenance-atelier-plus.js?v=1"></script>
+    <script src="vidange-center.js?v=1"></script>
     <script src="maintenance-hub.js?v=5"></script>
     <script src="email-alerts-ui.js?v=5"></script>
 <script src="atelier-export.js?v=1"></script>
@@ -4709,7 +4718,7 @@ setTimeout(function() {
       { label: 'Carte & GPS', icon: 'fa-map', action: () => switchTab('byWilaya'), keywords: 'map carte gps wilaya' },
       { label: 'Carburant', icon: 'fa-gas-pump', action: () => switchTab('fuelSection'), keywords: 'fuel gasoil carburant' },
       { label: 'Calculateur Trajet', icon: 'fa-calculator', action: () => switchTab('routing'), keywords: 'calcul trajet route' },
-      { label: 'Vidanges', icon: 'fa-oil-can', action: () => switchTab('vidangeSection'), keywords: 'vidange huile oil' },
+      { label: 'Vidanges', icon: 'fa-oil-can', action: () => switchTab('vidangePageSection'), keywords: 'vidange huile oil' },
       { label: 'Atelier Biskra (bons de réparation)', icon: 'fa-screwdriver-wrench', action: () => switchTab('atelierSection'), keywords: 'maintenance atelier biskra bon reparation panne suivi ordre' },
       { label: 'Historique Maintenance', icon: 'fa-clipboard-check', action: () => switchTab('maintenanceHistory'), keywords: 'historique maintenance' },
       { label: 'Rapports', icon: 'fa-file-contract', action: () => switchTab('reports'), keywords: 'rapport export' },

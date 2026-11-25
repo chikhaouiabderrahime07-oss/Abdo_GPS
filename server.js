@@ -11670,7 +11670,7 @@ async function autoSyncVidangeOverrides() {
       const _ovr = SYSTEM_SETTINGS.vidangeOverrides && SYSTEM_SETTINGS.vidangeOverrides[deviceId];
       const currentLastKm = _ovr ? (parseInt(_ovr.lastVidangeKm || _ovr.odometerAtConfirm || 0)) : 0;
       if (odometerKm > currentLastKm) {
-        await acknowledgeVidange(deviceId, v.truckName || deviceId, odometerKm);
+        await acknowledgeVidange(deviceId, v.truckName || deviceId, odometerKm, v.exitDate || v.date, v.note);
         synced++;
       }
     }

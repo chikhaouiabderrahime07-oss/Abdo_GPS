@@ -648,6 +648,8 @@ initElements() {
           
           console.log("☁️ Settings synced from Cloud");
           this.loadGlobalSettingsToUI();
+          if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+          if (window.VidangeCenter) window.VidangeCenter.refreshLive();
           setTimeout(() => this.renderSettingsSC(), 200);
           
           this.loadClients();
@@ -1769,9 +1771,9 @@ renderDecouchageList() {
           fuelConsumption: parseFloat(document.getElementById('ruleConso').value) || 35,
           fuelAlertThreshold: parseInt(document.getElementById('ruleThreshold').value) || 30,
           criticalFuelLevel: parseInt(document.getElementById('ruleCritical').value) || 15,
-          vidangeStartKm: parseInt(document.getElementById('ruleVidangeStart')?.value) || FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeStartKm || 5000,
-          vidangeRotationKm: parseInt(document.getElementById('ruleVidangeRot')?.value) || FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeRotationKm || 25000,
-          vidangeAlertKm: parseInt(document.getElementById('ruleVidangeAlert')?.value) || FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm || 500,
+          vidangeStartKm: Number.isFinite(parseInt(document.getElementById('ruleVidangeStart')?.value, 10)) ? parseInt(document.getElementById('ruleVidangeStart').value, 10) : (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeStartKm ?? 5000),
+          vidangeRotationKm: Number.isFinite(parseInt(document.getElementById('ruleVidangeRot')?.value, 10)) ? parseInt(document.getElementById('ruleVidangeRot').value, 10) : (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeRotationKm ?? 25000),
+          vidangeAlertKm: Number.isFinite(parseInt(document.getElementById('ruleVidangeAlert')?.value, 10)) ? parseInt(document.getElementById('ruleVidangeAlert').value, 10) : (FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm ?? 500),
           fuelPricePerLiter: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelPricePerLiter,
           fuelSecurityMargin: FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelSecurityMargin,
           fuelSensorInput: fuelSensorInput || getConfiguredFuelSensorLabel(FLEET_CONFIG.DEFAULT_TRUCK_CONFIG),
@@ -1798,6 +1800,8 @@ renderDecouchageList() {
       this.saveSettingsToCloud();
       this.closeRuleEditor();
       this.renderRulesList();
+      if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+      if (window.VidangeCenter) window.VidangeCenter.refreshLive();
       alert("\u2705 Règle enregistrée !");
       this.updateDashboard(); // Refresh dash to apply new physics
   }
@@ -1807,6 +1811,8 @@ renderDecouchageList() {
       FLEET_CONFIG.FLEET_RULES.splice(index, 1);
       this.saveSettingsToCloud();
       this.renderRulesList();
+      if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+      if (window.VidangeCenter) window.VidangeCenter.refreshLive();
       this.updateDashboard();
   }
 
@@ -1826,6 +1832,8 @@ renderDecouchageList() {
 
       this.saveSettingsToCloud();
       this.renderRulesList();
+      if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+      if (window.VidangeCenter) window.VidangeCenter.refreshLive();
       this.updateDashboard(); // Re-calc with new settings
   }
 
@@ -1834,6 +1842,8 @@ renderDecouchageList() {
           FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds = FLEET_CONFIG.FLEET_RULES[ruleIndex].truckIds.filter(id => id.toString() !== truckId.toString());
           this.saveSettingsToCloud();
           this.renderRulesList();
+          if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+          if (window.VidangeCenter) window.VidangeCenter.refreshLive();
           this.updateDashboard();
       }
   }
@@ -1871,9 +1881,12 @@ renderDecouchageList() {
     FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelSecurityMargin = parseInt(this.defaultSecurityMargin.value);
     FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.fuelAlertThreshold = parseInt(this.defaultFuelThreshold.value);
     FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.criticalFuelLevel = parseInt(this.defaultCriticalLevel.value);
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeStartKm = parseInt(this.defaultVidangeStart?.value) || 5000;
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeRotationKm = parseInt(this.defaultVidangeRot?.value) || 25000;
-    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm = parseInt(this.defaultVidangeAlert.value);
+    const gStart = parseInt(this.defaultVidangeStart?.value, 10);
+    const gRot = parseInt(this.defaultVidangeRot?.value, 10);
+    const gAlert = parseInt(this.defaultVidangeAlert?.value, 10);
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeStartKm = Number.isFinite(gStart) ? gStart : 5000;
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeRotationKm = Number.isFinite(gRot) ? gRot : 25000;
+    FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.vidangeAlertKm = Number.isFinite(gAlert) ? gAlert : 500;
     FLEET_CONFIG.DEFAULT_TRUCK_CONFIG.calibration = this.parseCalibrationText(this.defaultCalibration.value);
 
     // SAVE KEYS
@@ -1896,6 +1909,8 @@ renderDecouchageList() {
     if (toleranceEl) FLEET_CONFIG.NAFTAL_MANAGEMENT.refillTolerancePercent = parseInt(toleranceEl.value) || 5;
 
     this.saveSettingsToCloud();
+    if (window.app && typeof app.forceRecalculateVidanges === 'function') app.forceRecalculateVidanges();
+    if (window.VidangeCenter) window.VidangeCenter.refreshLive();
     alert('\u2705 Configuration Globale sauvegardée !');
     this.updateDashboard();
   }
@@ -1939,6 +1954,7 @@ renderDecouchageList() {
         }, 120);
     }
     if (tabName === 'fuelSection') this.renderFuelSection();
+    if (tabName === 'vidangePageSection' && window.VidangeCenter) window.VidangeCenter.mount();
     if (tabName === 'vidangeSection') this.renderVidangeSection(); 
     if (tabName === 'atelierSection') {
       // Atelier Biskra lives under the "Maintenance" menu button (data-tab="vidangeSection")
@@ -2121,6 +2137,7 @@ renderDecouchageList() {
             }
         } 
         else if (activeTab === 'fuelSection') { this.renderFuelSection(); } 
+        else if (activeTab === 'vidangePageSection' && window.VidangeCenter) { window.VidangeCenter.refreshLive(); }
         else if (activeTab === 'vidangeSection') { this.renderVidangeSection(); }
     });
   }
