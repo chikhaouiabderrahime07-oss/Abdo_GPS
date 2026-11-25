@@ -223,6 +223,14 @@ async function resolveEntryData(item, deps) {
   }
   const src = Object.assign({}, doc || {}, item || {});
   if (doc) {
+    const rawSt = String(doc.status || 'en_cours').toLowerCase();
+    const isCancel = rawSt === 'annule' || rawSt === 'annulé' || rawSt === 'cancelled';
+    const isOpen = !(rawSt === 'termine' || rawSt === 'terminé' || rawSt === 'done' || rawSt === 'completed') && !isCancel;
+    const ageDays = (Date.now() - new Date(doc.date || doc.createdAt || 0).getTime()) / 86400000;
+    if (isCancel) throw new Error('Intervention annulée — téléchargement DA (.docx) désactivé.');
+    if (isOpen || (doc.isAuto && !doc.verified && ageDays <= 30)) {
+      throw new Error('Veuillez valider cette intervention dans "À valider" avant de télécharger la DA (.docx) depuis le Journal.');
+    }
     if (item.type === undefined) src.type = doc.type;
     if (item.odometer === undefined) src.odometer = doc.odometer;
     if (item.date === undefined) src.date = doc.date;

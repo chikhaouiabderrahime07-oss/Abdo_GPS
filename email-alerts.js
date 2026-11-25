@@ -5,6 +5,7 @@
  */
 'use strict';
 
+const dns = require('dns');
 let nodemailer = null;
 try { nodemailer = require('nodemailer'); } catch (e) { /* optional fallback */ }
 
@@ -63,6 +64,7 @@ function defaultConfig() {
   return {
     enabled: false,
     recipients: [],
+    relayUrl: '',
     speedLimitOverride: 0,
     speedMinMinutes: 2,
     cooldownMinutes: 15
@@ -81,9 +83,11 @@ function normalizeConfig(raw) {
       recipients.push(nr);
     }
   });
+  const rUrl = String(c.relayUrl || '').trim();
   return {
     enabled: !!c.enabled,
     recipients,
+    relayUrl: /^https:\/\/script\.google\.com\/macros\/s\//i.test(rUrl) ? rUrl : '',
     speedLimitOverride: Math.max(0, Number(c.speedLimitOverride) || 0),
     speedMinMinutes: Math.max(1, Number(c.speedMinMinutes) || 2),
     cooldownMinutes: Math.max(0, c.cooldownMinutes === 0 ? 0 : (Number(c.cooldownMinutes) || 15))
@@ -125,16 +129,43 @@ function create(deps) {
     if (historyLog.length > 50) historyLog.length = 50;
   }
 
+  function ipv4Lookup(hostname, opts, cb) {
+    if (typeof opts === 'function') return dns.lookup(hostname, { family: 4 }, opts);
+    return dns.lookup(hostname, { family: 4, all: !!(opts && opts.all) }, cb);
+  }
+
   function makeTransporter(port, secure) {
     return nodemailer.createTransport({
       host: BUILTIN_SMTP.host,
       port,
       secure,
+      family: 4,
+      lookup: ipv4Lookup,
+      tls: { servername: BUILTIN_SMTP.host },
       auth: { user: BUILTIN_SMTP.user, pass: BUILTIN_SMTP.pass },
-      connectionTimeout: 12000,
-      greetingTimeout: 12000,
-      socketTimeout: 15000
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 10000
     });
+  }
+
+  async function sendViaHttpsRelay(relayUrl, cleanTo, subject, html, text) {
+    const resp = await doFetch(relayUrl, {
+      method: 'POST',
+      redirect: 'follow',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: cleanTo.join(','),
+        subject,
+        html,
+        text,
+        fromName: BUILTIN_SMTP.fromName
+      })
+    });
+    const bodyTxt = await resp.text().catch(() => '');
+    if (!resp.ok || /Exception|Error:/i.test(bodyTxt)) {
+      throw new Error('Relais HTTPS Gmail HTTP ' + resp.status + (bodyTxt ? ': ' + bodyTxt.slice(0, 140) : ''));
+    }
   }
 
   async function deliver(toList, subject, html, text) {
@@ -148,6 +179,13 @@ function create(deps) {
         pushLog({ ok: true, subject, to: cleanTo });
         return { ok: true };
       }
+      const c = cfg();
+      const relay = c.relayUrl || process.env.GMAIL_WEBHOOK_URL || '';
+      if (relay) {
+        await sendViaHttpsRelay(relay, cleanTo, subject, html, text);
+        pushLog({ ok: true, provider: 'https-gmail', subject, to: cleanTo });
+        return { ok: true };
+      }
       if (!nodemailer) throw new Error('Module nodemailer non installé');
       if (!transporter) transporter = makeTransporter(BUILTIN_SMTP.port, BUILTIN_SMTP.secure);
       const mailOpts = {
@@ -158,16 +196,19 @@ function create(deps) {
       try {
         await transporter.sendMail(mailOpts);
       } catch (firstErr) {
-        // Automatic fallback to STARTTLS 587 if SSL 465 is filtered
         transporter = makeTransporter(587, false);
         await transporter.sendMail(mailOpts);
       }
-      pushLog({ ok: true, subject, to: cleanTo });
+      pushLog({ ok: true, provider: 'smtp-ipv4', subject, to: cleanTo });
       return { ok: true };
     } catch (e) {
+      const isTimeout = /timeout|ETIMEDOUT|ECONNREFUSED|ENETUNREACH/i.test(e.message || '');
+      const msg = isTimeout
+        ? 'Ports SMTP 465/587 bloqués par l\'hébergeur Render (plan gratuit). Activez le Pont HTTPS Gmail (port 443) ci-dessous.'
+        : e.message;
       console.error('[EmailAlerts] Envoi échoué:', e.message);
-      pushLog({ ok: false, subject, error: e.message });
-      return { ok: false, error: e.message };
+      pushLog({ ok: false, subject, error: msg, smtpBlocked: isTimeout });
+      return { ok: false, error: msg, smtpBlocked: isTimeout };
     }
   }
 

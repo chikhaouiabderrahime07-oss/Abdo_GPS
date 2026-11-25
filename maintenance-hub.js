@@ -1,17 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * MAINTENANCE HUB v2 — Vidange-first rework of the "Maintenance" tab.
+ * MAINTENANCE HUB v5 — Adaptive Light/Dark Theme + Full Journal Workstation
  *
- *  Built from how the fleet really uses the DB: ~97 % of entries are AUTO-detected
- *  by the GPS maintenance zones, only a handful are typed by hand, and most auto
- *  "Maintenance Générale" rows are just visits that were never qualified.
- *
- *  Views
- *   1. Flotte     — vidange status of every truck (click a truck → its file)
- *   2. À valider  — auto-detections + open orders waiting for a human decision
- *   3. Camion     — per-truck file: KPIs, interval chart, full timeline (vidange + other)
- *   4. Journal    — everything, with filters
- *
- *  Backend: /api/maintenance (+close, +:id/cancel, +:id/reopen, +:id/classify, +delete)
+ *  Views:
+ *   1. Flotte       — live vidange status of every truck
+ *   2. À valider    — validate / rectify / ignore auto-detections (NO DA download here)
+ *   3. Fiche camion — per-truck KPIs, interval chart, diagnosis & timeline
+ *   4. Journal      — full operations table (IMM, Châssis, Prestation, Pack km, Site,
+ *                     working smart filters, and instant multi-select DA .docx download)
  * ═══════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
@@ -21,11 +16,18 @@
     logs: [], loadedAt: 0, loading: false, error: '',
     todoFilter: 'all',       // all | urgent | soon | ok | nohist
     search: '',
-    truck: '',               // deviceId of the open truck file
-    tFilter: 'all',          // truck timeline: all | vidange | other
-    pAll: false,             // pending: also show auto entries older than 30 days
-    hType: '', hStatus: '', hFrom: '', hTo: '',
-    sel: {},                 // selected maintenance IDs for bulk .docx download
+    truck: '',
+    tFilter: 'all',
+    pAll: false,
+    // Journal filters
+    jSearch: '',
+    jType: '',               // '' | 'Vidange' | 'Plaquettes de Frein' | 'Maintenance Générale' | 'other'
+    jSite: '',
+    jStatus: 'no_cancel',    // 'ready' | 'no_cancel' | 'pending' | 'annule' | 'all'
+    jPeriod: 'all',          // 'all' | 'today' | '7d' | '30d' | 'month' | 'custom'
+    jFrom: '',
+    jTo: '',
+    sel: {},                 // selected validated IDs for multi-DA .docx download
     dlBusy: false
   };
   var TTL = 20000;
@@ -48,36 +50,45 @@
     var h = { 'Content-Type': 'application/json' };
     var c = code(); if (c) h['x-access-code'] = c;
     var r = await fetch(base() + path, { method: method || 'GET', headers: h, body: body ? JSON.stringify(body) : undefined });
-    var j = null; try { j = await r.json(); } catch (e) { /* no body */ }
+    var j = null; try { j = await r.json(); } catch (_) { /* ignore */ }
     if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
     return j;
   }
-  function idOf(x) { return x.id || x._id; }
+
+  function idOf(x) { return String(x.id || x._id || ''); }
   function stOf(x) {
     var s = String(x.status || 'en_cours').toLowerCase();
     if (s === 'termine' || s === 'terminé' || s === 'done' || s === 'completed') return 'termine';
     if (s === 'annule' || s === 'annulé' || s === 'cancelled') return 'annule';
     return 'en_cours';
   }
-  function isVid(x) { return /vidange/i.test(x.type || ''); }
+  function isVid(x) { return /vidange/i.test(effType(x)); }
   function dateOf(x) { return new Date(x.date || x.createdAt || 0); }
   function fmtD(d) { d = new Date(d); return isNaN(d) ? '—' : d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }); }
+  function fmtTime(d) { d = new Date(d); return isNaN(d) ? '' : d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); }
   function age(x) {
     var end = stOf(x) === 'en_cours' ? new Date() : new Date(x.exitDate || x.date);
-    var ms = end - dateOf(x); if (!(ms > 0)) return '0h';
-    var d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000);
-    return d > 0 ? d + 'j ' + h + 'h' : h + 'h';
+    var ms = end - dateOf(x); if (!(ms > 0)) return '—';
+    var mins = Math.round(ms / 60000);
+    if (mins < 60) return mins + ' min';
+    var d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
+    return d > 0 ? (d + 'j ' + h + 'h') : (h + 'h ' + (m ? m + 'm' : ''));
   }
   function ageDays(x) { return (new Date() - dateOf(x)) / 86400000; }
   function trucks() { try { return (window.app && app.getAllTrucks()) || []; } catch (e) { return []; } }
   function truckById(id) { return trucks().find(function (k) { return String(k.id) === String(id); }); }
+  function truckDbMeta(devId, tName) {
+    var cache = (window.ui && ui.truckDbCache) || [];
+    return cache.find(function (d) { return devId && String(d.deviceId) === String(devId); }) ||
+      cache.find(function (d) { return tName && String(d.truckName) === String(tName) && d.immatriculation; }) || {};
+  }
+
   function truckCfg(devId) {
     if (typeof window.getTruckConfig === 'function' && devId) return window.getTruckConfig(String(devId));
     return (window.FLEET_CONFIG && FLEET_CONFIG.DEFAULT_TRUCK_CONFIG) || {};
   }
   function rotKm(devId) {
-    var cfg = truckCfg(devId);
-    return Number(cfg.vidangeRotationKm) || 25000;
+    return Number(truckCfg(devId).vidangeRotationKm) || 25000;
   }
   function closestPackKm(km, devId) {
     var odo = Math.round(Number(km) || 0), cfg = truckCfg(devId);
@@ -95,69 +106,100 @@
     if (x && x.isAuto && !x.verified && (!raw || /^maintenance(\s*g[eé]n[eé]rale)?$/i.test(raw))) return 'Plaquettes de Frein';
     return raw || 'Plaquettes de Frein';
   }
+  function isPending(x) {
+    var s = stOf(x);
+    if (s === 'annule') return false;
+    if (s === 'en_cours') return true;
+    if (x.isAuto && !x.verified) return S.pAll || ageDays(x) <= 30;
+    return false;
+  }
+  function canDownloadDa(x) {
+    var s = stOf(x);
+    if (s === 'annule') return false;
+    if (isPending(x)) return false;
+    return true;
+  }
   function root() { return $('vidangeSectionContainer'); }
 
-  // ───────────────────────── CSS ─────────────────────────
+  // ───────────────────────── ADAPTIVE THEME CSS ─────────────────────────
   function css() {
     var old = $('mhCss'); if (old) old.remove();
     var st = document.createElement('style'); st.id = 'mhCss';
     st.textContent = [
       '#vidangeSection .controls-section>h2{display:none}',
       '#vidangeSection .controls-section{background:transparent;border:none;box-shadow:none;padding:0}',
-      '.mh{--c-bg:var(--bg-elevated,#1a2332);--c-b:var(--border,#334155);--c-t:var(--text-primary,#e2e8f0);--c-m:var(--text-muted,#94a3b8)}',
-      '.mh-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}',
-      '.mh-kpi{background:var(--c-bg);border:1px solid var(--c-b);border-radius:14px;padding:12px 14px;cursor:pointer;transition:.15s;position:relative;overflow:hidden}',
+      '.mh{--c-bg:#141d2e;--c-surf:#0d1422;--c-head:#1a253a;--c-b:rgba(255,255,255,.12);--c-t:#f1f5f9;--c-m:#94a3b8;--c-hov:rgba(56,189,248,.06);--c-sel:rgba(14,165,233,.15);color:var(--c-t)}',
+      ':root[data-theme="light"] .mh{--c-bg:#ffffff;--c-surf:#f8fafc;--c-head:#f1f5f9;--c-b:#e2e8f0;--c-t:#0f172a;--c-m:#475569;--c-hov:#f8fafc;--c-sel:#e0f2fe}',
+      '.mh-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;margin-bottom:14px}',
+      '.mh-kpi{background:var(--c-bg);border:1px solid var(--c-b);border-radius:13px;padding:12px 15px;cursor:pointer;transition:.15s;position:relative;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06)}',
       '.mh-kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--k,#64748b)}',
       '.mh-kpi:hover{transform:translateY(-2px)}',
-      '.mh-kpi b{display:block;font-size:24px;font-weight:800;line-height:1.1;color:var(--k,#64748b)}',
+      '.mh-kpi b{display:block;font-size:23px;font-weight:800;line-height:1.15;color:var(--k,#64748b)}',
       '.mh-kpi span{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--c-m);font-weight:700}',
-      '.mh-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--c-b);padding-bottom:10px;align-items:center}',
-      '.mh-tab{padding:8px 16px;border-radius:999px;border:1.5px solid var(--c-b);background:transparent;color:var(--text-secondary,#94a3b8);font-weight:700;font-size:12px;cursor:pointer;font-family:inherit}',
+      '.mh-tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--c-b);padding-bottom:11px;align-items:center}',
+      '.mh-tab{padding:8px 16px;border-radius:999px;border:1.5px solid var(--c-b);background:var(--c-bg);color:var(--c-m);font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;transition:.15s}',
       '.mh-tab.on{background:#f59e0b;border-color:#f59e0b;color:#111}',
       '.mh-tab i{margin-right:6px}',
-      '.mh-tab em{font-style:normal;background:rgba(0,0,0,.28);color:#fff;border-radius:9px;padding:0 7px;margin-left:6px;font-size:10px}',
-      '.mh-tab em.hot{background:#ef4444}',
+      '.mh-tab em{font-style:normal;background:rgba(15,23,42,.22);color:inherit;border-radius:9px;padding:1px 7px;margin-left:6px;font-size:10px;font-weight:800}',
+      '.mh-tab em.hot{background:#ef4444;color:#fff}',
       '.mh-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}',
-      '.mh input,.mh select,.mh textarea{padding:7px 10px;border-radius:8px;border:1px solid var(--c-b);background:var(--bg-surface,#0f172a);color:var(--c-t);font-size:12px;font-family:inherit}',
-      '.mh-pill{padding:5px 12px;border-radius:999px;border:1.5px solid var(--c-b);background:transparent;color:var(--text-secondary,#94a3b8);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}',
+      '.mh input,.mh select,.mh textarea{padding:8px 11px;border-radius:9px;border:1px solid var(--c-b);background:var(--c-bg);color:var(--c-t);font-size:12px;font-family:inherit;outline:none}',
+      '.mh input:focus,.mh select:focus{border-color:#0284c7}',
+      '.mh-pill{padding:6px 12px;border-radius:999px;border:1px solid var(--c-b);background:var(--c-bg);color:var(--c-m);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:.12s}',
       '.mh-pill.on{background:#0284c7;border-color:#0284c7;color:#fff}',
       '.mh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}',
-      '.mh-card{background:var(--c-bg);border:1px solid var(--c-b);border-left:4px solid var(--mhc,#64748b);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}',
+      '.mh-card{background:var(--c-bg);border:1px solid var(--c-b);border-left:4px solid var(--mhc,#64748b);border-radius:13px;padding:14px;display:flex;flex-direction:column;gap:8px;box-shadow:0 1px 4px rgba(0,0,0,.05)}',
       '.mh-card h4{margin:0;font-size:15px;font-weight:800;color:var(--c-t)}',
-      '.mh-link{cursor:pointer;text-decoration:underline dotted}.mh-link:hover{color:#f59e0b}',
+      '.mh-link{cursor:pointer;color:#0284c7;font-weight:800;text-decoration:none}.mh-link:hover{text-decoration:underline}',
+      ':root:not([data-theme="light"]) .mh-link{color:#38bdf8}'
+    ].join('\n');
+    document.head.appendChild(st);
+  }
+
+  function ensureExtraCss() {
+    if ($('mhCss2')) return;
+    var st = document.createElement('style'); st.id = 'mhCss2';
+    st.textContent = [
       '.mh-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}',
       '.mh-sub{font-size:11px;color:var(--c-m)}',
-      '.mh-badge{font-size:10px;font-weight:800;padding:2px 9px;border-radius:999px;color:#fff;background:var(--mhc,#64748b);white-space:nowrap}',
-      '.mh-tag{font-size:10px;font-weight:700;padding:1px 7px;border-radius:6px;background:rgba(148,163,184,.18);color:var(--c-m);white-space:nowrap}',
+      '.mh-badge{font-size:10px;font-weight:800;padding:3px 9px;border-radius:999px;color:#fff;background:var(--mhc,#64748b);white-space:nowrap}',
+      '.mh-tag{font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--c-head);color:var(--c-m);white-space:nowrap;border:1px solid var(--c-b)}',
       '.mh-bar2{height:7px;border-radius:5px;background:rgba(148,163,184,.25);overflow:hidden}',
       '.mh-bar2>div{height:100%;background:var(--mhc,#64748b);border-radius:5px}',
-      '.mh-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;align-items:center}',
-      '.mh-btn{padding:6px 12px;border-radius:8px;border:1px solid var(--c-b);background:var(--bg-surface,#0f172a);color:var(--c-t);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit}',
-      '.mh-btn:hover{filter:brightness(1.2)}',
+      '.mh-acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}',
+      '.mh-btn{padding:6px 11px;border-radius:8px;border:1px solid var(--c-b);background:var(--c-bg);color:var(--c-t);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;transition:.12s}',
+      '.mh-btn:hover{border-color:#0284c7}',
       '.mh-btn.ok{background:#16a34a;border-color:#16a34a;color:#fff}',
+      '.mh-btn.da{background:#0284c7;border-color:#0284c7;color:#fff}',
       '.mh-btn.warn{background:#f59e0b;border-color:#f59e0b;color:#111}',
-      '.mh-btn.bad{color:#f87171;border-color:rgba(248,113,113,.5)}',
-      '.mh-btn.grow{flex:1}',
+      '.mh-btn.bad{color:#ef4444;border-color:rgba(239,68,68,.4)}',
+      '.mh-btn.grow{flex:1;justify-content:center}',
       '.mh-btn[disabled]{opacity:.5;cursor:wait}',
       '.mh-empty{text-align:center;padding:44px 16px;color:var(--c-m);grid-column:1/-1}',
       '.mh-empty i{font-size:34px;opacity:.4;display:block;margin-bottom:10px}',
-      '.mh-tl{display:flex;flex-direction:column;gap:10px}',
-      '.mh-item{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;background:var(--c-bg);border:1px solid var(--c-b);border-left:4px solid var(--mhc,#64748b);border-radius:12px;padding:12px 14px}',
-      '.mh-ic{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:rgba(148,163,184,.15);color:var(--mhc,#64748b)}',
       '.mh-panel{background:var(--c-bg);border:1px solid var(--c-b);border-radius:14px;padding:14px;margin-bottom:14px}',
       '.mh-panel h5{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--c-m)}',
-      '.mh-insight{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);font-size:12px;margin-bottom:14px}',
+      '.mh-insight{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:11px;background:rgba(14,165,233,.1);border:1px solid rgba(14,165,233,.3);font-size:12px;margin-bottom:14px;color:var(--c-t)}',
       '.mh-insight.warn{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.35)}',
       '.mh-insight.bad{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.35)}',
-      '.mh-insight.good{background:rgba(34,197,94,.1);border-color:rgba(34,197,94,.35)}',
-      '@media(max-width:720px){.mh-item{grid-template-columns:auto 1fr}.mh-item .mh-acts{grid-column:1/-1}}',
-      '.mh-ov{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px}',
-      '.mh-dlg{background:var(--bg-elevated,#1a2332);color:var(--c-t,#e2e8f0);border:1px solid var(--border,#334155);border-radius:16px;width:100%;max-width:470px;padding:20px;max-height:92vh;overflow:auto}',
+      '.mh-insight.good{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.35)}',
+      '.mh-fbox{background:var(--c-bg);border:1px solid var(--c-b);border-radius:14px;padding:14px;margin-bottom:12px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 4px rgba(0,0,0,.05)}',
+      '.mh-bulk{position:sticky;top:8px;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 16px;border-radius:12px;background:linear-gradient(135deg,#0f172a,#1e293b);border:1.5px solid #0284c7;color:#fff;margin-bottom:12px;box-shadow:0 8px 24px rgba(2,132,199,.25)}',
+      '.mh-twrap{background:var(--c-bg);border:1px solid var(--c-b);border-radius:14px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.05)}',
+      '.mh-tbl{width:100%;border-collapse:collapse;font-size:12px}',
+      '.mh-tbl th{background:var(--c-head);color:var(--c-m);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;padding:11px 12px;text-align:left;border-bottom:1px solid var(--c-b);white-space:nowrap}',
+      '.mh-tbl td{padding:11px 12px;border-bottom:1px solid var(--c-b);vertical-align:middle;color:var(--c-t)}',
+      '.mh-tbl tbody tr:hover{background:var(--c-hov)}',
+      '.mh-tbl tbody tr.sel{background:var(--c-sel)}',
+      '.mh-chk{width:17px;height:17px;accent-color:#0284c7;cursor:pointer}',
+      '.mh-ov{position:fixed;inset:0;background:rgba(15,23,42,.68);backdrop-filter:blur(3px);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px}',
+      '.mh-dlg{background:var(--bg-elevated,#1a2332);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,rgba(255,255,255,.15));border-radius:16px;width:100%;max-width:480px;padding:20px;max-height:92vh;overflow:auto;box-shadow:0 20px 50px rgba(0,0,0,.4)}',
+      ':root[data-theme="light"] .mh-dlg{background:#ffffff;color:#0f172a;border-color:#cbd5e1}',
       '.mh-dlg h3{margin:0 0 4px;font-size:17px}',
-      '.mh-dlg label{display:block;font-size:11px;font-weight:700;color:var(--text-muted,#94a3b8);margin:10px 0 4px}',
-      '.mh-dlg input,.mh-dlg select,.mh-dlg textarea{width:100%;box-sizing:border-box;padding:7px 10px;border-radius:8px;border:1px solid var(--border,#334155);background:var(--bg-surface,#0f172a);color:var(--text-primary,#e2e8f0);font-size:12px;font-family:inherit}',
-      '.mh-types{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}',
-      '.mh-note{font-size:11px;padding:8px 10px;border-radius:8px;background:rgba(245,158,11,.12);color:#fbbf24;margin-top:10px}'
+      '.mh-dlg label{display:block;font-size:11px;font-weight:700;color:var(--text-muted,#64748b);margin:10px 0 4px}',
+      '.mh-dlg input,.mh-dlg select,.mh-dlg textarea{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid rgba(148,163,184,.35);background:var(--bg-surface,#0f172a);color:inherit;font-size:12px;font-family:inherit}',
+      ':root[data-theme="light"] .mh-dlg input,:root[data-theme="light"] .mh-dlg select,:root[data-theme="light"] .mh-dlg textarea{background:#f8fafc;color:#0f172a;border-color:#cbd5e1}',
+      '.mh-note{font-size:11px;padding:10px 12px;border-radius:9px;background:rgba(2,132,199,.1);border:1px solid rgba(2,132,199,.3);margin-top:12px}'
     ].join('\n');
     document.head.appendChild(st);
   }
@@ -168,6 +210,9 @@
     if (!force && S.loadedAt && Date.now() - S.loadedAt < TTL) return;
     S.loading = true;
     try {
+      if (window.ui && (!ui.truckDbCache || !ui.truckDbCache.length) && ui.loadTruckDbCache) {
+        await ui.loadTruckDbCache();
+      }
       var j = await api('/api/maintenance?limit=2000');
       S.logs = Array.isArray(j) ? j : (j.data || []);
       if (window.ui) window.ui.allMaintenanceLogs = S.logs;
@@ -179,23 +224,14 @@
 
   async function syncAfterChange() {
     var u = window.ui;
-    try { if (u && u.loadSettingsFromCloud) await u.loadSettingsFromCloud(); } catch (e) { /* ignore */ }
-    try { if (window.app && app.forceRecalculateVidanges) app.forceRecalculateVidanges(); } catch (e) { /* ignore */ }
-    try { if (u && u.loadActiveMaintenanceOrders) await u.loadActiveMaintenanceOrders(); } catch (e) { /* ignore */ }
-    try { if (u && u.renderStats) u.renderStats(); } catch (e) { /* ignore */ }
+    try { if (u && u.loadSettingsFromCloud) await u.loadSettingsFromCloud(); } catch (_) {}
+    try { if (window.app && app.forceRecalculateVidanges) app.forceRecalculateVidanges(); } catch (_) {}
+    try { if (u && u.loadActiveMaintenanceOrders) await u.loadActiveMaintenanceOrders(); } catch (_) {}
+    try { if (u && u.renderStats) u.renderStats(); } catch (_) {}
     S.loadedAt = 0; S.loading = false;
     await load(true);
   }
 
-  function isPending(x) {
-    var s = stOf(x);
-    if (s === 'annule') return false;
-    if (s === 'en_cours') return true;
-    if (x.isAuto && !x.verified) return S.pAll || ageDays(x) <= 30;
-    return false;
-  }
-
-  // Per-truck vidange statistics derived from real entries (+ current rotation anchor)
   function truckStats(devId) {
     var ents = S.logs.filter(function (x) {
       return String(x.deviceId) === String(devId) && isVid(x) && stOf(x) !== 'annule' && Number(x.odometer) > 0;
@@ -204,15 +240,16 @@
     var ovr = (window.FLEET_CONFIG && (FLEET_CONFIG.vidangeOverrides || FLEET_CONFIG.VIDANGE_OVERRIDES) || {})[String(devId)];
     if (ovr && Number(ovr.lastVidangeKm) > 0) {
       var km = Number(ovr.lastVidangeKm);
-      var near = pts.some(function (p) { return Math.abs(p.km - km) <= 50; });
-      if (!near) pts.push({ km: km, date: new Date(ovr.confirmedAt || Date.now()), cost: 0, synthetic: true });
-      pts.sort(function (a, b) { return a.date - b.date; });
+      if (!pts.some(function (p) { return Math.abs(p.km - km) <= 50; })) {
+        pts.push({ km: km, date: new Date(ovr.confirmedAt || Date.now()), cost: 0, synthetic: true });
+        pts.sort(function (a, b) { return a.date - b.date; });
+      }
     }
     var intervals = [], dupes = 0;
     for (var i = 1; i < pts.length; i++) {
       var dk = pts[i].km - pts[i - 1].km;
       var dd = Math.max(1, Math.round((pts[i].date - pts[i - 1].date) / 86400000));
-      if (dk < 1000) { dupes++; continue; }       // same service logged twice
+      if (dk < 1000) { dupes++; continue; }
       intervals.push({ km: dk, days: dd, from: pts[i - 1], to: pts[i] });
     }
     var sum = function (arr, k) { return arr.reduce(function (s, v) { return s + v[k]; }, 0); };
@@ -227,8 +264,11 @@
   }
 
   function counts() {
-    var c = { pending: 0, active: 0, urgent: 0, soon: 0, nohist: 0 };
-    S.logs.forEach(function (x) { if (isPending(x)) c.pending++; if (stOf(x) === 'en_cours') c.active++; });
+    var c = { pending: 0, readyDa: 0, urgent: 0, soon: 0, nohist: 0 };
+    S.logs.forEach(function (x) {
+      if (isPending(x)) c.pending++;
+      if (canDownloadDa(x)) c.readyDa++;
+    });
     trucks().forEach(function (k) {
       if (!k.vidange) return;
       var v = k.vidange, kmU = Number(v.kmUntilNext);
@@ -238,10 +278,9 @@
     return c;
   }
 
-  // ───────────────────────── RENDER SHELL ─────────────────────────
   function render() {
     var el = root(); if (!el) return;
-    css();
+    css(); ensureExtraCss();
     var c = counts();
     var kp = function (v, l, color, view, extra) {
       return '<div class="mh-kpi" style="--k:' + color + '" onclick="MaintenanceHub.go(\'' + view + '\'' + (extra ? ',\'' + extra + '\'' : '') + ')"><b>' + v + '</b><span>' + l + '</span></div>';
@@ -253,15 +292,15 @@
     var h = '<div class="mh"><div class="mh-kpis">' +
       kp(c.urgent, 'Vidanges urgentes', '#ef4444', 'todo', 'urgent') +
       kp(c.soon, 'Bientôt dues', '#f59e0b', 'todo', 'soon') +
-      kp(c.pending, 'À valider', c.pending ? '#0ea5e9' : '#22c55e', 'pending') +
-      kp(c.nohist, 'Sans vidange enregistrée', c.nohist ? '#a78bfa' : '#22c55e', 'todo', 'nohist') +
+      kp(c.pending, 'À valider', c.pending ? '#0284c7' : '#16a34a', 'pending') +
+      kp(c.readyDa, 'Journal (prêtes DA)', '#16a34a', 'history') +
       '</div><div class="mh-tabs">' +
       tab('todo', 'fa-oil-can', 'Flotte') +
       tab('pending', 'fa-inbox', 'À valider', c.pending, c.pending > 0) +
       tab('truck', 'fa-truck', 'Fiche camion') +
-      tab('history', 'fa-clock-rotate-left', 'Journal') +
+      tab('history', 'fa-table-list', 'Journal & DA (.docx)', c.readyDa, false) +
       '<span style="flex:1"></span>' +
-      '<button class="mh-btn" onclick="ui.openVidangeScanModal()" title="Rechercher les passages en atelier dans l\'historique GPS"><i class="fa-solid fa-satellite-dish"></i> Scan GPS</button>' +
+      '<button class="mh-btn" onclick="ui.openVidangeScanModal()"><i class="fa-solid fa-satellite-dish"></i> Scan GPS</button>' +
       '<button class="mh-btn warn" onclick="MaintenanceHub.newVidange()"><i class="fa-solid fa-plus"></i> Nouvelle intervention</button>' +
       '<button class="mh-btn" onclick="MaintenanceHub.refresh()" title="Actualiser"><i class="fa-solid fa-rotate' + (S.loading ? ' fa-spin' : '') + '"></i></button>' +
       '</div>';
@@ -271,10 +310,7 @@
     else if (S.view === 'truck') h += viewTruck();
     else h += viewHistory();
     h += '</div>';
-    var focus = document.activeElement && document.activeElement.id;
-    var pos = focus && document.activeElement.selectionStart;
     el.innerHTML = h;
-    if (focus && $(focus) && /^mh/.test(focus)) { $(focus).focus(); try { $(focus).setSelectionRange(pos, pos); } catch (e) { /* not text */ } }
   }
 
   function activeVidangeFor(devId) {
@@ -302,80 +338,65 @@
     if (!list.length) return h + '<div class="mh-grid"><div class="mh-empty"><i class="fa-solid fa-circle-check"></i>Aucun camion dans cette catégorie</div></div>';
     h += '<div class="mh-grid">' + list.map(function (t) {
       var v = t.vidange, k = Number(v.kmUntilNext), c = cls(t);
-      var color = c === 'urgent' ? '#ef4444' : c === 'soon' ? '#f59e0b' : '#22c55e';
+      var color = c === 'urgent' ? '#ef4444' : c === 'soon' ? '#f59e0b' : '#16a34a';
       var label = c === 'urgent' ? (k < 0 ? 'EN RETARD' : 'URGENT') : c === 'soon' ? 'BIENTÔT' : 'OK';
-      var rk = Number(v.rotKm) || rotKm();
+      var rk = Number(v.rotKm) || rotKm(t.id);
       var pct = Math.max(0, Math.min(100, Math.round((1 - k / rk) * 100)));
-      var act = activeVidangeFor(t.id);
-      var st = truckStats(t.id);
+      var act = activeVidangeFor(t.id), st = truckStats(t.id);
       var btn = act
-        ? '<button class="mh-btn ok grow" onclick="MaintenanceHub.closeDlg(\'' + esc(idOf(act)) + '\')"><i class="fa-solid fa-check"></i> Terminer la vidange en cours</button>'
-        : (c !== 'ok' ? '<button class="mh-btn warn grow" onclick="MaintenanceHub.newVidange(\'' + esc(t.id) + '\')"><i class="fa-solid fa-oil-can"></i> Déclarer la vidange</button>' : '');
+        ? '<button class="mh-btn ok grow" onclick="MaintenanceHub.closeDlg(\'' + esc(idOf(act)) + '\')"><i class="fa-solid fa-check"></i> Terminer vidange en cours</button>'
+        : (c !== 'ok' ? '<button class="mh-btn warn grow" onclick="MaintenanceHub.newVidange(\'' + esc(t.id) + '\',\'Vidange\')"><i class="fa-solid fa-oil-can"></i> Déclarer la vidange</button>' : '');
       return '<div class="mh-card" style="--mhc:' + color + '">' +
-        '<div class="mh-row"><h4><span class="mh-link" onclick="MaintenanceHub.openTruck(\'' + esc(t.id) + '\')" title="Ouvrir la fiche">' + esc(t.name) + '</span></h4><span class="mh-badge">' + (act ? 'EN COURS' : label) + '</span></div>' +
+        '<div class="mh-row"><h4><span class="mh-link" onclick="MaintenanceHub.openTruck(\'' + esc(t.id) + '\')">' + esc(t.name) + '</span></h4><span class="mh-badge">' + (act ? 'EN COURS' : label) + '</span></div>' +
         '<div class="mh-bar2"><div style="width:' + pct + '%"></div></div>' +
         '<div class="mh-row"><span class="mh-sub">' + (k < 0 ? '<b style="color:' + color + '">Retard ' + num(Math.abs(k)) + ' km</b>' : 'Reste <b>' + num(k) + ' km</b>') + '</span>' +
         '<span class="mh-sub">Prochaine : <b>' + esc(v.nextKm) + ' km</b></span></div>' +
         '<div class="mh-row"><span class="mh-sub">Actuel : ' + num(t.odometer) + ' km</span>' +
         '<span class="mh-sub">Dernière : ' + (v.lastKm ? num(v.lastKm) + ' km' : '<i>non enregistrée</i>') + '</span></div>' +
-        '<div class="mh-row"><span class="mh-sub">' + st.count + ' vidange(s) enregistrée(s)' + (st.avgKm ? ' · moy. ' + num(st.avgKm) + ' km' : '') + '</span>' +
-        '<span class="mh-link mh-sub" onclick="MaintenanceHub.openTruck(\'' + esc(t.id) + '\')">Fiche →</span></div>' +
+        '<div class="mh-row"><span class="mh-sub">' + st.count + ' vidange(s)' + (st.avgKm ? ' · moy. ' + num(st.avgKm) + ' km' : '') + '</span>' +
+        '<span class="mh-link" style="font-size:11px" onclick="MaintenanceHub.openTruck(\'' + esc(t.id) + '\')">Fiche →</span></div>' +
         (btn ? '<div class="mh-acts">' + btn + '</div>' : '') + '</div>';
     }).join('') + '</div>';
     return h;
   }
 
-  // ───────────────────────── VIEW 2 : À VALIDER ─────────────────────────
-  function selIds() { return Object.keys(S.sel).filter(function (k) { return S.sel[k]; }); }
-  function selBarHtml(visList) {
-    var ids = selIds(), visIds = (visList || []).filter(function (x) { return stOf(x) !== 'annule'; }).map(function (x) { return String(idOf(x)); });
-    var allOn = visIds.length > 0 && visIds.every(function (k) { return !!S.sel[k]; });
-    var bar = visIds.length ? '<label class="mh-sub" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:700"><input type="checkbox" ' + (allOn ? 'checked' : '') + ' onchange="MaintenanceHub.selAll(' + JSON.stringify(visIds).replace(/"/g, '\'') + ',this.checked)"> Tout cocher (' + visIds.length + ')</label>' : '';
-    if (!ids.length) return bar;
-    return bar + '<div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;background:rgba(14,165,233,.14);border:1px solid rgba(14,165,233,.4);padding:5px 10px;border-radius:10px">' +
-      '<b style="font-size:12px;color:#38bdf8">' + ids.length + ' sélectionnée(s)</b>' +
-      '<button class="mh-btn warn" ' + (S.dlBusy ? 'disabled' : '') + ' onclick="MaintenanceHub.downloadBulk(\'files\')"><i class="fa-solid fa-file-word"></i> Télécharger ' + ids.length + ' DA (.docx)</button>' +
-      (ids.length > 1 ? '<button class="mh-btn" ' + (S.dlBusy ? 'disabled' : '') + ' onclick="MaintenanceHub.downloadBulk(\'zip\')"><i class="fa-solid fa-file-zipper"></i> Pack ZIP</button>' : '') +
-      '<button class="mh-btn bad" onclick="MaintenanceHub.clearSel()" title="Effacer la sélection">✕</button></div>';
-  }
-
+  // ───────────────────────── VIEW 2 : À VALIDER (NO DA DOWNLOAD HERE) ─────────────────────────
   function viewPending() {
     var list = S.logs.filter(isPending).sort(function (a, b) { return dateOf(b) - dateOf(a); });
     var hidden = S.pAll ? 0 : S.logs.filter(function (x) { return stOf(x) !== 'annule' && x.isAuto && !x.verified && stOf(x) !== 'en_cours' && ageDays(x) > 30; }).length;
-    var h = '<div class="mh-insight"><i class="fa-solid fa-circle-info" style="margin-top:2px"></i><div>' +
-      '<b>Détections automatiques &amp; Demandes de Service (.docx).</b> Validez une vidange, rectifiez en <b>Plaquettes de Frein</b> (le document s\'adapte immédiatement), ou cochez plusieurs camions pour télécharger toutes les DA Word d\'un coup.</div></div>';
-    h += '<div class="mh-bar"><span class="mh-sub">' + list.length + ' à traiter</span> ' + selBarHtml(list) + '<span style="flex:1"></span>' +
-      '<label class="mh-sub" style="cursor:pointer"><input type="checkbox" ' + (S.pAll ? 'checked' : '') + ' onchange="MaintenanceHub.togglePAll(this.checked)"> Inclure > 30 jours' + (hidden ? ' (' + hidden + ' masquées)' : '') + '</label></div>';
-    if (!list.length) return h + '<div class="mh-grid"><div class="mh-empty"><i class="fa-solid fa-inbox"></i>Rien à valider — tout est à jour 🎉</div></div>';
+    var h = '<div class="mh-insight warn"><i class="fa-solid fa-shield-halved" style="margin-top:2px"></i><div>' +
+      '<b>Validation préalable obligatoire.</b> Vérifiez ou rectifiez la prestation ici avant toute édition de document. ' +
+      'Une fois validée, la Demande de Service (<b>.docx</b>) se télécharge depuis l\'onglet <b>Journal &amp; DA (.docx)</b>.</div></div>';
+    h += '<div class="mh-bar"><span class="mh-sub"><b>' + list.length + '</b> intervention(s) à traiter</span><span style="flex:1"></span>' +
+      '<label class="mh-sub" style="cursor:pointer"><input type="checkbox" ' + (S.pAll ? 'checked' : '') + ' onchange="MaintenanceHub.togglePAll(this.checked)"> Inclure &gt; 30 jours' + (hidden ? ' (' + hidden + ')' : '') + '</label></div>';
+    if (!list.length) return h + '<div class="mh-grid"><div class="mh-empty"><i class="fa-solid fa-inbox"></i>Aucune intervention en attente — ouvrez <b>Journal &amp; DA (.docx)</b> pour télécharger vos demandes.</div></div>';
     h += '<div class="mh-grid">' + list.map(function (x) {
-      var rawId = String(idOf(x)), id = esc(rawId), open = stOf(x) === 'en_cours';
+      var id = esc(idOf(x)), open = stOf(x) === 'en_cours';
       var eType = effType(x), vid = /vidange/i.test(eType), noKm = !(Number(x.odometer) > 0);
-      var color = vid ? '#f59e0b' : '#0ea5e9';
-      var t = truckById(x.deviceId);
+      var color = vid ? '#f59e0b' : '#0284c7';
+      var t = truckById(x.deviceId), meta = truckDbMeta(x.deviceId, x.truckName);
       var packTag = vid && !noKm ? ' · Pack ' + num(closestPackKm(x.odometer, x.deviceId)) + ' km' : '';
       var acts = '';
       if (x.isAuto && !x.verified) {
         acts += (!vid || !noKm)
-          ? '<button class="mh-btn ok grow" onclick="MaintenanceHub.quickValidate(\'' + id + '\')"><i class="fa-solid fa-check"></i> Valider</button>'
+          ? '<button class="mh-btn ok grow" onclick="MaintenanceHub.quickValidate(\'' + id + '\')"><i class="fa-solid fa-check"></i> Valider (' + esc(eType) + ')</button>'
           : '<button class="mh-btn warn grow" onclick="MaintenanceHub.qualify(\'' + id + '\',\'Vidange\')"><i class="fa-solid fa-check"></i> Saisir km &amp; Valider</button>';
-        acts += '<button class="mh-btn" style="border-color:#38bdf8;color:#38bdf8" onclick="MaintenanceHub.downloadDa(\'' + id + '\')" title="Télécharger Demande de Service .docx"><i class="fa-solid fa-file-word"></i> DA .docx</button>' +
-          '<button class="mh-btn" onclick="MaintenanceHub.qualify(\'' + id + '\')" title="Changer la prestation"><i class="fa-solid fa-pen"></i></button>' +
-          '<button class="mh-btn bad" onclick="MaintenanceHub.cancel(\'' + id + '\')" title="Faux positif"><i class="fa-solid fa-ban"></i></button>';
+        acts += '<button class="mh-btn" onclick="MaintenanceHub.qualify(\'' + id + '\')"><i class="fa-solid fa-pen"></i> Rectifier</button>' +
+          '<button class="mh-btn bad" onclick="MaintenanceHub.cancel(\'' + id + '\')" title="Ignorer faux positif"><i class="fa-solid fa-ban"></i></button>';
       } else {
         acts += '<button class="mh-btn ok grow" onclick="MaintenanceHub.closeDlg(\'' + id + '\')"><i class="fa-solid fa-check"></i> Terminer</button>' +
-          '<button class="mh-btn" style="border-color:#38bdf8;color:#38bdf8" onclick="MaintenanceHub.downloadDa(\'' + id + '\')" title="Télécharger Demande de Service .docx"><i class="fa-solid fa-file-word"></i> DA .docx</button>' +
-          '<button class="mh-btn" onclick="MaintenanceHub.qualify(\'' + id + '\')" title="Changer la prestation"><i class="fa-solid fa-pen"></i></button>' +
+          '<button class="mh-btn" onclick="MaintenanceHub.qualify(\'' + id + '\')"><i class="fa-solid fa-pen"></i> Rectifier</button>' +
           '<button class="mh-btn bad" onclick="MaintenanceHub.cancel(\'' + id + '\')"><i class="fa-solid fa-ban"></i></button>';
       }
       return '<div class="mh-card" style="--mhc:' + color + '">' +
-        '<div class="mh-row"><h4 style="display:flex;align-items:center;gap:8px"><input type="checkbox" style="width:16px;height:16px;accent-color:#0ea5e9;cursor:pointer" ' + (S.sel[rawId] ? 'checked' : '') + ' onchange="MaintenanceHub.toggleSel(\'' + id + '\',this.checked)"><span class="mh-link" onclick="MaintenanceHub.openTruck(\'' + esc(x.deviceId) + '\')">' + esc(x.truckName || x.deviceId) + '</span></h4>' +
-        '<span class="mh-badge">' + (open && !x.isAuto ? 'EN COURS' : (x.isAuto ? 'AUTO' : 'À VALIDER')) + '</span></div>' +
+        '<div class="mh-row"><h4><span class="mh-link" onclick="MaintenanceHub.openTruck(\'' + esc(x.deviceId) + '\')">' + esc(x.truckName || x.deviceId) + '</span> ' +
+        (meta.immatriculation ? '<span class="mh-tag">' + esc(meta.immatriculation) + '</span>' : '') + '</h4>' +
+        '<span class="mh-badge">' + (open && !x.isAuto ? 'EN COURS' : 'À VALIDER') + '</span></div>' +
         '<div class="mh-row"><span><i class="fa-solid ' + (vid ? 'fa-oil-can' : 'fa-wrench') + '" style="color:' + color + '"></i> <b>' + esc(eType) + '</b><span class="mh-sub">' + esc(packTag) + '</span></span>' +
         '<span class="mh-sub">' + fmtD(x.date) + (open ? ' · ' + age(x) : '') + '</span></div>' +
         '<div class="mh-sub">' + (x.location ? '<i class="fa-solid fa-location-dot"></i> ' + esc(x.location) + ' · ' : '') +
-        (noKm ? '<b style="color:#f87171">km manquant</b>' : num(x.odometer) + ' km') +
+        (noKm ? '<b style="color:#ef4444">km manquant</b>' : num(x.odometer) + ' km') +
         (t ? ' · actuel ' + num(t.odometer) + ' km' : '') + '</div>' +
-        (x.note ? '<div class="mh-sub" style="font-style:italic">« ' + esc(String(x.note).split('\n')[0].slice(0, 120)) + ' »</div>' : '') +
         '<div class="mh-acts">' + acts + '</div></div>';
     }).join('') + '</div>';
     return h;
@@ -384,7 +405,7 @@
   // ───────────────────────── VIEW 3 : FICHE CAMION ─────────────────────────
   function chartSvg(st, devId) {
     var iv = st.intervals.slice(-12);
-    if (!iv.length) return '<div class="mh-sub" style="padding:16px 0">Pas encore assez de vidanges enregistrées pour tracer des intervalles (il en faut au moins 2).</div>';
+    if (!iv.length) return '<div class="mh-sub" style="padding:14px 0">Pas encore assez de vidanges enregistrées pour tracer les intervalles (minimum 2).</div>';
     var target = rotKm(devId), W = 560, H = 150, pad = 26;
     var max = Math.max(target * 1.25, Math.max.apply(null, iv.map(function (i) { return i.km; })) * 1.1);
     var bw = Math.min(46, (W - pad * 2) / iv.length - 8);
@@ -392,92 +413,60 @@
     var bars = iv.map(function (i, n) {
       var x = pad + n * ((W - pad * 2) / iv.length) + 4;
       var ratio = i.km / target;
-      var col = ratio > 1.1 ? '#ef4444' : ratio < 0.6 ? '#a78bfa' : '#22c55e';
+      var col = ratio > 1.1 ? '#ef4444' : ratio < 0.6 ? '#8b5cf6' : '#16a34a';
       return '<rect x="' + x + '" y="' + y(i.km) + '" width="' + bw + '" height="' + (H - pad - y(i.km)) + '" rx="4" fill="' + col + '"><title>' + fmtD(i.to.date) + ' · ' + num(i.km) + ' km en ' + i.days + ' j</title></rect>' +
-        '<text x="' + (x + bw / 2) + '" y="' + (y(i.km) - 4) + '" font-size="9" text-anchor="middle" fill="#94a3b8">' + Math.round(i.km / 1000) + 'k</text>' +
+        '<text x="' + (x + bw / 2) + '" y="' + (y(i.km) - 4) + '" font-size="9" text-anchor="middle" fill="#64748b">' + Math.round(i.km / 1000) + 'k</text>' +
         '<text x="' + (x + bw / 2) + '" y="' + (H - 10) + '" font-size="8" text-anchor="middle" fill="#64748b">' + fmtD(i.to.date).slice(0, 5) + '</text>';
     }).join('');
     return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;max-height:190px">' +
       '<line x1="' + pad + '" x2="' + (W - pad) + '" y1="' + y(target) + '" y2="' + y(target) + '" stroke="#f59e0b" stroke-dasharray="5 4"/>' +
-      '<text x="' + (W - pad) + '" y="' + (y(target) - 4) + '" font-size="9" text-anchor="end" fill="#f59e0b">cible ' + num(target) + ' km</text>' + bars + '</svg>';
+      '<text x="' + (W - pad) + '" y="' + (y(target) - 4) + '" font-size="9" text-anchor="end" fill="#d97706">cible ' + num(target) + ' km</text>' + bars + '</svg>';
   }
 
   function viewTruck() {
     var all = trucks().filter(function (t) { return t.vidange; }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'fr', { numeric: true }); });
-    var sel = '<div class="mh-bar"><select id="mhTruckSel" onchange="MaintenanceHub.openTruck(this.value)" style="min-width:240px"><option value="">— Choisir un camion —</option>' +
+    var sel = '<div class="mh-bar"><select id="mhTruckSel" onchange="MaintenanceHub.openTruck(this.value)" style="min-width:250px"><option value="">— Choisir un camion —</option>' +
       all.map(function (t) { return '<option value="' + esc(t.id) + '"' + (String(t.id) === String(S.truck) ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</select></div>';
     var t = S.truck && truckById(S.truck);
-    if (!t) return sel + '<div class="mh-grid"><div class="mh-empty"><i class="fa-solid fa-truck"></i>Choisissez un camion (ou cliquez sur son nom dans la flotte) pour voir tout son historique de vidange.</div></div>';
+    if (!t) return sel + '<div class="mh-grid"><div class="mh-empty"><i class="fa-solid fa-truck"></i>Choisissez un camion pour consulter sa fiche complète.</div></div>';
     var v = t.vidange || {}, k = Number(v.kmUntilNext), c = cls(t), st = truckStats(t.id), rk = Number(v.rotKm) || rotKm(t.id);
-    var color = c === 'urgent' ? '#ef4444' : c === 'soon' ? '#f59e0b' : '#22c55e';
-    var db = (window.ui && ui.truckDbCache || []).find(function (d) { return String(d.deviceId) === String(t.id); }) || {};
-    var kpi = function (val, lbl, col) { return '<div class="mh-kpi" style="--k:' + (col || '#64748b') + ';cursor:default"><b style="font-size:19px">' + val + '</b><span>' + lbl + '</span></div>'; };
+    var color = c === 'urgent' ? '#ef4444' : c === 'soon' ? '#f59e0b' : '#16a34a';
+    var db = truckDbMeta(t.id, t.name);
+    var kpi = function (val, lbl, col) { return '<div class="mh-kpi" style="--k:' + (col || '#64748b') + ';cursor:default"><b style="font-size:18px">' + val + '</b><span>' + lbl + '</span></div>'; };
     var since = st.lastKm ? Math.max(0, Number(t.odometer) - st.lastKm) : 0;
-    var h = sel + '<div class="mh-panel" style="border-left:4px solid ' + color + '"><div class="mh-row"><div><div style="font-size:20px;font-weight:800">' + esc(t.name) + '</div>' +
-      '<div class="mh-sub">' + (db.immatriculation ? esc(db.immatriculation) + ' · ' : '') + (db.chassisNumber ? 'Châssis ' + esc(db.chassisNumber) + ' · ' : '') + (db.driverName ? esc(db.driverName) : '') + '</div></div>' +
+    var h = sel + '<div class="mh-panel" style="border-left:4px solid ' + color + '"><div class="mh-row"><div><div style="font-size:19px;font-weight:800">' + esc(t.name) + '</div>' +
+      '<div class="mh-sub">' + (db.immatriculation ? 'IMM : <b>' + esc(db.immatriculation) + '</b> · ' : '') + (db.chassisNumber ? 'Châssis : <b>' + esc(db.chassisNumber) + '</b> · ' : '') + (db.driverName ? esc(db.driverName) : '') + '</div></div>' +
       '<div class="mh-acts"><button class="mh-btn warn" onclick="MaintenanceHub.newVidange(\'' + esc(t.id) + '\',\'Vidange\')"><i class="fa-solid fa-oil-can"></i> + Vidange</button>' +
       '<button class="mh-btn" onclick="MaintenanceHub.newVidange(\'' + esc(t.id) + '\',\'Plaquettes de Frein\')"><i class="fa-solid fa-plus"></i> + Plaquettes</button>' +
+      '<button class="mh-btn" onclick="MaintenanceHub.openJournalForTruck(\'' + esc(t.name) + '\')"><i class="fa-solid fa-file-word"></i> Voir dans Journal &amp; DA</button>' +
       '<button class="mh-btn" onclick="MaintenanceHub.pdf()"><i class="fa-solid fa-file-pdf"></i> PDF</button></div></div>' +
       '<div class="mh-bar2" style="margin:12px 0 4px;--mhc:' + color + '"><div style="width:' + Math.max(0, Math.min(100, Math.round((1 - k / rk) * 100))) + '%"></div></div>' +
       '<div class="mh-row"><span class="mh-sub">' + (k < 0 ? '<b style="color:' + color + '">En retard de ' + num(Math.abs(k)) + ' km</b>' : 'Reste ' + num(k) + ' km avant la prochaine') + '</span>' +
-      '<span class="mh-sub">Prochaine : ' + esc(v.nextKm) + ' km</span></div></div>';
-    h += '<div class="mh-kpis">' + kpi(num(t.odometer) + ' km', 'Compteur actuel', '#0ea5e9') +
-      kpi(st.lastKm ? num(st.lastKm) + ' km' : '—', 'Dernière vidange' + (st.lastDate ? ' · ' + fmtD(st.lastDate) : ''), '#22c55e') +
+      '<span class="mh-sub">Prochaine : <b>' + esc(v.nextKm) + ' km</b></span></div></div>';
+    h += '<div class="mh-kpis">' + kpi(num(t.odometer) + ' km', 'Compteur actuel', '#0284c7') +
+      kpi(st.lastKm ? num(st.lastKm) + ' km' : '—', 'Dernière vidange' + (st.lastDate ? ' · ' + fmtD(st.lastDate) : ''), '#16a34a') +
       kpi(st.lastKm ? num(since) + ' km' : '—', 'Parcourus depuis', since > rk ? '#ef4444' : '#64748b') +
-      kpi(st.avgKm ? num(st.avgKm) + ' km' : '—', 'Intervalle moyen' + (st.avgDays ? ' · ' + st.avgDays + ' j' : ''), '#a78bfa') +
+      kpi(st.avgKm ? num(st.avgKm) + ' km' : '—', 'Intervalle moyen' + (st.avgDays ? ' · ' + st.avgDays + ' j' : ''), '#8b5cf6') +
       kpi(st.count, 'Vidanges enregistrées', '#f59e0b') +
       kpi(st.cost ? num(st.cost) + ' DA' : '—', 'Coût cumulé', '#64748b') + '</div>';
-    h += insight(t, st, k, rk);
+    h += insight(st, k, rk);
     h += '<div class="mh-panel"><h5>Intervalles entre vidanges (km)</h5>' + chartSvg(st, t.id) + '</div>';
-    h += truckTimeline(t.id, st);
+    h += truckTimelineHtml(t.id, st);
     return h;
   }
 
-  function insight(t, st, k, rk) {
+  function insight(st, k, rk) {
     var m = [], type = 'good';
-    if (!st.lastKm) { m.push('Aucune vidange enregistrée pour ce camion : le calcul s\'appuie sur l\'échéance théorique. Déclarez la dernière vidange connue pour fiabiliser le suivi.'); type = 'warn'; }
+    if (!st.lastKm) { m.push('Aucune vidange enregistrée : déclarez la dernière vidange connue pour caler le compteur.'); type = 'warn'; }
     if (k < 0) { m.push('Vidange en retard de <b>' + num(Math.abs(k)) + ' km</b>.'); type = 'bad'; }
-    if (st.avgKm && st.avgKm > rk * 1.1) { m.push('Intervalle moyen <b>' + num(st.avgKm) + ' km</b> au-dessus de la cible (' + num(rk) + ' km) : ce camion dépasse souvent l\'échéance.'); if (type !== 'bad') type = 'warn'; }
-    else if (st.avgKm && st.avgKm < rk * 0.6) { m.push('Intervalle moyen <b>' + num(st.avgKm) + ' km</b> très court : vidanges trop fréquentes ou doublons.'); if (type === 'good') type = 'warn'; }
-    else if (st.avgKm) m.push('Rythme conforme : intervalle moyen <b>' + num(st.avgKm) + ' km</b> pour une cible de ' + num(rk) + ' km.');
-    if (st.dupes) m.push(st.dupes + ' doublon(s) probable(s) (deux vidanges à moins de 1 000 km) ignoré(s) dans les moyennes.');
-    if (!m.length) return '';
-    return '<div class="mh-insight ' + type + '"><i class="fa-solid fa-lightbulb" style="margin-top:2px"></i><div>' + m.join('<br>') + '</div></div>';
+    if (st.avgKm && st.avgKm > rk * 1.1) { m.push('Intervalle moyen <b>' + num(st.avgKm) + ' km</b> supérieur à la rotation cible (' + num(rk) + ' km).'); if (type !== 'bad') type = 'warn'; }
+    else if (st.avgKm && st.avgKm < rk * 0.6) { m.push('Intervalle moyen <b>' + num(st.avgKm) + ' km</b> court : vérifiez d\'éventuels doublons.'); if (type === 'good') type = 'warn'; }
+    else if (st.avgKm) m.push('Rythme conforme : intervalle moyen <b>' + num(st.avgKm) + ' km</b> (cible ' + num(rk) + ' km).');
+    if (st.dupes) m.push(st.dupes + ' doublon(s) probable(s) (&lt; 1 000 km) ignoré(s) dans la moyenne.');
+    return m.length ? '<div class="mh-insight ' + type + '"><i class="fa-solid fa-lightbulb" style="margin-top:2px"></i><div>' + m.join('<br>') + '</div></div>' : '';
   }
 
-  // one timeline row, shared by truck file and journal
-  function rowHtml(x, showTruck, deltaKm) {
-    var eType = effType(x);
-    var s = stOf(x), rawId = String(idOf(x)), id = esc(rawId), vid = /vidange/i.test(eType);
-    var color = s === 'annule' ? '#64748b' : s === 'en_cours' ? '#0ea5e9' : (vid ? '#f59e0b' : '#22c55e');
-    var lbl = s === 'termine' ? 'Terminé' : s === 'annule' ? 'Annulé' : 'En cours';
-    var acts = '';
-    if (s !== 'annule') {
-      acts += '<button class="mh-btn" style="border-color:#38bdf8;color:#38bdf8" onclick="MaintenanceHub.downloadDa(\'' + id + '\')" title="Télécharger Demande de Service (.docx)"><i class="fa-solid fa-file-word"></i> DA .docx</button>';
-      acts += '<button class="mh-btn" onclick="MaintenanceHub.qualify(\'' + id + '\')" title="Changer la prestation"><i class="fa-solid fa-pen"></i> Rectifier</button>';
-    }
-    if (s === 'en_cours') acts += '<button class="mh-btn ok" onclick="MaintenanceHub.closeDlg(\'' + id + '\')"><i class="fa-solid fa-check"></i> Terminer</button><button class="mh-btn bad" onclick="MaintenanceHub.cancel(\'' + id + '\')"><i class="fa-solid fa-ban"></i></button>';
-    else if (s === 'annule') acts += '<button class="mh-btn" onclick="MaintenanceHub.reopen(\'' + id + '\')"><i class="fa-solid fa-rotate-left"></i> Rouvrir</button>';
-    acts += '<button class="mh-btn bad" onclick="ui.deleteMaintenanceEntry(\'' + id + '\')" title="Supprimer"><i class="fa-solid fa-trash"></i></button>';
-    var sub = [];
-    sub.push(fmtD(x.date) + (s === 'termine' && x.exitDate ? ' → ' + fmtD(x.exitDate) : ''));
-    sub.push(age(x));
-    if (Number(x.odometer) > 0) sub.push('<b>' + num(x.odometer) + ' km</b>' + (vid ? ' (Pack ' + num(closestPackKm(x.odometer, x.deviceId)) + ' km)' : ''));
-    else if (vid) sub.push('<b style="color:#f87171">km manquant</b>');
-    if (deltaKm > 0) sub.push('+' + num(deltaKm) + ' km depuis la précédente');
-    if (x.location) sub.push(esc(x.location));
-    if (x.technician) sub.push(esc(x.technician));
-    if (x.cost) sub.push('<b>' + num(x.cost) + ' DA</b>');
-    var chk = s !== 'annule' ? '<input type="checkbox" style="width:16px;height:16px;accent-color:#0ea5e9;cursor:pointer;margin-right:4px" ' + (S.sel[rawId] ? 'checked' : '') + ' onchange="MaintenanceHub.toggleSel(\'' + id + '\',this.checked)">' : '';
-    return '<div class="mh-item" style="--mhc:' + color + '"><div style="display:flex;align-items:center;gap:6px">' + chk + '<div class="mh-ic"><i class="fa-solid ' + (vid ? 'fa-oil-can' : 'fa-wrench') + '"></i></div></div>' +
-      '<div><div class="mh-row" style="justify-content:flex-start;gap:8px">' +
-      (showTruck ? '<b class="mh-link" onclick="MaintenanceHub.openTruck(\'' + esc(x.deviceId) + '\')">' + esc(x.truckName || '—') + '</b>' : '') +
-      '<b>' + esc(eType) + '</b><span class="mh-badge" style="--mhc:' + color + '">' + lbl + '</span>' +
-      (x.isAuto ? '<span class="mh-tag">AUTO' + (x.verified ? ' ✓' : '') + '</span>' : '<span class="mh-tag">manuel</span>') + '</div>' +
-      '<div class="mh-sub">' + sub.join(' · ') + '</div></div><div class="mh-acts">' + acts + '</div></div>';
-  }
-
-  function truckTimeline(devId, st) {
+  function truckTimelineHtml(devId, st) {
     var f = S.tFilter;
     var list = S.logs.filter(function (x) { return String(x.deviceId) === String(devId); })
       .filter(function (x) { return f === 'all' || (f === 'vidange' ? isVid(x) : !isVid(x)); })
@@ -485,348 +474,703 @@
     var prevKm = {};
     st.points.forEach(function (p, i) { if (p.id) prevKm[p.id] = i > 0 ? p.km - st.points[i - 1].km : 0; });
     var pill = function (v, l) { return '<button class="mh-pill' + (f === v ? ' on' : '') + '" onclick="MaintenanceHub.setT(\'' + v + '\')">' + l + '</button>'; };
-    var h = '<div class="mh-bar">' + pill('all', 'Tout (' + S.logs.filter(function (x) { return String(x.deviceId) === String(devId); }).length + ')') + pill('vidange', '🛢 Vidanges') + pill('other', '🔧 Autres (plaquettes…)') + ' ' + selBarHtml(list) + '</div>';
-    if (!list.length) return h + '<div class="mh-tl"><div class="mh-empty"><i class="fa-solid fa-folder-open"></i>Aucun enregistrement pour ce camion</div></div>';
-    return h + '<div class="mh-tl">' + list.map(function (x) { return rowHtml(x, false, prevKm[idOf(x)] || 0); }).join('') + '</div>';
+    var h = '<div class="mh-bar">' + pill('all', 'Tout (' + S.logs.filter(function (x) { return String(x.deviceId) === String(devId); }).length + ')') + pill('vidange', '🛢 Vidanges') + pill('other', '🛑 Plaquettes & Autres') + '</div>';
+    if (!list.length) return h + '<div class="mh-twrap"><div class="mh-empty">Aucun historique pour ce camion</div></div>';
+    return h + renderJournalTable(list, false, prevKm);
   }
 
-  // ───────────────────────── VIEW 4 : JOURNAL ─────────────────────────
-  function viewHistory() {
-    var types = {}; S.logs.forEach(function (x) { if (x.type) types[x.type] = 1; });
-    var q = S.search.toLowerCase();
-    var list = S.logs.filter(function (x) {
-      if (S.hType === '__vid' && !isVid(x)) return false;
-      if (S.hType === '__other' && isVid(x)) return false;
-      if (S.hType && S.hType.indexOf('__') !== 0 && x.type !== S.hType) return false;
-      if (S.hStatus === 'pending' ? !isPending(x) : (S.hStatus && stOf(x) !== S.hStatus)) return false;
-      if (S.hFrom && dateOf(x) < new Date(S.hFrom)) return false;
-      if (S.hTo && dateOf(x) > new Date(S.hTo + 'T23:59:59')) return false;
-      if (q && (String(x.truckName || '') + ' ' + (x.technician || '') + ' ' + (x.location || '')).toLowerCase().indexOf(q) < 0) return false;
+  // ───────────────────────── VIEW 4 : JOURNAL & DA WORKSTATION ─────────────────────────
+  function selIds() {
+    return Object.keys(S.sel).filter(function (k) {
+      if (!S.sel[k]) return false;
+      var x = find(k);
+      return !!(x && canDownloadDa(x));
+    });
+  }
+
+  function filteredJournal() {
+    var q = (S.jSearch || '').trim().toLowerCase();
+    var now = new Date();
+    var pStart = null;
+    if (S.jPeriod === 'today') pStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    else if (S.jPeriod === '7d') pStart = new Date(now.getTime() - 7 * 86400000);
+    else if (S.jPeriod === '30d') pStart = new Date(now.getTime() - 30 * 86400000);
+    else if (S.jPeriod === 'month') pStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    return S.logs.filter(function (x) {
+      var s = stOf(x), eType = effType(x), pend = isPending(x), ready = canDownloadDa(x);
+      // Status filter
+      if (S.jStatus === 'ready' && !ready) return false;
+      if (S.jStatus === 'no_cancel' && s === 'annule') return false;
+      if (S.jStatus === 'pending' && !pend) return false;
+      if (S.jStatus === 'annule' && s !== 'annule') return false;
+
+      // Prestation filter (matches effective prestation shown on screen!)
+      if (S.jType === 'Vidange' && !/vidange/i.test(eType)) return false;
+      if (S.jType === 'Plaquettes de Frein' && !/plaquette|frein/i.test(eType)) return false;
+      if (S.jType === 'Maintenance Générale' && !/^maintenance(\s*g[eé]n[eé]rale)?$/i.test(eType)) return false;
+      if (S.jType === 'other' && (/vidange|plaquette|frein|^maintenance(\s*g[eé]n[eé]rale)?$/i.test(eType))) return false;
+
+      // Site filter
+      if (S.jSite && String(x.location || '') !== S.jSite) return false;
+
+      // Period & custom dates
+      var dt = dateOf(x);
+      if (pStart && dt < pStart) return false;
+      if (S.jFrom && dt < new Date(S.jFrom + 'T00:00:00')) return false;
+      if (S.jTo && dt > new Date(S.jTo + 'T23:59:59')) return false;
+
+      // Smart multi-field search (Truck, IMM, Chassis, Prestation, Pack km, Site, Tech, Note)
+      if (q) {
+        var m = truckDbMeta(x.deviceId, x.truckName);
+        var pack = /vidange/i.test(eType) ? String(closestPackKm(x.odometer, x.deviceId)) : '';
+        var hay = [
+          x.truckName, m.immatriculation, x.immatriculation, m.chassisNumber, x.chassisNumber,
+          eType, x.type, pack, x.odometer, x.location, x.technician, x.note
+        ].join(' ').toLowerCase();
+        if (hay.indexOf(q) < 0) return false;
+      }
       return true;
     }).sort(function (a, b) { return dateOf(b) - dateOf(a); });
-    var opt = function (v, l, cur) { return '<option value="' + esc(v) + '"' + (cur === v ? ' selected' : '') + '>' + esc(l) + '</option>'; };
-    var visSlice = list.slice(0, 300);
-    var h = '<div class="mh-bar">' +
-      '<input id="mhSearch" placeholder="Camion, technicien, lieu…" value="' + esc(S.search) + '" oninput="MaintenanceHub.setSearch(this.value)">' +
-      '<select onchange="MaintenanceHub.setH(\'hType\',this.value)">' + opt('', 'Tous types', S.hType) + opt('__vid', '🛢 Toutes les vidanges', S.hType) + opt('__other', '🔧 Hors vidange', S.hType) +
-      Object.keys(types).sort().map(function (t) { return opt(t, t, S.hType); }).join('') + '</select>' +
-      '<select onchange="MaintenanceHub.setH(\'hStatus\',this.value)">' + opt('', 'Tous statuts', S.hStatus) + opt('pending', '📥 À valider', S.hStatus) + opt('en_cours', '⚙️ En cours', S.hStatus) + opt('termine', '✅ Terminé', S.hStatus) + opt('annule', '🚫 Annulé / ignoré', S.hStatus) + '</select>' +
-      '<input type="date" value="' + esc(S.hFrom) + '" onchange="MaintenanceHub.setH(\'hFrom\',this.value)">' +
-      '<input type="date" value="' + esc(S.hTo) + '" onchange="MaintenanceHub.setH(\'hTo\',this.value)">' +
-      '<span class="mh-sub">' + list.length + ' résultat(s) · ' + num(list.reduce(function (s, x) { return s + (Number(x.cost) || 0); }, 0)) + ' DA</span>' +
-      '<span style="flex:1"></span><button class="mh-btn" onclick="ui.exportMaintenanceXLSX()"><i class="fa-solid fa-file-excel"></i> Excel</button></div>' +
-      (visSlice.length ? '<div class="mh-bar">' + selBarHtml(visSlice) + '</div>' : '');
-    if (!list.length) return h + '<div class="mh-tl"><div class="mh-empty"><i class="fa-solid fa-folder-open"></i>Aucun enregistrement</div></div>';
-    return h + '<div class="mh-tl">' + visSlice.map(function (x) { return rowHtml(x, true, 0); }).join('') +
-      (list.length > 300 ? '<div class="mh-sub" style="text-align:center">300 premiers résultats — affinez les filtres</div>' : '') + '</div>';
   }
 
-  // ───────────────────────── DIALOGS & ACTIONS ─────────────────────────
-  function find(id) { return S.logs.find(function (x) { return String(idOf(x)) === String(id); }); }
-  function dlg(html) {
+  function bulkBarInnerHtml() {
+    var ids = selIds();
+    if (!ids.length) return '';
+    return '<div class="mh-bulk">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<span style="background:#0284c7;color:#fff;font-weight:900;padding:3px 10px;border-radius:999px;font-size:12px">' + ids.length + '</span>' +
+        '<span style="font-size:13px;font-weight:700">prestation(s) sélectionnée(s) pour Demande de Service (.docx)</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button type="button" class="mh-btn warn"' + (S.dlBusy ? ' disabled' : '') + ' onclick="MaintenanceHub.downloadBulk(\'files\')"><i class="fa-solid fa-file-word"></i> Télécharger ' + ids.length + ' fichier(s) .docx</button>' +
+        (ids.length > 1 ? '<button type="button" class="mh-btn da"' + (S.dlBusy ? ' disabled' : '') + ' onclick="MaintenanceHub.downloadBulk(\'zip\')"><i class="fa-solid fa-file-zipper"></i> Télécharger en ZIP (.docx)</button>' : '') +
+        '<button type="button" class="mh-btn" style="background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.25)" onclick="MaintenanceHub.clearSel()">✕ Désélectionner</button>' +
+      '</div></div>';
+  }
+
+  function renderJournalTable(list, showTruckCol, prevKmMap) {
+    var slice = list.slice(0, 350);
+    var eligibleIds = slice.filter(canDownloadDa).map(idOf);
+    var allChecked = eligibleIds.length > 0 && eligibleIds.every(function (k) { return !!S.sel[k]; });
+
+    var rowsHtml = slice.map(function (x) {
+      var rawId = idOf(x), id = esc(rawId);
+      var s = stOf(x), pend = isPending(x), ready = canDownloadDa(x);
+      var eType = effType(x), vid = /vidange/i.test(eType), plaq = /plaquette|frein/i.test(eType);
+      var meta = truckDbMeta(x.deviceId, x.truckName);
+      var imm = x.immatriculation || meta.immatriculation || '';
+      var chas = x.chassisNumber || meta.chassisNumber || '';
+      var pack = vid && Number(x.odometer) > 0 ? closestPackKm(x.odometer, x.deviceId) : 0;
+      var delta = prevKmMap ? (prevKmMap[rawId] || 0) : 0;
+
+      var typeBg = vid ? 'rgba(245,158,11,.15)' : (plaq ? 'rgba(2,132,199,.14)' : 'rgba(139,92,246,.14)');
+      var typeCol = vid ? '#d97706' : (plaq ? '#0284c7' : '#7c3aed');
+      var stBadge = s === 'annule'
+        ? '<span class="mh-badge" style="--mhc:#64748b">Annulé</span>'
+        : pend
+          ? '<span class="mh-badge" style="--mhc:#0284c7">À valider</span>'
+          : '<span class="mh-badge" style="--mhc:#16a34a">Validé</span>';
+
+      var acts = '';
+      if (ready) {
+        acts += '<button type="button" class="mh-btn da" onclick="MaintenanceHub.downloadDa(\'' + id + '\')" title="Télécharger Demande de Service (.docx)"><i class="fa-solid fa-file-word"></i> DA .docx</button>';
+        acts += '<button type="button" class="mh-btn" onclick="MaintenanceHub.qualify(\'' + id + '\')" title="Rectifier prestation / date / km"><i class="fa-solid fa-pen"></i></button>';
+      } else if (pend) {
+        acts += '<button type="button" class="mh-btn ok" onclick="MaintenanceHub.quickValidate(\'' + id + '\')" title="Valider d\'abord pour débloquer la DA"><i class="fa-solid fa-check"></i> Valider</button>';
+        acts += '<button type="button" class="mh-btn" onclick="MaintenanceHub.qualify(\'' + id + '\')" title="Rectifier"><i class="fa-solid fa-pen"></i></button>';
+      } else if (s === 'annule') {
+        acts += '<button type="button" class="mh-btn" onclick="MaintenanceHub.reopen(\'' + id + '\')"><i class="fa-solid fa-rotate-left"></i> Rouvrir</button>';
+      }
+      acts += '<button type="button" class="mh-btn bad" onclick="ui.deleteMaintenanceEntry(\'' + id + '\')" title="Supprimer"><i class="fa-solid fa-trash"></i></button>';
+
+      return '<tr id="mhRow_' + id + '" class="' + (ready && S.sel[rawId] ? 'sel' : '') + '">' +
+        (showTruckCol ? '<td style="width:36px;text-align:center">' +
+          (ready ? '<input type="checkbox" class="mh-chk mh-rowchk" data-id="' + id + '"' + (S.sel[rawId] ? ' checked' : '') + ' onchange="MaintenanceHub.toggleSel(\'' + id + '\',this.checked)">' : '<span class="mh-sub" title="Validez d\'abord cette ligne">—</span>') +
+        '</td>' : '') +
+        '<td style="white-space:nowrap"><div style="font-weight:700">' + fmtD(x.date) + ' <span class="mh-sub">' + fmtTime(x.date) + '</span></div>' +
+          '<div class="mh-sub">' + (x.exitDate ? '→ ' + fmtD(x.exitDate) + ' · ' : '') + age(x) + '</div></td>' +
+        (showTruckCol ? '<td><div><span class="mh-link" style="font-size:13px" onclick="MaintenanceHub.openTruck(\'' + esc(x.deviceId) + '\')">' + esc(x.truckName || '—') + '</span></div>' +
+          '<div class="mh-sub">' + (imm ? 'IMM: <b>' + esc(imm) + '</b>' : '<span style="color:#ef4444">IMM non renseignée</span>') +
+          (chas ? ' · <span style="font-family:monospace">' + esc(chas) + '</span>' : '') + '</div></td>' : '') +
+        '<td><div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+          '<span style="background:' + typeBg + ';color:' + typeCol + ';padding:3px 9px;border-radius:999px;font-weight:800;font-size:11px">' + (vid ? '🛢️ ' : (plaq ? '🛑 ' : '🔧 ')) + esc(eType) + '</span>' +
+          (pack ? '<span class="mh-tag">Pack ' + num(pack) + ' km</span>' : '') +
+          '<span class="mh-tag">' + (x.isAuto ? 'Auto' : 'Manuel') + '</span></div></td>' +
+        '<td style="white-space:nowrap;font-family:var(--font-mono,monospace);font-weight:700">' +
+          (Number(x.odometer) > 0 ? num(x.odometer) + ' km' : '<span class="mh-sub">—</span>') +
+          (delta > 0 ? '<div class="mh-sub">+' + num(delta) + ' km</div>' : '') + '</td>' +
+        '<td><div style="font-weight:600">' + esc(x.location || '—') + '</div>' +
+          (x.cost || x.technician ? '<div class="mh-sub">' + (x.technician ? esc(x.technician) + ' ' : '') + (x.cost ? '<b>' + num(x.cost) + ' DA</b>' : '') + '</div>' : '') + '</td>' +
+        '<td>' + stBadge + '</td>' +
+        '<td style="text-align:right;white-space:nowrap"><div class="mh-acts" style="justify-content:flex-end">' + acts + '</div></td>' +
+      '</tr>';
+    }).join('');
+
+    return '<div class="mh-twrap" style="overflow-x:auto"><table class="mh-tbl"><thead><tr>' +
+      (showTruckCol ? '<th style="width:36px;text-align:center"><input type="checkbox" id="mhMasterChk" class="mh-chk"' + (allChecked ? ' checked' : '') + (eligibleIds.length ? '' : ' disabled') + ' title="Tout sélectionner sur cette liste" onchange="MaintenanceHub.selAllVis(this.checked)"></th>' : '') +
+      '<th>Date Prestation</th>' +
+      (showTruckCol ? '<th>Tracteur (IMM &amp; Châssis)</th>' : '') +
+      '<th>Prestation &amp; Pack DA</th>' +
+      '<th>Compteur</th>' +
+      '<th>Site / Atelier</th>' +
+      '<th>Statut</th>' +
+      '<th style="text-align:right">Actions</th>' +
+      '</tr></thead><tbody>' + rowsHtml + '</tbody></table>' +
+      (list.length > 350 ? '<div class="mh-sub" style="padding:10px;text-align:center">350 premières lignes affichées sur ' + list.length + ' — affinez les filtres pour tout voir.</div>' : '') +
+      '</div>';
+  }
+
+  function journalSummaryHtml(list) {
+    var readyCnt = 0, vidCnt = 0, plaqCnt = 0, totalCost = 0;
+    list.forEach(function (x) {
+      if (canDownloadDa(x)) readyCnt++;
+      var et = effType(x);
+      if (/vidange/i.test(et)) vidCnt++;
+      else if (/plaquette|frein/i.test(et)) plaqCnt++;
+      if (stOf(x) !== 'annule') totalCost += Number(x.cost) || 0;
+    });
+    return '<b>' + list.length + '</b> ligne(s) · <b style="color:#16a34a">' + readyCnt + '</b> prête(s) DA · ' +
+      '🛢️ ' + vidCnt + ' · 🛑 ' + plaqCnt + (totalCost > 0 ? ' · <b>' + num(totalCost) + ' DA</b>' : '');
+  }
+
+  function refreshJournalBody() {
+    var list = filteredJournal();
+    var wrap = $('mhJournalBodyWrap');
+    if (wrap) {
+      wrap.innerHTML = list.length
+        ? renderJournalTable(list, true, null)
+        : '<div class="mh-twrap"><div class="mh-empty"><i class="fa-solid fa-filter-circle-xmark"></i>Aucune prestation ne correspond aux filtres actifs.</div></div>';
+    }
+    var cnt = $('mhJCount');
+    if (cnt) cnt.innerHTML = journalSummaryHtml(list);
+    var bulk = $('mhBulkMount');
+    if (bulk) bulk.innerHTML = bulkBarInnerHtml();
+  }
+
+  function viewHistory() {
+    var list = filteredJournal();
+    var siteMap = {};
+    S.logs.forEach(function (x) {
+      var loc = String(x.location || '').trim();
+      if (loc) siteMap[loc] = (siteMap[loc] || 0) + 1;
+    });
+    var sites = Object.keys(siteMap).sort(function (a, b) { return a.localeCompare(b, 'fr'); });
+    var pp = function (p, lbl) {
+      return '<button type="button" class="mh-pill' + (S.jPeriod === p ? ' on' : '') + '" onclick="MaintenanceHub.setJPeriod(\'' + p + '\')">' + lbl + '</button>';
+    };
+
+    var h = '<div class="mh-fbox">' +
+      '<div style="display:grid;grid-template-columns:minmax(220px,2fr) repeat(auto-fit,minmax(165px,1fr));gap:8px;align-items:center">' +
+        '<input id="mhJSearch" type="text" placeholder="🔍 Rechercher camion, N° IMM, N° châssis, pack km, site…" value="' + esc(S.jSearch) + '" oninput="MaintenanceHub.setJSearch(this.value)">' +
+        '<select onchange="MaintenanceHub.setJFilter(\'jType\',this.value)">' +
+          '<option value=""' + (S.jType === '' ? ' selected' : '') + '>Toutes les prestations</option>' +
+          '<option value="Vidange"' + (S.jType === 'Vidange' ? ' selected' : '') + '>🛢️ Vidange périodique</option>' +
+          '<option value="Plaquettes de Frein"' + (S.jType === 'Plaquettes de Frein' ? ' selected' : '') + '>🛑 Plaquettes de Frein</option>' +
+          '<option value="Maintenance Générale"' + (S.jType === 'Maintenance Générale' ? ' selected' : '') + '>🔧 Maintenance Générale</option>' +
+          '<option value="other"' + (S.jType === 'other' ? ' selected' : '') + '>⚙️ Autres prestations</option>' +
+        '</select>' +
+        '<select onchange="MaintenanceHub.setJFilter(\'jSite\',this.value)">' +
+          '<option value="">📍 Tous les sites / ateliers (' + sites.length + ')</option>' +
+          sites.map(function (s) { return '<option value="' + esc(s) + '"' + (S.jSite === s ? ' selected' : '') + '>' + esc(s) + ' (' + siteMap[s] + ')</option>'; }).join('') +
+        '</select>' +
+        '<select onchange="MaintenanceHub.setJFilter(\'jStatus\',this.value)">' +
+          '<option value="no_cancel"' + (S.jStatus === 'no_cancel' ? ' selected' : '') + '>📋 Actives (hors annulées)</option>' +
+          '<option value="ready"' + (S.jStatus === 'ready' ? ' selected' : '') + '>✅ Validées (prêtes DA .docx)</option>' +
+          '<option value="pending"' + (S.jStatus === 'pending' ? ' selected' : '') + '>📥 À valider uniquement</option>' +
+          '<option value="annule"' + (S.jStatus === 'annule' ? ' selected' : '') + '>🚫 Annulées</option>' +
+          '<option value="all"' + (S.jStatus === 'all' ? ' selected' : '') + '>Tout afficher</option>' +
+        '</select>' +
+      '</div>' +
+      '<div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">' +
+        pp('all', 'Tout') + pp('today', 'Aujourd\'hui') + pp('7d', '7 jours') + pp('30d', '30 jours') + pp('month', 'Ce mois') +
+        '<span class="mh-sub" style="margin-left:4px">Du</span>' +
+        '<input type="date" value="' + esc(S.jFrom) + '" onchange="MaintenanceHub.setJDate(\'jFrom\',this.value)" style="padding:5px 8px">' +
+        '<span class="mh-sub">Au</span>' +
+        '<input type="date" value="' + esc(S.jTo) + '" onchange="MaintenanceHub.setJDate(\'jTo\',this.value)" style="padding:5px 8px">' +
+        '<button type="button" class="mh-btn" onclick="MaintenanceHub.resetJFilters()"><i class="fa-solid fa-rotate-left"></i> Réinitialiser</button>' +
+        '<span style="flex:1"></span>' +
+        '<span id="mhJCount" class="mh-sub">' + journalSummaryHtml(list) + '</span>' +
+        '<button type="button" class="mh-btn" onclick="MaintenanceHub.exportCsv()"><i class="fa-solid fa-file-csv"></i> Export CSV</button>' +
+      '</div>' +
+    '</div>' +
+    '<div id="mhBulkMount">' + bulkBarInnerHtml() + '</div>' +
+    '<div id="mhJournalBodyWrap">' +
+      (list.length
+        ? renderJournalTable(list, true, null)
+        : '<div class="mh-twrap"><div class="mh-empty"><i class="fa-solid fa-filter-circle-xmark"></i>Aucune prestation ne correspond aux filtres actifs.</div></div>') +
+    '</div>';
+    return h;
+  }
+
+  // ───────────────────────── DIALOGS & INTERVENTION ACTIONS ─────────────────────────
+  function find(id) {
+    return S.logs.find(function (x) { return idOf(x) === String(id); });
+  }
+  function closeOv() {
+    var ov = $('mhOv'); if (ov) ov.remove();
+  }
+  function dlg(innerHtml) {
     closeOv();
-    var ov = document.createElement('div'); ov.className = 'mh-ov'; ov.id = 'mhOv';
+    var ov = document.createElement('div');
+    ov.id = 'mhOv'; ov.className = 'mh-ov';
     ov.onclick = function (e) { if (e.target === ov) closeOv(); };
-    ov.innerHTML = '<div class="mh-dlg">' + html + '</div>';
+    ov.innerHTML = '<div class="mh-dlg">' + innerHtml + '</div>';
     document.body.appendChild(ov);
-    return ov;
   }
-  function closeOv() { var o = $('mhOv'); if (o) o.remove(); }
-  function ask(msg, title, icon, btn) {
-    return window.ui_showConfirm ? ui_showConfirm(msg, title, icon, btn) : Promise.resolve(confirm(msg));
+  function ask(msg) {
+    if (window.ui && typeof ui.showConfirm === 'function') return ui.showConfirm('Confirmation', msg);
+    return Promise.resolve(window.confirm(msg));
   }
-  function anchorKm(devId) {
-    var o = (window.FLEET_CONFIG && (FLEET_CONFIG.vidangeOverrides || FLEET_CONFIG.VIDANGE_OVERRIDES) || {})[String(devId)];
-    return o ? Number(o.lastVidangeKm) || 0 : 0;
+  function anchorKm(x) {
+    var k = Number(x && x.odometer) || 0;
+    if (k > 0) return k;
+    var t = x && truckById(x.deviceId);
+    return (t && Number(t.odometer)) || 0;
   }
   function typeOptions(cur) {
-    var all = ['Vidange'].concat(OTHER_TYPES);
-    if (cur && all.indexOf(cur) < 0 && !/vidange/i.test(cur) && cur !== 'Maintenance Générale') all.push(cur);
-    var curN = /vidange/i.test(cur || '') ? 'Vidange' : cur;
-    return all.map(function (t) { return '<option' + (t === curN ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
+    var list = ['Vidange'].concat(OTHER_TYPES);
+    if (cur && list.indexOf(cur) < 0) list.push(cur);
+    return list.map(function (tp) {
+      return '<option value="' + esc(tp) + '"' + (tp === cur ? ' selected' : '') + '>' + esc(tp) + '</option>';
+    }).join('');
+  }
+  function tractorLabel(name) {
+    var raw = String(name || '').trim().toUpperCase();
+    var m = raw.match(/\b(T\s*\d{2,4})\b/);
+    var codeStr = m ? m[1].replace(/\s+/g, '') : raw;
+    if (/HOWO/.test(raw)) return 'TRACTEUR HOWO' + (codeStr && codeStr !== 'HOWO' ? ' ' + codeStr : '');
+    if (/^TRACTEUR\b/.test(raw)) return raw;
+    return 'TRACTEUR MAN' + (codeStr ? ' ' + codeStr : '');
+  }
+  function previewDesigHtml(tp, tName, devId, km, imm, chas) {
+    var tr = tractorLabel(tName), title = '';
+    if (/vidange/i.test(tp)) {
+      var pk = closestPackKm(km, devId);
+      title = 'VIDANGE PERIODIQUE ' + num(pk) + ' KM POUR ' + tr;
+    } else if (/plaquette|frein/i.test(tp)) {
+      title = 'F/P PLAQUETTE DU FREIN POUR ' + tr;
+    } else if (/^maintenance(\s*g[eé]n[eé]rale)?$/i.test(tp)) {
+      title = 'MAINTENANCE GENERALE POUR ' + tr;
+    } else {
+      title = String(tp || 'MAINTENANCE').toUpperCase() + ' POUR ' + tr;
+    }
+    return '<div style="font-family:\'Times New Roman\',serif;font-size:12px;font-weight:700;line-height:1.45;text-align:left">' +
+      esc(title) + '<br><span style="font-weight:700">IMMATRICULE : ' + esc(imm || '—') + '</span><br>' +
+      '<span style="font-weight:700">NUMERO DE CHASSIS : ' + esc(chas || '—') + '</span></div>';
   }
 
-  // Manual intervention (1 single prestation: Vidange, Plaquettes de Frein, Maintenance Générale, etc.)
   function newVidange(devId, presetType) {
-    var list = trucks().filter(function (t) { return t.vidange; }).sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'fr', { numeric: true }); });
-    var cur = devId || S.truck || '';
-    var t0 = cur && truckById(cur);
-    var pType = presetType || 'Vidange';
-    dlg('<h3><i class="fa-solid fa-screwdriver-wrench" style="color:#f59e0b"></i> Nouvelle intervention</h3>' +
-      '<div class="mh-sub">Une seule prestation par demande (si un camion fait Vidange + Plaquettes, créez une entrée séparée pour Plaquettes).</div>' +
-      '<label>Camion</label><select id="mhNvT" onchange="MaintenanceHub.nvPick(this.value)"><option value="">— Choisir —</option>' +
-      list.map(function (t) { return '<option value="' + esc(t.id) + '"' + (String(t.id) === String(cur) ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</select>' +
-      '<label>Prestation</label><select id="mhNvType" onchange="MaintenanceHub.nvUpdPrev()">' + typeOptions(pType) + '</select>' +
-      '<label>Kilométrage</label><input id="mhNvKm" type="number" min="0" value="' + (t0 ? esc(Math.round(Number(t0.odometer) || 0) || '') : '') + '" oninput="MaintenanceHub.nvUpdPrev()">' +
-      '<label>Date de la prestation</label><input id="mhNvD" type="date" value="' + new Date().toISOString().slice(0, 10) + '">' +
-      '<label>Lieu / Garage</label><input id="mhNvL" type="text" placeholder="Maghreb Truck Company SPA, SOFRAMIMEX…">' +
-      '<label>Coût (DA) — optionnel</label><input id="mhNvC" type="number" min="0">' +
-      '<label>Note — optionnel</label><textarea id="mhNvN" rows="2"></textarea>' +
-      '<div class="mh-note"><div style="font-weight:800;margin-bottom:3px"><i class="fa-solid fa-file-word"></i> Désignation DA (.docx) :</div><div id="mhNvPrev" style="font-family:monospace;color:#fff">' + esc(previewDesigText(cur, t0 ? t0.name : '', pType, t0 ? t0.odometer : 0)) + '</div></div>' +
-      '<div class="mh-acts" style="margin-top:16px;justify-content:flex-end"><button class="mh-btn" onclick="MaintenanceHub.closeOv()">Fermer</button>' +
-      '<button class="mh-btn warn" onclick="MaintenanceHub.doNewVidange(true)"><i class="fa-solid fa-file-word"></i> Enregistrer &amp; DA .docx</button>' +
-      '<button class="mh-btn ok" id="mhGo" onclick="MaintenanceHub.doNewVidange(false)"><i class="fa-solid fa-check"></i> Enregistrer</button></div>');
+    var all = trucks().sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'fr', { numeric: true }); });
+    var t = devId ? truckById(devId) : (all[0] || null);
+    var defType = presetType || (t && t.vidange && t.vidange.alert ? 'Vidange' : 'Plaquettes de Frein');
+    var km = t ? Math.round(Number(t.odometer) || 0) : 0;
+    var meta = t ? truckDbMeta(t.id, t.name) : {};
+    var today = new Date().toISOString().slice(0, 10);
+    dlg(
+      '<h3>Nouvelle intervention validée</h3>' +
+      '<div class="mh-sub">Sera enregistrée directement dans le Journal (prête pour édition DA .docx).</div>' +
+      '<label>Camion / Tracteur</label>' +
+      '<select id="mhNvTruck" onchange="MaintenanceHub.nvPick(this.value)">' +
+        all.map(function (k) { return '<option value="' + esc(k.id) + '"' + (t && String(k.id) === String(t.id) ? ' selected' : '') + '>' + esc(k.name) + ' (' + num(k.odometer) + ' km)</option>'; }).join('') +
+      '</select>' +
+      '<label>Prestation</label>' +
+      '<select id="mhNvType" onchange="MaintenanceHub.nvUpdPrev()">' + typeOptions(defType) + '</select>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div><label>Date prestation</label><input id="mhNvDate" type="date" value="' + today + '"></div>' +
+        '<div><label>Compteur (km)</label><input id="mhNvKm" type="number" value="' + km + '" oninput="MaintenanceHub.nvUpdPrev()"></div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div><label>Site / Atelier</label><input id="mhNvLoc" type="text" placeholder="Ex: Atelier MAN Alger"></div>' +
+        '<div><label>Coût (DA, optionnel)</label><input id="mhNvCost" type="number" placeholder="0"></div>' +
+      '</div>' +
+      '<label>Technicien / Note</label><input id="mhNvNote" type="text" placeholder="Optionnel">' +
+      '<div class="mh-note"><div style="font-size:10px;font-weight:800;color:#0284c7;margin-bottom:4px">APERÇU DESIGNATION DA (.DOCX)</div>' +
+        '<div id="mhNvPrev">' + (t ? previewDesigHtml(defType, t.name, t.id, km, meta.immatriculation, meta.chassisNumber) : '') + '</div></div>' +
+      '<div class="mh-acts" style="justify-content:flex-end;margin-top:14px">' +
+        '<button type="button" class="mh-btn" onclick="MaintenanceHub.closeOv()">Annuler</button>' +
+        '<button type="button" class="mh-btn ok" onclick="MaintenanceHub.doNewVidange()"><i class="fa-solid fa-check"></i> Enregistrer</button>' +
+      '</div>'
+    );
+  }
+
+  function nvPick(devId) {
+    var t = truckById(devId);
+    if (!t) return;
+    var kmEl = $('mhNvKm'), tpEl = $('mhNvType');
+    if (kmEl) kmEl.value = Math.round(Number(t.odometer) || 0);
+    if (tpEl) tpEl.value = (t.vidange && t.vidange.alert) ? 'Vidange' : 'Plaquettes de Frein';
+    nvUpdPrev();
   }
   function nvUpdPrev() {
-    var id = $('mhNvT') && $('mhNvT').value, t = id && truckById(id), p = $('mhNvPrev');
-    if (p) p.textContent = previewDesigText(id, t ? t.name : '', $('mhNvType') && $('mhNvType').value, $('mhNvKm') && $('mhNvKm').value);
+    var devId = ($('mhNvTruck') && $('mhNvTruck').value) || '';
+    var tp = ($('mhNvType') && $('mhNvType').value) || 'Vidange';
+    var km = Number($('mhNvKm') && $('mhNvKm').value) || 0;
+    var t = truckById(devId), meta = t ? truckDbMeta(t.id, t.name) : {};
+    var box = $('mhNvPrev');
+    if (box && t) box.innerHTML = previewDesigHtml(tp, t.name, t.id, km, meta.immatriculation, meta.chassisNumber);
   }
-  function nvPick(id) { var t = truckById(id); if (t && $('mhNvKm')) $('mhNvKm').value = Math.round(Number(t.odometer) || 0) || ''; nvUpdPrev(); }
-
-  async function doNewVidange(andDocx) {
-    var id = $('mhNvT').value, km = Math.round(Number($('mhNvKm').value) || 0), t = truckById(id);
-    var type = ($('mhNvType') && $('mhNvType').value) || 'Vidange';
-    if (!t) { toast('Choisissez un camion', 'warning'); return; }
-    if (/vidange/i.test(type) && km <= 0) { toast('Saisissez le kilométrage pour la vidange', 'warning'); return; }
-    var cur = anchorKm(id);
-    if (/vidange/i.test(type) && cur && km < cur && !(await ask('La dernière vidange connue est à ' + num(cur) + ' km, supérieure à ' + num(km) + ' km. Enregistrer quand même ?', 'Kilométrage inférieur', '⚠️', 'Enregistrer'))) return;
-    var btn = $('mhGo'); if (btn) btn.disabled = true;
-    var d = new Date(($('mhNvD').value || new Date().toISOString().slice(0, 10)) + 'T12:00:00');
+  async function doNewVidange() {
+    var devId = ($('mhNvTruck') && $('mhNvTruck').value) || '';
+    var tp = ($('mhNvType') && $('mhNvType').value) || 'Vidange';
+    var km = Math.round(Number($('mhNvKm') && $('mhNvKm').value) || 0);
+    var dt = ($('mhNvDate') && $('mhNvDate').value) || new Date().toISOString().slice(0, 10);
+    var loc = ($('mhNvLoc') && $('mhNvLoc').value || '').trim();
+    var cost = Number($('mhNvCost') && $('mhNvCost').value) || 0;
+    var note = ($('mhNvNote') && $('mhNvNote').value || '').trim();
+    var t = truckById(devId);
+    if (!t) { toast('Veuillez choisir un camion.', 'warning'); return; }
+    if (/vidange/i.test(tp) && km <= 0) { toast('Kilométrage requis pour une vidange.', 'warning'); return; }
+    var meta = truckDbMeta(t.id, t.name);
     try {
-      var r = await api('/api/maintenance/add', 'POST', {
-        truckName: t.name, deviceId: String(t.id), type: type, odometer: km, date: d.toISOString(), exitDate: d.toISOString(),
-        status: 'termine', isAuto: false, verified: true, location: $('mhNvL').value.trim(),
-        cost: Number($('mhNvC').value) || 0, note: $('mhNvN').value.trim()
+      await api('/api/maintenance/add', 'POST', {
+        deviceId: String(t.id), truckName: t.name, type: tp, odometer: km,
+        date: new Date(dt + 'T12:00:00').toISOString(), exitDate: new Date(dt + 'T13:00:00').toISOString(),
+        location: loc || 'Atelier', cost: cost, note: note,
+        immatriculation: meta.immatriculation || '', chassisNumber: meta.chassisNumber || '',
+        status: 'termine', isAuto: false, verified: true
       });
-      if (r && r.vidangeOverrides && window.FLEET_CONFIG) { FLEET_CONFIG.VIDANGE_OVERRIDES = r.vidangeOverrides; FLEET_CONFIG.vidangeOverrides = r.vidangeOverrides; }
-      closeOv(); toast('✅ ' + type + ' enregistrée pour ' + t.name, 'success'); await syncAfterChange();
-      if (andDocx && r && r.id) await downloadDa(String(r.id));
-    } catch (e) { toast('Erreur : ' + e.message, 'error'); if (btn) btn.disabled = false; }
+      closeOv();
+      toast('Intervention enregistrée dans le Journal.', 'success');
+      await syncAfterChange();
+    } catch (e) { toast('Erreur : ' + e.message, 'error'); }
   }
 
-  function previewDesigText(devId, truckName, type, km) {
-    var tr = String(truckName || '').trim().toUpperCase() || 'T000';
-    if (!/\b(HOWO|MAN|RENAULT|VOLVO|SCANIA|MERCEDES|IVECO|SHACMAN|DAF)\b/.test(tr)) tr = 'MAN ' + tr;
-    if (/vidange/i.test(type || '')) {
-      var pack = closestPackKm(km, devId);
-      return 'VIDANGE PERIODIQUE ' + String(pack).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' KM POUR TRACTEUR ' + tr;
-    }
-    if (/plaquette|frein/i.test(type || '')) return 'F/P PLAQUETTE DU FREIN POUR TRACTEUR ' + tr;
-    if (/^maintenance(\s*g[eé]n[eé]rale)?$/i.test(type || '')) return 'MAINTENANCE GENERALE POUR TRACTEUR ' + tr;
-    return 'F/P ' + String(type || 'MAINTENANCE').toUpperCase() + ' POUR TRACTEUR ' + tr;
-  }
-
-  function updateQualifyPreview(devId, truckName) {
-    var p = $('mhDesigPrev');
-    if (!p) return;
-    p.textContent = previewDesigText(devId, truckName, $('mhType') && $('mhType').value, $('mhKm') && $('mhKm').value);
-  }
-
-  // Qualify / rectify any entry (1 single prestation)
-  function qualify(id, preset) {
+  function qualify(id, forceType) {
     var x = find(id); if (!x) return;
-    var t = truckById(x.deviceId);
-    var type = preset || effType(x);
-    var km = Number(x.odometer) > 0 ? Number(x.odometer) : (t && ageDays(x) < 3 ? Math.round(Number(t.odometer) || 0) : '');
-    var dtVal = dateOf(x) && !isNaN(dateOf(x)) ? dateOf(x).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
-    var tName = x.truckName || (t && t.name) || '', dId = String(x.deviceId || '');
-    dlg('<h3><i class="fa-solid fa-pen" style="color:#f59e0b"></i> Modifier la prestation</h3>' +
-      '<div class="mh-sub">' + esc(tName) + ' · entrée le ' + fmtD(x.date) + (x.location ? ' · ' + esc(x.location) : '') + '</div>' +
-      '<label>Prestation (une seule par DA)</label><select id="mhType" onchange="MaintenanceHub.updPrev(\'' + esc(dId) + '\',\'' + esc(tName) + '\')">' + typeOptions(type) + '</select>' +
-      '<label>Date de la prestation (en haut de la DA)</label><input id="mhDate" type="date" value="' + esc(dtVal) + '">' +
-      '<label>Kilométrage du camion</label><input id="mhKm" type="number" min="0" value="' + esc(km) + '" oninput="MaintenanceHub.updPrev(\'' + esc(dId) + '\',\'' + esc(tName) + '\')">' +
-      '<label>Coût (DA) — optionnel</label><input id="mhCost" type="number" min="0" value="' + esc(x.cost || '') + '">' +
-      '<label>Technicien / Garage — optionnel</label><input id="mhTech" type="text" value="' + esc(x.technician || '') + '">' +
-      '<label>Note — optionnel</label><textarea id="mhNote" rows="2">' + esc(x.note || '') + '</textarea>' +
-      '<div class="mh-note"><div style="font-weight:800;margin-bottom:3px"><i class="fa-solid fa-file-word"></i> Désignation DA (.docx) :</div><div id="mhDesigPrev" style="font-family:monospace;color:#fff">' + esc(previewDesigText(dId, tName, type, km)) + '</div></div>' +
-      '<div class="mh-acts" style="margin-top:16px;justify-content:space-between"><button class="mh-btn bad" onclick="MaintenanceHub.closeOv();MaintenanceHub.cancel(\'' + esc(id) + '\')"><i class="fa-solid fa-ban"></i> Ignorer</button>' +
-      '<span style="display:flex;gap:6px;flex-wrap:wrap"><button class="mh-btn" onclick="MaintenanceHub.closeOv()">Fermer</button>' +
-      '<button class="mh-btn warn" onclick="MaintenanceHub.doQualify(\'' + esc(id) + '\',true)"><i class="fa-solid fa-file-word"></i> Enregistrer &amp; DA .docx</button>' +
-      '<button class="mh-btn ok" id="mhGo" onclick="MaintenanceHub.doQualify(\'' + esc(id) + '\',false)"><i class="fa-solid fa-check"></i> Enregistrer</button></span></div>');
+    var pend = isPending(x);
+    var curType = forceType || effType(x);
+    var km = anchorKm(x);
+    var meta = truckDbMeta(x.deviceId, x.truckName);
+    var imm = x.immatriculation || meta.immatriculation || '';
+    var chas = x.chassisNumber || meta.chassisNumber || '';
+    var dtVal = !isNaN(dateOf(x)) ? dateOf(x).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+    dlg(
+      '<h3>' + (pend ? 'Valider / Rectifier l\'intervention' : 'Rectifier la prestation (Journal)') + '</h3>' +
+      '<div class="mh-sub">Camion : <b>' + esc(x.truckName || x.deviceId) + '</b>' + (x.location ? ' · ' + esc(x.location) : '') + '</div>' +
+      '<label>Prestation retenue</label>' +
+      '<select id="mhQType" onchange="MaintenanceHub.updQualPrev(\'' + esc(id) + '\')">' + typeOptions(curType) + '</select>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div><label>Date de prestation</label><input id="mhQDate" type="date" value="' + dtVal + '"></div>' +
+        '<div><label>Compteur (km)</label><input id="mhQKm" type="number" value="' + km + '" oninput="MaintenanceHub.updQualPrev(\'' + esc(id) + '\')"></div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div><label>N° Immatriculation</label><input id="mhQImm" type="text" value="' + esc(imm) + '" oninput="MaintenanceHub.updQualPrev(\'' + esc(id) + '\')"></div>' +
+        '<div><label>N° Châssis</label><input id="mhQChas" type="text" value="' + esc(chas) + '" oninput="MaintenanceHub.updQualPrev(\'' + esc(id) + '\')"></div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div><label>Site / Atelier</label><input id="mhQLoc" type="text" value="' + esc(x.location || '') + '"></div>' +
+        '<div><label>Coût (DA)</label><input id="mhQCost" type="number" value="' + (Number(x.cost) || '') + '" placeholder="0"></div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div><label>Technicien</label><input id="mhQTech" type="text" value="' + esc(x.technician || '') + '"></div>' +
+        '<div><label>Note</label><input id="mhQNote" type="text" value="' + esc(x.note || '') + '"></div>' +
+      '</div>' +
+      '<div class="mh-note"><div style="font-size:10px;font-weight:800;color:#0284c7;margin-bottom:4px">DESIGNATION FUTURE SUR LA DA (.DOCX)</div>' +
+        '<div id="mhQPrev">' + previewDesigHtml(curType, x.truckName, x.deviceId, km, imm, chas) + '</div></div>' +
+      '<div class="mh-acts" style="justify-content:flex-end;margin-top:14px">' +
+        '<button type="button" class="mh-btn" onclick="MaintenanceHub.closeOv()">Annuler</button>' +
+        '<button type="button" class="mh-btn ok" onclick="MaintenanceHub.doQualify(\'' + esc(id) + '\',false)"><i class="fa-solid fa-check"></i> ' + (pend ? 'Valider &amp; Envoyer au Journal' : 'Enregistrer la rectification') + '</button>' +
+        (!pend ? '<button type="button" class="mh-btn da" onclick="MaintenanceHub.doQualify(\'' + esc(id) + '\',true)"><i class="fa-solid fa-file-word"></i> Enregistrer &amp; DA .docx</button>' : '') +
+      '</div>'
+    );
   }
 
-  async function doQualify(id, andDocx) {
+  function updQualPrev(id) {
     var x = find(id); if (!x) return;
-    var type = $('mhType').value, km = Math.round(Number($('mhKm').value) || 0);
-    if (/vidange/i.test(type) && km <= 0) { toast('Kilométrage requis pour une vidange', 'warning'); return; }
-    var btn = $('mhGo'); if (btn) btn.disabled = true;
-    var body = { type: type, odometer: km, technician: $('mhTech').value.trim(), note: $('mhNote').value.trim(), by: localStorage.getItem('fleetUserName') || '' };
-    if ($('mhDate') && $('mhDate').value) body.date = new Date($('mhDate').value + 'T12:00:00').toISOString();
-    if ($('mhCost').value !== '') body.cost = Number($('mhCost').value);
-    if (stOf(x) === 'en_cours' && x.exitDate) body.status = 'termine';
-    var ok = await sendClassify(id, body, btn);
-    if (ok && andDocx) await downloadDa(id);
+    var tp = ($('mhQType') && $('mhQType').value) || effType(x);
+    var km = Number($('mhQKm') && $('mhQKm').value) || 0;
+    var imm = ($('mhQImm') && $('mhQImm').value) || '';
+    var chas = ($('mhQChas') && $('mhQChas').value) || '';
+    var box = $('mhQPrev');
+    if (box) box.innerHTML = previewDesigHtml(tp, x.truckName, x.deviceId, km, imm, chas);
+  }
+
+  async function doQualify(id, andDownload) {
+    var x = find(id); if (!x) return;
+    var wasPend = isPending(x);
+    var tp = ($('mhQType') && $('mhQType').value) || effType(x);
+    var km = Math.round(Number($('mhQKm') && $('mhQKm').value) || 0);
+    var dt = ($('mhQDate') && $('mhQDate').value) || '';
+    var imm = ($('mhQImm') && $('mhQImm').value || '').trim();
+    var chas = ($('mhQChas') && $('mhQChas').value || '').trim();
+    var loc = ($('mhQLoc') && $('mhQLoc').value || '').trim();
+    var cost = ($('mhQCost') && $('mhQCost').value) || '';
+    var tech = ($('mhQTech') && $('mhQTech').value || '').trim();
+    var note = ($('mhQNote') && $('mhQNote').value || '').trim();
+    if (/vidange/i.test(tp) && km <= 0) { toast('Kilométrage requis pour une vidange.', 'warning'); return; }
+    try {
+      await api('/api/maintenance/' + encodeURIComponent(id) + '/classify', 'PATCH', {
+        type: tp, odometer: km, date: dt ? new Date(dt + 'T12:00:00').toISOString() : undefined,
+        immatriculation: imm, chassisNumber: chas, cost: cost === '' ? undefined : Number(cost),
+        technician: tech, note: note, status: 'termine'
+      });
+      if (loc && loc !== String(x.location || '')) {
+        await api('/api/maintenance/update', 'POST', { id: id, location: loc });
+      }
+      closeOv();
+      toast(wasPend ? 'Intervention validée — disponible dans le Journal.' : 'Rectification enregistrée.', 'success');
+      await syncAfterChange();
+      if (andDownload && !wasPend) await downloadDa(id);
+    } catch (e) { toast('Erreur : ' + e.message, 'error'); }
   }
 
   async function quickValidate(id) {
     var x = find(id); if (!x) return;
-    var body = { type: effType(x), odometer: Number(x.odometer), by: localStorage.getItem('fleetUserName') || '' };
-    if (stOf(x) === 'en_cours' && x.exitDate) body.status = 'termine';
-    await sendClassify(id, body, null);
-  }
-
-  async function sendClassify(id, body, btn) {
+    var tp = effType(x), km = anchorKm(x);
+    if (/vidange/i.test(tp) && km <= 0) { qualify(id, 'Vidange'); return; }
     try {
-      var r = await api('/api/maintenance/' + encodeURIComponent(id) + '/classify', 'PATCH', body);
-      if (r && r.vidangeOverrides && window.FLEET_CONFIG) { FLEET_CONFIG.VIDANGE_OVERRIDES = r.vidangeOverrides; FLEET_CONFIG.vidangeOverrides = r.vidangeOverrides; }
-      closeOv();
-      toast(r && r.vidangeAcknowledged ? '✅ Enregistré — vidange prise en compte' : '✅ Intervention mise à jour', 'success');
+      await api('/api/maintenance/' + encodeURIComponent(id) + '/classify', 'PATCH', {
+        type: tp, odometer: km, status: 'termine'
+      });
+      toast('Validée (' + tp + ') — prête pour DA .docx dans le Journal.', 'success');
       await syncAfterChange();
-      return true;
-    } catch (e) { toast('Erreur : ' + e.message, 'error'); if (btn) btn.disabled = false; return false; }
+    } catch (e) { toast('Erreur : ' + e.message, 'error'); }
   }
 
+  function closeDlg(id) {
+    var x = find(id); if (!x) return;
+    var km = anchorKm(x);
+    dlg(
+      '<h3>Terminer l\'intervention en cours</h3>' +
+      '<div class="mh-sub">Camion : <b>' + esc(x.truckName || x.deviceId) + '</b> · ' + esc(effType(x)) + '</div>' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+        '<div><label>Compteur sortie (km)</label><input id="mhCKm" type="number" value="' + km + '"></div>' +
+        '<div><label>Coût (DA)</label><input id="mhCCost" type="number" value="' + (Number(x.cost) || '') + '" placeholder="0"></div>' +
+      '</div>' +
+      '<label>Technicien</label><input id="mhCTech" type="text" value="' + esc(x.technician || '') + '">' +
+      '<label>Note de clôture</label><input id="mhCNote" type="text" value="' + esc(x.note || '') + '">' +
+      '<div class="mh-acts" style="justify-content:flex-end;margin-top:14px">' +
+        '<button type="button" class="mh-btn" onclick="MaintenanceHub.closeOv()">Annuler</button>' +
+        '<button type="button" class="mh-btn ok" onclick="MaintenanceHub.doClose(\'' + esc(id) + '\')"><i class="fa-solid fa-check"></i> Clôturer</button>' +
+      '</div>'
+    );
+  }
+  async function doClose(id) {
+    var x = find(id); if (!x) return;
+    var km = Math.round(Number($('mhCKm') && $('mhCKm').value) || 0);
+    var cost = Number($('mhCCost') && $('mhCCost').value) || 0;
+    var tech = ($('mhCTech') && $('mhCTech').value || '').trim();
+    var note = ($('mhCNote') && $('mhCNote').value || '').trim();
+    try {
+      await api('/api/maintenance/' + encodeURIComponent(id) + '/complete', 'PATCH', {
+        odometer: km, cost: cost, technician: tech, note: note
+      });
+      closeOv();
+      toast('Intervention clôturée et transférée au Journal.', 'success');
+      await syncAfterChange();
+    } catch (e) { toast('Erreur : ' + e.message, 'error'); }
+  }
+  async function cancel(id) {
+    if (!(await ask('Ignorer / annuler cette intervention ?'))) return;
+    try {
+      await api('/api/maintenance/' + encodeURIComponent(id) + '/cancel', 'PATCH', {});
+      delete S.sel[id];
+      toast('Intervention annulée.', 'info');
+      await syncAfterChange();
+    } catch (e) { toast('Erreur : ' + e.message, 'error'); }
+  }
+  async function reopen(id) {
+    try {
+      await api('/api/maintenance/' + encodeURIComponent(id) + '/reopen', 'PATCH', {});
+      toast('Intervention rouverte.', 'info');
+      await syncAfterChange();
+    } catch (e) { toast('Erreur : ' + e.message, 'error'); }
+  }
+
+  // ───────────────────────── DEMANDE DE SERVICE (.DOCX) & EXPORTS ─────────────────────────
   function triggerBlob(blob, filename) {
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    a.href = url; a.download = filename || 'Demande_Service.docx';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 1500);
+  }
+  function b64ToBlob(b64, mime) {
+    var bin = atob(b64), len = bin.length, u8 = new Uint8Array(len);
+    for (var i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: mime });
   }
 
   async function downloadDa(id) {
+    var x = find(id);
+    if (!x || !canDownloadDa(x)) {
+      toast('Action bloquée : validez d\'abord cette intervention avant de générer la DA (.docx).', 'warning');
+      return;
+    }
     try {
       var h = {}; var c = code(); if (c) h['x-access-code'] = c;
       var r = await fetch(base() + '/api/maintenance/' + encodeURIComponent(id) + '/demande-service.docx', { headers: h });
-      if (!r.ok) { var ej = await r.json().catch(function () { return {}; }); throw new Error(ej.error || ('HTTP ' + r.status)); }
+      if (!r.ok) {
+        var errJ = null; try { errJ = await r.json(); } catch (_) {}
+        throw new Error((errJ && errJ.error) || ('HTTP ' + r.status));
+      }
       var cd = r.headers.get('Content-Disposition') || '';
-      var m = cd.match(/filename="?([^"]+)"?/i);
-      var fname = (m && m[1]) || ('Demande_Service_' + id + '.docx');
+      var m = cd.match(/filename="?([^";]+)"?/i);
+      var fname = m ? m[1] : ('DA_' + String(x.truckName || 'Camion').replace(/\s+/g, '_') + '.docx');
       var blob = await r.blob();
       triggerBlob(blob, fname);
-      toast('📄 ' + fname + ' téléchargé', 'success');
-    } catch (e) { toast('Erreur téléchargement DA : ' + e.message, 'error'); }
+      toast('Demande de Service téléchargée : ' + fname, 'success');
+    } catch (e) { toast('Erreur DA .docx : ' + e.message, 'error'); }
   }
 
   async function downloadBulk(mode) {
     var ids = selIds();
-    if (!ids.length) { toast('Cochez au moins une intervention', 'warning'); return; }
-    S.dlBusy = true; render();
+    if (!ids.length) { toast('Sélectionnez au moins une prestation validée dans le Journal.', 'warning'); return; }
+    if (S.dlBusy) return;
+    S.dlBusy = true;
+    var bm = $('mhBulkMount'); if (bm) bm.innerHTML = bulkBarInnerHtml();
     try {
-      var h = { 'Content-Type': 'application/json' }; var c = code(); if (c) h['x-access-code'] = c;
-      if (mode === 'files') {
-        var j = await api('/api/maintenance/demande-service-bulk', 'POST', { ids: ids, format: 'files' });
-        var files = (j && j.files) || [];
-        for (var i = 0; i < files.length; i++) {
-          var bin = atob(files[i].base64);
-          var arr = new Uint8Array(bin.length);
-          for (var k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
-          triggerBlob(new Blob([arr], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), files[i].filename);
-          await new Promise(function (res) { setTimeout(res, 220); });
-        }
-        toast('📄 ' + files.length + ' fichier(s) .docx téléchargé(s)', 'success');
-      } else {
-        var r = await fetch(base() + '/api/maintenance/demande-service-bulk', { method: 'POST', headers: h, body: JSON.stringify({ ids: ids, format: 'zip' }) });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+      var h = { 'Content-Type': 'application/json' };
+      var c = code(); if (c) h['x-access-code'] = c;
+      var fmt = mode === 'zip' ? 'zip' : 'files';
+      var r = await fetch(base() + '/api/maintenance/demande-service-bulk', {
+        method: 'POST', headers: h, body: JSON.stringify({ ids: ids, format: fmt })
+      });
+      if (!r.ok) {
+        var ej = null; try { ej = await r.json(); } catch (_) {}
+        throw new Error((ej && ej.error) || ('HTTP ' + r.status));
+      }
+      if (fmt === 'zip') {
         var blob = await r.blob();
         triggerBlob(blob, 'Demandes_Service_' + new Date().toISOString().slice(0, 10) + '.zip');
-        toast('📦 Pack ZIP (' + ids.length + ' DA .docx) téléchargé', 'success');
+        toast(ids.length + ' DA (.docx) téléchargées en archive ZIP.', 'success');
+      } else {
+        var j = await r.json();
+        var files = (j && j.files) || [];
+        for (var i = 0; i < files.length; i++) {
+          (function (f, idx) {
+            setTimeout(function () {
+              triggerBlob(b64ToBlob(f.base64, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'), f.filename);
+            }, idx * 200);
+          })(files[i], i);
+        }
+        toast(files.length + ' fichier(s) DA (.docx) générés.', 'success');
       }
-    } catch (e) { toast('Erreur génération DA : ' + e.message, 'error'); }
-    S.dlBusy = false; render();
+    } catch (e) { toast('Erreur téléchargement multiple : ' + e.message, 'error'); }
+    S.dlBusy = false;
+    var bm2 = $('mhBulkMount'); if (bm2) bm2.innerHTML = bulkBarInnerHtml();
   }
 
-  async function closeDlg(id) {
-    var x = find(id);
-    if (!x) { await load(true); x = find(id); }
-    if (!x) { toast('Ordre introuvable, actualisez la liste', 'warning'); return; }
-    var t = truckById(x.deviceId);
-    var km = Number(x.odometer) || (t && Math.round(Number(t.odometer))) || '';
-    dlg('<h3><i class="fa-solid fa-circle-check" style="color:#22c55e"></i> Terminer l\'intervention</h3>' +
-      '<div class="mh-sub">' + esc(x.truckName || '') + ' · ' + esc(x.type || '') + ' · commencée le ' + fmtD(x.date) + '</div>' +
-      '<label>Kilométrage à la clôture</label><input id="mhKm" type="number" min="0" value="' + esc(km) + '">' +
-      '<label>Date de fin</label><input id="mhEnd" type="date" value="' + new Date().toISOString().slice(0, 10) + '">' +
-      '<label>Coût total (DA)</label><input id="mhCost" type="number" min="0" value="' + esc(x.cost || '') + '">' +
-      '<label>Technicien / Garage</label><input id="mhTech" type="text" value="' + esc(x.technician || '') + '">' +
-      '<label>Note de clôture</label><textarea id="mhNote" rows="3">' + esc(x.note || '') + '</textarea>' +
-      (isVid(x) ? '<div class="mh-note"><i class="fa-solid fa-oil-can"></i> Vidange : le compteur sera remis à zéro au kilométrage saisi.</div>' : '') +
-      '<div class="mh-acts" style="margin-top:16px;justify-content:flex-end"><button class="mh-btn" onclick="MaintenanceHub.closeOv()">Fermer</button>' +
-      '<button class="mh-btn ok" id="mhGo" onclick="MaintenanceHub.doClose(\'' + esc(id) + '\')"><i class="fa-solid fa-check"></i> Confirmer</button></div>');
-  }
-
-  async function doClose(id) {
-    var btn = $('mhGo'); if (btn) btn.disabled = true;
-    var body = { id: id, _id: id };
-    var km = $('mhKm').value, cost = $('mhCost').value;
-    if (km !== '') body.odometer = Number(km);
-    if (cost !== '') body.cost = Number(cost);
-    body.technician = $('mhTech').value.trim();
-    body.note = $('mhNote').value.trim();
-    var end = $('mhEnd').value;
-    if (end) body.exitDate = new Date(end + 'T12:00:00').toISOString();
-    var x = find(id);
-    if (x && isVid(x) && !(Number(km) > 0)) {
-      toast('Saisissez le kilométrage pour remettre la vidange à zéro', 'warning');
-      if (btn) btn.disabled = false; return;
-    }
-    try {
-      var r = await api('/api/maintenance/close', 'POST', body);
-      if (r && r.vidangeOverrides && window.FLEET_CONFIG) { FLEET_CONFIG.VIDANGE_OVERRIDES = r.vidangeOverrides; FLEET_CONFIG.vidangeOverrides = r.vidangeOverrides; }
-      closeOv();
-      toast(r && r.vidangeAcknowledged ? '✅ Terminé — vidange remise à zéro' : '✅ Intervention terminée', 'success');
-      await syncAfterChange();
-    } catch (e) { toast('Erreur : ' + e.message, 'error'); if (btn) btn.disabled = false; }
-  }
-
-  async function cancel(id) {
-    var x = find(id);
-    var vid = x && isVid(x);
-    var ok = await ask((x && x.isAuto ? 'Ignorer cette détection automatique' : 'Annuler cette intervention') + (x ? ' (' + (x.truckName || '') + ')' : '') + ' ?' +
-      (vid ? '\n\nSi c\'était la dernière vidange du camion, le compteur reviendra à la vidange précédente.' : ''), 'Confirmer', '🚫', 'Oui');
-    if (!ok) return;
-    try {
-      var r = await api('/api/maintenance/' + encodeURIComponent(id) + '/cancel', 'PATCH');
-      if (r && r.vidangeOverrides && window.FLEET_CONFIG) { FLEET_CONFIG.VIDANGE_OVERRIDES = r.vidangeOverrides; FLEET_CONFIG.vidangeOverrides = r.vidangeOverrides; }
-      toast('Entrée ignorée', 'success'); await syncAfterChange();
-    } catch (e) { toast('Erreur : ' + e.message, 'error'); }
-  }
-
-  async function reopen(id) {
-    var x = find(id);
-    var ok = await ask('Rouvrir cette entrée' + (x ? ' (' + (x.truckName || '') + ')' : '') + ' ? Elle repassera « En cours ».', 'Rouvrir', '↩️', 'Rouvrir');
-    if (!ok) return;
-    try { await api('/api/maintenance/' + encodeURIComponent(id) + '/reopen', 'PATCH'); toast('Entrée rouverte', 'success'); S.view = 'pending'; await syncAfterChange(); }
-    catch (e) { toast('Erreur : ' + e.message, 'error'); }
+  function exportCsv() {
+    var list = filteredJournal();
+    if (!list.length) { toast('Aucune ligne à exporter.', 'warning'); return; }
+    var sep = ';';
+    var rows = [['Date', 'Heure', 'Tracteur', 'Immatriculation', 'Numero Chassis', 'Prestation', 'Pack KM', 'Compteur KM', 'Site / Atelier', 'Cout DA', 'Technicien', 'Statut'].join(sep)];
+    list.forEach(function (x) {
+      var m = truckDbMeta(x.deviceId, x.truckName), et = effType(x);
+      var pk = /vidange/i.test(et) && Number(x.odometer) > 0 ? closestPackKm(x.odometer, x.deviceId) : '';
+      var st = stOf(x) === 'annule' ? 'Annule' : (isPending(x) ? 'A valider' : 'Valide');
+      var cells = [fmtD(x.date), fmtTime(x.date), x.truckName || '', x.immatriculation || m.immatriculation || '', x.chassisNumber || m.chassisNumber || '', et, pk, Number(x.odometer) || '', x.location || '', Number(x.cost) || 0, x.technician || '', st];
+      rows.push(cells.map(function (v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(sep));
+    });
+    triggerBlob(new Blob(['\uFEFF' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' }), 'Journal_Maintenance_' + new Date().toISOString().slice(0, 10) + '.csv');
   }
 
   function pdf() {
-    var logs = S.logs.filter(function (x) { return String(x.deviceId) === String(S.truck) && stOf(x) !== 'annule'; });
-    if (window.FleetPDF && FleetPDF.generateMaintenanceHistoryReport) FleetPDF.generateMaintenanceHistoryReport(logs);
-    else toast('Module PDF non chargé', 'error');
+    if (window.FleetPDF && typeof FleetPDF.generateMaintenanceReport === 'function') {
+      FleetPDF.generateMaintenanceReport(S.logs, S.truck ? truckById(S.truck) : null);
+    } else { window.print(); }
   }
 
-  // ───────────────────────── PUBLIC API ─────────────────────────
+  // ───────────────────────── INSTANT MULTI-SELECT & NAVIGATION ─────────────────────────
+  function syncMasterChk() {
+    var m = $('mhMasterChk'); if (!m) return;
+    var slice = filteredJournal().slice(0, 350).filter(canDownloadDa).map(idOf);
+    m.disabled = !slice.length;
+    m.checked = slice.length > 0 && slice.every(function (k) { return !!S.sel[k]; });
+  }
+  function toggleSel(id, on) {
+    var x = find(id);
+    if (on && x && canDownloadDa(x)) S.sel[id] = true;
+    else delete S.sel[id];
+    var row = $('mhRow_' + id);
+    if (row) row.classList.toggle('sel', !!S.sel[id]);
+    syncMasterChk();
+    var bm = $('mhBulkMount'); if (bm) bm.innerHTML = bulkBarInnerHtml();
+  }
+  function selAllVis(on) {
+    var slice = filteredJournal().slice(0, 350);
+    slice.forEach(function (x) {
+      if (!canDownloadDa(x)) return;
+      var k = idOf(x);
+      if (on) S.sel[k] = true; else delete S.sel[k];
+      var row = $('mhRow_' + k);
+      if (row) row.classList.toggle('sel', !!on);
+    });
+    document.querySelectorAll('.mh-rowchk').forEach(function (cb) { cb.checked = !!on; });
+    syncMasterChk();
+    var bm = $('mhBulkMount'); if (bm) bm.innerHTML = bulkBarInnerHtml();
+  }
+  function clearSel() {
+    S.sel = {};
+    document.querySelectorAll('.mh-rowchk').forEach(function (cb) { cb.checked = false; });
+    document.querySelectorAll('.mh-tbl tbody tr.sel').forEach(function (tr) { tr.classList.remove('sel'); });
+    var m = $('mhMasterChk'); if (m) m.checked = false;
+    var bm = $('mhBulkMount'); if (bm) bm.innerHTML = '';
+  }
+
+  function setJSearch(v) { S.jSearch = v || ''; refreshJournalBody(); }
+  function setJFilter(k, v) { S[k] = v; refreshJournalBody(); }
+  function setJDate(k, v) { S[k] = v || ''; S.jPeriod = (S.jFrom || S.jTo) ? 'custom' : 'all'; render(); }
+  function setJPeriod(p) { S.jPeriod = p; S.jFrom = ''; S.jTo = ''; render(); }
+  function resetJFilters() {
+    S.jSearch = ''; S.jType = ''; S.jSite = ''; S.jStatus = 'no_cancel';
+    S.jPeriod = 'all'; S.jFrom = ''; S.jTo = '';
+    render();
+  }
+  function openJournalForTruck(name) {
+    S.view = 'history'; S.jSearch = name || ''; S.jType = ''; S.jSite = '';
+    S.jStatus = 'no_cancel'; S.jPeriod = 'all'; S.jFrom = ''; S.jTo = '';
+    render();
+  }
+
+  function go(v, extra) {
+    S.view = v;
+    if (v === 'todo' && extra) S.todoFilter = extra;
+    render();
+  }
+  function setTodo(v) { S.todoFilter = v; render(); }
+  function setSearch(v) {
+    S.search = v || '';
+    render();
+    var inp = $('mhSearch');
+    if (inp) { inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (_) {} }
+  }
+  function openTruck(id) { S.truck = id || ''; S.view = 'truck'; render(); }
+  function setT(v) { S.tFilter = v; render(); }
+  function togglePAll(on) { S.pAll = !!on; render(); }
+  function refresh() { S.loadedAt = 0; load(true); }
+  function mount() { render(); load(false); }
+
   window.MaintenanceHub = {
-    go: function (v, extra) {
-      S.view = v; S.search = '';
-      if (v === 'todo') S.todoFilter = extra || 'all';
-      render(); load(false);
-    },
-    openTruck: function (id) { if (!id) { S.truck = ''; render(); return; } S.truck = String(id); S.view = 'truck'; S.tFilter = 'all'; render(); load(false); window.scrollTo({ top: 0, behavior: 'smooth' }); },
-    setTodo: function (f) { S.todoFilter = f; render(); },
-    setSearch: function (v) { S.search = v; render(); },
-    setH: function (k, v) { S[k] = v; render(); },
-    setT: function (v) { S.tFilter = v; render(); },
-    togglePAll: function (on) { S.pAll = !!on; render(); },
-    refresh: function () { load(true); },
+    mount: mount, refresh: refresh, go: go, setTodo: setTodo, setSearch: setSearch,
+    openTruck: openTruck, setT: setT, togglePAll: togglePAll,
     newVidange: newVidange, nvPick: nvPick, nvUpdPrev: nvUpdPrev, doNewVidange: doNewVidange,
-    qualify: qualify, doQualify: doQualify, quickValidate: quickValidate, updPrev: updateQualifyPreview,
-    downloadDa: downloadDa, downloadBulk: downloadBulk,
-    toggleSel: function (id, on) { if (on) S.sel[String(id)] = 1; else delete S.sel[String(id)]; render(); },
-    selAll: function (ids, on) { (ids || []).forEach(function (k) { if (on) S.sel[String(k)] = 1; else delete S.sel[String(k)]; }); render(); },
-    clearSel: function () { S.sel = {}; render(); },
-    closeDlg: closeDlg, doClose: doClose, closeOv: closeOv, cancel: cancel, reopen: reopen, pdf: pdf,
-    onRender: function () { render(); load(false); }
+    qualify: qualify, updQualPrev: updQualPrev, doQualify: doQualify, quickValidate: quickValidate,
+    closeDlg: closeDlg, doClose: doClose, cancel: cancel, reopen: reopen, closeOv: closeOv,
+    downloadDa: downloadDa, downloadBulk: downloadBulk, exportCsv: exportCsv, pdf: pdf,
+    toggleSel: toggleSel, selAllVis: selAllVis, clearSel: clearSel,
+    setJSearch: setJSearch, setJFilter: setJFilter, setJDate: setJDate,
+    setJPeriod: setJPeriod, resetJFilters: resetJFilters, openJournalForTruck: openJournalForTruck
   };
 
-  // Take over the legacy renderer (ui.js calls renderVidangeSection from many places)
   function patch() {
-    if (!window.ui || typeof window.ui.renderVidangeSection !== 'function') return false;
-    var u = window.ui;
-    u.renderVidangeSection = function () { window.MaintenanceHub.onRender(); };
-    u.quickAddVidange = function (id) { window.MaintenanceHub.newVidange(String(id)); };
-    var f = u.fetchAndRenderMaintenance;
-    if (typeof f === 'function' && !f.__mh) {
-      u.fetchAndRenderMaintenance = function () {
-        S.loadedAt = 0;
-        load(true).then(function () { u.allMaintenanceLogs = S.logs; });
-        return f.apply(u, arguments);
-      };
-      u.fetchAndRenderMaintenance.__mh = true;
-    }
-    css();
+    if (!window.ui || window.ui.__mhPatchedV5) return false;
+    window.ui.__mhPatchedV5 = true;
+    window.ui.renderVidangeSection = function () { mount(); };
+    window.ui.quickAddVidange = function (devId) { newVidange(devId, 'Vidange'); };
+    var origFetch = window.ui.fetchAndRenderMaintenance;
+    window.ui.fetchAndRenderMaintenance = async function () {
+      if (typeof origFetch === 'function') { try { await origFetch.apply(this, arguments); } catch (_) {} }
+      S.loadedAt = 0; await load(true);
+    };
+    if (root()) mount();
     return true;
   }
-  var tries = 0;
-  (function wait() { if (!patch() && tries++ < 100) setTimeout(wait, 200); })();
+  if (!patch()) {
+    var iv = setInterval(function () { if (patch()) clearInterval(iv); }, 150);
+    setTimeout(function () { clearInterval(iv); }, 15000);
+  }
 })();
