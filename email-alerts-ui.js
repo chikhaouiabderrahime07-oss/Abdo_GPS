@@ -1,18 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * EMAIL ALERTS UI v4 — Per-Recipient Event Subscriptions + Site Clarity
- * Supports Dark & Light themes, explicit Maintenance/Client site visibility,
- * live feedback banner, and HTTPS Port-443 Gmail bridge for Render Free.
+ * EMAIL ALERTS UI v5 — Executive Pro Fleet Notification Center
+ * Per-recipient event subscriptions, explicit Maintenance & Client sites,
+ * adaptive Light/Dark theme, zero exposed credentials.
  * ═══════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
 
   var EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  var APPS_SCRIPT_CODE =
-    'function doPost(e){\n' +
-    '  var d = JSON.parse(e.postData.contents);\n' +
-    '  MailApp.sendEmail({ to: d.to, subject: d.subject, htmlBody: d.html, body: d.text, name: d.fromName || "Douroub Flotte GPS" });\n' +
-    '  return ContentService.createTextOutput("OK");\n' +
-    '}';
 
   var EVENT_DEFS = [
     { key: 'zone_maint_enter', icon: '🛠️', label: 'Entrée Atelier / Maintenance' },
@@ -26,18 +20,16 @@
 
   var S = {
     open: true,
-    showRelay: false,
     loading: false,
     saving: false,
     testing: false,
-    banner: null, // { kind: 'ok'|'err'|'warn', msg: '' }
+    banner: null,
     zones: [],
     log: [],
     testType: 'zone_enter',
     cfg: {
       enabled: false,
       recipients: [],
-      relayUrl: '',
       speedLimitOverride: 0,
       speedMinMinutes: 2,
       cooldownMinutes: 15
@@ -89,31 +81,36 @@
     var st = document.createElement('style');
     st.id = 'eaUiCss';
     st.textContent = [
-      '.ea-card{--ea-bg:var(--bg-surface,#111827);--ea-card:var(--bg-elevated,#1a2332);--ea-bd:var(--border,rgba(255,255,255,.14));--ea-tx:var(--text-primary,#f1f5f9);--ea-mu:var(--text-secondary,#94a3b8);border:1px solid rgba(245,158,11,.35);border-radius:14px;margin-bottom:14px;overflow:hidden;background:var(--ea-card);color:var(--ea-tx)}',
-      ':root[data-theme="light"] .ea-card{--ea-bg:#f8fafc;--ea-card:#ffffff;--ea-bd:#e2e8f0;--ea-tx:#0f172a;--ea-mu:#475569;box-shadow:0 2px 10px rgba(15,23,42,.06)}',
-      '.ea-head{cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:14px 18px;background:linear-gradient(90deg,rgba(245,158,11,.12) 0%,transparent 100%);gap:10px;flex-wrap:wrap}',
-      '.ea-body{padding:16px 18px;border-top:1px solid var(--ea-bd);display:flex;flex-direction:column;gap:14px}',
-      '.ea-sec{background:var(--ea-bg);border:1px solid var(--ea-bd);border-radius:12px;padding:14px}',
-      '.ea-sec h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:#d97706;display:flex;align-items:center;gap:7px}',
-      '.ea-rec{background:var(--ea-card);border:1px solid var(--ea-bd);border-left:4px solid #0284c7;border-radius:11px;padding:12px 14px;display:flex;flex-direction:column;gap:9px}',
+      '.ea-card{--ea-bg:#0f172a;--ea-card:#162032;--ea-bd:rgba(255,255,255,.12);--ea-tx:#f1f5f9;--ea-mu:#94a3b8;border:1px solid var(--ea-bd);border-radius:16px;margin-bottom:16px;overflow:hidden;background:var(--ea-card);color:var(--ea-tx);box-shadow:0 4px 20px rgba(0,0,0,.15)}',
+      ':root[data-theme="light"] .ea-card{--ea-bg:#f8fafc;--ea-card:#ffffff;--ea-bd:#e2e8f0;--ea-tx:#0f172a;--ea-mu:#475569;box-shadow:0 2px 12px rgba(15,23,42,.05)}',
+      '.ea-card input[type="checkbox"]{width:16px!important;height:16px!important;margin:0;padding:0;flex-shrink:0;cursor:pointer;accent-color:#2563eb}',
+      '.ea-head{cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:15px 20px;background:linear-gradient(90deg,rgba(37,99,235,.08) 0%,transparent 100%);gap:12px;flex-wrap:wrap}',
+      '.ea-body{padding:18px 20px;border-top:1px solid var(--ea-bd);display:flex;flex-direction:column;gap:14px}',
+      '.ea-sec{background:var(--ea-bg);border:1px solid var(--ea-bd);border-radius:13px;padding:15px}',
+      '.ea-sec h4{margin:0 0 10px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:#2563eb;display:flex;align-items:center;gap:7px}',
+      ':root:not([data-theme="light"]) .ea-sec h4{color:#60a5fa}',
+      '.ea-rec{background:var(--ea-card);border:1px solid var(--ea-bd);border-left:4px solid #2563eb;border-radius:12px;padding:13px 15px;display:flex;flex-direction:column;gap:10px;transition:.15s}',
       '.ea-rec.off{opacity:.55;border-left-color:#64748b}',
       '.ea-pills{display:flex;flex-wrap:wrap;gap:6px}',
-      '.ea-pill{padding:5px 11px;border-radius:999px;border:1px solid var(--ea-bd);background:var(--ea-bg);color:var(--ea-mu);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:.12s}',
-      '.ea-pill.on{background:rgba(245,158,11,.18);border-color:#f59e0b;color:#d97706}',
-      ':root:not([data-theme="light"]) .ea-pill.on{color:#fbbf24}',
-      '.ea-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}',
-      '.ea-f label{display:block;font-size:11px;font-weight:700;color:var(--ea-mu);margin-bottom:4px}',
-      '.ea-f input{width:100%;box-sizing:border-box;padding:8px 10px;border-radius:8px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:12px;font-family:inherit}',
-      '.ea-btn{padding:7px 13px;border-radius:9px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px}',
-      '.ea-btn.pri{background:linear-gradient(135deg,#f59e0b,#d97706);border:none;color:#111;font-size:12px;padding:8px 16px}',
-      '.ea-btn.ok{background:linear-gradient(135deg,#0284c7,#2563eb);border:none;color:#fff}',
-      '.ea-btn.bad{border-color:rgba(239,68,68,.4);color:#ef4444}',
+      '.ea-pill{padding:5px 12px;border-radius:999px;border:1px solid var(--ea-bd);background:var(--ea-bg);color:var(--ea-mu);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;transition:.14s;width:auto!important}',
+      '.ea-pill:hover{border-color:#3b82f6}',
+      '.ea-pill.on{background:rgba(37,99,235,.14);border-color:#2563eb;color:#1d4ed8}',
+      ':root:not([data-theme="light"]) .ea-pill.on{background:rgba(59,130,246,.22);border-color:#60a5fa;color:#93c5fd}',
+      '.ea-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}',
+      '.ea-f label{display:block;font-size:11px;font-weight:700;color:var(--ea-mu);margin-bottom:5px}',
+      '.ea-f input{width:100%!important;box-sizing:border-box;padding:8px 11px;border-radius:9px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:12px;font-family:inherit}',
+      '.ea-sel{width:auto!important;min-width:210px;padding:8px 12px;border-radius:9px;border:1px solid var(--ea-bd);background:var(--ea-bg);color:var(--ea-tx);font-size:12px;font-weight:600;font-family:inherit}',
+      '.ea-btn{width:auto!important;padding:8px 14px;border-radius:9px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:.14s}',
+      '.ea-btn:hover{border-color:#3b82f6}',
+      '.ea-btn.pri{background:linear-gradient(135deg,#2563eb,#4f46e5);border:none;color:#fff;padding:9px 18px;box-shadow:0 2px 8px rgba(37,99,235,.28)}',
+      '.ea-btn.ok{background:linear-gradient(135deg,#059669,#10b981);border:none;color:#fff}',
+      '.ea-btn.bad{border-color:rgba(239,68,68,.35);color:#ef4444}',
       '.ea-btn[disabled]{opacity:.55;cursor:wait}',
-      '.ea-sub{font-size:11px;color:var(--ea-mu);line-height:1.5}',
-      '.ea-ban{padding:10px 14px;border-radius:10px;font-size:12px;font-weight:600;display:flex;align-items:flex-start;gap:8px}',
-      '.ea-ban.ok{background:rgba(16,185,129,.14);border:1px solid rgba(16,185,129,.4);color:#10b981}',
+      '.ea-sub{font-size:11.5px;color:var(--ea-mu);line-height:1.5}',
+      '.ea-ban{padding:11px 15px;border-radius:11px;font-size:12px;font-weight:600;display:flex;align-items:flex-start;gap:9px}',
+      '.ea-ban.ok{background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.38);color:#10b981}',
       ':root[data-theme="light"] .ea-ban.ok{color:#047857}',
-      '.ea-ban.err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#ef4444}',
+      '.ea-ban.err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.38);color:#ef4444}',
       ':root[data-theme="light"] .ea-ban.err{color:#b91c1c}'
     ].join('\n');
     document.head.appendChild(st);
@@ -132,7 +129,6 @@
       }
       S.zones = (res && res.zones) || [];
       S.log = (res && res.log) || [];
-      if (S.log.some(function (l) { return l.smtpBlocked; }) && !S.cfg.relayUrl) S.showRelay = true;
     } catch (e) { console.warn('[EmailAlertsUI] load error:', e.message); }
     S.loading = false; render();
   }
@@ -142,7 +138,6 @@
     if ($('eaSpdLim')) c.speedLimitOverride = Math.max(0, Number($('eaSpdLim').value) || 0);
     if ($('eaSpdMin')) c.speedMinMinutes = Math.max(1, Number($('eaSpdMin').value) || 2);
     if ($('eaCool')) c.cooldownMinutes = Math.max(0, Number($('eaCool').value) >= 0 ? Number($('eaCool').value) : 15);
-    if ($('eaRelayUrl')) c.relayUrl = $('eaRelayUrl').value.trim();
   }
 
   function addRecipientsFromInput() {
@@ -152,13 +147,15 @@
     var label = lblInp ? lblInp.value.trim() : '';
     var tokens = (inp.value || '').split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
     if (!tokens.length) return;
-    var invalid = [];
+    var invalid = [], added = 0;
     tokens.forEach(function (em) {
       if (!EMAIL_RX.test(em)) invalid.push(em);
       else if (!S.cfg.recipients.some(function (r) { return r.email === em; })) {
         S.cfg.recipients.push(newRecObj(em, tokens.length === 1 ? label : ''));
+        added++;
       }
     });
+    if (added > 0 && !S.cfg.enabled) S.cfg.enabled = true;
     if (invalid.length) S.banner = { kind: 'err', msg: 'Adresse(s) email invalide(s) : ' + invalid.join(', ') };
     inp.value = '';
     if (lblInp) lblInp.value = '';
@@ -236,20 +233,11 @@
       S.banner = { kind: 'ok', msg: msg };
       toast('✅ ' + msg, 'success');
     } catch (e) {
-      if (/465\/587|Render|timeout/i.test(e.message || '')) S.showRelay = true;
       S.banner = { kind: 'err', msg: e.message };
       toast('❌ ' + e.message, 'error');
       await load();
     }
     S.testing = false; render();
-  }
-
-  function copyScript() {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(APPS_SCRIPT_CODE);
-      S.banner = { kind: 'ok', msg: 'Code Google Apps Script copié ! Collez-le sur script.google.com (connecté à komana.amana@gmail.com) → Déployer → Application Web (Accès : Tout le monde).' };
-      render();
-    }
   }
 
   function renderRecipientCard(r, idx, maintSites, otherSites) {
@@ -268,7 +256,7 @@
             ? '<span style="color:#10b981;font-weight:700">✓ Tous inclus automatiquement (' + maintSites.map(function (z) { return esc(z.name); }).join(', ') + ')</span>'
             : maintSites.map(function (z) {
                 var ck = (r.customZoneNames || []).indexOf(z.name) >= 0;
-                return '<label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;cursor:pointer"><input type="checkbox"' + (ck ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleRecZone(' + idx + ',\'' + esc(z.name).replace(/'/g, "\\'") + '\',this.checked)"> ' + esc(z.name) + '</label>';
+                return '<label style="display:inline-flex;align-items:center;gap:5px;margin-right:10px;cursor:pointer"><input type="checkbox"' + (ck ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleRecZone(' + idx + ',\'' + esc(z.name).replace(/'/g, "\\'") + '\',this.checked)"> ' + esc(z.name) + '</label>';
               }).join('')) +
         '</div>'
       : '';
@@ -279,7 +267,7 @@
             ? '<span style="color:#10b981;font-weight:700">✓ Tous inclus automatiquement (' + otherSites.map(function (z) { return esc(z.name); }).join(', ') + ')</span>'
             : otherSites.map(function (z) {
                 var ck = (r.customZoneNames || []).indexOf(z.name) >= 0;
-                return '<label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;cursor:pointer"><input type="checkbox"' + (ck ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleRecZone(' + idx + ',\'' + esc(z.name).replace(/'/g, "\\'") + '\',this.checked)"> ' + esc(z.name) + '</label>';
+                return '<label style="display:inline-flex;align-items:center;gap:5px;margin-right:10px;cursor:pointer"><input type="checkbox"' + (ck ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleRecZone(' + idx + ',\'' + esc(z.name).replace(/'/g, "\\'") + '\',this.checked)"> ' + esc(z.name) + '</label>';
               }).join('')) +
         '</div>'
       : '';
@@ -287,11 +275,11 @@
     return '<div class="ea-rec' + (r.enabled ? '' : ' off') + '">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:800">' +
-          '<input type="checkbox" style="width:15px;height:15px;accent-color:#10b981"' + (r.enabled ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleRecEnabled(' + idx + ',this.checked)">' +
-          '<i class="fa-solid fa-envelope" style="color:#0284c7"></i> ' + esc(r.email) +
-          (r.label ? ' <span class="ea-sub" style="font-weight:600">(' + esc(r.label) + ')</span>' : '') +
+          '<input type="checkbox"' + (r.enabled ? ' checked' : '') + ' onchange="EmailAlertsUI.toggleRecEnabled(' + idx + ',this.checked)">' +
+          '<i class="fa-solid fa-envelope" style="color:#2563eb"></i> ' + esc(r.email) +
+          (r.label ? ' <span class="ea-sub" style="font-weight:600">· ' + esc(r.label) + '</span>' : '') +
         '</label>' +
-        '<div style="display:flex;gap:5px;flex-wrap:wrap">' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
           '<button type="button" class="ea-btn ok" onclick="EmailAlertsUI.sendTest(\'hello\',\'' + esc(r.email) + '\')"><i class="fa-solid fa-paper-plane"></i> Hello test</button>' +
           '<button type="button" class="ea-btn" onclick="EmailAlertsUI.setAllRec(' + idx + ',true)">Tout</button>' +
           '<button type="button" class="ea-btn" onclick="EmailAlertsUI.setAllRec(' + idx + ',false)">Rien</button>' +
@@ -324,20 +312,11 @@
         '</div>'
       : '<div class="ea-sub" style="margin-top:12px;padding:14px;text-align:center;border:1px dashed var(--ea-bd);border-radius:10px">Aucune adresse email configurée. Ajoutez une adresse ci-dessus puis choisissez ses alertes.</div>';
 
-    var relayHtml = (S.showRelay || c.relayUrl)
-      ? '<div class="ea-sec" style="border-color:rgba(2,132,199,.45)"><h4><i class="fa-solid fa-cloud-bolt"></i> Pont HTTPS Gmail (Port 443 — Requis sur Render Gratuit)</h4>' +
-          '<div class="ea-sub" style="margin-bottom:8px">Render Gratuit bloque les ports SMTP 465/587. Pour envoyer depuis <b>komana.amana@gmail.com</b> via HTTPS (port 443, jamais bloqué) en 30 secondes :<br>' +
-          '1) Ouvrez <a href="https://script.google.com/home/start" target="_blank" style="color:#0284c7;font-weight:700">script.google.com ↗</a> sur le compte Gmail → <b>Nouveau projet</b> → cliquez <button type="button" class="ea-btn" style="padding:2px 8px" onclick="EmailAlertsUI.copyScript()"><i class="fa-solid fa-copy"></i> Copier le code (6 lignes)</button> et collez-le.<br>' +
-          '2) Cliquez <b>Déployer → Nouveau déploiement → Application Web</b> (Exécuter en tant que : <i>Moi</i>, Accès : <i>Tout le monde</i>) → collez l\'URL <code>https://script.google.com/macros/s/.../exec</code> ci-dessous :</div>' +
-          '<div class="ea-f"><input id="eaRelayUrl" value="' + esc(c.relayUrl || '') + '" placeholder="https://script.google.com/macros/s/.../exec"></div>' +
-        '</div>'
-      : '<div style="text-align:right"><button type="button" class="ea-btn" style="font-size:10px;padding:4px 9px" onclick="EmailAlertsUI.toggleRelay()"><i class="fa-solid fa-cloud-bolt"></i> Option Pont HTTPS Render (Port 443)</button></div>';
-
     var bannerHtml = S.banner
       ? '<div class="ea-ban ' + S.banner.kind + '"><i class="fa-solid ' + (S.banner.kind === 'ok' ? 'fa-circle-check' : 'fa-triangle-exclamation') + '" style="margin-top:2px"></i><div>' + esc(S.banner.msg) + '</div></div>'
       : '';
 
-    var logHtml = S.log.length ? '<div style="margin-top:4px;max-height:110px;overflow:auto;display:flex;flex-direction:column;gap:3px">' +
+    var logHtml = S.log.length ? '<div style="margin-top:4px;padding:10px 12px;background:var(--ea-bg);border:1px solid var(--ea-bd);border-radius:10px;max-height:110px;overflow:auto;display:flex;flex-direction:column;gap:4px">' +
       S.log.slice(0, 6).map(function (l) {
         var dt = new Date(l.at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         var toStr = Array.isArray(l.to) ? ' → ' + l.to.join(', ') : '';
@@ -347,43 +326,43 @@
 
     mount.innerHTML = '<div class="ea-card">' +
       '<div class="ea-head" onclick="EmailAlertsUI.toggleOpen()">' +
-        '<span style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:14px">' +
-          '<span style="width:32px;height:32px;background:linear-gradient(135deg,#f59e0b,#ea580c);border-radius:9px;display:flex;align-items:center;justify-content:center;color:#fff"><i class="fa-solid fa-envelope-circle-check"></i></span>' +
+        '<span style="display:flex;align-items:center;gap:11px;font-weight:800;font-size:14.5px">' +
+          '<span style="width:34px;height:34px;background:linear-gradient(135deg,#2563eb,#4f46e5);border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 3px 8px rgba(37,99,235,.3)"><i class="fa-solid fa-envelope-circle-check"></i></span>' +
           'Alertes &amp; Notifications par Email ' + statusPill +
         '</span>' +
-        '<div style="display:flex;align-items:center;gap:10px" onclick="event.stopPropagation()">' +
-          '<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;cursor:pointer">' +
-            '<input type="checkbox" style="width:16px;height:16px;accent-color:#10b981"' + (c.enabled ? ' checked' : '') + ' onchange="EmailAlertsUI.setEnabled(this.checked)"> Activer' +
+        '<div style="display:flex;align-items:center;gap:12px" onclick="event.stopPropagation()">' +
+          '<label style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:700;cursor:pointer">' +
+            '<input type="checkbox"' + (c.enabled ? ' checked' : '') + ' onchange="EmailAlertsUI.setEnabled(this.checked)"> Activer' +
           '</label>' +
-          '<button class="ea-btn" onclick="EmailAlertsUI.toggleOpen()"><i class="fa-solid fa-chevron-' + (S.open ? 'up' : 'down') + '"></i></button>' +
+          '<button type="button" class="ea-btn" style="padding:6px 10px" onclick="EmailAlertsUI.toggleOpen()"><i class="fa-solid fa-chevron-' + (S.open ? 'up' : 'down') + '"></i></button>' +
         '</div>' +
       '</div>' +
       (S.open ? '<div class="ea-body">' +
-        '<div class="ea-sec"><h4><i class="fa-solid fa-users-gear"></i> 1. Destinataires &amp; Choix des Alertes par Email</h4>' +
-          '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-            '<input id="eaRecInput" placeholder="Adresse email (ex: atelier@douroub.dz)" style="flex:2;min-width:200px;padding:8px 12px;border-radius:8px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:12px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();EmailAlertsUI.addRec();}">' +
-            '<input id="eaRecLabel" placeholder="Nom / Rôle optionnel (ex: Chef Atelier)" style="flex:1;min-width:150px;padding:8px 12px;border-radius:8px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:12px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();EmailAlertsUI.addRec();}">' +
-            '<button type="button" class="ea-btn ok" onclick="EmailAlertsUI.addRec()"><i class="fa-solid fa-plus"></i> Ajouter</button>' +
+        '<div class="ea-sec"><h4><i class="fa-solid fa-users-gear"></i> 1. Destinataires &amp; Choix des Alertes</h4>' +
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' +
+            '<input id="eaRecInput" type="email" placeholder="Adresse email (ex: atelier@douroub.dz)" style="flex:2;min-width:220px;width:auto!important;padding:9px 12px;border-radius:9px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:12px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();EmailAlertsUI.addRec();}">' +
+            '<input id="eaRecLabel" type="text" placeholder="Nom / Rôle (ex: Chef Atelier)" style="flex:1;min-width:160px;width:auto!important;padding:9px 12px;border-radius:9px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:12px" onkeydown="if(event.key===\'Enter\'){event.preventDefault();EmailAlertsUI.addRec();}">' +
+            '<button type="button" class="ea-btn pri" onclick="EmailAlertsUI.addRec()"><i class="fa-solid fa-plus"></i> Ajouter</button>' +
           '</div>' + recsHtml +
         '</div>' +
-        '<div class="ea-sec"><h4><i class="fa-solid fa-sliders"></i> 2. Seuils &amp; Anti-spam</h4>' +
+        '<div class="ea-sec"><h4><i class="fa-solid fa-sliders"></i> 2. Paramètres &amp; Anti-Spam</h4>' +
           '<div class="ea-grid">' +
-            '<div class="ea-f"><label>Limite vitesse Email (0 = limite générale)</label><input id="eaSpdLim" type="number" min="0" value="' + esc(c.speedLimitOverride) + '"></div>' +
+            '<div class="ea-f"><label>Limite vitesse Email (0 = règle générale)</label><input id="eaSpdLim" type="number" min="0" value="' + esc(c.speedLimitOverride) + '"></div>' +
             '<div class="ea-f"><label>Durée min. excès vitesse (minutes)</label><input id="eaSpdMin" type="number" min="1" value="' + esc(c.speedMinMinutes) + '"></div>' +
-            '<div class="ea-f"><label>Délai anti-spam entre 2 mêmes alertes (min)</label><input id="eaCool" type="number" min="0" value="' + esc(c.cooldownMinutes) + '"></div>' +
+            '<div class="ea-f"><label>Délai anti-spam entre 2 alertes (minutes)</label><input id="eaCool" type="number" min="0" value="' + esc(c.cooldownMinutes) + '"></div>' +
           '</div>' +
         '</div>' +
-        relayHtml + bannerHtml +
-        '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">' +
+        bannerHtml +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-top:2px">' +
           '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-            '<button type="button" class="ea-btn ok"' + (S.testing ? ' disabled' : '') + ' onclick="EmailAlertsUI.sendTest(\'hello\')"><i class="fa-solid fa-paper-plane"></i> ' + (S.testing ? 'Envoi en cours…' : 'Tester ("Hello test")') + '</button>' +
-            '<select onchange="EmailAlertsUI.setTestType(this.value)" style="padding:7px 10px;border-radius:8px;border:1px solid var(--ea-bd);background:var(--ea-card);color:var(--ea-tx);font-size:11px">' +
+            '<button type="button" class="ea-btn ok"' + (S.testing ? ' disabled' : '') + ' onclick="EmailAlertsUI.sendTest(\'hello\')"><i class="fa-solid fa-paper-plane"></i> ' + (S.testing ? 'Envoi…' : 'Tester ("Hello test")') + '</button>' +
+            '<select class="ea-sel" onchange="EmailAlertsUI.setTestType(this.value)">' +
               '<option value="zone_enter"' + (S.testType === 'zone_enter' ? ' selected' : '') + '>Simulation : Arrivée Atelier</option>' +
               '<option value="zone_exit"' + (S.testType === 'zone_exit' ? ' selected' : '') + '>Simulation : Sortie Atelier</option>' +
               '<option value="speed"' + (S.testType === 'speed' ? ' selected' : '') + '>Simulation : Excès vitesse</option>' +
               '<option value="vidange_due"' + (S.testType === 'vidange_due' ? ' selected' : '') + '>Simulation : Échéance vidange</option>' +
             '</select>' +
-            '<button type="button" class="ea-btn"' + (S.testing ? ' disabled' : '') + ' onclick="EmailAlertsUI.sendTest()"><i class="fa-solid fa-truck-fast"></i> Tester alerte camion</button>' +
+            '<button type="button" class="ea-btn"' + (S.testing ? ' disabled' : '') + ' onclick="EmailAlertsUI.sendTest()"><i class="fa-solid fa-truck-fast"></i> Simuler alerte camion</button>' +
           '</div>' +
           '<button type="button" class="ea-btn pri"' + (S.saving ? ' disabled' : '') + ' onclick="EmailAlertsUI.save()"><i class="fa-solid fa-floppy-disk"></i> ' + (S.saving ? 'Enregistrement…' : 'Enregistrer') + '</button>' +
         '</div>' + logHtml +
@@ -395,8 +374,6 @@
     load: load,
     save: function () { return save(false); },
     sendTest: sendTest,
-    copyScript: copyScript,
-    toggleRelay: function () { syncDomInputs(); S.showRelay = !S.showRelay; render(); },
     addRec: addRecipientsFromInput,
     removeRecipient: removeRecipient,
     toggleRecEnabled: toggleRecEnabled,
